@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from backend.blocks._helpers import grab_region, validate_region
+from backend.blocks._helpers import match_template_on_screen, resolve_region_from_params
 
 SCHEMA = {
     "type": "find_image",
@@ -33,56 +31,33 @@ SCHEMA = {
         {"name": "x", "type": "number"},
         {"name": "y", "type": "number"},
         {"name": "score", "type": "number"},
+        {"name": "left", "type": "number"},
+        {"name": "top", "type": "number"},
+        {"name": "width", "type": "number"},
+        {"name": "height", "type": "number"},
     ],
 }
 
 
 def handler(params, context, **kwargs):
-    try:
-        import cv2
-        import numpy as np
-    except ImportError as exc:
-        raise RuntimeError(
-            "未安装找图依赖，请执行: pip install opencv-python-headless"
-        ) from exc
-
     template_path = str(params.get("template_image") or "").strip()
     if not template_path:
         raise ValueError("请指定 template_image 模板图片路径")
-    path = Path(template_path)
-    if not path.is_file():
-        raise FileNotFoundError(f"模板图片不存在: {template_path}")
 
-    tpl = cv2.imread(str(path), cv2.IMREAD_COLOR)
-    if tpl is None:
-        raise ValueError(f"无法读取模板图片: {template_path}")
+    search = resolve_region_from_params(params, "search_region", "search_region_norm")
+    # Also accept region_norm saved under generic keys when picking into search_region
+    if search is None and params.get("region_norm") and params.get("search_region"):
+        search = resolve_region_from_params(
+            {
+                **params,
+                "region": params.get("search_region"),
+                "region_norm": params.get("region_norm"),
+            }
+        )
 
-    search_region = params.get("search_region")
-    if search_region:
-        x1, y1, x2, y2 = validate_region(search_region)
-        hay_img = grab_region(x1, y1, x2, y2)
-        origin_x, origin_y = x1, y1
-    else:
-        # full primary monitor via mss through a large grab — use screen size
-        from backend.core.dpi import screen_size_logical
-
-        w, h = screen_size_logical()
-        hay_img = grab_region(0, 0, w, h)
-        origin_x, origin_y = 0, 0
-
-    hay = cv2.cvtColor(np.array(hay_img), cv2.COLOR_RGB2BGR)
-    if hay.shape[0] < tpl.shape[0] or hay.shape[1] < tpl.shape[1]:
-        return {"found": False, "x": 0, "y": 0, "score": 0.0}
-
-    res = cv2.matchTemplate(hay, tpl, cv2.TM_CCOEFF_NORMED)
-    _min_val, max_val, _min_loc, max_loc = cv2.minMaxLoc(res)
     threshold = float(params.get("threshold") if params.get("threshold") is not None else 0.8)
-    found = float(max_val) >= threshold
-    cx = int(origin_x + max_loc[0] + tpl.shape[1] / 2)
-    cy = int(origin_y + max_loc[1] + tpl.shape[0] / 2)
-    return {
-        "found": found,
-        "x": cx if found else 0,
-        "y": cy if found else 0,
-        "score": round(float(max_val), 4),
-    }
+    return match_template_on_screen(
+        template_path,
+        search_region=search,
+        threshold=threshold,
+    )

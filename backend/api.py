@@ -206,80 +206,53 @@ class Api:
 
     # --- screen pick ---
     def pick_point(self, hide_window: bool = True) -> dict:
-        """Optionally hide window, wait for left click, return logical coords + color."""
+        """Fullscreen overlay: click once to pick a point (+ relative norm)."""
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
 
-        self._pick_result = None
-        self._pick_event.clear()
+        from backend.blocks._helpers import pack_point
+        from backend.core.region_picker import pick_point_overlay
+
         do_hide = bool(hide_window)
         if do_hide:
             self._set_window_visible(False)
-
-        def listen():
-            from pynput import mouse
-            from backend.blocks._helpers import pixel_color
-
-            def on_click(x, y, button, pressed):
-                if pressed and button == mouse.Button.left:
-                    try:
-                        color = pixel_color(int(x), int(y))
-                    except Exception:
-                        color = None
-                    self._pick_result = {
-                        "ok": True,
-                        "x": int(x),
-                        "y": int(y),
-                        "color": color,
-                    }
-                    self._pick_event.set()
-                    return False
-                return True
-
-            with mouse.Listener(on_click=on_click) as listener:
-                listener.join()
-
-        t = threading.Thread(target=listen, daemon=True)
-        t.start()
-        self._pick_event.wait(timeout=120)
-        if do_hide:
-            self._set_window_visible(True)
-        return self._pick_result or {"ok": False, "cancelled": True}
+        try:
+            picked = pick_point_overlay(timeout=120)
+        finally:
+            if do_hide:
+                self._set_window_visible(True)
+        if not picked.get("ok"):
+            return picked
+        packed = pack_point(int(picked["x"]), int(picked["y"]))
+        return {
+            "ok": True,
+            "x": packed["x"],
+            "y": packed["y"],
+            "color": picked.get("color"),
+            "point_norm": packed["point_norm"],
+            "coord_space": packed["coord_space"],
+        }
 
     def pick_region(self, hide_window: bool = True) -> dict:
-        """Two clicks: top-left then bottom-right."""
+        """Fullscreen drag overlay to select a region (+ relative norm)."""
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
+
+        from backend.blocks._helpers import pack_region
+        from backend.core.region_picker import pick_region_overlay
 
         do_hide = bool(hide_window)
         if do_hide:
             self._set_window_visible(False)
-        points: list[tuple[int, int]] = []
-        done = threading.Event()
-
-        def listen():
-            from pynput import mouse
-
-            def on_click(x, y, button, pressed):
-                if pressed and button == mouse.Button.left:
-                    points.append((int(x), int(y)))
-                    if len(points) >= 2:
-                        done.set()
-                        return False
-                return True
-
-            with mouse.Listener(on_click=on_click) as listener:
-                listener.join()
-
-        threading.Thread(target=listen, daemon=True).start()
-        done.wait(timeout=120)
-        if do_hide:
-            self._set_window_visible(True)
-        if len(points) < 2:
-            return {"ok": False, "cancelled": True}
-        (x1, y1), (x2, y2) = points[0], points[1]
-        region = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
-        return {"ok": True, "region": region}
+        try:
+            picked = pick_region_overlay(timeout=120)
+        finally:
+            if do_hide:
+                self._set_window_visible(True)
+        if not picked.get("ok"):
+            return picked
+        packed = pack_region(picked["region"])
+        return {"ok": True, **packed}
 
     def capture_template(self, hide_window: bool = True, filename: str | None = None) -> dict:
         """框选屏幕区域并保存为找图模板 PNG，返回路径。"""
@@ -302,6 +275,12 @@ class Api:
             name = Path(name).name
             out = templates_dir / name
             img.save(out)
-            return {"ok": True, "path": str(out), "region": region}
+            return {
+                "ok": True,
+                "path": str(out),
+                "region": region,
+                "region_norm": picked.get("region_norm"),
+                "coord_space": picked.get("coord_space"),
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}

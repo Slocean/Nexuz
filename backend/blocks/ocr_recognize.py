@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from backend.blocks._helpers import grab_region, validate_point, validate_region
+from backend.blocks._helpers import (
+    grab_region,
+    match_template_on_screen,
+    resolve_region_from_params,
+    validate_point,
+    validate_region,
+)
 
 SCHEMA = {
     "type": "ocr_recognize",
@@ -10,7 +16,7 @@ SCHEMA = {
         {
             "name": "region",
             "type": "rect",
-            "label": "识别区域（推荐：点下方「框选区域」）",
+            "label": "识别区域（推荐：拖拽框选）",
             "default": None,
         },
         {
@@ -38,6 +44,42 @@ SCHEMA = {
             "default": 80,
         },
         {
+            "name": "anchor_template",
+            "type": "string",
+            "label": "锚点模板路径(可选，先找图再识别)",
+            "default": "",
+        },
+        {
+            "name": "anchor_threshold",
+            "type": "number",
+            "label": "锚点相似度阈值",
+            "default": 0.8,
+        },
+        {
+            "name": "anchor_offset_x",
+            "type": "number",
+            "label": "相对锚点左上角偏移X",
+            "default": 0,
+        },
+        {
+            "name": "anchor_offset_y",
+            "type": "number",
+            "label": "相对锚点左上角偏移Y",
+            "default": 0,
+        },
+        {
+            "name": "anchor_ocr_width",
+            "type": "number",
+            "label": "锚点模式下识别宽度(0=用模板宽)",
+            "default": 0,
+        },
+        {
+            "name": "anchor_ocr_height",
+            "type": "number",
+            "label": "锚点模式下识别高度(0=用模板高)",
+            "default": 0,
+        },
+        {
             "name": "lang",
             "type": "select",
             "label": "语言",
@@ -55,6 +97,8 @@ SCHEMA = {
         {"name": "text", "type": "string"},
         {"name": "confidence", "type": "number"},
         {"name": "boxes", "type": "any"},
+        {"name": "region", "type": "any"},
+        {"name": "anchor", "type": "any"},
     ],
 }
 
@@ -74,22 +118,60 @@ def _get_ocr():
     return _ocr_engine
 
 
-def resolve_ocr_region(params: dict) -> tuple[int, int, int, int]:
-    """Prefer explicit region; otherwise build box from x,y,width,height."""
-    region = params.get("region")
-    if region:
-        return validate_region(region)
+def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | None]:
+    """
+    Resolve OCR box.
+    Priority: anchor_template → region/region_norm → x,y,width,height.
+    Returns ((x1,y1,x2,y2), anchor_info_or_none).
+    """
+    anchor_tpl = str(params.get("anchor_template") or "").strip()
+    if anchor_tpl:
+        search = resolve_region_from_params(params, "search_region", "search_region_norm")
+        match = match_template_on_screen(
+            anchor_tpl,
+            search_region=search,
+            threshold=float(
+                params.get("anchor_threshold")
+                if params.get("anchor_threshold") is not None
+                else 0.8
+            ),
+        )
+        if not match.get("found"):
+            raise ValueError(
+                f"未找到锚点模板 (score={match.get('score', 0)})，无法定位 OCR 区域"
+            )
+        ox = int(params.get("anchor_offset_x") or 0)
+        oy = int(params.get("anchor_offset_y") or 0)
+        ow = int(params.get("anchor_ocr_width") or 0)
+        oh = int(params.get("anchor_ocr_height") or 0)
+        if ow <= 0:
+            ow = int(match["width"]) or 120
+        if oh <= 0:
+            oh = int(match["height"]) or 40
+        x1 = int(match["left"]) + ox
+        y1 = int(match["top"]) + oy
+        region = validate_region([x1, y1, x1 + ow, y1 + oh])
+        return region, match
+
+    resolved = resolve_region_from_params(params)
+    if resolved:
+        return resolved, None
 
     x = int(params.get("x") or 0)
     y = int(params.get("y") or 0)
+    # Prefer point_norm for origin if present
+    if params.get("point_norm"):
+        from backend.blocks._helpers import resolve_point
+
+        x, y = resolve_point(params)
     w = max(8, int(params.get("width") or 320))
     h = max(8, int(params.get("height") or 80))
     validate_point(x, y)
-    return validate_region([x, y, x + w, y + h])
+    return validate_region([x, y, x + w, y + h]), None
 
 
 def run_ocr(params: dict) -> dict:
-    x1, y1, x2, y2 = resolve_ocr_region(params)
+    (x1, y1, x2, y2), anchor = resolve_ocr_region(params)
     img = grab_region(x1, y1, x2, y2)
 
     engine = _get_ocr()
@@ -98,9 +180,17 @@ def run_ocr(params: dict) -> dict:
     arr = np.array(img)
     result, _elapsed = engine(arr)
     if not result:
-        return {"text": "", "confidence": 0.0, "boxes": []}
+        return {
+            "text": "",
+            "confidence": 0.0,
+            "boxes": [],
+            "region": [x1, y1, x2, y2],
+            "anchor": anchor,
+        }
 
-    min_conf = float(params.get("min_confidence") if params.get("min_confidence") is not None else 0.3)
+    min_conf = float(
+        params.get("min_confidence") if params.get("min_confidence") is not None else 0.3
+    )
     texts: list[str] = []
     scores: list[float] = []
     boxes: list[dict] = []
@@ -116,7 +206,13 @@ def run_ocr(params: dict) -> dict:
 
     joined = "\n".join(texts)
     avg = sum(scores) / len(scores) if scores else 0.0
-    return {"text": joined, "confidence": round(avg, 4), "boxes": boxes}
+    return {
+        "text": joined,
+        "confidence": round(avg, 4),
+        "boxes": boxes,
+        "region": [x1, y1, x2, y2],
+        "anchor": anchor,
+    }
 
 
 def handler(params, context, **kwargs):

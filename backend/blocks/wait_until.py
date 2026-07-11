@@ -85,15 +85,18 @@ def _check(params: dict, context: dict) -> tuple[bool, str]:
             color_distance,
             pixel_color,
             region_dominant_color,
+            resolve_point,
+            resolve_region_from_params,
         )
 
         target = str(params.get("target_color") or "#FF0000")
         tol = float(params.get("tolerance") if params.get("tolerance") is not None else 20)
-        region = params.get("region")
+        region = resolve_region_from_params(params)
         if region:
             actual = region_dominant_color(region)
         else:
-            actual = pixel_color(int(params.get("x", 0)), int(params.get("y", 0)))
+            x, y = resolve_point(params)
+            actual = pixel_color(x, y)
         matched = color_distance(actual, target) <= tol
         return matched, f"color={actual}"
 

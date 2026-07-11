@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pyautogui
 
-from backend.blocks._helpers import validate_point
+from backend.blocks._helpers import resolve_point
 
 SCHEMA = {
     "type": "click",
@@ -32,9 +32,7 @@ SCHEMA = {
 
 
 def handler(params, context, **kwargs):
-    x = int(params.get("x", 0))
-    y = int(params.get("y", 0))
-    validate_point(x, y)
+    x, y = resolve_point(params)
     button = params.get("button", "left")
     click_type = params.get("click_type", "single")
     move_duration = float(params.get("move_duration", 0) or 0) / 1000.0

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pyautogui
 
-from backend.blocks._helpers import validate_point
+from backend.blocks._helpers import resolve_point
 
 SCHEMA = {
     "type": "drag",
@@ -20,10 +20,22 @@ SCHEMA = {
 
 
 def handler(params, context, **kwargs):
-    fx, fy = int(params.get("from_x", 0)), int(params.get("from_y", 0))
-    tx, ty = int(params.get("to_x", 0)), int(params.get("to_y", 0))
-    validate_point(fx, fy)
-    validate_point(tx, ty)
+    fx, fy = resolve_point(
+        {
+            "x": params.get("from_x"),
+            "y": params.get("from_y"),
+            "point_norm": params.get("from_point_norm"),
+            "coord_space": params.get("coord_space"),
+        }
+    )
+    tx, ty = resolve_point(
+        {
+            "x": params.get("to_x"),
+            "y": params.get("to_y"),
+            "point_norm": params.get("to_point_norm"),
+            "coord_space": params.get("coord_space"),
+        }
+    )
     duration = float(params.get("duration", 300) or 0) / 1000.0
     pyautogui.moveTo(fx, fy)
     pyautogui.dragTo(tx, ty, duration=duration, button="left")

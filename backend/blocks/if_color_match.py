@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from backend.blocks._helpers import color_distance, pixel_color, region_dominant_color
+from backend.blocks._helpers import (
+    color_distance,
+    pixel_color,
+    region_dominant_color,
+    resolve_point,
+    resolve_region_from_params,
+)
 
 SCHEMA = {
     "type": "if_color_match",
@@ -21,11 +27,12 @@ SCHEMA = {
 
 
 def handler(params, context, **kwargs):
-    region = params.get("region")
+    region = resolve_region_from_params(params)
     if region:
         color = region_dominant_color(region)
     else:
-        color = pixel_color(int(params.get("x", 0)), int(params.get("y", 0)))
+        x, y = resolve_point(params)
+        color = pixel_color(x, y)
     target = params.get("target_color") or params.get("color") or "#FF0000"
     tolerance = float(params.get("tolerance", 10) or 0)
     matched = color_distance(color, target) <= tolerance

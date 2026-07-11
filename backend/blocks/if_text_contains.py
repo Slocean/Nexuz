@@ -10,7 +10,7 @@ SCHEMA = {
         {
             "name": "region",
             "type": "rect",
-            "label": "识别区域（推荐：点下方「框选区域」）",
+            "label": "识别区域（推荐：拖拽框选）",
             "default": None,
         },
         {
@@ -36,6 +36,42 @@ SCHEMA = {
             "type": "number",
             "label": "高度（无区域时用）",
             "default": 80,
+        },
+        {
+            "name": "anchor_template",
+            "type": "string",
+            "label": "锚点模板路径(可选，先找图再识别)",
+            "default": "",
+        },
+        {
+            "name": "anchor_threshold",
+            "type": "number",
+            "label": "锚点相似度阈值",
+            "default": 0.8,
+        },
+        {
+            "name": "anchor_offset_x",
+            "type": "number",
+            "label": "相对锚点左上角偏移X",
+            "default": 0,
+        },
+        {
+            "name": "anchor_offset_y",
+            "type": "number",
+            "label": "相对锚点左上角偏移Y",
+            "default": 0,
+        },
+        {
+            "name": "anchor_ocr_width",
+            "type": "number",
+            "label": "锚点模式下识别宽度(0=用模板宽)",
+            "default": 0,
+        },
+        {
+            "name": "anchor_ocr_height",
+            "type": "number",
+            "label": "锚点模式下识别高度(0=用模板高)",
+            "default": 0,
         },
         {"name": "expect_text", "type": "string", "label": "期望文字", "default": ""},
         {

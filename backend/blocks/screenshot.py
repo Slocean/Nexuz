@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from time import strftime
 
-from backend.blocks._helpers import grab_region, validate_region
+from backend.blocks._helpers import grab_region, resolve_region_from_params
 
 SCHEMA = {
     "type": "screenshot",
@@ -32,10 +32,10 @@ SCHEMA = {
 
 
 def handler(params, context, **kwargs):
-    region = params.get("region")
-    if not region:
+    resolved = resolve_region_from_params(params)
+    if not resolved:
         raise ValueError("截图需要指定 region [x1,y1,x2,y2]，请先框选区域")
-    x1, y1, x2, y2 = validate_region(region)
+    x1, y1, x2, y2 = resolved
     img = grab_region(x1, y1, x2, y2)
 
     save_path = str(params.get("save_path") or "").strip()

@@ -237,6 +237,35 @@ export default function Inspector({
     });
   };
 
+  const applyRegionPick = (fieldName: string, res: any) => {
+    if (!res?.ok || !res.region) return;
+    const patch: any = { ...selectedNode.config };
+    patch[fieldName] = res.region;
+    patch.coord_space = res.coord_space || patch.coord_space;
+    if (fieldName === 'search_region') {
+      patch.search_region_norm = res.region_norm;
+    } else {
+      patch.region_norm = res.region_norm;
+    }
+    onUpdateNodeConfig(selectedNode.id, patch);
+  };
+
+  const applyPointPick = (xKey: string, res: any) => {
+    if (!res?.ok) return;
+    const yKey = xKey === 'from_x' ? 'from_y' : xKey === 'to_x' ? 'to_y' : 'y';
+    const patch: any = { ...selectedNode.config };
+    patch[xKey] = res.x;
+    patch[yKey] = res.y;
+    patch.coord_space = res.coord_space || patch.coord_space;
+    if (xKey === 'from_x') patch.from_point_norm = res.point_norm;
+    else if (xKey === 'to_x') patch.to_point_norm = res.point_norm;
+    else patch.point_norm = res.point_norm;
+    if (selectedNode.subType.includes('color') && res.color) {
+      patch.target_color = res.color;
+    }
+    onUpdateNodeConfig(selectedNode.id, patch);
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -266,7 +295,8 @@ export default function Inspector({
         {isOcr && (
           <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
             <p className="text-[11px] leading-relaxed opacity-90">
-              文字识别需先指定屏幕区域。点「框选区域」后，在屏幕上点两次（左上角 → 右下角）。
+              推荐：全屏拖拽框选识别区域（同时保存相对比例，分辨率变化后自动换算）。
+              窗口会移动时，可填「锚点模板」：先找图定位，再在偏移区域 OCR。
             </p>
             {onPickRegion && (
               <Button
@@ -275,10 +305,10 @@ export default function Inspector({
                 className="w-full"
                 onClick={async () => {
                   const res = await onPickRegion();
-                  if (res?.ok) handleFieldChange('region', res.region);
+                  applyRegionPick('region', res);
                 }}
               >
-                框选识别区域
+                拖拽框选识别区域
               </Button>
             )}
           </div>
@@ -357,6 +387,18 @@ export default function Inspector({
                       }
                     }}
                   />
+                  {selectedNode.config?.region_norm && input.name === 'region' && (
+                    <p className="text-[10px] opacity-50 font-mono truncate">
+                      相对比例已保存 · 录制屏{' '}
+                      {selectedNode.config?.coord_space?.w}×
+                      {selectedNode.config?.coord_space?.h}
+                    </p>
+                  )}
+                  {selectedNode.config?.search_region_norm && input.name === 'search_region' && (
+                    <p className="text-[10px] opacity-50 font-mono truncate">
+                      相对比例已保存
+                    </p>
+                  )}
                   {onPickRegion && (
                     <Button
                       type="button"
@@ -364,10 +406,10 @@ export default function Inspector({
                       size="sm"
                       onClick={async () => {
                         const res = await onPickRegion();
-                        if (res?.ok) handleFieldChange(input.name, res.region);
+                        applyRegionPick(input.name, res);
                       }}
                     >
-                      框选区域
+                      拖拽框选
                     </Button>
                   )}
                 </div>
@@ -400,7 +442,8 @@ export default function Inspector({
                 />
               )}
 
-              {(input.name === 'x' || input.name === 'from_x') && onPickPoint && (
+              {(input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') &&
+                onPickPoint && (
                 <Button
                   type="button"
                   variant="outline"
@@ -408,14 +451,7 @@ export default function Inspector({
                   className="self-start"
                   onClick={async () => {
                     const res = await onPickPoint();
-                    if (!res?.ok) return;
-                    const patch: any = { ...selectedNode.config };
-                    patch[input.name] = res.x;
-                    patch[input.name === 'from_x' ? 'from_y' : 'y'] = res.y;
-                    if (selectedNode.subType.includes('color') && res.color) {
-                      patch.target_color = res.color;
-                    }
-                    onUpdateNodeConfig(selectedNode.id, patch);
+                    applyPointPick(input.name, res);
                   }}
                 >
                   点击选取坐标
