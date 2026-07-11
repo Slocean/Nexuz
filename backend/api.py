@@ -65,6 +65,22 @@ class Api:
         register_all_blocks()
         return get_schemas()
 
+    def list_schedule_jobs(self) -> dict:
+        from backend.core.scheduler import get_scheduler
+
+        sched = get_scheduler()
+        return {
+            "ok": True,
+            "available": sched.available,
+            "jobs": sched.list_jobs(),
+        }
+
+    def remove_schedule_job(self, job_id: str) -> dict:
+        from backend.core.scheduler import get_scheduler
+
+        get_scheduler().remove_job(str(job_id))
+        return {"ok": True}
+
     def get_screen_info(self) -> dict:
         w, h = screen_size_logical()
         return {"width": w, "height": h, "dpi_scale": get_dpi_scale()}

@@ -47,6 +47,37 @@ export default function CodeEditor({ themeName, themeMode }: CodeEditorProps) {
   }, [canonical]);
 
   const dirty = text.trim() !== canonical.trim();
+  const autoApplyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [autoSync, setAutoSync] = useState(true);
+
+  // Debounced JSON → canvas when valid
+  useEffect(() => {
+    if (!autoSync) return;
+    if (text.trim() === canonical.trim()) return;
+    if (autoApplyTimer.current) clearTimeout(autoApplyTimer.current);
+    autoApplyTimer.current = setTimeout(async () => {
+      try {
+        const parsed = JSON.parse(text);
+        const res = await bridge.validateFlow(parsed);
+        if (res && res.ok === false) {
+          setError(res.error || '校验失败');
+          return;
+        }
+        const next = flowToJson(parsed);
+        setFlow(parsed, filePath);
+        setText(next);
+        lastAppliedRef.current = next;
+        setError(null);
+        setOkMsg('已自动同步到画布');
+        setTimeout(() => setOkMsg(null), 1200);
+      } catch (e: any) {
+        setError(`JSON 语法错误: ${e.message}`);
+      }
+    }, 800);
+    return () => {
+      if (autoApplyTimer.current) clearTimeout(autoApplyTimer.current);
+    };
+  }, [text, autoSync, canonical, filePath, setFlow]);
 
   const handleFormat = () => {
     try {
@@ -131,6 +162,15 @@ export default function CodeEditor({ themeName, themeMode }: CodeEditorProps) {
           </Badge>
         )}
         <div className="ml-auto flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5 text-[10px] opacity-70 cursor-pointer mr-1">
+            <input
+              type="checkbox"
+              checked={autoSync}
+              onChange={(e) => setAutoSync(e.target.checked)}
+              className="accent-blue-500"
+            />
+            自动同步
+          </label>
           <Button variant="ghost" size="sm" onClick={handleReset} disabled={!dirty}>
             <RefreshCw className="w-3.5 h-3.5" />
             重置

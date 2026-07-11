@@ -208,6 +208,89 @@ export const MOCK_SCHEMAS = [
       { name: 'score', type: 'number' },
     ],
   },
+  {
+    type: 'screenshot',
+    label: '区域截图',
+    category: '识别类',
+    inputs: [
+      { name: 'region', type: 'rect', label: '截图区域', default: null },
+      { name: 'save_path', type: 'string', label: '保存路径(可选，空则自动)', default: '' },
+    ],
+    outputs: [
+      { name: 'path', type: 'string' },
+      { name: 'width', type: 'number' },
+      { name: 'height', type: 'number' },
+    ],
+  },
+  {
+    type: 'wait_until',
+    label: '条件等待',
+    category: '动作类',
+    inputs: [
+      {
+        name: 'wait_type',
+        type: 'select',
+        label: '等待类型',
+        options: ['color', 'text', 'expression'],
+        default: 'text',
+      },
+      { name: 'region', type: 'rect', label: '检测区域(颜色/文字)', default: null },
+      { name: 'x', type: 'number', label: '单点X(颜色可选)', default: 0 },
+      { name: 'y', type: 'number', label: '单点Y(颜色可选)', default: 0 },
+      { name: 'target_color', type: 'color', label: '目标颜色', default: '#FF0000' },
+      { name: 'tolerance', type: 'number', label: '颜色容差', default: 20 },
+      { name: 'expect_text', type: 'string', label: '期望文字(包含)', default: '' },
+      { name: 'expression', type: 'string', label: '表达式(为真则继续)', default: '' },
+      { name: 'timeout_ms', type: 'number', label: '超时毫秒(0=不限)', default: 30000 },
+      { name: 'poll_interval_ms', type: 'number', label: '轮询间隔毫秒', default: 300 },
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'elapsed_ms', type: 'number' },
+      { name: 'detail', type: 'string' },
+    ],
+  },
+  {
+    type: 'schedule_trigger',
+    label: '定时触发',
+    category: '控制类',
+    inputs: [
+      {
+        name: 'trigger_type',
+        type: 'select',
+        label: '触发类型',
+        options: ['interval', 'once', 'cron'],
+        default: 'interval',
+      },
+      { name: 'interval_seconds', type: 'number', label: '周期秒数(interval)', default: 60 },
+      { name: 'run_at', type: 'string', label: '单次时间(once)', default: '' },
+      { name: 'cron_expression', type: 'string', label: 'Cron(分 时 日 月 周)', default: '0 * * * *' },
+      { name: 'enabled', type: 'select', label: '启用', options: ['true', 'false'], default: 'true' },
+    ],
+    outputs: [
+      { name: 'registered', type: 'boolean' },
+      { name: 'job_id', type: 'string' },
+    ],
+  },
+  {
+    type: 'call_subflow',
+    label: '调用子流程',
+    category: '控制类',
+    inputs: [
+      { name: 'subflow_path', type: 'string', label: '子流程 .flow.json 路径', default: '' },
+      {
+        name: 'inherit_variables',
+        type: 'select',
+        label: '继承父流程变量',
+        options: ['true', 'false'],
+        default: 'true',
+      },
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'context_keys', type: 'number' },
+    ],
+  },
 ];
 
 async function call(method, ...args) {
@@ -277,4 +360,6 @@ export const bridge = {
   pickRegion: (hideWindow = true) => call('pick_region', hideWindow),
   captureTemplate: (hideWindow = true, filename = null) =>
     call('capture_template', hideWindow, filename),
+  listScheduleJobs: () => call('list_schedule_jobs'),
+  removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
 };

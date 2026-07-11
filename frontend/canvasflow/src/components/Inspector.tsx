@@ -1,6 +1,7 @@
 import React from 'react';
 import { Settings, Play, Terminal, X, Copy, Check, ChevronRight } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
+import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +33,75 @@ interface InspectorProps {
   onPickRegion?: () => Promise<any>;
   onCaptureTemplate?: () => Promise<any>;
   onSetEntry?: (id: string) => void;
+}
+
+function CasesEditor({
+  value,
+  onChange,
+}: {
+  value: { value?: string; node_id?: string }[];
+  onChange: (cases: { value: string; node_id: string }[]) => void;
+}) {
+  const nodes = useFlowStore((s) => s.flow.nodes || {});
+  const nodeIds = Object.keys(nodes);
+  const cases = Array.isArray(value) ? value : [];
+
+  const update = (idx: number, patch: Partial<{ value: string; node_id: string }>) => {
+    const next = cases.map((c, i) =>
+      i === idx ? { value: c.value || '', node_id: c.node_id || '', ...patch } : { ...c },
+    );
+    onChange(next as { value: string; node_id: string }[]);
+  };
+
+  return (
+    <div className="space-y-2">
+      {cases.map((c, idx) => (
+        <div key={idx} className="flex gap-1.5 items-center">
+          <Input
+            className="h-8 text-xs flex-1"
+            placeholder="匹配值"
+            value={c.value ?? ''}
+            onChange={(e) => update(idx, { value: e.target.value })}
+          />
+          <Select
+            value={c.node_id || undefined}
+            onValueChange={(v) => update(idx, { node_id: v })}
+          >
+            <SelectTrigger className="h-8 text-xs w-[120px]">
+              <SelectValue placeholder="跳转节点" />
+            </SelectTrigger>
+            <SelectContent>
+              {nodeIds.map((id) => (
+                <SelectItem key={id} value={id}>
+                  {id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-rose-400 shrink-0"
+            onClick={() => onChange(cases.filter((_, i) => i !== idx) as any)}
+          >
+            <X className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() =>
+          onChange([...(cases as any), { value: '', node_id: nodeIds[0] || '' }])
+        }
+      >
+        添加分支
+      </Button>
+    </div>
+  );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -150,6 +220,8 @@ export default function Inspector({
       'ocr_recognize',
       'if_text_contains',
       'find_image',
+      'screenshot',
+      'wait_until',
     ].includes(selectedNode.subType);
     const isOcr =
       selectedNode.subType === 'ocr_recognize' ||
@@ -232,6 +304,11 @@ export default function Inspector({
                         .filter(Boolean),
                     )
                   }
+                />
+              ) : input.type === 'cases' ? (
+                <CasesEditor
+                  value={Array.isArray(value) ? value : []}
+                  onChange={(cases) => handleFieldChange(input.name, cases)}
                 />
               ) : input.type === 'rect' ? (
                 <div className="space-y-2">

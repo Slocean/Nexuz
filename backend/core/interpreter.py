@@ -102,6 +102,8 @@ class FlowInterpreter:
         for k, v in (flow.get("variables") or {}).items():
             context[k if str(k).startswith("$") else f"${k}"] = v
             context[str(k).lstrip("$")] = v
+        if flow.get("__file_path__"):
+            context["__flow_file_path__"] = flow["__file_path__"]
 
         loop_stack: list[str] = []
         node_id: str | None = entry
@@ -125,7 +127,15 @@ class FlowInterpreter:
             t0 = time.perf_counter()
             try:
                 result = (
-                    handler(params, context, node=node, node_id=node_id, flow=flow) or {}
+                    handler(
+                        params,
+                        context,
+                        node=node,
+                        node_id=node_id,
+                        flow=flow,
+                        emit=self._emit,
+                    )
+                    or {}
                 )
                 elapsed_ms = (time.perf_counter() - t0) * 1000
                 for out_name, val in result.items():

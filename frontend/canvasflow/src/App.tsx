@@ -20,6 +20,10 @@ const REQUIRED_BLOCK_TYPES = [
   'find_image',
   'color_detect',
   'if_color_match',
+  'screenshot',
+  'wait_until',
+  'schedule_trigger',
+  'call_subflow',
 ];
 
 function mergeSchemas(list: any[] | null | undefined) {
@@ -165,7 +169,8 @@ export default function App() {
   const handleRunWorkflow = async () => {
     clearLogs();
     appendLog({ level: 'info', message: '开始运行流程…' });
-    const res = await bridge.runFlow(flow, false);
+    const payload = filePath ? { ...flow, __file_path__: filePath } : flow;
+    const res = await bridge.runFlow(payload, false);
     if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
   };
 
@@ -173,7 +178,8 @@ export default function App() {
     if (execStatus === 'idle') {
       clearLogs();
       appendLog({ level: 'info', message: '单步模式启动…' });
-      const res = await bridge.runFlow(flow, true);
+      const payload = filePath ? { ...flow, __file_path__: filePath } : flow;
+      const res = await bridge.runFlow(payload, true);
       if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
       return;
     }
