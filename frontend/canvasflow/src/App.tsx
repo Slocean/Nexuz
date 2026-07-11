@@ -170,9 +170,14 @@ export default function App() {
 
   const handleRunWorkflow = async () => {
     clearLogs();
-    appendLog({ level: 'info', message: '开始运行流程…' });
+    appendLog({
+      level: 'info',
+      message: hideWindowOnRecord
+        ? '开始运行流程（已隐藏窗口，避免点击落到本程序上）…'
+        : '开始运行流程…',
+    });
     const payload = filePath ? { ...flow, __file_path__: filePath } : flow;
-    const res = await bridge.runFlow(payload, false);
+    const res = await bridge.runFlow(payload, false, hideWindowOnRecord);
     if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
   };
 
@@ -424,6 +429,7 @@ export default function App() {
           onLoadTemplate={handleLoadTemplate}
           runHistory={runHistory}
           onClearHistory={clearRunHistory}
+          interactionLocked={isExecuting}
         />
 
         {viewMode === 'code' ? (

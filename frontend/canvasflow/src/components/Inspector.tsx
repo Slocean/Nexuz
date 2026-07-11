@@ -156,8 +156,8 @@ export default function Inspector({
   };
 
   const logsPanel = (
-    <div className="space-y-2 p-4 border-t border-black/5 dark:border-white/5 shrink-0 max-h-[40%]">
-      <div className="flex items-center justify-between gap-2">
+    <div className="space-y-2 p-4 border-t border-black/5 dark:border-white/5 shrink-0 max-h-[40%] select-text">
+      <div className="flex items-center justify-between gap-2 select-none">
         <h4 className="font-display font-bold text-xs uppercase tracking-wider opacity-60 flex items-center gap-1.5">
           <Terminal className="w-3.5 h-3.5" /> Execution Log
         </h4>
@@ -172,7 +172,7 @@ export default function Inspector({
         </Button>
       </div>
       <ScrollArea className="h-36">
-        <div className="space-y-1.5 font-mono text-[10px] pr-2">
+        <div className="space-y-1.5 font-mono text-[10px] pr-2 select-text cursor-text">
           {logs.length === 0 && (
             <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
               尚无日志
@@ -181,7 +181,7 @@ export default function Inspector({
           {logs.slice(0, 40).map((log) => (
             <div
               key={log.id}
-              className={`rounded-xl px-2 py-1.5 border border-white/5 ${
+              className={`rounded-xl px-2 py-1.5 border border-white/5 select-text ${
                 log.type === 'error'
                   ? 'text-rose-400'
                   : log.type === 'success'
@@ -478,7 +478,7 @@ export default function Inspector({
               className="mt-0.5"
             />
             <Label htmlFor="hide-window" className="text-xs font-normal cursor-pointer leading-snug">
-              录制 / 取点 / 框选时隐藏程序窗口
+              录制 / 运行 / 取点 / 框选时隐藏程序窗口（避免自动化点击点到本程序）
             </Label>
           </div>
         )}

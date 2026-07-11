@@ -358,7 +358,8 @@ export const bridge = {
   ping: () => call('ping'),
   getBlockRegistry: () => call('get_block_registry'),
   getScreenInfo: () => call('get_screen_info'),
-  runFlow: (flow, stepMode = false) => call('run_flow', JSON.stringify(flow), stepMode),
+  runFlow: (flow, stepMode = false, hideWindow = true) =>
+    call('run_flow', JSON.stringify(flow), stepMode, hideWindow),
   pauseFlow: () => call('pause_flow'),
   resumeFlow: () => call('resume_flow'),
   stopFlow: () => call('stop_flow'),

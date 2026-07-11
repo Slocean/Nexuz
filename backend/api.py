@@ -29,6 +29,7 @@ class Api:
         self._pick_result: dict[str, Any] | None = None
         self._pick_event = threading.Event()
         self._recording_hidden = False
+        self._run_hidden = False
 
     def set_window(self, window: webview.Window) -> None:
         self._window = window
@@ -49,6 +50,10 @@ class Api:
             self._window.evaluate_js(f"window.__nexuzEmit && window.__nexuzEmit({data})")
         except Exception:
             pass
+        # After run ends, show window again (was hidden so OS clicks wouldn't hit Nexuz UI)
+        if event in ("flow_finished", "flow_stopped") and self._run_hidden:
+            self._set_window_visible(True)
+            self._run_hidden = False
 
     def _load_flow_schema(self) -> dict | None:
         path = Path(__file__).resolve().parent.parent / "schemas" / "flow_schema.json"
@@ -86,16 +91,26 @@ class Api:
         return {"width": w, "height": h, "dpi_scale": get_dpi_scale()}
 
     # --- flow execution ---
-    def run_flow(self, flow_json: str, step_mode: bool = False) -> dict:
+    def run_flow(self, flow_json: str, step_mode: bool = False, hide_window: bool = True) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
         err = self._validate_flow(flow)
         if err:
             return {"ok": False, "error": err}
         interp = get_interpreter(emit=self._emit)
+        # Hide during continuous run so pyautogui clicks cannot land on Nexuz sidebar/buttons.
+        # Keep visible in step mode so the user can press Step / Pause.
+        do_hide = bool(hide_window) and not bool(step_mode)
+        self._run_hidden = do_hide
+        if do_hide:
+            self._set_window_visible(False)
+            time.sleep(0.15)
         try:
             interp.run_flow(flow, step_mode=bool(step_mode))
-            return {"ok": True, "started": True}
+            return {"ok": True, "started": True, "hide_window": do_hide}
         except Exception as exc:
+            if do_hide:
+                self._set_window_visible(True)
+                self._run_hidden = False
             return {"ok": False, "error": str(exc)}
 
     def pause_flow(self) -> dict:
@@ -108,6 +123,9 @@ class Api:
 
     def stop_flow(self) -> dict:
         get_interpreter().stop()
+        if self._run_hidden:
+            self._set_window_visible(True)
+            self._run_hidden = False
         return {"ok": True}
 
     def step_flow(self) -> dict:

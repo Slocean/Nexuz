@@ -646,10 +646,9 @@ export default function Canvas({
       onDrop={(e) => {
         if (!onDropBlock) return;
         e.preventDefault();
-        const blockType =
-          e.dataTransfer.getData("application/nexuz-block") ||
-          e.dataTransfer.getData("text/plain");
-        if (!blockType) return;
+        // Only accept explicit Nexuz block drags — never text/plain (can be polluted)
+        const blockType = e.dataTransfer.getData("application/nexuz-block");
+        if (!blockType || !/^[a-z][a-z0-9_]*$/i.test(blockType)) return;
         const pos = screenToCanvas(e.clientX, e.clientY);
         onDropBlock(blockType, pos.x - NODE_WIDTH / 2, pos.y - 40);
       }}

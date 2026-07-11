@@ -19,6 +19,8 @@ interface SidebarProps {
   onLoadTemplate: (templateId: string) => void;
   runHistory: { id: string; timestamp: string; status: string; workflowName: string }[];
   onClearHistory: () => void;
+  /** Disable catalog clicks while a flow is running */
+  interactionLocked?: boolean;
 }
 
 const componentsList = [
@@ -220,6 +222,7 @@ export default function Sidebar({
   onLoadTemplate,
   runHistory,
   onClearHistory,
+  interactionLocked = false,
 }: SidebarProps) {
   const colors = getThemeColors(themeName, themeMode);
   const [query, setQuery] = useState('');
@@ -274,7 +277,9 @@ export default function Sidebar({
         borderColor: colors.border,
         color: colors.text,
       }}
-      className="w-80 border-r flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
+      className={`w-80 border-r flex flex-col h-full backdrop-blur-xl z-30 shrink-0 ${
+        interactionLocked ? 'pointer-events-none opacity-60' : ''
+      }`}
     >
       <Tabs defaultValue="components" className="flex flex-col h-full min-h-0">
         <TabsList
