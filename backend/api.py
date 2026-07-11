@@ -206,32 +206,48 @@ class Api:
 
     # --- screen pick ---
     def pick_point(self, hide_window: bool = True) -> dict:
-        """Fullscreen overlay: click once to pick a point (+ relative norm)."""
+        """One left-click on screen to pick a point (not a region overlay)."""
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
 
-        from backend.blocks._helpers import pack_point
-        from backend.core.region_picker import pick_point_overlay
+        from backend.blocks._helpers import pack_point, pixel_color
 
+        self._pick_result = None
+        self._pick_event.clear()
         do_hide = bool(hide_window)
         if do_hide:
             self._set_window_visible(False)
-        try:
-            picked = pick_point_overlay(timeout=120)
-        finally:
-            if do_hide:
-                self._set_window_visible(True)
-        if not picked.get("ok"):
-            return picked
-        packed = pack_point(int(picked["x"]), int(picked["y"]))
-        return {
-            "ok": True,
-            "x": packed["x"],
-            "y": packed["y"],
-            "color": picked.get("color"),
-            "point_norm": packed["point_norm"],
-            "coord_space": packed["coord_space"],
-        }
+
+        def listen():
+            from pynput import mouse
+
+            def on_click(x, y, button, pressed):
+                if pressed and button == mouse.Button.left:
+                    try:
+                        color = pixel_color(int(x), int(y))
+                    except Exception:
+                        color = None
+                    packed = pack_point(int(x), int(y))
+                    self._pick_result = {
+                        "ok": True,
+                        "x": packed["x"],
+                        "y": packed["y"],
+                        "color": color,
+                        "point_norm": packed["point_norm"],
+                        "coord_space": packed["coord_space"],
+                    }
+                    self._pick_event.set()
+                    return False
+                return True
+
+            with mouse.Listener(on_click=on_click) as listener:
+                listener.join()
+
+        threading.Thread(target=listen, daemon=True).start()
+        self._pick_event.wait(timeout=120)
+        if do_hide:
+            self._set_window_visible(True)
+        return self._pick_result or {"ok": False, "cancelled": True}
 
     def pick_region(self, hide_window: bool = True) -> dict:
         """Fullscreen drag overlay to select a region (+ relative norm)."""

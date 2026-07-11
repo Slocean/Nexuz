@@ -144,6 +144,7 @@ function CatalogCard({
   title,
   subtitle,
   onClick,
+  dragType,
   hoverBorderClass = 'hover:border-blue-400',
 }: {
   themeMode: ThemeMode;
@@ -153,12 +154,32 @@ function CatalogCard({
   title: string;
   subtitle: string;
   onClick: () => void;
+  /** When set, card can be dragged onto the canvas */
+  dragType?: string;
   hoverBorderClass?: string;
 }) {
+  const dragStarted = React.useRef(false);
   return (
     <button
       type="button"
-      onClick={onClick}
+      draggable={!!dragType}
+      onDragStart={(e) => {
+        if (!dragType) return;
+        dragStarted.current = true;
+        e.dataTransfer.setData('application/nexuz-block', dragType);
+        e.dataTransfer.setData('text/plain', dragType);
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+      onDragEnd={() => {
+        // Avoid click-add after a drag
+        setTimeout(() => {
+          dragStarted.current = false;
+        }, 0);
+      }}
+      onClick={() => {
+        if (dragStarted.current) return;
+        onClick();
+      }}
       style={{
         backgroundColor:
           themeMode === 'light' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.02)',
@@ -167,9 +188,10 @@ function CatalogCard({
       }}
       className={cn(
         'w-full text-left p-3 rounded-2xl border transition-all duration-200',
-        'hover:scale-[1.02] active:scale-[0.98] hover:shadow-md group cursor-pointer',
+        'hover:scale-[1.02] active:scale-[0.98] hover:shadow-md group cursor-grab active:cursor-grabbing',
         hoverBorderClass,
       )}
+      title={dragType ? '点击添加，或拖到画布' : undefined}
     >
       <div className="flex justify-between items-center mb-1 gap-2">
         <span className="font-semibold text-sm group-hover:text-blue-500 transition-colors truncate">
@@ -272,7 +294,7 @@ export default function Sidebar({
                 Library Catalogue
               </h3>
               <p style={{ color: colors.secondaryText }} className="text-xs mb-3">
-                上方为 Nexuz 积木；下方设计稿节点保留未接入。
+                点击添加，或拖到画布；下方设计稿节点保留未接入。
               </p>
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 opacity-40" />
@@ -309,6 +331,7 @@ export default function Sidebar({
                       secondaryText={colors.secondaryText}
                       title={item.label}
                       subtitle={item.type}
+                      dragType={item.type}
                       onClick={() => onAddNexuzNode?.(item.type)}
                     />
                   ))}

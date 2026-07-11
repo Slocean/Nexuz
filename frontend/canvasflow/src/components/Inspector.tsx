@@ -286,12 +286,20 @@ export default function Inspector({
       'screenshot',
       'wait_until',
     ].includes(selectedNode.subType);
+    const isClick = selectedNode.subType === 'click';
     const isOcr =
       selectedNode.subType === 'ocr_recognize' ||
       selectedNode.subType === 'if_text_contains';
 
     return (
       <div className="space-y-3">
+        {isClick && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
+            <p className="text-[11px] leading-relaxed opacity-90">
+              推荐用顶栏「录制」捕获真实点击序列。下方「单击取点」仅用于手动填入单个坐标，不是框选区域。
+            </p>
+          </div>
+        )}
         {isOcr && (
           <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
             <p className="text-[11px] leading-relaxed opacity-90">
@@ -454,7 +462,7 @@ export default function Inspector({
                     applyPointPick(input.name, res);
                   }}
                 >
-                  点击选取坐标
+                  单击屏幕取点
                 </Button>
               )}
             </Field>
@@ -470,7 +478,7 @@ export default function Inspector({
               className="mt-0.5"
             />
             <Label htmlFor="hide-window" className="text-xs font-normal cursor-pointer leading-snug">
-              录制或点击选取时隐藏程序窗口
+              录制 / 取点 / 框选时隐藏程序窗口
             </Label>
           </div>
         )}

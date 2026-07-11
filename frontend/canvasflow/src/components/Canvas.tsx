@@ -36,6 +36,7 @@ interface CanvasProps {
   onRemoveNode: (nodeId: string) => void;
   onRemoveNodes?: (nodeIds: string[]) => void;
   onDuplicateNodes?: (nodeIds: string[]) => void;
+  onDropBlock?: (blockType: string, x: number, y: number) => void;
   onRunSingleNode: (nodeId: string) => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
@@ -44,7 +45,13 @@ interface CanvasProps {
 }
 
 const NODE_WIDTH = 220;
-const NODE_HEIGHT_EST = 120;
+/** Layout metrics must match the node card CSS (p-4 / header / h-6 / space-y-3). */
+const NODE_PAD_TOP = 16;
+const NODE_HEADER_H = 42;
+const SOCKET_ROW_H = 24;
+const SOCKET_ROW_GAP = 12;
+const SOCKET_DOT_OFFSET = 12; // vertical center within the row
+const NODE_HEIGHT_EST = 140;
 
 export default function Canvas({
   nodes,
@@ -58,6 +65,7 @@ export default function Canvas({
   onRemoveNode,
   onRemoveNodes,
   onDuplicateNodes,
+  onDropBlock,
   onRunSingleNode,
   themeName,
   themeMode,
@@ -216,13 +224,38 @@ export default function Canvas({
   };
 
   const getSocketPosition = (node: WorkflowNode, socketId: string, isInput: boolean) => {
-    const list = isInput ? node.inputs : node.outputs;
-    const index = list.findIndex((s) => s.id === socketId);
     const xy = getNodeXY(node);
-    if (index === -1) return { x: xy.x, y: xy.y };
-    const yOffset = 44 + 18 + index * 32;
-    const xOffset = isInput ? 0 : NODE_WIDTH;
-    return { x: xy.x + xOffset, y: xy.y + yOffset };
+    if (isInput) {
+      const index = node.inputs.findIndex((s) => s.id === socketId);
+      if (index === -1) return { x: xy.x, y: xy.y + NODE_HEADER_H };
+      const row = index;
+      const y =
+        xy.y +
+        NODE_PAD_TOP +
+        NODE_HEADER_H +
+        row * (SOCKET_ROW_H + SOCKET_ROW_GAP) +
+        SOCKET_DOT_OFFSET;
+      return { x: xy.x, y };
+    }
+    // Outputs are rendered below all inputs in the same column
+    const index = node.outputs.findIndex((s) => s.id === socketId);
+    if (index === -1) return { x: xy.x + NODE_WIDTH, y: xy.y + NODE_HEADER_H };
+    const row = node.inputs.length + index;
+    const y =
+      xy.y +
+      NODE_PAD_TOP +
+      NODE_HEADER_H +
+      row * (SOCKET_ROW_H + SOCKET_ROW_GAP) +
+      SOCKET_DOT_OFFSET;
+    return { x: xy.x + NODE_WIDTH, y };
+  };
+
+  const flowHandleMeta = (socketId: string) => {
+    if (socketId === "then") return { label: "是", color: "#34C759" };
+    if (socketId === "else") return { label: "否", color: "#FF5E57" };
+    if (socketId === "body") return { label: "循环体", color: "#AF52DE" };
+    if (socketId === "next") return { label: "下一步", color: "#4F8CFF" };
+    return { label: socketId, color: colors.primary };
   };
 
   const screenToCanvas = useCallback((clientX: number, clientY: number) => {
@@ -605,6 +638,21 @@ export default function Canvas({
       ref={canvasRef}
       onMouseDown={handleMouseDown}
       onClick={handleCanvasClick}
+      onDragOver={(e) => {
+        if (!onDropBlock) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDrop={(e) => {
+        if (!onDropBlock) return;
+        e.preventDefault();
+        const blockType =
+          e.dataTransfer.getData("application/nexuz-block") ||
+          e.dataTransfer.getData("text/plain");
+        if (!blockType) return;
+        const pos = screenToCanvas(e.clientX, e.clientY);
+        onDropBlock(blockType, pos.x - NODE_WIDTH / 2, pos.y - 40);
+      }}
       onAuxClick={(e) => {
         // Prevent middle-click auto-scroll chrome behavior after pan
         if (e.button === 1) e.preventDefault();
@@ -746,15 +794,22 @@ export default function Canvas({
                 sourceNode.status === "running" ||
                 targetNode.status === "running");
 
+            const handleMeta = !isData ? flowHandleMeta(conn.sourceSocketId) : null;
             const stroke = isData
               ? themeMode === "light"
                 ? "rgba(175, 82, 222, 0.55)"
                 : "rgba(175, 82, 222, 0.45)"
               : isPathExecuting
                 ? "url(#connectionGrad)"
-                : themeMode === "light"
-                  ? "rgba(79, 140, 255, 0.45)"
-                  : "rgba(255, 255, 255, 0.15)";
+                : handleMeta?.color ||
+                  (themeMode === "light"
+                    ? "rgba(79, 140, 255, 0.45)"
+                    : "rgba(255, 255, 255, 0.15)");
+
+            const midX = (sp.x + tp.x) / 2;
+            const midY = (sp.y + tp.y) / 2;
+            const labelX = sp.x + (tp.x - sp.x) * 0.22;
+            const labelY = sp.y + (tp.y - sp.y) * 0.22;
 
             return (
               <g key={conn.id} className="group pointer-events-auto cursor-pointer">
@@ -811,8 +866,8 @@ export default function Canvas({
                 />
                 {isData && conn.label && (
                   <text
-                    x={(sp.x + tp.x) / 2}
-                    y={(sp.y + tp.y) / 2 - 6}
+                    x={midX}
+                    y={midY - 6}
                     textAnchor="middle"
                     fill={themeMode === "light" ? "#AF52DE" : "#C77DFF"}
                     fontSize="9px"
@@ -821,11 +876,36 @@ export default function Canvas({
                     {conn.label}
                   </text>
                 )}
+                {!isData && handleMeta && (
+                  <g className="pointer-events-none">
+                    <rect
+                      x={labelX - 18}
+                      y={labelY - 10}
+                      width={36}
+                      height={16}
+                      rx={4}
+                      fill={themeMode === "light" ? "#FFFFFF" : "#1A2235"}
+                      stroke={handleMeta.color}
+                      strokeWidth="1"
+                      opacity="0.95"
+                    />
+                    <text
+                      x={labelX}
+                      y={labelY + 2}
+                      textAnchor="middle"
+                      fill={handleMeta.color}
+                      fontSize="9px"
+                      fontWeight="bold"
+                    >
+                      {handleMeta.label}
+                    </text>
+                  </g>
+                )}
                 {!isData && (
                   <>
                     <circle
-                      cx={(sp.x + tp.x) / 2}
-                      cy={(sp.y + tp.y) / 2}
+                      cx={midX}
+                      cy={midY}
                       r="10"
                       fill={themeMode === "light" ? "#FFF" : "#1A2235"}
                       stroke="#FF5E57"
@@ -833,8 +913,8 @@ export default function Canvas({
                       className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
                     />
                     <text
-                      x={(sp.x + tp.x) / 2}
-                      y={(sp.y + tp.y) / 2 + 3}
+                      x={midX}
+                      y={midY + 3}
                       textAnchor="middle"
                       fill="#FF5E57"
                       fontSize="10px"

@@ -243,13 +243,17 @@ export default function App() {
     }
   };
 
-  const handleAddNexuzNode = (blockType: string) => {
-    const id = addNodeFromSchema(blockType, {
+  const handleAddNexuzNode = (blockType: string, position?: { x: number; y: number }) => {
+    const id = addNodeFromSchema(blockType, position || {
       x: 250 + Math.random() * 80,
       y: 150 + Math.random() * 80,
     });
     if (id) appendLog({ level: 'info', message: `已添加节点: ${blockType}` });
     else appendLog({ level: 'warn', message: `未知积木类型: ${blockType}` });
+  };
+
+  const handleDropBlock = (blockType: string, x: number, y: number) => {
+    handleAddNexuzNode(blockType, { x: Math.round(x / 10) * 10, y: Math.round(y / 10) * 10 });
   };
 
   // Design-only demo nodes (unused for backend) — keep Sidebar/AI API shape
@@ -437,6 +441,7 @@ export default function App() {
             onRemoveNode={handleRemoveNode}
             onRemoveNodes={handleRemoveNodes}
             onDuplicateNodes={handleDuplicateNodes}
+            onDropBlock={handleDropBlock}
             onRunSingleNode={handleRunSingleNode}
             themeName={themeName as any}
             themeMode={themeMode as any}
