@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Clock, RefreshCw, Trash2 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
-import { bridge } from '../../../src/bridge';
+import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
 
 interface ScheduleJob {
