@@ -1,0 +1,263 @@
+"""pywebview JS-Bridge API."""
+
+from __future__ import annotations
+
+import json
+import threading
+from pathlib import Path
+from typing import Any
+
+import webview
+
+from backend.core.dpi import get_dpi_scale, screen_size_logical
+from backend.core.interpreter import get_interpreter
+from backend.core.recorder import get_recorder
+from backend.core.registry import get_schemas, register_all_blocks
+
+try:
+    from jsonschema import Draft202012Validator
+except ImportError:
+    Draft202012Validator = None  # type: ignore
+
+
+class Api:
+    def __init__(self):
+        self._window: webview.Window | None = None
+        register_all_blocks()
+        self._schema = self._load_flow_schema()
+        self._pick_result: dict[str, Any] | None = None
+        self._pick_event = threading.Event()
+        self._recording_hidden = False
+
+    def set_window(self, window: webview.Window) -> None:
+        self._window = window
+        get_interpreter(emit=self._emit)
+        get_recorder().set_stop_hotkey_callback(self._on_record_stop_hotkey)
+
+    def _on_record_stop_hotkey(self) -> None:
+        if not get_recorder().recording:
+            return
+        result = self.stop_recording()
+        self._emit("recording_stopped", result)
+
+    def _emit(self, event: str, payload: dict) -> None:
+        if not self._window:
+            return
+        try:
+            data = json.dumps({"event": event, "payload": payload}, ensure_ascii=False)
+            self._window.evaluate_js(f"window.__nexuzEmit && window.__nexuzEmit({data})")
+        except Exception:
+            pass
+
+    def _load_flow_schema(self) -> dict | None:
+        path = Path(__file__).resolve().parent.parent / "schemas" / "flow_schema.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    # --- basic ---
+    def ping(self) -> dict:
+        return {"ok": True, "message": "pong", "dpi_scale": get_dpi_scale()}
+
+    def get_block_registry(self) -> list[dict]:
+        return get_schemas()
+
+    def get_screen_info(self) -> dict:
+        w, h = screen_size_logical()
+        return {"width": w, "height": h, "dpi_scale": get_dpi_scale()}
+
+    # --- flow execution ---
+    def run_flow(self, flow_json: str, step_mode: bool = False) -> dict:
+        flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+        err = self._validate_flow(flow)
+        if err:
+            return {"ok": False, "error": err}
+        interp = get_interpreter(emit=self._emit)
+        try:
+            interp.run_flow(flow, step_mode=bool(step_mode))
+            return {"ok": True, "started": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def pause_flow(self) -> dict:
+        get_interpreter().pause()
+        return {"ok": True}
+
+    def resume_flow(self) -> dict:
+        get_interpreter().resume()
+        return {"ok": True}
+
+    def stop_flow(self) -> dict:
+        get_interpreter().stop()
+        return {"ok": True}
+
+    def step_flow(self) -> dict:
+        get_interpreter().step()
+        return {"ok": True}
+
+    def is_running(self) -> dict:
+        return {"running": get_interpreter().running}
+
+    # --- file ---
+    def save_flow(self, flow_json: str, filepath: str | None = None) -> dict:
+        flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+        if not filepath:
+            result = self._window.create_file_dialog(
+                webview.SAVE_DIALOG,
+                directory="",
+                save_filename=f"{flow.get('name', 'flow')}.flow.json",
+                file_types=("Flow JSON (*.flow.json;*.json)",),
+            ) if self._window else None
+            if not result:
+                return {"ok": False, "cancelled": True}
+            filepath = result if isinstance(result, str) else result[0]
+        path = Path(filepath)
+        path.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "path": str(path)}
+
+    def load_flow(self, filepath: str | None = None) -> dict:
+        if not filepath:
+            result = self._window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                allow_multiple=False,
+                file_types=("Flow JSON (*.flow.json;*.json)",),
+            ) if self._window else None
+            if not result:
+                return {"ok": False, "cancelled": True}
+            filepath = result[0] if isinstance(result, (list, tuple)) else result
+        path = Path(filepath)
+        if not path.exists():
+            return {"ok": False, "error": f"文件不存在: {filepath}"}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        err = self._validate_flow(data)
+        if err:
+            return {"ok": False, "error": err, "path": str(path)}
+        return {"ok": True, "flow": data, "path": str(path)}
+
+    def validate_flow(self, flow_json: str) -> dict:
+        flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+        err = self._validate_flow(flow)
+        if err:
+            return {"ok": False, "error": err}
+        return {"ok": True}
+
+    def _validate_flow(self, flow: dict) -> str | None:
+        if not isinstance(flow, dict):
+            return "FlowModel 必须是对象"
+        if "nodes" not in flow or not isinstance(flow["nodes"], dict):
+            return "缺少 nodes 字典"
+        if "entry" not in flow:
+            return "缺少 entry"
+        if flow["entry"] and flow["entry"] not in flow["nodes"]:
+            return f"entry 节点不存在: {flow['entry']}"
+        if self._schema and Draft202012Validator:
+            try:
+                Draft202012Validator(self._schema).validate(flow)
+            except Exception as exc:
+                return str(exc)
+        return None
+
+    def _set_window_visible(self, visible: bool) -> None:
+        if not self._window:
+            return
+        try:
+            if visible:
+                self._window.show()
+            else:
+                self._window.hide()
+        except Exception:
+            pass
+
+    # --- recording ---
+    def start_recording(self, min_interval_ms: int = 50, hide_window: bool = True) -> dict:
+        rec = get_recorder()
+        rec.min_interval_ms = int(min_interval_ms)
+        self._recording_hidden = bool(hide_window)
+        if self._recording_hidden:
+            self._set_window_visible(False)
+        rec.start()
+        return {"ok": True, "hide_window": self._recording_hidden}
+
+    def stop_recording(self) -> dict:
+        nodes = get_recorder().stop()
+        if getattr(self, "_recording_hidden", False):
+            self._set_window_visible(True)
+            self._recording_hidden = False
+        return {"ok": True, "nodes": nodes}
+
+    # --- screen pick ---
+    def pick_point(self, hide_window: bool = True) -> dict:
+        """Optionally hide window, wait for left click, return logical coords + color."""
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+
+        self._pick_result = None
+        self._pick_event.clear()
+        do_hide = bool(hide_window)
+        if do_hide:
+            self._set_window_visible(False)
+
+        def listen():
+            from pynput import mouse
+            from backend.blocks._helpers import pixel_color
+
+            def on_click(x, y, button, pressed):
+                if pressed and button == mouse.Button.left:
+                    try:
+                        color = pixel_color(int(x), int(y))
+                    except Exception:
+                        color = None
+                    self._pick_result = {
+                        "ok": True,
+                        "x": int(x),
+                        "y": int(y),
+                        "color": color,
+                    }
+                    self._pick_event.set()
+                    return False
+                return True
+
+            with mouse.Listener(on_click=on_click) as listener:
+                listener.join()
+
+        t = threading.Thread(target=listen, daemon=True)
+        t.start()
+        self._pick_event.wait(timeout=120)
+        if do_hide:
+            self._set_window_visible(True)
+        return self._pick_result or {"ok": False, "cancelled": True}
+
+    def pick_region(self, hide_window: bool = True) -> dict:
+        """Two clicks: top-left then bottom-right."""
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+
+        do_hide = bool(hide_window)
+        if do_hide:
+            self._set_window_visible(False)
+        points: list[tuple[int, int]] = []
+        done = threading.Event()
+
+        def listen():
+            from pynput import mouse
+
+            def on_click(x, y, button, pressed):
+                if pressed and button == mouse.Button.left:
+                    points.append((int(x), int(y)))
+                    if len(points) >= 2:
+                        done.set()
+                        return False
+                return True
+
+            with mouse.Listener(on_click=on_click) as listener:
+                listener.join()
+
+        threading.Thread(target=listen, daemon=True).start()
+        done.wait(timeout=120)
+        if do_hide:
+            self._set_window_visible(True)
+        if len(points) < 2:
+            return {"ok": False, "cancelled": True}
+        (x1, y1), (x2, y2) = points[0], points[1]
+        region = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+        return {"ok": True, "region": region}

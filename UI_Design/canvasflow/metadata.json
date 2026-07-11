@@ -1,0 +1,6 @@
+{
+  "name": "CanvasFlow",
+  "description": "An interactive AI node workflow builder designed in a luxurious Apple iOS 26 Liquid Glass style.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexuz.local/schemas/flow_schema.json",
+  "title": "Nexuz FlowModel",
+  "type": "object",
+  "required": ["flow_id", "name", "nodes", "entry"],
+  "properties": {
+    "flow_id": { "type": "string" },
+    "name": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "variables": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "entry": {
+      "type": ["string", "null"]
+    },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "type": "string" },
+          "params": { "type": "object" },
+          "next": { "type": ["string", "null"] },
+          "then": { "type": ["string", "null"] },
+          "else": { "type": ["string", "null"] },
+          "body": { "type": ["string", "null"] },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

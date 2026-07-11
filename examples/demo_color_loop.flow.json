@@ -1,0 +1,46 @@
+{
+  "flow_id": "flow_demo_color",
+  "name": "颜色分支示例",
+  "version": 1,
+  "variables": {},
+  "entry": "node_delay",
+  "nodes": {
+    "node_delay": {
+      "type": "delay",
+      "params": { "ms": 200 },
+      "next": "node_color",
+      "position": { "x": 80, "y": 80 }
+    },
+    "node_color": {
+      "type": "if_color_match",
+      "params": {
+        "x": 10,
+        "y": 10,
+        "target_color": "#000000",
+        "tolerance": 80
+      },
+      "then": "node_then",
+      "else": "node_else",
+      "position": { "x": 80, "y": 200 }
+    },
+    "node_then": {
+      "type": "delay",
+      "params": { "ms": 100 },
+      "next": null,
+      "position": { "x": 0, "y": 360 }
+    },
+    "node_else": {
+      "type": "loop_n",
+      "params": { "times": 2 },
+      "body": "node_body",
+      "next": null,
+      "position": { "x": 220, "y": 360 }
+    },
+    "node_body": {
+      "type": "delay",
+      "params": { "ms": 50 },
+      "next": null,
+      "position": { "x": 420, "y": 360 }
+    }
+  }
+}
