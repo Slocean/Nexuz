@@ -132,6 +132,35 @@ export const useFlowStore = create((set, get) => ({
       flow: { ...state.flow, ...patch },
     })),
 
+  setVariable: (name, value) =>
+    set((state) => {
+      const key = String(name || '').trim();
+      if (!key) return state;
+      const variables = { ...(state.flow.variables || {}), [key]: value };
+      return { flow: { ...state.flow, variables } };
+    }),
+
+  deleteVariable: (name) =>
+    set((state) => {
+      const variables = { ...(state.flow.variables || {}) };
+      delete variables[name];
+      delete variables[String(name).replace(/^\$/, '')];
+      delete variables[`$${String(name).replace(/^\$/, '')}`];
+      return { flow: { ...state.flow, variables } };
+    }),
+
+  renameVariable: (oldName, newName) =>
+    set((state) => {
+      const from = String(oldName || '').trim();
+      const to = String(newName || '').trim();
+      if (!from || !to || from === to) return state;
+      const variables = { ...(state.flow.variables || {}) };
+      if (!(from in variables)) return state;
+      variables[to] = variables[from];
+      delete variables[from];
+      return { flow: { ...state.flow, variables } };
+    }),
+
   addNodeFromSchema: (type, position = { x: 120, y: 120 }) => {
     const schema = get().schemaMap[type];
     if (!schema) return null;
@@ -142,7 +171,7 @@ export const useFlowStore = create((set, get) => ({
       next: null,
       position,
     };
-    if (['if_condition', 'if_color_match'].includes(type)) {
+    if (['if_condition', 'if_color_match', 'if_text_contains'].includes(type)) {
       node.then = null;
       node.else = null;
       delete node.next;
@@ -298,7 +327,9 @@ export const useFlowStore = create((set, get) => ({
     })),
 
   // execution UI
-  clearLogs: () => set({ logs: [], execNodeStates: {}, execNodeId: null, execStatus: 'idle' }),
+  nodeOutputs: {}, // nodeId -> last result object
+  clearLogs: () =>
+    set({ logs: [], execNodeStates: {}, execNodeId: null, execStatus: 'idle', nodeOutputs: {} }),
   appendLog: (entry) =>
     set((state) => ({
       logs: [...state.logs.slice(-500), { ...entry, ts: Date.now() }],
@@ -317,17 +348,35 @@ export const useFlowStore = create((set, get) => ({
         detail: payload.params,
       });
     } else if (event === 'node_end') {
+      const result = payload.result || {};
       set((state) => ({
         execNodeStates: {
           ...state.execNodeStates,
           [payload.node_id]: payload.ok ? 'done' : 'error',
         },
+        nodeOutputs: payload.ok
+          ? { ...state.nodeOutputs, [payload.node_id]: result }
+          : state.nodeOutputs,
       }));
+      let msg = payload.ok
+        ? `✓ ${payload.node_id} ${payload.elapsed_ms}ms`
+        : `✗ ${payload.node_id}: ${payload.error}`;
+      if (payload.ok && payload.type === 'ocr_recognize') {
+        const t = result.text;
+        msg =
+          t !== undefined && t !== ''
+            ? `✓ OCR 识别到: ${String(t).slice(0, 120)}`
+            : `✓ OCR 完成但未识别到文字（请确认已框选区域且区域内有清晰文字）`;
+      }
+      if (payload.ok && payload.type === 'if_text_contains') {
+        msg = `✓ 文字匹配 ${result.matched ? '成立' : '不成立'} · 实际: ${String(result.actual_text || '').slice(0, 80)}`;
+      }
+      if (payload.ok && payload.type === 'color_detect' && result.color) {
+        msg = `✓ 取色: ${result.color}`;
+      }
       appendLog({
         level: payload.ok ? 'ok' : 'error',
-        message: payload.ok
-          ? `✓ ${payload.node_id} ${payload.elapsed_ms}ms`
-          : `✗ ${payload.node_id}: ${payload.error}`,
+        message: msg,
         detail: payload.result || payload.error,
       });
     } else if (event === 'flow_paused') {

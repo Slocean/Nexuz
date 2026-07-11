@@ -174,7 +174,7 @@ class FlowInterpreter:
     ) -> tuple[str | None, list[str]]:
         block_type = node.get("type")
 
-        if block_type in ("if_condition", "if_color_match"):
+        if block_type in ("if_condition", "if_color_match", "if_text_contains"):
             matched = bool(result.get("matched"))
             nxt = node.get("then") if matched else node.get("else")
             return self._resolve_fallthrough(nxt, loop_stack), loop_stack

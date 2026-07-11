@@ -26,26 +26,28 @@ cd frontend
 npm install
 ```
 
-## 开发启动
+## 开发启动（一键）
 
-需要两个终端：
+在项目根目录执行其一即可（自动拉起 Vite + 桌面窗口）：
 
-**终端 1 — 前端 Vite**
+```bash
+python dev.py
+```
+
+或双击 / 运行：
+
+```bash
+start.bat
+```
+
+关闭桌面窗口后会自动停掉 Vite。仅预览 UI（无真实点击/截图）时可只跑：
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-**终端 2 — 桌面窗口（连接 Vite）**
-
-```bash
-python backend/main.py --dev
-```
-
-默认加载 `http://127.0.0.1:5173`。也可设置 `NEXUZ_DEV_URL`。
-
-仅预览 UI（无真实点击/截图）时，可只跑 `npm run dev`，Bridge 会走浏览器 mock。
+也可设置 `NEXUZ_DEV_URL`（默认 `http://127.0.0.1:5173`）。
 
 ## 生产/打包前构建
 
@@ -77,9 +79,9 @@ python backend/main.py
 | 类别 | Block |
 |------|--------|
 | 动作 | click / drag / key_press / type_text / delay |
-| 识别 | color_detect / if_color_match |
+| 识别 | color_detect / if_color_match / **ocr_recognize** / **if_text_contains** / **find_image** |
 | 控制 | if_condition / switch / loop_n / loop_while / loop_forever |
-| 平台 | 画布↔JSON 双向同步、参数表单、运行/暂停/停止/单步、日志、保存加载、录制 |
+| 平台 | 画布↔JSON、变量面板、参数表单、运行/暂停/停止/单步、日志、保存加载、录制 |
 
 ## 使用提示
 

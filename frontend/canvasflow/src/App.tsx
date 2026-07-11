@@ -12,7 +12,29 @@ import AIAssistant from './components/AIAssistant';
 import { getThemeColors } from './theme';
 import { flowToCanvas, mapLogLevel } from './nexuzAdapter';
 import { useFlowStore } from '../../src/store/flowModelStore';
-import { bridge, waitForBridge } from '../../src/bridge';
+import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
+
+const REQUIRED_BLOCK_TYPES = [
+  'ocr_recognize',
+  'if_text_contains',
+  'find_image',
+  'color_detect',
+  'if_color_match',
+];
+
+function mergeSchemas(list: any[] | null | undefined) {
+  const byType = new Map<string, any>();
+  for (const s of MOCK_SCHEMAS) byType.set(s.type, s);
+  for (const s of list || []) {
+    if (s?.type) byType.set(s.type, s);
+  }
+  // Ensure P1 vision blocks always visible even if backend registry is stale
+  for (const t of REQUIRED_BLOCK_TYPES) {
+    const mock = MOCK_SCHEMAS.find((s) => s.type === t);
+    if (mock && !byType.has(t)) byType.set(t, mock);
+  }
+  return Array.from(byType.values());
+}
 
 function applyCssVars(colors: ReturnType<typeof getThemeColors>, themeMode: string) {
   const root = document.documentElement;
@@ -44,6 +66,7 @@ export default function App() {
   const execStatus = useFlowStore((s) => s.execStatus);
   const execNodeId = useFlowStore((s) => s.execNodeId);
   const execNodeStates = useFlowStore((s) => s.execNodeStates);
+  const nodeOutputs = useFlowStore((s) => s.nodeOutputs);
   const logs = useFlowStore((s) => s.logs);
   const runHistory = useFlowStore((s) => s.runHistory);
   const clearRunHistory = useFlowStore((s) => s.clearRunHistory);
@@ -76,8 +99,8 @@ export default function App() {
   }, [colors, themeMode]);
 
   const { nodes, connections } = useMemo(
-    () => flowToCanvas(flow, schemaMap, execNodeStates, execNodeId),
-    [flow, schemaMap, execNodeStates, execNodeId],
+    () => flowToCanvas(flow, schemaMap, execNodeStates, execNodeId, nodeOutputs),
+    [flow, schemaMap, execNodeStates, execNodeId, nodeOutputs],
   );
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
@@ -116,7 +139,17 @@ export default function App() {
         appendLog({ level: 'error', message: String(e) });
       }
       const list = await bridge.getBlockRegistry();
-      if (!cancelled) setSchemas(list || []);
+      if (!cancelled) {
+        const merged = mergeSchemas(list);
+        setSchemas(merged);
+        const hasOcr = merged.some((s) => s.type === 'ocr_recognize');
+        appendLog({
+          level: 'info',
+          message: hasOcr
+            ? `积木已加载 ${merged.length} 个（含 OCR / 找图）`
+            : `积木已加载 ${merged.length} 个`,
+        });
+      }
     })();
     return () => {
       cancelled = true;
@@ -389,6 +422,7 @@ export default function App() {
           setHideWindowOnRecord={useFlowStore.getState().setHideWindowOnRecord}
           onPickPoint={async () => bridge.pickPoint(hideWindowOnRecord)}
           onPickRegion={async () => bridge.pickRegion(hideWindowOnRecord)}
+          onCaptureTemplate={async () => bridge.captureTemplate(hideWindowOnRecord)}
           onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
         />
 

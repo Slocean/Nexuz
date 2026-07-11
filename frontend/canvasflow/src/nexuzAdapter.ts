@@ -7,12 +7,12 @@ export function socketsForBlockType(blockType: string): { inputs: NodeSocket[]; 
   const inputs: NodeSocket[] = [
     { id: 'in', name: 'Input', type: 'input', dataType: 'any' },
   ];
-  if (['if_condition', 'if_color_match'].includes(blockType)) {
+  if (['if_condition', 'if_color_match', 'if_text_contains'].includes(blockType)) {
     return {
       inputs,
       outputs: [
-        { id: 'then', name: 'Then / 是', type: 'output', dataType: 'any' },
-        { id: 'else', name: 'Else / 否', type: 'output', dataType: 'any' },
+        { id: 'then', name: '是', type: 'output', dataType: 'any' },
+        { id: 'else', name: '否', type: 'output', dataType: 'any' },
       ],
     };
   }
@@ -20,8 +20,8 @@ export function socketsForBlockType(blockType: string): { inputs: NodeSocket[]; 
     return {
       inputs,
       outputs: [
-        { id: 'body', name: 'Body / 循环体', type: 'output', dataType: 'any' },
-        { id: 'next', name: 'Next / 结束', type: 'output', dataType: 'any' },
+        { id: 'body', name: '循环体', type: 'output', dataType: 'any' },
+        { id: 'next', name: '结束', type: 'output', dataType: 'any' },
       ],
     };
   }
@@ -43,6 +43,7 @@ export function flowToCanvas(
   schemaMap: Record<string, any>,
   execNodeStates: Record<string, string>,
   execNodeId: string | null,
+  nodeOutputs: Record<string, any> = {},
 ): { nodes: WorkflowNode[]; connections: NodeConnection[] } {
   const nodes: WorkflowNode[] = [];
   const connections: NodeConnection[] = [];
@@ -70,6 +71,7 @@ export function flowToCanvas(
       outputs,
       config: { ...(node.params || {}) },
       status,
+      outputData: nodeOutputs[id] ?? null,
     });
 
     const links: [string, string | null | undefined][] = [

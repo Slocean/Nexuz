@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,8 @@ class Api:
         return {"ok": True, "message": "pong", "dpi_scale": get_dpi_scale()}
 
     def get_block_registry(self) -> list[dict]:
+        # Re-scan so newly added blocks appear without restarting the process
+        register_all_blocks()
         return get_schemas()
 
     def get_screen_info(self) -> dict:
@@ -261,3 +264,28 @@ class Api:
         (x1, y1), (x2, y2) = points[0], points[1]
         region = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
         return {"ok": True, "region": region}
+
+    def capture_template(self, hide_window: bool = True, filename: str | None = None) -> dict:
+        """框选屏幕区域并保存为找图模板 PNG，返回路径。"""
+        picked = self.pick_region(hide_window=hide_window)
+        if not picked.get("ok"):
+            return picked
+        region = picked["region"]
+        try:
+            from backend.blocks._helpers import grab_region, validate_region
+
+            x1, y1, x2, y2 = validate_region(region)
+            img = grab_region(x1, y1, x2, y2)
+            templates_dir = Path(__file__).resolve().parent.parent / "templates"
+            templates_dir.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            name = filename.strip() if isinstance(filename, str) and filename.strip() else f"tpl_{stamp}.png"
+            if not name.lower().endswith(".png"):
+                name += ".png"
+            # sanitize basename
+            name = Path(name).name
+            out = templates_dir / name
+            img.save(out)
+            return {"ok": True, "path": str(out), "region": region}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}

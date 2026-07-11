@@ -23,7 +23,7 @@ export function waitForBridge(timeoutMs = 10000) {
   });
 }
 
-const MOCK_SCHEMAS = [
+export const MOCK_SCHEMAS = [
   {
     type: 'click',
     label: '鼠标点击',
@@ -147,6 +147,67 @@ const MOCK_SCHEMAS = [
     ],
     outputs: [],
   },
+  {
+    type: 'ocr_recognize',
+    label: 'OCR 文字识别',
+    category: '识别类',
+    inputs: [
+      { name: 'region', type: 'rect', label: '识别区域（推荐：点下方「框选区域」）', default: null },
+      { name: 'x', type: 'number', label: '起点X（无区域时用）', default: 0 },
+      { name: 'y', type: 'number', label: '起点Y（无区域时用）', default: 0 },
+      { name: 'width', type: 'number', label: '宽度（无区域时用）', default: 320 },
+      { name: 'height', type: 'number', label: '高度（无区域时用）', default: 80 },
+      { name: 'lang', type: 'select', label: '语言', options: ['auto', 'ch', 'en'], default: 'auto' },
+      { name: 'min_confidence', type: 'number', label: '最低置信度(0-1)', default: 0.3 },
+    ],
+    outputs: [
+      { name: 'text', type: 'string' },
+      { name: 'confidence', type: 'number' },
+      { name: 'boxes', type: 'any' },
+    ],
+  },
+  {
+    type: 'if_text_contains',
+    label: '文字匹配',
+    category: '识别类',
+    inputs: [
+      { name: 'region', type: 'rect', label: '识别区域（推荐：点下方「框选区域」）', default: null },
+      { name: 'x', type: 'number', label: '起点X（无区域时用）', default: 0 },
+      { name: 'y', type: 'number', label: '起点Y（无区域时用）', default: 0 },
+      { name: 'width', type: 'number', label: '宽度（无区域时用）', default: 320 },
+      { name: 'height', type: 'number', label: '高度（无区域时用）', default: 80 },
+      { name: 'expect_text', type: 'string', label: '期望文字', default: '' },
+      {
+        name: 'match_mode',
+        type: 'select',
+        label: '匹配模式',
+        options: ['contains', 'exact', 'regex'],
+        default: 'contains',
+      },
+      { name: 'lang', type: 'select', label: '语言', options: ['auto', 'ch', 'en'], default: 'auto' },
+      { name: 'min_confidence', type: 'number', label: '最低置信度(0-1)', default: 0.3 },
+    ],
+    outputs: [
+      { name: 'matched', type: 'boolean' },
+      { name: 'actual_text', type: 'string' },
+    ],
+  },
+  {
+    type: 'find_image',
+    label: '图像模板匹配',
+    category: '识别类',
+    inputs: [
+      { name: 'template_image', type: 'string', label: '模板图片路径', default: '' },
+      { name: 'search_region', type: 'rect', label: '搜索区域(可选)', default: null },
+      { name: 'threshold', type: 'number', label: '相似度阈值(0-1)', default: 0.8 },
+    ],
+    outputs: [
+      { name: 'found', type: 'boolean' },
+      { name: 'x', type: 'number' },
+      { name: 'y', type: 'number' },
+      { name: 'score', type: 'number' },
+    ],
+  },
 ];
 
 async function call(method, ...args) {
@@ -171,6 +232,7 @@ function mockCall(method, ...args) {
     case 'stop_recording':
     case 'pick_point':
     case 'pick_region':
+    case 'capture_template':
     case 'pause_flow':
     case 'resume_flow':
     case 'stop_flow':
@@ -213,4 +275,6 @@ export const bridge = {
   stopRecording: () => call('stop_recording'),
   pickPoint: (hideWindow = true) => call('pick_point', hideWindow),
   pickRegion: (hideWindow = true) => call('pick_region', hideWindow),
+  captureTemplate: (hideWindow = true, filename = null) =>
+    call('capture_template', hideWindow, filename),
 };

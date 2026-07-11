@@ -30,6 +30,7 @@ interface InspectorProps {
   setHideWindowOnRecord?: (v: boolean) => void;
   onPickPoint?: () => Promise<any>;
   onPickRegion?: () => Promise<any>;
+  onCaptureTemplate?: () => Promise<any>;
   onSetEntry?: (id: string) => void;
 }
 
@@ -55,6 +56,7 @@ export default function Inspector({
   setHideWindowOnRecord,
   onPickPoint,
   onPickRegion,
+  onCaptureTemplate,
   onSetEntry,
 }: InspectorProps) {
   const [copied, setCopied] = React.useState(false);
@@ -140,12 +142,42 @@ export default function Inspector({
   const renderNexuzSchemaForm = () => {
     const schema = schemaMap[selectedNode.subType];
     if (!schema) return null;
-    const showCapture = ['click', 'drag', 'color_detect', 'if_color_match'].includes(
-      selectedNode.subType,
-    );
+    const showCapture = [
+      'click',
+      'drag',
+      'color_detect',
+      'if_color_match',
+      'ocr_recognize',
+      'if_text_contains',
+      'find_image',
+    ].includes(selectedNode.subType);
+    const isOcr =
+      selectedNode.subType === 'ocr_recognize' ||
+      selectedNode.subType === 'if_text_contains';
 
     return (
       <div className="space-y-3">
+        {isOcr && (
+          <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
+            <p className="text-[11px] leading-relaxed opacity-90">
+              文字识别需先指定屏幕区域。点「框选区域」后，在屏幕上点两次（左上角 → 右下角）。
+            </p>
+            {onPickRegion && (
+              <Button
+                type="button"
+                size="sm"
+                className="w-full"
+                onClick={async () => {
+                  const res = await onPickRegion();
+                  if (res?.ok) handleFieldChange('region', res.region);
+                }}
+              >
+                框选识别区域
+              </Button>
+            )}
+          </div>
+        )}
+
         {(schema.inputs || []).map((input: any) => {
           const value = selectedNode.config?.[input.name];
           const label = input.label || input.name;
@@ -225,6 +257,28 @@ export default function Inspector({
                       }}
                     >
                       框选区域
+                    </Button>
+                  )}
+                </div>
+              ) : input.name === 'template_image' ? (
+                <div className="space-y-2">
+                  <Input
+                    value={value ?? ''}
+                    onChange={(e) => handleFieldChange(input.name, e.target.value)}
+                    placeholder="模板 PNG 路径"
+                    className="font-mono text-xs"
+                  />
+                  {onCaptureTemplate && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        const res = await onCaptureTemplate();
+                        if (res?.ok && res.path) handleFieldChange(input.name, res.path);
+                      }}
+                    >
+                      框选并保存模板
                     </Button>
                   )}
                 </div>

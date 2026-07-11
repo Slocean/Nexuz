@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import VariablesPanel from './VariablesPanel';
 
 interface SidebarProps {
   themeName: ThemeName;
@@ -210,12 +211,21 @@ export default function Sidebar({
             (s.category || '').toLowerCase().includes(q),
         )
       : nexuzSchemas;
-    return filtered.reduce((acc: Record<string, typeof nexuzSchemas>, s) => {
+    const grouped = filtered.reduce((acc: Record<string, typeof nexuzSchemas>, s) => {
       const cat = s.category || '其他';
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(s);
       return acc;
     }, {});
+    const order = ['动作类', '识别类', '控制类'];
+    const sorted: Record<string, typeof nexuzSchemas> = {};
+    for (const cat of order) {
+      if (grouped[cat]?.length) sorted[cat] = grouped[cat];
+    }
+    for (const [cat, items] of Object.entries(grouped)) {
+      if (!sorted[cat]) sorted[cat] = items;
+    }
+    return sorted;
   }, [nexuzSchemas, q]);
 
   const filteredComponents = useMemo(() => {
@@ -249,6 +259,7 @@ export default function Sidebar({
           style={{ borderColor: colors.border }}
         >
           <TabsTrigger value="components">Nodes</TabsTrigger>
+          <TabsTrigger value="variables">Vars</TabsTrigger>
           <TabsTrigger value="templates">Templates</TabsTrigger>
           <TabsTrigger value="history">Runs</TabsTrigger>
         </TabsList>
@@ -267,7 +278,7 @@ export default function Sidebar({
                 <Input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索积木…"
+                  placeholder="搜索积木，如 OCR / 找图…"
                   className="h-8 pl-8 text-xs"
                 />
               </div>
@@ -331,6 +342,10 @@ export default function Sidebar({
                 </div>
               </div>
             ))}
+          </TabsContent>
+
+          <TabsContent value="variables" className="m-0 data-[state=inactive]:hidden">
+            <VariablesPanel themeName={themeName} themeMode={themeMode} />
           </TabsContent>
 
           <TabsContent value="templates" className="p-4 space-y-4 m-0 data-[state=inactive]:hidden">

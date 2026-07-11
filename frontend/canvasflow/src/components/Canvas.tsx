@@ -699,28 +699,56 @@ export default function Canvas({
                     </div>
                   ))}
 
-                  {node.outputs.map((out) => (
-                    <div
-                      key={out.id}
-                      className="flex items-center justify-end space-x-2 relative pointer-events-auto h-6"
-                    >
-                      <span className="text-[11px] font-medium tracking-wide opacity-80 pr-1">
-                        {out.name}
-                      </span>
+                  {node.outputs.map((out) => {
+                    const isThen = out.id === 'then';
+                    const isElse = out.id === 'else';
+                    const isBody = out.id === 'body';
+                    const socketColor = isThen
+                      ? '#34C759'
+                      : isElse
+                        ? '#FF5E57'
+                        : isBody
+                          ? '#AF52DE'
+                          : nodeAccentColor;
+                    return (
                       <div
-                        onMouseDown={(e) => handleSocketDragStart(e, node, out.id)}
-                        style={{
-                          backgroundColor: nodeAccentColor,
-                          borderColor:
-                            themeMode === "light" ? "#FFFFFF" : "#111524",
-                        }}
-                        className="w-3.5 h-3.5 rounded-full border-2 absolute -right-[23px] top-[5px] flex items-center justify-center hover:scale-125 transition-transform cursor-crosshair z-30"
-                        title="Drag connection from here"
+                        key={out.id}
+                        className="flex items-center justify-end space-x-2 relative pointer-events-auto h-6"
                       >
-                        <div className="w-1 h-1 rounded-full bg-white" />
+                        <span
+                          className={`text-[11px] font-semibold tracking-wide pr-1 ${
+                            isThen
+                              ? 'text-emerald-500'
+                              : isElse
+                                ? 'text-rose-500'
+                                : isBody
+                                  ? 'text-purple-400'
+                                  : 'opacity-80 font-medium'
+                          }`}
+                        >
+                          {out.name}
+                        </span>
+                        <div
+                          onMouseDown={(e) => handleSocketDragStart(e, node, out.id)}
+                          style={{
+                            backgroundColor: socketColor,
+                            borderColor:
+                              themeMode === 'light' ? '#FFFFFF' : '#111524',
+                          }}
+                          className="w-3.5 h-3.5 rounded-full border-2 absolute -right-[23px] top-[5px] flex items-center justify-center hover:scale-125 transition-transform cursor-crosshair z-30"
+                          title={
+                            isThen
+                              ? '是 / Then — 条件成立时走此分支'
+                              : isElse
+                                ? '否 / Else — 条件不成立时走此分支'
+                                : '从此拖出连线'
+                          }
+                        >
+                          <div className="w-1 h-1 rounded-full bg-white" />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-black/5 dark:border-white/5 font-mono text-slate-400">
