@@ -184,30 +184,102 @@ class Api:
     def is_running(self) -> dict:
         return {"running": get_interpreter().running}
 
-    # --- file ---
-    def save_flow(self, flow_json: str, filepath: str | None = None) -> dict:
+    # --- file / flow library ---
+    def _flows_dir(self) -> Path:
+        root = Path(__file__).resolve().parent.parent
+        d = root / "flows"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @staticmethod
+    def _safe_flow_filename(name: str) -> str:
+        raw = (name or "未命名流程").strip() or "未命名流程"
+        safe = "".join(c if c.isalnum() or c in ("-", "_", " ", ".", "（", "）", "【", "】") else "_" for c in raw)
+        safe = "_".join(safe.split())
+        if not safe.lower().endswith(".flow.json"):
+            if safe.lower().endswith(".json"):
+                safe = safe[: -5] + ".flow.json"
+            else:
+                safe = f"{safe}.flow.json"
+        return safe
+
+    def list_flows(self) -> dict:
+        """List flows saved under project /flows directory."""
+        items = []
+        folder = self._flows_dir()
+        for path in sorted(folder.glob("*.flow.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            name = path.stem.replace(".flow", "") if path.name.endswith(".flow.json") else path.stem
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                name = data.get("name") or name
+            except Exception:
+                data = None
+            st = path.stat()
+            items.append(
+                {
+                    "name": name,
+                    "path": str(path),
+                    "mtime": int(st.st_mtime * 1000),
+                    "size": st.st_size,
+                }
+            )
+        return {"ok": True, "flows": items, "dir": str(folder)}
+
+    def delete_flow(self, filepath: str) -> dict:
+        path = Path(str(filepath))
+        flows = self._flows_dir().resolve()
+        try:
+            resolved = path.resolve()
+            if flows not in resolved.parents and resolved.parent != flows:
+                return {"ok": False, "error": "只能删除 flows 目录内的流程"}
+            if not resolved.is_file():
+                return {"ok": False, "error": "文件不存在"}
+            resolved.unlink()
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def save_flow(self, flow_json: str, filepath: str | None = None, name: str | None = None) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+        if name and str(name).strip():
+            flow = {**flow, "name": str(name).strip()}
+
         if not filepath:
-            result = self._window.create_file_dialog(
-                webview.SAVE_DIALOG,
-                directory="",
-                save_filename=f"{flow.get('name', 'flow')}.flow.json",
-                file_types=("Flow JSON (*.flow.json;*.json)",),
-            ) if self._window else None
-            if not result:
-                return {"ok": False, "cancelled": True}
-            filepath = result if isinstance(result, str) else result[0]
+            # Prefer library save when a name is provided
+            if name and str(name).strip():
+                filepath = str(self._flows_dir() / self._safe_flow_filename(str(name).strip()))
+            else:
+                result = (
+                    self._window.create_file_dialog(
+                        webview.SAVE_DIALOG,
+                        directory=str(self._flows_dir()),
+                        save_filename=self._safe_flow_filename(flow.get("name") or "flow"),
+                        file_types=("Flow JSON (*.flow.json;*.json)",),
+                    )
+                    if self._window
+                    else None
+                )
+                if not result:
+                    return {"ok": False, "cancelled": True}
+                filepath = result if isinstance(result, str) else result[0]
+
         path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {"ok": True, "path": str(path)}
+        return {"ok": True, "path": str(path), "name": flow.get("name")}
 
     def load_flow(self, filepath: str | None = None) -> dict:
         if not filepath:
-            result = self._window.create_file_dialog(
-                webview.OPEN_DIALOG,
-                allow_multiple=False,
-                file_types=("Flow JSON (*.flow.json;*.json)",),
-            ) if self._window else None
+            result = (
+                self._window.create_file_dialog(
+                    webview.OPEN_DIALOG,
+                    directory=str(self._flows_dir()),
+                    allow_multiple=False,
+                    file_types=("Flow JSON (*.flow.json;*.json)",),
+                )
+                if self._window
+                else None
+            )
             if not result:
                 return {"ok": False, "cancelled": True}
             filepath = result[0] if isinstance(result, (list, tuple)) else result

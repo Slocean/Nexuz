@@ -25,7 +25,6 @@ import {
 import { ThemeName, ThemeMode } from '../types';
 import { getThemeColors } from '../theme';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,8 +35,6 @@ import {
 import { bridge } from '@/bridge';
 
 interface ToolbarProps {
-  workflowName: string;
-  setWorkflowName: (name: string) => void;
   themeName: ThemeName;
   setThemeName: (name: ThemeName) => void;
   themeMode: ThemeMode;
@@ -62,8 +59,6 @@ interface ToolbarProps {
 }
 
 export default function Toolbar({
-  workflowName,
-  setWorkflowName,
   themeName,
   setThemeName,
   themeMode,
@@ -132,15 +127,19 @@ export default function Toolbar({
         borderColor: colors.border,
         color: colors.text,
       }}
-      className="relative h-14 border-b backdrop-blur-xl z-40 shrink-0"
+      className="relative h-14 border-b z-40 shrink-0"
     >
-      <div className="pywebview-drag-region absolute inset-0 z-0" aria-hidden />
-
-      <div className="relative z-10 h-full grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-3">
-        {/* Left: brand + flow name */}
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="relative z-10 h-full flex items-stretch">
+        {/* Left drag + brand */}
+        <div className="pywebview-drag-region flex items-center gap-2 pl-3 pr-2 shrink-0 min-w-[140px]">
           {onBackToMain && (
-            <Button type="button" variant="outline" size="sm" onClick={onBackToMain}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="pywebview-no-drag"
+              onClick={onBackToMain}
+            >
               主程序
             </Button>
           )}
@@ -151,19 +150,16 @@ export default function Toolbar({
           >
             <Workflow style={{ color: colors.primary }} className="w-4 h-4" />
           </div>
-          <div className="min-w-0 flex flex-col justify-center">
-            <Input
-              value={workflowName}
-              onChange={(e) => setWorkflowName(e.target.value)}
-              className="h-7 max-w-[200px] border-transparent bg-transparent font-display font-semibold text-sm hover:border-white/20 focus:border-blue-500 px-1"
-              placeholder="流程名称"
-              title="流程显示名称：会出现在保存文件建议名、运行历史里。不影响执行逻辑。"
-            />
-          </div>
+          <span className="font-display font-semibold text-sm tracking-wide opacity-90 select-none">
+            Nexuz
+          </span>
         </div>
 
-        {/* Center: run controls only */}
-        <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5">
+        {/* Flexible drag spacer */}
+        <div className="pywebview-drag-region flex-1 min-w-[24px]" />
+
+        {/* Center controls (not drag) */}
+        <div className="flex items-center self-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5 shrink-0">
           <Button
             size="sm"
             onClick={onRunWorkflow}
@@ -210,13 +206,7 @@ export default function Toolbar({
           </Button>
 
           {onStep && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={onStep}
-              title="单步"
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onStep} title="单步">
               <StepForward className="w-3.5 h-3.5" />
             </Button>
           )}
@@ -262,8 +252,10 @@ export default function Toolbar({
           </Button>
         </div>
 
-        {/* Right: view / theme / window */}
-        <div className="flex items-center justify-end gap-1 min-w-0">
+        <div className="pywebview-drag-region flex-1 min-w-[24px]" />
+
+        {/* Right tools + window */}
+        <div className="flex items-center gap-1 pr-1.5 shrink-0">
           {onViewModeChange && (
             <div className="flex items-center p-0.5 rounded-xl border border-white/10 bg-black/5 dark:bg-white/5">
               <Button

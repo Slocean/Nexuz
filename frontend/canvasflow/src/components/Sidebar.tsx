@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Trash2, FolderSync, Search } from 'lucide-react';
+import { Plus, Trash2, FolderSync, Search, Workflow, Boxes } from 'lucide-react';
 import { NodeType, ThemeName, ThemeMode, WorkflowNode } from '../types';
 import { getThemeColors } from '../theme';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import VariablesPanel from './VariablesPanel';
 import SchedulePanel from './SchedulePanel';
+import FlowLibrary from './FlowLibrary';
 
 interface SidebarProps {
   themeName: ThemeName;
@@ -19,8 +20,11 @@ interface SidebarProps {
   onLoadTemplate: (templateId: string) => void;
   runHistory: { id: string; timestamp: string; status: string; workflowName: string }[];
   onClearHistory: () => void;
-  /** Disable catalog clicks while a flow is running */
   interactionLocked?: boolean;
+  currentFlowPath?: string | null;
+  onOpenFlowPath?: (path: string) => void;
+  onNewFlow?: () => void;
+  onOpenFromDisk?: () => void;
 }
 
 const componentsList = [
@@ -223,9 +227,14 @@ export default function Sidebar({
   runHistory,
   onClearHistory,
   interactionLocked = false,
+  currentFlowPath = null,
+  onOpenFlowPath,
+  onNewFlow,
+  onOpenFromDisk,
 }: SidebarProps) {
   const colors = getThemeColors(themeName, themeMode);
   const [query, setQuery] = useState('');
+  const [panel, setPanel] = useState<'flows' | 'nodes'>('nodes');
   const q = query.trim().toLowerCase();
 
   const nexuzGrouped = useMemo(() => {
@@ -277,10 +286,54 @@ export default function Sidebar({
         borderColor: colors.border,
         color: colors.text,
       }}
-      className={`w-80 border-r flex flex-col h-full backdrop-blur-xl z-30 shrink-0 ${
+      className={`flex h-full backdrop-blur-xl z-30 shrink-0 border-r ${
         interactionLocked ? 'pointer-events-none opacity-60' : ''
       }`}
     >
+      {/* Left rail: Flows / Nodes */}
+      <nav
+        style={{ borderColor: colors.border }}
+        className="w-12 shrink-0 border-r flex flex-col items-center gap-1 py-2"
+      >
+        <button
+          type="button"
+          title="流程管理"
+          onClick={() => setPanel('flows')}
+          className={cn(
+            'w-9 h-9 rounded-xl flex items-center justify-center transition-colors',
+            panel === 'flows'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'hover:bg-black/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100',
+          )}
+        >
+          <Workflow className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          title="积木节点"
+          onClick={() => setPanel('nodes')}
+          className={cn(
+            'w-9 h-9 rounded-xl flex items-center justify-center transition-colors',
+            panel === 'nodes'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'hover:bg-black/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100',
+          )}
+        >
+          <Boxes className="w-4 h-4" />
+        </button>
+      </nav>
+
+      <div className="w-[17.5rem] flex flex-col h-full min-h-0 min-w-0">
+        {panel === 'flows' ? (
+          <FlowLibrary
+            themeName={themeName}
+            themeMode={themeMode}
+            currentPath={currentFlowPath}
+            onOpenFlow={(path) => onOpenFlowPath?.(path)}
+            onNewFlow={() => onNewFlow?.()}
+            onOpenFromDisk={onOpenFromDisk}
+          />
+        ) : (
       <Tabs defaultValue="components" className="flex flex-col h-full min-h-0">
         <TabsList
           className="shrink-0"
@@ -477,6 +530,8 @@ export default function Sidebar({
           </TabsContent>
         </div>
       </Tabs>
+        )}
+      </div>
     </aside>
   );
 }

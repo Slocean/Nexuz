@@ -9,6 +9,7 @@ import Canvas from './components/Canvas';
 import Inspector from './components/Inspector';
 import CodeEditor from './components/CodeEditor';
 import AIAssistant from './components/AIAssistant';
+import SaveNameDialog from './components/SaveNameDialog';
 import { getThemeColors } from './theme';
 import { flowToCanvas, mapLogLevel } from './nexuzAdapter';
 import { useFlowStore } from '../../src/store/flowModelStore';
@@ -96,6 +97,7 @@ export default function App() {
 
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
 
   const colors = getThemeColors(themeName as any, themeMode as any);
   const isExecuting = execStatus === 'running';
@@ -197,7 +199,28 @@ export default function App() {
   };
 
   const handleSave = async () => {
-    const res = await bridge.saveFlow(flow, filePath);
+    // Already saved once → overwrite in place
+    if (filePath) {
+      const res = await bridge.saveFlow(flow, filePath, flow.name || null);
+      if (res?.ok) {
+        useFlowStore.setState({ filePath: res.path });
+        if (res.name) updateFlowMeta({ name: res.name });
+        appendLog({ level: 'ok', message: `已保存: ${res.path}` });
+        return true;
+      }
+      if (!res?.cancelled) appendLog({ level: 'error', message: res?.error || '保存失败' });
+      return false;
+    }
+    // First save → ask for a name
+    setSaveDialogOpen(true);
+    return false;
+  };
+
+  const handleSaveWithName = async (name: string) => {
+    setSaveDialogOpen(false);
+    updateFlowMeta({ name });
+    const payload = { ...flow, name };
+    const res = await bridge.saveFlow(payload, null, name);
     if (res?.ok) {
       useFlowStore.setState({ filePath: res.path });
       appendLog({ level: 'ok', message: `已保存: ${res.path}` });
@@ -215,6 +238,31 @@ export default function App() {
     } else if (!res?.cancelled) {
       appendLog({ level: 'error', message: res?.error || '打开失败' });
     }
+  };
+
+  const handleOpenFlowPath = async (path: string) => {
+    const res = await bridge.loadFlow(path);
+    if (res?.ok && res.flow) {
+      setFlow(res.flow, res.path);
+      appendLog({ level: 'ok', message: `已打开: ${res.path}` });
+    } else if (!res?.cancelled) {
+      appendLog({ level: 'error', message: res?.error || '打开失败' });
+    }
+  };
+
+  const handleNewFlow = () => {
+    if (Object.keys(flow.nodes || {}).length && !window.confirm('新建流程将清空当前画布，继续？')) {
+      return;
+    }
+    setFlow({
+      flow_id: `flow_${Date.now()}`,
+      name: '',
+      version: 1,
+      variables: {},
+      entry: null,
+      nodes: {},
+    }, null);
+    appendLog({ level: 'info', message: '已新建空白流程' });
   };
 
   const handleClearCanvas = () => {
@@ -395,8 +443,6 @@ export default function App() {
       className="flex flex-col h-screen w-screen overflow-hidden font-sans transition-all duration-300"
     >
       <Toolbar
-        workflowName={flow.name || ''}
-        setWorkflowName={(name) => updateFlowMeta({ name })}
         themeName={themeName as any}
         setThemeName={setThemeName as any}
         themeMode={themeMode as any}
@@ -430,6 +476,10 @@ export default function App() {
           runHistory={runHistory}
           onClearHistory={clearRunHistory}
           interactionLocked={isExecuting}
+          currentFlowPath={filePath}
+          onOpenFlowPath={handleOpenFlowPath}
+          onNewFlow={handleNewFlow}
+          onOpenFromDisk={handleOpen}
         />
 
         {viewMode === 'code' ? (
@@ -484,6 +534,17 @@ export default function App() {
           onAddCustomNode={(nodeData) => handleAddDemoNode(nodeData.subType)}
         />
       </div>
+
+      <SaveNameDialog
+        open={saveDialogOpen}
+        initialName={flow.name || ''}
+        themeName={themeName as any}
+        themeMode={themeMode as any}
+        onCancel={() => setSaveDialogOpen(false)}
+        onConfirm={(name) => {
+          void handleSaveWithName(name);
+        }}
+      />
     </div>
   );
 }

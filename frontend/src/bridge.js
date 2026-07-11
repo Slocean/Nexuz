@@ -323,6 +323,10 @@ function mockCall(method, ...args) {
       return Promise.resolve(MOCK_SCHEMAS);
     case 'list_schedule_jobs':
       return Promise.resolve({ ok: true, jobs: [] });
+    case 'list_flows':
+      return Promise.resolve({ ok: true, flows: [], dir: '' });
+    case 'delete_flow':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持' });
     case 'window_minimize':
     case 'window_toggle_maximize':
     case 'window_close':
@@ -372,8 +376,6 @@ export const bridge = {
   stopFlow: () => call('stop_flow'),
   stepFlow: () => call('step_flow'),
   isRunning: () => call('is_running'),
-  saveFlow: (flow, filepath = null) => call('save_flow', JSON.stringify(flow), filepath),
-  loadFlow: (filepath = null) => call('load_flow', filepath),
   validateFlow: (flow) => call('validate_flow', JSON.stringify(flow)),
   startRecording: (minIntervalMs = 50, hideWindow = true) =>
     call('start_recording', minIntervalMs, hideWindow),
@@ -384,6 +386,11 @@ export const bridge = {
     call('capture_template', hideWindow, filename),
   listScheduleJobs: () => call('list_schedule_jobs'),
   removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
+  listFlows: () => call('list_flows'),
+  deleteFlow: (filepath) => call('delete_flow', filepath),
+  saveFlow: (flow, filepath = null, name = null) =>
+    call('save_flow', JSON.stringify(flow), filepath, name),
+  loadFlow: (filepath = null) => call('load_flow', filepath),
   windowMinimize: () => call('window_minimize'),
   windowToggleMaximize: () => call('window_toggle_maximize'),
   windowClose: () => call('window_close'),
