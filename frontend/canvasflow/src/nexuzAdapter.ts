@@ -3,6 +3,8 @@
  */
 import type { WorkflowNode, NodeConnection, NodeType, NodeSocket } from './types';
 
+const VAR_REF = /\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\s*\}\}/g;
+
 export function socketsForBlockType(blockType: string): { inputs: NodeSocket[]; outputs: NodeSocket[] } {
   const inputs: NodeSocket[] = [
     { id: 'in', name: 'Input', type: 'input', dataType: 'any' },
@@ -38,6 +40,26 @@ export function categoryToNodeType(category?: string): NodeType {
   return 'Logic';
 }
 
+/** Collect {{node.field}} references from nested params */
+export function collectParamRefs(params: any): { sourceId: string; field: string }[] {
+  const found: { sourceId: string; field: string }[] = [];
+  const walk = (v: any) => {
+    if (typeof v === 'string') {
+      let m: RegExpExecArray | null;
+      const re = new RegExp(VAR_REF.source, 'g');
+      while ((m = re.exec(v))) {
+        found.push({ sourceId: m[1], field: m[2] });
+      }
+    } else if (Array.isArray(v)) {
+      v.forEach(walk);
+    } else if (v && typeof v === 'object') {
+      Object.values(v).forEach(walk);
+    }
+  };
+  walk(params);
+  return found;
+}
+
 export function flowToCanvas(
   flow: any,
   schemaMap: Record<string, any>,
@@ -48,6 +70,7 @@ export function flowToCanvas(
   const nodes: WorkflowNode[] = [];
   const connections: NodeConnection[] = [];
   const entries = Object.entries(flow?.nodes || {}) as [string, any][];
+  const nodeIdSet = new Set(entries.map(([id]) => id));
 
   entries.forEach(([id, node], index) => {
     const schema = schemaMap[node.type] || {};
@@ -88,8 +111,28 @@ export function flowToCanvas(
           sourceSocketId: handle,
           targetNodeId: target,
           targetSocketId: 'in',
+          kind: 'flow',
         });
       }
+    }
+
+    // Data links from {{source.field}} in params
+    const refs = collectParamRefs(node.params);
+    const seen = new Set<string>();
+    for (const ref of refs) {
+      if (!nodeIdSet.has(ref.sourceId) || ref.sourceId === id) continue;
+      const key = `${ref.sourceId}->${id}.${ref.field}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      connections.push({
+        id: `data-${key}`,
+        sourceNodeId: ref.sourceId,
+        sourceSocketId: 'next',
+        targetNodeId: id,
+        targetSocketId: 'in',
+        kind: 'data',
+        label: ref.field,
+      });
     }
   });
 
@@ -101,4 +144,15 @@ export function mapLogLevel(level: string): 'info' | 'success' | 'warning' | 'er
   if (level === 'error') return 'error';
   if (level === 'warn' || level === 'warning') return 'warning';
   return 'info';
+}
+
+export function logsToText(logs: { ts?: number; level?: string; message?: string; detail?: any }[]) {
+  return logs
+    .map((l) => {
+      const t = l.ts ? new Date(l.ts).toLocaleString() : '';
+      const detail =
+        l.detail !== undefined ? `\n  detail: ${typeof l.detail === 'string' ? l.detail : JSON.stringify(l.detail)}` : '';
+      return `[${t}] [${l.level || 'info'}] ${l.message || ''}${detail}`;
+    })
+    .join('\n');
 }

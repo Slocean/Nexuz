@@ -49,6 +49,9 @@ export interface NodeConnection {
   sourceSocketId: string;
   targetNodeId: string;
   targetSocketId: string;
+  /** flow = 执行顺序实线；data = 变量引用虚线 */
+  kind?: 'flow' | 'data';
+  label?: string;
 }
 
 export interface WorkflowTemplate {

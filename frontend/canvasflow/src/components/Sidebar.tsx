@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import VariablesPanel from './VariablesPanel';
+import SchedulePanel from './SchedulePanel';
 
 interface SidebarProps {
   themeName: ThemeName;
@@ -344,8 +345,9 @@ export default function Sidebar({
             ))}
           </TabsContent>
 
-          <TabsContent value="variables" className="m-0 data-[state=inactive]:hidden">
+          <TabsContent value="variables" className="m-0 data-[state=inactive]:hidden overflow-y-auto">
             <VariablesPanel themeName={themeName} themeMode={themeMode} />
+            <SchedulePanel themeName={themeName} themeMode={themeMode} />
           </TabsContent>
 
           <TabsContent value="templates" className="p-4 space-y-4 m-0 data-[state=inactive]:hidden">

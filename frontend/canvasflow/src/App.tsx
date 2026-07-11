@@ -86,6 +86,8 @@ export default function App() {
   const setNodeLink = useFlowStore((s) => s.setNodeLink);
   const removeNodeLink = useFlowStore((s) => s.removeNodeLink);
   const deleteNodes = useFlowStore((s) => s.deleteNodes);
+  const duplicateNodes = useFlowStore((s) => s.duplicateNodes);
+  const updateNodePositions = useFlowStore((s) => s.updateNodePositions);
   const setFlow = useFlowStore((s) => s.setFlow);
   const clearLogs = useFlowStore((s) => s.clearLogs);
   const appendLog = useFlowStore((s) => s.appendLog);
@@ -319,6 +321,10 @@ export default function App() {
     updateNodePosition(nodeId, { x, y });
   };
 
+  const handleUpdateNodePositions = (updates: { id: string; x: number; y: number }[]) => {
+    updateNodePositions(updates);
+  };
+
   const handleAddConnection = (
     sourceNodeId: string,
     sourceSocketId: string,
@@ -333,6 +339,13 @@ export default function App() {
   const handleRemoveConnection = (connectionId: string) => {
     const conn = connections.find((c) => c.id === connectionId);
     if (!conn) return;
+    if (conn.kind === 'data') {
+      appendLog({
+        level: 'warn',
+        message: '数据连线由 {{node.field}} 引用生成，请在参数中修改',
+      });
+      return;
+    }
     removeNodeLink(conn.sourceNodeId, conn.sourceSocketId);
     appendLog({ level: 'info', message: '已移除连线' });
   };
@@ -340,6 +353,20 @@ export default function App() {
   const handleRemoveNode = (nodeId: string) => {
     deleteNodes([nodeId]);
     appendLog({ level: 'info', message: `已删除节点 ${nodeId}` });
+  };
+
+  const handleRemoveNodes = (nodeIds: string[]) => {
+    if (!nodeIds.length) return;
+    deleteNodes(nodeIds);
+    appendLog({ level: 'info', message: `已删除 ${nodeIds.length} 个节点` });
+  };
+
+  const handleDuplicateNodes = (nodeIds: string[]) => {
+    const newIds = duplicateNodes(nodeIds);
+    if (newIds?.length) {
+      appendLog({ level: 'info', message: `已复制 ${newIds.length} 个节点` });
+    }
+    return newIds || [];
   };
 
   const handleUpdateNodeConfig = (nodeId: string, updatedConfig: any) => {
@@ -404,9 +431,12 @@ export default function App() {
             selectedNodeId={selectedNodeId}
             onSelectNode={selectNode}
             onUpdateNodePosition={handleUpdateNodePosition}
+            onUpdateNodePositions={handleUpdateNodePositions}
             onAddConnection={handleAddConnection}
             onRemoveConnection={handleRemoveConnection}
             onRemoveNode={handleRemoveNode}
+            onRemoveNodes={handleRemoveNodes}
+            onDuplicateNodes={handleDuplicateNodes}
             onRunSingleNode={handleRunSingleNode}
             themeName={themeName as any}
             themeMode={themeMode as any}
@@ -423,6 +453,7 @@ export default function App() {
           themeName={themeName as any}
           themeMode={themeMode as any}
           logs={canvasLogs}
+          rawLogs={logs}
           schemaMap={schemaMap}
           hideWindowOnRecord={hideWindowOnRecord}
           setHideWindowOnRecord={useFlowStore.getState().setHideWindowOnRecord}

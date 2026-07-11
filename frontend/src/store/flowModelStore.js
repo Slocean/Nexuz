@@ -269,6 +269,18 @@ export const useFlowStore = create((set, get) => ({
       };
     }),
 
+  updateNodePositions: (updates) =>
+    set((state) => {
+      if (!updates?.length) return state;
+      const nodes = { ...state.flow.nodes };
+      for (const u of updates) {
+        const node = nodes[u.id];
+        if (!node) continue;
+        nodes[u.id] = { ...node, position: { x: u.x, y: u.y } };
+      }
+      return { flow: { ...state.flow, nodes } };
+    }),
+
   setNodeLink: (sourceId, handle, targetId) =>
     set((state) => {
       const node = state.flow.nodes[sourceId];
@@ -320,6 +332,43 @@ export const useFlowStore = create((set, get) => ({
         selectedNodeId: idSet.has(state.selectedNodeId) ? null : state.selectedNodeId,
       };
     }),
+
+  duplicateNodes: (ids, offset = { x: 40, y: 40 }) => {
+    if (!ids?.length) return [];
+    const state = get();
+    const srcNodes = state.flow.nodes;
+    const idMap = {};
+    for (const id of ids) {
+      if (!srcNodes[id]) continue;
+      idMap[id] = `node_${Math.random().toString(36).slice(2, 10)}`;
+    }
+    const mappedIds = Object.keys(idMap);
+    if (!mappedIds.length) return [];
+
+    const remap = (v) => (v && idMap[v] ? idMap[v] : v && mappedIds.includes(v) ? null : v);
+
+    set((s) => {
+      const nodes = { ...s.flow.nodes };
+      for (const oldId of mappedIds) {
+        const src = srcNodes[oldId];
+        const newId = idMap[oldId];
+        const pos = src.position || { x: 100, y: 100 };
+        const copy = {
+          ...JSON.parse(JSON.stringify(src)),
+          position: { x: pos.x + offset.x, y: pos.y + offset.y },
+        };
+        for (const key of ['next', 'then', 'else', 'body']) {
+          if (copy[key]) copy[key] = idMap[copy[key]] || null;
+        }
+        nodes[newId] = copy;
+      }
+      return {
+        flow: { ...s.flow, nodes },
+        selectedNodeId: idMap[ids[ids.length - 1]] || s.selectedNodeId,
+      };
+    });
+    return mappedIds.map((id) => idMap[id]);
+  },
 
   setEntry: (entry) =>
     set((state) => ({

@@ -1,8 +1,9 @@
 import React from 'react';
-import { Settings, Play, Terminal, X, Copy, Check, ChevronRight } from 'lucide-react';
+import { Settings, Play, Terminal, X, Copy, Check, ChevronRight, Download } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
+import { logsToText } from '../nexuzAdapter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -33,6 +34,8 @@ interface InspectorProps {
   onPickRegion?: () => Promise<any>;
   onCaptureTemplate?: () => Promise<any>;
   onSetEntry?: (id: string) => void;
+  /** Raw store logs for file export */
+  rawLogs?: { ts?: number; level?: string; message?: string; detail?: any }[];
 }
 
 function CasesEditor({
@@ -128,15 +131,46 @@ export default function Inspector({
   onPickRegion,
   onCaptureTemplate,
   onSetEntry,
+  rawLogs = [],
 }: InspectorProps) {
   const [copied, setCopied] = React.useState(false);
   const colors = getThemeColors(themeName, themeMode);
 
+  const exportLogs = () => {
+    const text = logsToText(rawLogs.length ? rawLogs : logs.map((l) => ({
+      ts: Date.now(),
+      level: l.type,
+      message: l.message,
+    })));
+    if (!text.trim()) {
+      window.alert('暂无日志可导出');
+      return;
+    }
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nexuz-logs-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const logsPanel = (
     <div className="space-y-2 p-4 border-t border-black/5 dark:border-white/5 shrink-0 max-h-[40%]">
-      <h4 className="font-display font-bold text-xs uppercase tracking-wider opacity-60 flex items-center gap-1.5">
-        <Terminal className="w-3.5 h-3.5" /> Execution Log
-      </h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="font-display font-bold text-xs uppercase tracking-wider opacity-60 flex items-center gap-1.5">
+          <Terminal className="w-3.5 h-3.5" /> Execution Log
+        </h4>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-[10px] gap-1 opacity-70 hover:opacity-100"
+          onClick={exportLogs}
+          title="导出日志为 .txt"
+        >
+          <Download className="w-3 h-3" /> 导出
+        </Button>
+      </div>
       <ScrollArea className="h-36">
         <div className="space-y-1.5 font-mono text-[10px] pr-2">
           {logs.length === 0 && (

@@ -25,6 +25,7 @@ interface CanvasProps {
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string | null) => void;
   onUpdateNodePosition: (nodeId: string, x: number, y: number) => void;
+  onUpdateNodePositions?: (updates: { id: string; x: number; y: number }[]) => void;
   onAddConnection: (
     sourceNodeId: string,
     sourceSocketId: string,
@@ -33,6 +34,8 @@ interface CanvasProps {
   ) => void;
   onRemoveConnection: (connectionId: string) => void;
   onRemoveNode: (nodeId: string) => void;
+  onRemoveNodes?: (nodeIds: string[]) => void;
+  onDuplicateNodes?: (nodeIds: string[]) => void;
   onRunSingleNode: (nodeId: string) => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
@@ -49,9 +52,12 @@ export default function Canvas({
   selectedNodeId,
   onSelectNode,
   onUpdateNodePosition,
+  onUpdateNodePositions,
   onAddConnection,
   onRemoveConnection,
   onRemoveNode,
+  onRemoveNodes,
+  onDuplicateNodes,
   onRunSingleNode,
   themeName,
   themeMode,
@@ -62,10 +68,19 @@ export default function Canvas({
   const [panY, setPanY] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 });
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showDataLinks, setShowDataLinks] = useState(true);
+  const [marquee, setMarquee] = useState<{
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+  } | null>(null);
 
   // Local drag position — only commit to store on mouseup (avoids store thrash)
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [localDragPos, setLocalDragPos] = useState<{ x: number; y: number } | null>(null);
+  const [localGroupDelta, setLocalGroupDelta] = useState<{ x: number; y: number } | null>(null);
 
   const [draftConnection, setDraftConnection] = useState<{
     sourceNodeId: string;
@@ -83,11 +98,23 @@ export default function Canvas({
   const panStartRef = useRef({ x: 0, y: 0 });
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const draggingIdRef = useRef<string | null>(null);
+  const dragGroupIdsRef = useRef<string[]>([]);
+  const groupStartPosRef = useRef<Record<string, { x: number; y: number }>>({});
   const localPosRef = useRef<{ x: number; y: number } | null>(null);
+  const groupDeltaRef = useRef<{ x: number; y: number } | null>(null);
+  const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const isMarqueeRef = useRef(false);
+  const clipboardRef = useRef<string[]>([]);
+  const selectedIdsRef = useRef<string[]>([]);
   const draftRef = useRef(draftConnection);
   const rafRef = useRef<number | null>(null);
   const onUpdateRef = useRef(onUpdateNodePosition);
+  const onUpdateManyRef = useRef(onUpdateNodePositions);
   const onAddConnRef = useRef(onAddConnection);
+  const onRemoveNodesRef = useRef(onRemoveNodes);
+  const onDuplicateNodesRef = useRef(onDuplicateNodes);
+  const onSelectNodeRef = useRef(onSelectNode);
+  const nodesRef = useRef(nodes);
 
   useEffect(() => {
     panRef.current = { x: panX, y: panY };
@@ -102,8 +129,35 @@ export default function Canvas({
     onUpdateRef.current = onUpdateNodePosition;
   }, [onUpdateNodePosition]);
   useEffect(() => {
+    onUpdateManyRef.current = onUpdateNodePositions;
+  }, [onUpdateNodePositions]);
+  useEffect(() => {
     onAddConnRef.current = onAddConnection;
   }, [onAddConnection]);
+  useEffect(() => {
+    onRemoveNodesRef.current = onRemoveNodes;
+  }, [onRemoveNodes]);
+  useEffect(() => {
+    onDuplicateNodesRef.current = onDuplicateNodes;
+  }, [onDuplicateNodes]);
+  useEffect(() => {
+    onSelectNodeRef.current = onSelectNode;
+  }, [onSelectNode]);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+  }, [selectedIds]);
+
+  // Keep multi-select in sync when external selection changes
+  useEffect(() => {
+    if (selectedNodeId == null) {
+      setSelectedIds((prev) => (prev.length ? [] : prev));
+      return;
+    }
+    setSelectedIds((prev) => (prev.includes(selectedNodeId) ? prev : [selectedNodeId]));
+  }, [selectedNodeId]);
 
   const colors = getThemeColors(themeName, themeMode);
 
@@ -141,10 +195,25 @@ export default function Canvas({
   const getNodeXY = useCallback(
     (node: WorkflowNode) => {
       if (draggingNodeId === node.id && localDragPos) return localDragPos;
+      if (localGroupDelta && dragGroupIdsRef.current.includes(node.id)) {
+        const start = groupStartPosRef.current[node.id];
+        if (start) {
+          return { x: start.x + localGroupDelta.x, y: start.y + localGroupDelta.y };
+        }
+      }
       return { x: node.x, y: node.y };
     },
-    [draggingNodeId, localDragPos]
+    [draggingNodeId, localDragPos, localGroupDelta]
   );
+
+  const scheduleGroupDelta = (dx: number, dy: number) => {
+    groupDeltaRef.current = { x: dx, y: dy };
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (groupDeltaRef.current) setLocalGroupDelta({ ...groupDeltaRef.current });
+    });
+  };
 
   const getSocketPosition = (node: WorkflowNode, socketId: string, isInput: boolean) => {
     const list = isInput ? node.inputs : node.outputs;
@@ -179,6 +248,14 @@ export default function Canvas({
   // Window-level move/up for smooth drag & pan (works outside canvas bounds)
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
+      if (isMarqueeRef.current && marqueeRef.current) {
+        didPanOrDragRef.current = true;
+        const pos = screenToCanvas(e.clientX, e.clientY);
+        const next = { ...marqueeRef.current, x1: pos.x, y1: pos.y };
+        marqueeRef.current = next;
+        setMarquee(next);
+        return;
+      }
       if (isPanningRef.current) {
         didPanOrDragRef.current = true;
         setPanX(e.clientX - panStartRef.current.x);
@@ -188,7 +265,16 @@ export default function Canvas({
       if (draggingIdRef.current) {
         didPanOrDragRef.current = true;
         const pos = screenToCanvas(e.clientX, e.clientY);
-        scheduleLocalPos(pos.x - dragOffsetRef.current.x, pos.y - dragOffsetRef.current.y);
+        if (dragGroupIdsRef.current.length > 1) {
+          const lead = groupStartPosRef.current[draggingIdRef.current];
+          if (lead) {
+            const nx = pos.x - dragOffsetRef.current.x;
+            const ny = pos.y - dragOffsetRef.current.y;
+            scheduleGroupDelta(nx - lead.x, ny - lead.y);
+          }
+        } else {
+          scheduleLocalPos(pos.x - dragOffsetRef.current.x, pos.y - dragOffsetRef.current.y);
+        }
         return;
       }
       if (draftRef.current) {
@@ -200,19 +286,57 @@ export default function Canvas({
     };
 
     const onUp = () => {
-      if (draggingIdRef.current && localPosRef.current) {
-        const id = draggingIdRef.current;
-        const { x, y } = localPosRef.current;
-        // Soft snap only on release
-        const snappedX = Math.round(x / 10) * 10;
-        const snappedY = Math.round(y / 10) * 10;
-        onUpdateRef.current(id, snappedX, snappedY);
+      if (isMarqueeRef.current && marqueeRef.current) {
+        const m = marqueeRef.current;
+        const minX = Math.min(m.x0, m.x1);
+        const maxX = Math.max(m.x0, m.x1);
+        const minY = Math.min(m.y0, m.y1);
+        const maxY = Math.max(m.y0, m.y1);
+        const hit = nodesRef.current
+          .filter((n) => {
+            const r = n.x + NODE_WIDTH;
+            const b = n.y + NODE_HEIGHT_EST;
+            return n.x < maxX && r > minX && n.y < maxY && b > minY;
+          })
+          .map((n) => n.id);
+        setSelectedIds(hit);
+        onSelectNodeRef.current(hit[hit.length - 1] || null);
+        isMarqueeRef.current = false;
+        marqueeRef.current = null;
+        setMarquee(null);
+      } else if (draggingIdRef.current) {
+        if (dragGroupIdsRef.current.length > 1 && groupDeltaRef.current) {
+          const { x: dx, y: dy } = groupDeltaRef.current;
+          const updates = dragGroupIdsRef.current
+            .map((id) => {
+              const start = groupStartPosRef.current[id];
+              if (!start) return null;
+              return {
+                id,
+                x: Math.round((start.x + dx) / 10) * 10,
+                y: Math.round((start.y + dy) / 10) * 10,
+              };
+            })
+            .filter(Boolean) as { id: string; x: number; y: number }[];
+          if (updates.length) {
+            if (onUpdateManyRef.current) onUpdateManyRef.current(updates);
+            else updates.forEach((u) => onUpdateRef.current(u.id, u.x, u.y));
+          }
+        } else if (localPosRef.current) {
+          const id = draggingIdRef.current;
+          const { x, y } = localPosRef.current;
+          onUpdateRef.current(id, Math.round(x / 10) * 10, Math.round(y / 10) * 10);
+        }
       }
       isPanningRef.current = false;
       draggingIdRef.current = null;
+      dragGroupIdsRef.current = [];
+      groupStartPosRef.current = {};
       localPosRef.current = null;
+      groupDeltaRef.current = null;
       setDraggingNodeId(null);
       setLocalDragPos(null);
+      setLocalGroupDelta(null);
       // Defer clearing draft so socket onMouseUp can still read it
       requestAnimationFrame(() => setDraftConnection(null));
       if (rafRef.current != null) {
@@ -229,6 +353,52 @@ export default function Canvas({
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
   }, [screenToCanvas]);
+
+  // Keyboard: Delete, Ctrl+C/V, Ctrl+A
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        const ids = nodesRef.current.map((n) => n.id);
+        setSelectedIds(ids);
+        onSelectNodeRef.current(ids[ids.length - 1] || null);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "c") {
+        if (!selectedIdsRef.current.length) return;
+        e.preventDefault();
+        clipboardRef.current = [...selectedIdsRef.current];
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "v") {
+        if (!clipboardRef.current.length || !onDuplicateNodesRef.current) return;
+        e.preventDefault();
+        const newIds = onDuplicateNodesRef.current(clipboardRef.current) || [];
+        if (newIds.length) {
+          setSelectedIds(newIds);
+          onSelectNodeRef.current(newIds[newIds.length - 1]);
+          clipboardRef.current = newIds;
+        }
+        return;
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const ids = selectedIdsRef.current;
+        if (!ids.length) return;
+        e.preventDefault();
+        if (onRemoveNodesRef.current) onRemoveNodesRef.current(ids);
+        else ids.forEach((id) => onRemoveNode(id));
+        setSelectedIds([]);
+        onSelectNodeRef.current(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onRemoveNode]);
 
   const isPanSurface = (target: EventTarget | null) => {
     if (!target || !(target instanceof Element)) return false;
@@ -255,6 +425,17 @@ export default function Canvas({
       startPan(e.clientX, e.clientY);
       return;
     }
+    // Shift + left on empty: marquee select
+    if (e.button === 0 && e.shiftKey && isPanSurface(e.target)) {
+      e.preventDefault();
+      const pos = screenToCanvas(e.clientX, e.clientY);
+      isMarqueeRef.current = true;
+      didPanOrDragRef.current = false;
+      const box = { x0: pos.x, y0: pos.y, x1: pos.x, y1: pos.y };
+      marqueeRef.current = box;
+      setMarquee(box);
+      return;
+    }
     // Left mouse on empty surface: pan
     if (e.button === 0 && isPanSurface(e.target)) {
       e.preventDefault();
@@ -268,6 +449,7 @@ export default function Canvas({
       return;
     }
     if (!isPanSurface(e.target)) return;
+    setSelectedIds([]);
     onSelectNode(null);
   };
 
@@ -307,14 +489,46 @@ export default function Canvas({
   const handleNodeDragStart = (e: React.MouseEvent, node: WorkflowNode) => {
     e.stopPropagation();
     e.preventDefault();
-    onSelectNode(node.id);
+    let nextSelected = selectedIdsRef.current;
+    if (e.ctrlKey || e.metaKey) {
+      nextSelected = nextSelected.includes(node.id)
+        ? nextSelected.filter((id) => id !== node.id)
+        : [...nextSelected, node.id];
+      setSelectedIds(nextSelected);
+      onSelectNode(nextSelected.includes(node.id) ? node.id : nextSelected[nextSelected.length - 1] || null);
+    } else if (!nextSelected.includes(node.id)) {
+      nextSelected = [node.id];
+      setSelectedIds(nextSelected);
+      onSelectNode(node.id);
+    } else {
+      onSelectNode(node.id);
+    }
+
     const pos = screenToCanvas(e.clientX, e.clientY);
     const xy = getNodeXY(node);
     draggingIdRef.current = node.id;
     dragOffsetRef.current = { x: pos.x - xy.x, y: pos.y - xy.y };
     localPosRef.current = { x: xy.x, y: xy.y };
-    setDraggingNodeId(node.id);
-    setLocalDragPos({ x: xy.x, y: xy.y });
+
+    const group =
+      nextSelected.includes(node.id) && nextSelected.length > 1 ? nextSelected : [node.id];
+    dragGroupIdsRef.current = group;
+    groupStartPosRef.current = {};
+    for (const id of group) {
+      const n = nodesRef.current.find((x) => x.id === id);
+      if (n) groupStartPosRef.current[id] = { x: n.x, y: n.y };
+    }
+    // Lead node uses local pos if solo
+    if (group.length === 1) {
+      setDraggingNodeId(node.id);
+      setLocalDragPos({ x: xy.x, y: xy.y });
+      setLocalGroupDelta(null);
+    } else {
+      setDraggingNodeId(node.id);
+      setLocalDragPos(null);
+      setLocalGroupDelta({ x: 0, y: 0 });
+      groupDeltaRef.current = { x: 0, y: 0 };
+    }
   };
 
   const handleSocketDragStart = (
@@ -379,9 +593,8 @@ export default function Canvas({
 
   // Nodes with live drag position for minimap
   const displayNodes = nodes.map((n) => {
-    if (draggingNodeId === n.id && localDragPos) {
-      return { ...n, x: localDragPos.x, y: localDragPos.y };
-    }
+    const xy = getNodeXY(n);
+    if (xy.x !== n.x || xy.y !== n.y) return { ...n, x: xy.x, y: xy.y };
     return n;
   });
 
@@ -409,6 +622,32 @@ export default function Canvas({
       >
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
         <span>Scale: {Math.round(zoom * 100)}%</span>
+        {selectedIds.length > 1 && (
+          <span className="opacity-70">· {selectedIds.length} selected</span>
+        )}
+      </div>
+
+      <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowDataLinks((v) => !v)}
+          style={{
+            backgroundColor: colors.surface,
+            borderColor: showDataLinks ? colors.primary : colors.border,
+            color: showDataLinks ? colors.primary : colors.text,
+          }}
+          className="h-8 text-[11px] shadow-lg"
+          title="显示/隐藏由 {{node.field}} 自动生成的数据引用虚线"
+        >
+          数据连线 {showDataLinks ? "开" : "关"}
+        </Button>
+        <span
+          style={{ color: colors.secondaryText }}
+          className="text-[10px] opacity-60 hidden md:inline"
+        >
+          Shift框选 · Ctrl多选 · Ctrl+C/V · Del
+        </span>
       </div>
 
       <MiniMap
@@ -484,39 +723,63 @@ export default function Canvas({
           </defs>
 
           {connections.map((conn) => {
+            const isData = conn.kind === "data";
+            if (isData && !showDataLinks) return null;
+
             const sourceNode = nodes.find((n) => n.id === conn.sourceNodeId);
             const targetNode = nodes.find((n) => n.id === conn.targetNodeId);
             if (!sourceNode || !targetNode) return null;
 
             const p1 = getSocketPosition(sourceNode, conn.sourceSocketId, false);
             const p2 = getSocketPosition(targetNode, conn.targetSocketId, true);
+            // Data links: mid-right of source → mid-left of target (visual only)
+            const sp = isData
+              ? { x: getNodeXY(sourceNode).x + NODE_WIDTH, y: getNodeXY(sourceNode).y + 56 }
+              : p1;
+            const tp = isData
+              ? { x: getNodeXY(targetNode).x, y: getNodeXY(targetNode).y + 56 }
+              : p2;
+
             const isPathExecuting =
-              isExecuting ||
-              sourceNode.status === "running" ||
-              targetNode.status === "running";
+              !isData &&
+              (isExecuting ||
+                sourceNode.status === "running" ||
+                targetNode.status === "running");
+
+            const stroke = isData
+              ? themeMode === "light"
+                ? "rgba(175, 82, 222, 0.55)"
+                : "rgba(175, 82, 222, 0.45)"
+              : isPathExecuting
+                ? "url(#connectionGrad)"
+                : themeMode === "light"
+                  ? "rgba(79, 140, 255, 0.45)"
+                  : "rgba(255, 255, 255, 0.15)";
 
             return (
               <g key={conn.id} className="group pointer-events-auto cursor-pointer">
-                <path
-                  d={drawBezierPath(p1.x, p1.y, p2.x, p2.y)}
-                  fill="none"
-                  stroke="transparent"
-                  strokeWidth="12"
-                  className="cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (
-                      window.confirm(
-                        "Do you want to disconnect this workflow socket connection?"
-                      )
-                    ) {
-                      onRemoveConnection(conn.id);
-                    }
-                  }}
-                />
+                {!isData && (
+                  <path
+                    d={drawBezierPath(sp.x, sp.y, tp.x, tp.y)}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth="12"
+                    className="cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (
+                        window.confirm(
+                          "Do you want to disconnect this workflow socket connection?"
+                        )
+                      ) {
+                        onRemoveConnection(conn.id);
+                      }
+                    }}
+                  />
+                )}
                 {isPathExecuting && (
                   <path
-                    d={drawBezierPath(p1.x, p1.y, p2.x, p2.y)}
+                    d={drawBezierPath(sp.x, sp.y, tp.x, tp.y)}
                     fill="none"
                     stroke={colors.primary}
                     strokeWidth="4"
@@ -525,46 +788,63 @@ export default function Canvas({
                   />
                 )}
                 <path
-                  d={drawBezierPath(p1.x, p1.y, p2.x, p2.y)}
+                  d={drawBezierPath(sp.x, sp.y, tp.x, tp.y)}
                   fill="none"
-                  stroke={
-                    isPathExecuting
-                      ? "url(#connectionGrad)"
-                      : themeMode === "light"
-                        ? "rgba(79, 140, 255, 0.45)"
-                        : "rgba(255, 255, 255, 0.15)"
-                  }
-                  strokeWidth="2.5"
+                  stroke={stroke}
+                  strokeWidth={isData ? 1.5 : 2.5}
+                  strokeDasharray={isData ? "6,5" : undefined}
                   className={`group-hover:stroke-red-400 ${
                     isPathExecuting ? "connection-flow" : ""
                   }`}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (isData) {
+                      window.alert(
+                        "数据连线由参数中的 {{node.field}} 自动生成，请在 Inspector 中修改引用。"
+                      );
+                      return;
+                    }
                     if (window.confirm("Disconnect this workflow pathway?")) {
                       onRemoveConnection(conn.id);
                     }
                   }}
                 />
-                <circle
-                  cx={(p1.x + p2.x) / 2}
-                  cy={(p1.y + p2.y) / 2}
-                  r="10"
-                  fill={themeMode === "light" ? "#FFF" : "#1A2235"}
-                  stroke="#FF5E57"
-                  strokeWidth="1.5"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
-                />
-                <text
-                  x={(p1.x + p2.x) / 2}
-                  y={(p1.y + p2.y) / 2 + 3}
-                  textAnchor="middle"
-                  fill="#FF5E57"
-                  fontSize="10px"
-                  fontWeight="bold"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
-                >
-                  ×
-                </text>
+                {isData && conn.label && (
+                  <text
+                    x={(sp.x + tp.x) / 2}
+                    y={(sp.y + tp.y) / 2 - 6}
+                    textAnchor="middle"
+                    fill={themeMode === "light" ? "#AF52DE" : "#C77DFF"}
+                    fontSize="9px"
+                    className="pointer-events-none opacity-80"
+                  >
+                    {conn.label}
+                  </text>
+                )}
+                {!isData && (
+                  <>
+                    <circle
+                      cx={(sp.x + tp.x) / 2}
+                      cy={(sp.y + tp.y) / 2}
+                      r="10"
+                      fill={themeMode === "light" ? "#FFF" : "#1A2235"}
+                      stroke="#FF5E57"
+                      strokeWidth="1.5"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
+                    />
+                    <text
+                      x={(sp.x + tp.x) / 2}
+                      y={(sp.y + tp.y) / 2 + 3}
+                      textAnchor="middle"
+                      fill="#FF5E57"
+                      fontSize="10px"
+                      fontWeight="bold"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
+                    >
+                      ×
+                    </text>
+                  </>
+                )}
               </g>
             );
           })}
@@ -588,12 +868,15 @@ export default function Canvas({
 
         <div className="absolute inset-0 pointer-events-none">
           {nodes.map((node) => {
-            const isSelected = selectedNodeId === node.id;
+            const isSelected = selectedIds.includes(node.id) || selectedNodeId === node.id;
+            const isForever = node.subType === "loop_forever";
             const isNodeRunning =
               executingNodeId === node.id || node.status === "running";
-            const nodeAccentColor = getNodeColor(node.type);
+            const nodeAccentColor = isForever ? "#FF5E57" : getNodeColor(node.type);
             const xy = getNodeXY(node);
-            const thisDragging = draggingNodeId === node.id;
+            const thisDragging =
+              draggingNodeId === node.id ||
+              (localGroupDelta != null && selectedIds.includes(node.id) && dragGroupIdsRef.current.includes(node.id));
 
             return (
               <div
@@ -601,7 +884,12 @@ export default function Canvas({
                 onMouseDown={(e) => handleNodeDragStart(e, node)}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onSelectNode(node.id);
+                  if (!(e.ctrlKey || e.metaKey)) {
+                    if (!selectedIds.includes(node.id) || selectedIds.length <= 1) {
+                      setSelectedIds([node.id]);
+                    }
+                    onSelectNode(node.id);
+                  }
                 }}
                 style={{
                   left: xy.x,
@@ -611,13 +899,18 @@ export default function Canvas({
                     themeMode === "light"
                       ? "rgba(255, 255, 255, 0.72)"
                       : "rgba(24, 28, 43, 0.75)",
-                  borderColor: isSelected
-                    ? colors.primary
-                    : themeMode === "light"
-                      ? "rgba(0, 0, 0, 0.08)"
-                      : "rgba(255, 255, 255, 0.06)",
+                  borderColor: isForever
+                    ? "#FF5E57"
+                    : isSelected
+                      ? colors.primary
+                      : themeMode === "light"
+                        ? "rgba(0, 0, 0, 0.08)"
+                        : "rgba(255, 255, 255, 0.06)",
+                  borderWidth: isForever ? 2 : undefined,
+                  boxShadow: isForever
+                    ? "0 0 0 3px rgba(255, 94, 87, 0.25)"
+                    : undefined,
                   color: colors.text,
-                  // Disable transform transitions while dragging this node
                   transition: thisDragging ? "none" : undefined,
                   willChange: thisDragging ? "left, top" : undefined,
                 }}
@@ -629,6 +922,11 @@ export default function Canvas({
                   themeMode === "light" ? "glass-shadow-light" : "glass-shadow-dark"
                 } ${thisDragging ? "" : "hover:shadow-2xl"}`}
               >
+                {isForever && (
+                  <div className="absolute -top-2.5 left-3 px-1.5 py-0.5 rounded-md bg-rose-500 text-white text-[9px] font-bold tracking-wide uppercase">
+                    FOREVER
+                  </div>
+                )}
                 <div className="flex items-center justify-between border-b border-black/5 dark:border-white/5 pb-2.5 shrink-0">
                   <div className="flex items-center space-x-2 truncate">
                     <span
@@ -664,7 +962,9 @@ export default function Canvas({
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onRemoveNode(node.id);
+                        if (onRemoveNodes) onRemoveNodes([node.id]);
+                        else onRemoveNode(node.id);
+                        setSelectedIds((prev) => prev.filter((id) => id !== node.id));
                       }}
                       style={{ color: colors.danger }}
                       className="p-1 rounded-lg hover:bg-red-500/15 transition-all cursor-pointer"
@@ -772,6 +1072,20 @@ export default function Canvas({
             );
           })}
         </div>
+
+        {marquee && (
+          <div
+            style={{
+              left: Math.min(marquee.x0, marquee.x1),
+              top: Math.min(marquee.y0, marquee.y1),
+              width: Math.abs(marquee.x1 - marquee.x0),
+              height: Math.abs(marquee.y1 - marquee.y0),
+              borderColor: colors.primary,
+              backgroundColor: colors.primary + "22",
+            }}
+            className="absolute border border-dashed pointer-events-none z-40"
+          />
+        )}
       </div>
     </div>
   );
