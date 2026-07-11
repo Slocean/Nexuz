@@ -321,6 +321,13 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: true, message: 'pong (browser mock)', dpi_scale: 1 });
     case 'get_block_registry':
       return Promise.resolve(MOCK_SCHEMAS);
+    case 'list_schedule_jobs':
+      return Promise.resolve({ ok: true, jobs: [] });
+    case 'window_minimize':
+    case 'window_toggle_maximize':
+    case 'window_close':
+    case 'window_is_maximized':
+      return Promise.resolve({ ok: true, maximized: false });
     case 'run_flow':
       return Promise.resolve({ ok: false, error: '请在桌面客户端中运行流程（python backend/main.py --dev）' });
     case 'save_flow':
@@ -377,4 +384,8 @@ export const bridge = {
     call('capture_template', hideWindow, filename),
   listScheduleJobs: () => call('list_schedule_jobs'),
   removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
+  windowMinimize: () => call('window_minimize'),
+  windowToggleMaximize: () => call('window_toggle_maximize'),
+  windowClose: () => call('window_close'),
+  windowIsMaximized: () => call('window_is_maximized'),
 };

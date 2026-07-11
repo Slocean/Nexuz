@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Play,
   Save,
@@ -17,6 +17,10 @@ import {
   StepForward,
   LayoutGrid,
   FileCode2,
+  Minus,
+  Maximize2,
+  Minimize2,
+  X,
 } from 'lucide-react';
 import { ThemeName, ThemeMode } from '../types';
 import { getThemeColors } from '../theme';
@@ -30,6 +34,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { bridge } from '@/bridge';
 
 interface ToolbarProps {
   workflowName: string;
@@ -83,8 +88,15 @@ export default function Toolbar({
   onViewModeChange,
 }: ToolbarProps) {
   const [isSaved, setIsSaved] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const colors = getThemeColors(themeName, themeMode);
   const themes: ThemeName[] = ['Ocean', 'Mint', 'Purple', 'Rose', 'Orange'];
+
+  useEffect(() => {
+    bridge.windowIsMaximized?.().then((res: any) => {
+      if (res?.maximized != null) setMaximized(!!res.maximized);
+    });
+  }, []);
 
   const handleSave = async () => {
     if (onSave) {
@@ -99,6 +111,21 @@ export default function Toolbar({
     setTimeout(() => setIsSaved(false), 2000);
   };
 
+  const onWinMinimize = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    bridge.windowMinimize();
+  };
+  const onWinMaximize = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const res = await bridge.windowToggleMaximize();
+    if (res?.maximized != null) setMaximized(!!res.maximized);
+    else setMaximized((v) => !v);
+  };
+  const onWinClose = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    bridge.windowClose();
+  };
+
   return (
     <header
       style={{
@@ -106,9 +133,12 @@ export default function Toolbar({
         borderColor: colors.border,
         color: colors.text,
       }}
-      className="relative h-14 px-4 border-b flex items-center backdrop-blur-xl z-40 shrink-0 overflow-visible"
+      className="relative h-14 border-b flex items-center backdrop-blur-xl z-40 shrink-0 overflow-visible"
     >
-      <div className="flex items-center gap-3 min-w-0 shrink-0 z-10">
+      {/* Frameless drag strip (behind interactive controls) */}
+      <div className="pywebview-drag-region absolute inset-0 z-0" aria-hidden />
+
+      <div className="relative z-10 flex items-center gap-3 min-w-0 shrink-0 pl-4">
         {onBackToMain && (
           <Button type="button" variant="outline" size="sm" onClick={onBackToMain}>
             主程序
@@ -245,7 +275,7 @@ export default function Toolbar({
         </div>
       </div>
 
-      <div className="ml-auto flex items-center gap-1.5 shrink-0 z-10">
+      <div className="relative z-10 ml-auto flex items-center gap-1 shrink-0 pr-1.5">
         {onViewModeChange && (
           <div className="flex items-center p-0.5 rounded-xl border border-white/10 bg-black/5 dark:bg-white/5 mr-1">
             <Button
@@ -320,13 +350,35 @@ export default function Toolbar({
           <span className="hidden md:inline">Flow AI</span>
         </Button>
 
-        <div
-          style={{ borderColor: colors.primary + '40' }}
-          className="h-9 w-9 rounded-2xl border overflow-hidden shrink-0 flex items-center justify-center bg-gradient-to-tr from-indigo-500 via-blue-500 to-emerald-500 p-[1.5px]"
-        >
-          <div className="w-full h-full bg-slate-900 rounded-[14px] flex items-center justify-center text-[10px] text-white font-mono font-bold">
-            NX
-          </div>
+        <div className="flex items-center ml-1 pl-1 border-l border-white/10">
+          <button
+            type="button"
+            onClick={onWinMinimize}
+            title="最小化"
+            className="h-9 w-10 inline-flex items-center justify-center rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+          >
+            <Minus className="w-4 h-4 opacity-80" />
+          </button>
+          <button
+            type="button"
+            onClick={onWinMaximize}
+            title={maximized ? '还原' : '最大化'}
+            className="h-9 w-10 inline-flex items-center justify-center rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+          >
+            {maximized ? (
+              <Minimize2 className="w-3.5 h-3.5 opacity-80" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5 opacity-80" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onWinClose}
+            title="关闭"
+            className="h-9 w-10 inline-flex items-center justify-center rounded-lg hover:bg-rose-500 hover:text-white transition-colors"
+          >
+            <X className="w-4 h-4 opacity-90" />
+          </button>
         </div>
       </div>
     </header>

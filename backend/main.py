@@ -51,14 +51,23 @@ def resolve_ui_url() -> str:
 def main() -> None:
     api = Api()
     url = resolve_ui_url()
-    window = webview.create_window(
-        title="Nexuz — 桌面自动化平台",
+    # Frameless: no OS title bar; app Toolbar provides drag + min/max/close
+    window_kwargs = dict(
+        title="Nexuz",
         url=url,
         js_api=api,
         width=1400,
         height=900,
         min_size=(1024, 700),
+        frameless=True,
+        easy_drag=False,
+        background_color="#0A0D14",
     )
+    # shadow is supported on recent pywebview (Windows); ignore if older
+    try:
+        window = webview.create_window(**window_kwargs, shadow=True)
+    except TypeError:
+        window = webview.create_window(**window_kwargs)
     api.set_window(window)
     webview.start(debug="--dev" in sys.argv)
 

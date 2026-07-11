@@ -90,6 +90,55 @@ class Api:
         w, h = screen_size_logical()
         return {"width": w, "height": h, "dpi_scale": get_dpi_scale()}
 
+    # --- window chrome (frameless custom title bar) ---
+    def window_minimize(self) -> dict:
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        try:
+            self._window.minimize()
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def window_toggle_maximize(self) -> dict:
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        try:
+            maximized = False
+            state = getattr(self._window, "state", None)
+            # pywebview WindowState may expose maximized
+            if state is not None:
+                name = getattr(state, "name", str(state))
+                maximized = "maximized" in str(name).lower()
+            if maximized or getattr(self, "_ui_maximized", False):
+                self._window.restore()
+                self._ui_maximized = False
+                return {"ok": True, "maximized": False}
+            self._window.maximize()
+            self._ui_maximized = True
+            return {"ok": True, "maximized": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def window_close(self) -> dict:
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        try:
+            self._window.destroy()
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def window_is_maximized(self) -> dict:
+        maximized = bool(getattr(self, "_ui_maximized", False))
+        try:
+            state = getattr(self._window, "state", None) if self._window else None
+            if state is not None and "maximized" in str(getattr(state, "name", state)).lower():
+                maximized = True
+        except Exception:
+            pass
+        return {"ok": True, "maximized": maximized}
+
     # --- flow execution ---
     def run_flow(self, flow_json: str, step_mode: bool = False, hide_window: bool = True) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
