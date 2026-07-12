@@ -9,8 +9,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { formatNodeRef, formatVarRef } from '../bindValue';
+import { formatNodeRef, formatVarRef, listFlowVariableNames } from '../bindValue';
 import { inspectEmbeddedRefs } from '../bindValidate';
+import VariableSelect from './VariableSelect';
 
 const OPS = [
   { value: '==', label: '等于' },
@@ -62,11 +63,7 @@ export default function ExpressionField({
       .filter((n) => n.outputs.length > 0);
   }, [flowNodes, schemaMap, currentNodeId]);
 
-  const varOptions = useMemo(() => {
-    const keys = new Set<string>();
-    for (const k of Object.keys(variables || {})) keys.add(String(k).replace(/^\$/, ''));
-    return Array.from(keys).filter(Boolean).sort();
-  }, [variables]);
+  const varOptions = useMemo(() => listFlowVariableNames(variables), [variables]);
 
   const leftFields = nodeOptions.find((n) => n.id === leftNode)?.outputs || [];
   const rightFields = nodeOptions.find((n) => n.id === rightNode)?.outputs || [];
@@ -146,14 +143,25 @@ export default function ExpressionField({
             ))}
           </SelectContent>
         </Select>
-        <Select value={rightKind} onValueChange={(v) => setRightKind(v as any)}>
+        <Select
+          value={rightKind}
+          onValueChange={(v) => {
+            const next = v as 'literal' | 'node' | 'variable';
+            setRightKind(next);
+            if (next === 'variable' && !rightVar && varOptions[0]) {
+              setRightVar(varOptions[0]);
+            }
+          }}
+        >
           <SelectTrigger className="h-7 w-[4.5rem] text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="literal">常量</SelectItem>
             <SelectItem value="node">上游</SelectItem>
-            <SelectItem value="variable">变量</SelectItem>
+            <SelectItem value="variable" disabled={varOptions.length === 0}>
+              变量{varOptions.length === 0 ? '（未创建）' : ''}
+            </SelectItem>
           </SelectContent>
         </Select>
         {rightKind === 'literal' ? (
@@ -164,18 +172,13 @@ export default function ExpressionField({
             onChange={(e) => setRightLiteral(e.target.value)}
           />
         ) : rightKind === 'variable' ? (
-          <Select value={rightVar || undefined} onValueChange={setRightVar}>
-            <SelectTrigger className="h-7 w-[6rem] text-xs">
-              <SelectValue placeholder="$变量" />
-            </SelectTrigger>
-            <SelectContent>
-              {varOptions.map((v) => (
-                <SelectItem key={v} value={v}>
-                  ${v}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <VariableSelect
+            value={rightVar ? `$${rightVar}` : ''}
+            bare
+            onChange={(name) => setRightVar(name)}
+            placeholder="$变量"
+            triggerClassName="h-7 w-[6rem] text-xs"
+          />
         ) : (
           <>
             <Select

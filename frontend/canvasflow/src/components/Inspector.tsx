@@ -7,7 +7,9 @@ import { logsToText } from '../nexuzAdapter';
 import { isBindableInput } from '../bindValue';
 import { type BindIssue } from '../bindValidate';
 import BindableInput, { OutputRefChip } from './BindableInput';
+import VariableSelect from './VariableSelect';
 import ExpressionField from './ExpressionField';
+import { listFlowVariableNames } from '../bindValue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -44,12 +46,13 @@ interface InspectorProps {
   bindIssues?: BindIssue[];
 }
 
-/** Edit Record<string, string|number> as rows — values optionally bindable */
+/** Edit Record<string, string|number> as rows — keys from flow variables when keyMode=variable */
 function KeyMapEditor({
   value,
   onChange,
   keyPlaceholder,
   valueMode,
+  keyMode = 'text',
   currentNodeId,
   schemaMap,
 }: {
@@ -57,10 +60,15 @@ function KeyMapEditor({
   onChange: (next: Record<string, any>) => void;
   keyPlaceholder: string;
   valueMode: 'bindable' | 'plain';
+  /** variable = 下拉选择已创建全局变量，禁止手输 */
+  keyMode?: 'variable' | 'text';
   currentNodeId: string;
   schemaMap: Record<string, any>;
 }) {
+  const variables = useFlowStore((s) => s.flow.variables || {});
+  const varNames = listFlowVariableNames(variables);
   const entries = Object.entries(value && typeof value === 'object' ? value : {});
+  const usedKeys = entries.map(([k]) => String(k).replace(/^\$/, ''));
 
   const setEntry = (idx: number, key: string, val: any) => {
     const next: Record<string, any> = {};
@@ -79,17 +87,53 @@ function KeyMapEditor({
     onChange(next);
   };
 
+  const addRow = () => {
+    if (keyMode === 'variable') {
+      const free = varNames.find((n) => !usedKeys.includes(n));
+      if (!free) return;
+      onChange({ ...Object.fromEntries(entries), [free]: '' });
+      return;
+    }
+    let i = 0;
+    let key = `var${i}`;
+    const existing = new Set(Object.keys(Object.fromEntries(entries)));
+    while (existing.has(key)) {
+      i += 1;
+      key = `var${i}`;
+    }
+    onChange({ ...Object.fromEntries(entries), [key]: '' });
+  };
+
   return (
     <div className="space-y-2 w-full">
+      {keyMode === 'variable' && varNames.length === 0 && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
+          请先在侧栏「变量」页创建全局变量，再添加映射。
+        </p>
+      )}
       {entries.map(([k, v], idx) => (
-        <div key={idx} className="flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 p-1.5">
+        <div
+          key={idx}
+          className="flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 p-1.5"
+        >
           <div className="flex items-center gap-1">
-            <Input
-              className="h-7 text-xs font-mono flex-1"
-              placeholder={keyPlaceholder}
-              value={k}
-              onChange={(e) => setEntry(idx, e.target.value, v)}
-            />
+            {keyMode === 'variable' ? (
+              <VariableSelect
+                value={k}
+                bare
+                exclude={usedKeys.filter((u) => u !== String(k).replace(/^\$/, ''))}
+                onChange={(name) => setEntry(idx, name, v)}
+                placeholder={keyPlaceholder}
+                triggerClassName="h-7 text-xs font-mono flex-1"
+              />
+            ) : (
+              <Input
+                className="h-7 text-xs font-mono flex-1"
+                placeholder={keyPlaceholder}
+                value={k}
+                onChange={(e) => setEntry(idx, e.target.value, v)}
+              />
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -124,19 +168,8 @@ function KeyMapEditor({
         variant="outline"
         size="sm"
         className="w-full"
-        onClick={() => {
-          let i = 0;
-          let key = `var${i}`;
-          const existing = new Set(Object.keys(Object.fromEntries(entries)));
-          while (existing.has(key)) {
-            i += 1;
-            key = `var${i}`;
-          }
-          onChange({
-            ...Object.fromEntries(entries),
-            [key]: valueMode === 'bindable' ? '' : '',
-          });
-        }}
+        disabled={keyMode === 'variable' && (varNames.length === 0 || usedKeys.length >= varNames.length)}
+        onClick={addRow}
       >
         添加映射
       </Button>
@@ -634,8 +667,9 @@ export default function Inspector({
                   value={value && typeof value === 'object' && !Array.isArray(value) ? value : {}}
                   onChange={(next) => handleFieldChange(input.name, next)}
                   keyPlaceholder={
-                    input.ui === 'output_map' ? '父流程变量名' : '子流程变量名'
+                    input.ui === 'output_map' ? '父流程变量' : '子流程侧变量名'
                   }
+                  keyMode={input.ui === 'output_map' ? 'variable' : 'text'}
                   valueMode={input.ui === 'output_map' ? 'plain' : 'bindable'}
                   currentNodeId={selectedNode.id}
                   schemaMap={schemaMap}

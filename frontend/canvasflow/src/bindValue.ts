@@ -44,6 +44,16 @@ export function formatVarRef(name: string): string {
   return n ? `$${n}` : '';
 }
 
+/** Normalize flow.variables keys → bare names without $, deduped & sorted */
+export function listFlowVariableNames(variables: Record<string, any> | undefined | null): string[] {
+  const keys = new Set<string>();
+  for (const k of Object.keys(variables || {})) {
+    const bare = String(k).replace(/^\$/, '').trim();
+    if (bare) keys.add(bare);
+  }
+  return Array.from(keys).sort((a, b) => a.localeCompare(b));
+}
+
 export function literalToDisplay(value: unknown, inputType?: string): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;

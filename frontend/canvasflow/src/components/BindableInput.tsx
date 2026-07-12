@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { Link2, Hash } from 'lucide-react';
 import { useFlowStore } from '@/store/flowModelStore';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -17,11 +16,12 @@ import {
   formatNodeRef,
   formatVarRef,
   isRefValue,
+  listFlowVariableNames,
   literalToDisplay,
   parseNodeRef,
-  parseVarRef,
 } from '../bindValue';
 import { inspectBindValue } from '../bindValidate';
+import VariableSelect from './VariableSelect';
 
 type SchemaMap = Record<string, { label?: string; outputs?: { name: string; type?: string }[] }>;
 
@@ -52,7 +52,6 @@ export default function BindableInput({
 
   const kind = detectBindKind(value);
   const nodeRef = kind === 'node' && typeof value === 'string' ? parseNodeRef(value) : null;
-  const varName = kind === 'variable' && typeof value === 'string' ? parseVarRef(value) : null;
 
   const status = useMemo(
     () =>
@@ -72,13 +71,7 @@ export default function BindableInput({
       .filter((n) => n.outputs.length > 0);
   }, [flowNodes, schemaMap, currentNodeId]);
 
-  const varOptions = useMemo(() => {
-    const keys = new Set<string>();
-    for (const k of Object.keys(variables || {})) {
-      keys.add(String(k).replace(/^\$/, ''));
-    }
-    return Array.from(keys).filter(Boolean).sort();
-  }, [variables]);
+  const varOptions = useMemo(() => listFlowVariableNames(variables), [variables]);
 
   const selectedNode = nodeOptions.find((n) => n.id === nodeRef?.nodeId);
   const fields = selectedNode?.outputs || [];
@@ -90,7 +83,7 @@ export default function BindableInput({
     }
     if (next === 'variable') {
       const first = varOptions[0];
-      onChange(first ? formatVarRef(first) : '$');
+      onChange(first ? formatVarRef(first) : '');
       return;
     }
     // node
@@ -119,7 +112,9 @@ export default function BindableInput({
         <SelectContent>
           <SelectItem value="literal">常量</SelectItem>
           <SelectItem value="node">上游</SelectItem>
-          <SelectItem value="variable">变量</SelectItem>
+          <SelectItem value="variable" disabled={varOptions.length === 0}>
+            变量{varOptions.length === 0 ? '（未创建）' : ''}
+          </SelectItem>
         </SelectContent>
       </Select>
 
@@ -133,27 +128,11 @@ export default function BindableInput({
           onChange={(e) => onChange(coerceLiteral(e.target.value, inputType))}
         />
       ) : kind === 'variable' ? (
-        <Select
-          value={varName || undefined}
-          onValueChange={(v) => onChange(formatVarRef(v))}
-        >
-          <SelectTrigger className="h-8 flex-1 min-w-0">
-            <SelectValue placeholder={varOptions.length ? '选择变量' : '暂无变量'} />
-          </SelectTrigger>
-          <SelectContent>
-            {varOptions.length === 0 ? (
-              <SelectItem value="__none" disabled>
-                请先在「变量」页添加
-              </SelectItem>
-            ) : (
-              varOptions.map((v) => (
-                <SelectItem key={v} value={v}>
-                  ${v}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
+        <VariableSelect
+          value={value}
+          onChange={onChange}
+          placeholder={varOptions.length ? '选择已创建变量' : '暂无变量'}
+        />
       ) : (
         <>
           <Select

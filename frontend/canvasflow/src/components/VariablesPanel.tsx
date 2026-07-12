@@ -72,8 +72,9 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
           全局变量
         </h3>
         <p style={{ color: colors.secondaryText }} className="text-xs leading-relaxed">
-          在节点参数中用 <code className="font-mono">$name</code> 或{' '}
-          <code className="font-mono">{`{{$name}}`}</code> 引用。运行时会注入执行上下文。
+          在此创建的变量会自动出现在参数「变量」下拉中，选择即可引用（
+          <code className="font-mono">$name</code>
+          ），无需手输变量名。
         </p>
       </div>
 
