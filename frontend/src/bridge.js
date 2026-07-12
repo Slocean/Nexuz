@@ -319,7 +319,16 @@ async function call(method, ...args) {
   if (!api || typeof api[method] !== 'function') {
     return mockCall(method, ...args);
   }
-  return api[method](...args);
+  try {
+    const result = await api[method](...args);
+    return result;
+  } catch (e) {
+    return {
+      ok: false,
+      error: String(e?.message || e || `${method} 调用失败`),
+      message: String(e?.message || e || `${method} 调用失败`),
+    };
+  }
 }
 
 function mockCall(method, ...args) {
@@ -399,11 +408,22 @@ export const bridge = {
   captureTemplate: (hideWindow = true, filename = null) =>
     call('capture_template', hideWindow, filename),
   listCaptureProviders: () => call('list_capture_providers'),
-  fridaAttach: (processName = null, pid = null) => call('frida_attach', processName, pid),
+  fridaAttach: (processNameOrOpts = null, pid = null) => {
+    if (processNameOrOpts && typeof processNameOrOpts === 'object') {
+      return call('frida_attach', processNameOrOpts);
+    }
+    return call('frida_attach', {
+      process_name: processNameOrOpts,
+      pid,
+    });
+  },
   fridaDetach: () => call('frida_detach'),
   fridaStatus: () => call('frida_status'),
   fridaListProcesses: (query = null, onlyWithWindow = true) =>
-    call('frida_list_processes', query, onlyWithWindow),
+    call('frida_list_processes', {
+      query,
+      only_with_window: onlyWithWindow !== false,
+    }),
   listScheduleJobs: () => call('list_schedule_jobs'),
   removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),

@@ -1,7 +1,7 @@
 /**
  * App settings page — behavior / window prefs (not buried in Inspector).
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EyeOff, Link2, Monitor, MousePointer2, RefreshCw, Settings2, Unplug } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -30,6 +30,22 @@ type ProcRow = {
   display?: string;
 };
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label}超时（${Math.round(ms / 1000)}s）`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
 export default function SettingsPage({
   themeName,
   themeMode,
@@ -57,20 +73,32 @@ export default function SettingsPage({
   const [fridaBusy, setFridaBusy] = useState(false);
   const [listBusy, setListBusy] = useState(false);
   const [fridaMsg, setFridaMsg] = useState('');
+  const listSeq = useRef(0);
+  const onlyWithWindowRef = useRef(onlyWithWindow);
+  onlyWithWindowRef.current = onlyWithWindow;
 
   const refreshFrida = useCallback(async () => {
     try {
       const st = await bridge.fridaStatus();
-      setFridaStatus(st || {});
+      if (st && typeof st === 'object') {
+        setFridaStatus(st);
+      }
     } catch {
-      setFridaStatus({});
+      /* ignore polling errors */
     }
   }, []);
 
-  const refreshProcesses = useCallback(async (withWindow = onlyWithWindow) => {
+  const refreshProcesses = useCallback(async (withWindow?: boolean) => {
+    const flag = typeof withWindow === 'boolean' ? withWindow : onlyWithWindowRef.current;
+    const seq = ++listSeq.current;
     setListBusy(true);
     try {
-      const res = await bridge.fridaListProcesses(null, withWindow);
+      const res = await withTimeout(
+        bridge.fridaListProcesses(null, flag),
+        20000,
+        '刷新进程列表',
+      );
+      if (seq !== listSeq.current) return;
       if (res?.ok && Array.isArray(res.processes)) {
         setProcesses(res.processes);
         setSelectedKey((prev) => {
@@ -78,24 +106,29 @@ export default function SettingsPage({
           const pid = Number(prev.split('|')[0]);
           return res.processes.some((p: ProcRow) => p.pid === pid) ? prev : '';
         });
+        setFridaMsg((m) => (m.startsWith('无法枚举') || m.includes('枚举进程') ? '' : m));
       } else {
         setProcesses([]);
         setFridaMsg(res?.error || res?.message || '无法枚举进程');
       }
     } catch (e: any) {
+      if (seq !== listSeq.current) return;
       setProcesses([]);
       setFridaMsg(String(e?.message || e || '枚举进程失败'));
     } finally {
-      setListBusy(false);
+      if (seq === listSeq.current) setListBusy(false);
     }
-  }, [onlyWithWindow]);
+  }, []);
 
   useEffect(() => {
-    refreshFrida();
-    const t = setInterval(refreshFrida, 3000);
+    void refreshFrida();
+    const t = setInterval(() => {
+      void refreshFrida();
+    }, 3000);
     return () => clearInterval(t);
   }, [refreshFrida]);
 
+  // Load once on mount + whenever filter mode changes (stable callback, no loop)
   useEffect(() => {
     void refreshProcesses(onlyWithWindow);
   }, [onlyWithWindow, refreshProcesses]);
@@ -129,17 +162,31 @@ export default function SettingsPage({
       setFridaMsg('请先从列表选择进程');
       return;
     }
+    if (fridaBusy) return;
     setFridaBusy(true);
-    setFridaMsg('');
+    setFridaMsg(`正在连接 ${selected.name} (PID ${selected.pid})…`);
     try {
-      const res = await bridge.fridaAttach(selected.name, selected.pid);
-      if (res?.ok) {
+      const res = await withTimeout(
+        bridge.fridaAttach(selected.name, selected.pid),
+        45000,
+        '连接进程',
+      );
+      const ok = res?.ok === true;
+      if (ok && res?.attached !== false) {
+        const hookPart = res.hooked
+          ? ' · Hook 就绪'
+          : ` · 已附加但 Hook 未就绪${res.warning || res.last_error ? `：${res.warning || res.last_error}` : ''}`;
         setFridaMsg(
-          `已连接：${res.process_name || selected.name}${res.pid ? ` (PID ${res.pid})` : ''}`,
+          `连接成功：${res.process_name || selected.name}${
+            res.pid ? ` (PID ${res.pid})` : ''
+          }${hookPart}`,
         );
       } else {
-        setFridaMsg(res?.error || res?.message || '连接失败');
+        setFridaMsg(res?.error || res?.message || res?.last_error || '连接失败');
       }
+      await refreshFrida();
+    } catch (e: any) {
+      setFridaMsg(String(e?.message || e || '连接失败'));
       await refreshFrida();
     } finally {
       setFridaBusy(false);
@@ -147,12 +194,15 @@ export default function SettingsPage({
   };
 
   const handleDetach = async () => {
+    if (fridaBusy) return;
     setFridaBusy(true);
-    setFridaMsg('');
+    setFridaMsg('正在断开…');
     try {
-      await bridge.fridaDetach();
+      await withTimeout(bridge.fridaDetach(), 15000, '断开连接');
       setFridaMsg('已断开');
       await refreshFrida();
+    } catch (e: any) {
+      setFridaMsg(String(e?.message || e || '断开失败'));
     } finally {
       setFridaBusy(false);
     }
@@ -244,7 +294,9 @@ export default function SettingsPage({
                 variant="ghost"
                 className="h-7 px-2"
                 disabled={listBusy}
-                onClick={() => refreshProcesses(onlyWithWindow)}
+                onClick={() => {
+                  void refreshProcesses(onlyWithWindow);
+                }}
                 title="刷新进程列表"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${listBusy ? 'animate-spin' : ''}`} />

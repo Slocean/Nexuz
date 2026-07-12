@@ -261,9 +261,8 @@ export default function Toolbar({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 px-2.5" title="主题色">
+              <Button variant="ghost" size="icon" className="h-8 w-8" title="主题色">
                 <Palette className="w-4 h-4 opacity-80" />
-                <span>主题</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-44">

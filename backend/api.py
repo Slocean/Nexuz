@@ -398,22 +398,53 @@ class Api:
         return session.pick_click(mode=mode or "coord", hide_window=bool(hide_window))
 
     # --- Frida session ---
-    def frida_list_processes(
-        self,
-        query: str | None = None,
-        only_with_window: bool = True,
-    ) -> dict:
+    def frida_list_processes(self, options=None) -> dict:
+        """
+        Enumerate processes.
+        pywebview 对多可选参数不稳定，统一收一个 options（dict 或兼容旧调用）。
+        options: {query?, only_with_window?} 或直接传 query 字符串。
+        """
         from backend.core.input.frida.session_manager import get_frida_session_manager
+
+        query = None
+        only_with_window = True
+        if isinstance(options, dict):
+            query = options.get("query")
+            if "only_with_window" in options:
+                only_with_window = bool(options.get("only_with_window"))
+        elif isinstance(options, str):
+            query = options
+        elif options is None:
+            pass
+        else:
+            # legacy: accidental boolean as first arg
+            only_with_window = bool(options)
 
         return get_frida_session_manager().list_processes(
             query=query,
-            only_with_window=bool(only_with_window),
+            only_with_window=only_with_window,
         )
 
-    def frida_attach(self, process_name: str | None = None, pid: int | None = None) -> dict:
+    def frida_attach(self, options=None, pid=None) -> dict:
+        """
+        Attach by options dict {process_name|name, pid} or legacy (name, pid).
+        """
         from backend.core.input.frida.session_manager import get_frida_session_manager
 
-        return get_frida_session_manager().attach(process_name=process_name, pid=pid)
+        process_name = None
+        pid_i = None
+        if isinstance(options, dict):
+            process_name = options.get("process_name") or options.get("name")
+            raw_pid = options.get("pid", pid)
+        else:
+            process_name = options
+            raw_pid = pid
+        if raw_pid is not None and str(raw_pid).strip() != "":
+            try:
+                pid_i = int(raw_pid)
+            except Exception:
+                pid_i = None
+        return get_frida_session_manager().attach(process_name=process_name, pid=pid_i)
 
     def frida_detach(self) -> dict:
         from backend.core.input.frida.session_manager import get_frida_session_manager

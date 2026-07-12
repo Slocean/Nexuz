@@ -68,7 +68,7 @@ def _exe_by_pid(pids: set[int]) -> dict[int, str]:
     for pid in pids:
         try:
             out[pid] = str(psutil.Process(pid).exe() or "")
-        except Exception:
+        except (psutil.Error, OSError, Exception):
             continue
     return out
 
@@ -85,39 +85,43 @@ def enrich_process_rows(
     this removes most duplicate helper/worker processes for games.
     """
     titles_map = _windows_visible_titles_by_pid()
-    pids = {int(r["pid"]) for r in rows if r.get("pid")}
-    exe_map = _exe_by_pid(pids)
     q = (query or "").strip().lower()
 
-    enriched: list[dict[str, Any]] = []
+    # First pass: decide candidates (avoid exe() on hundreds of helper PIDs)
+    candidates: list[tuple[dict[str, Any], list[str], str]] = []
     for row in rows:
         pid = int(row.get("pid") or 0)
         name = str(row.get("name") or "")
         if not pid or not name:
             continue
         win_titles = titles_map.get(pid) or []
-        # Prefer longest / first non-empty as primary
         window_title = win_titles[0] if win_titles else ""
+        if only_with_window and not window_title:
+            continue
+        # Cheap prefilter before exe lookup
+        if q:
+            hay0 = f"{name} {pid} {window_title} {' '.join(win_titles)}".lower()
+            if q not in hay0:
+                # may still match exe path — keep if no query on title/name only when not only_with_window
+                # For speed: if query looks like path fragment, keep candidates with window
+                if only_with_window or not any(ch in q for ch in ("\\", "/", ".")):
+                    continue
+        candidates.append(({"pid": pid, "name": name}, win_titles, window_title))
+
+    exe_map = _exe_by_pid({int(c[0]["pid"]) for c in candidates})
+
+    enriched: list[dict[str, Any]] = []
+    for base, win_titles, window_title in candidates:
+        pid = int(base["pid"])
+        name = str(base["name"])
         exe = exe_map.get(pid) or ""
         exe_base = os.path.basename(exe) if exe else ""
 
-        if only_with_window and not window_title:
-            continue
+        if q:
+            hay = " ".join([name, str(pid), window_title, exe, exe_base, " ".join(win_titles)]).lower()
+            if q not in hay:
+                continue
 
-        hay = " ".join(
-            [
-                name,
-                str(pid),
-                window_title,
-                exe,
-                exe_base,
-                " ".join(win_titles),
-            ]
-        ).lower()
-        if q and q not in hay:
-            continue
-
-        # Human label: window first (unique), then name + pid
         if window_title:
             display = f"{window_title}  ·  {name}  ·  PID {pid}"
         elif exe_base and exe_base.lower() != name.lower():
@@ -138,7 +142,6 @@ def enrich_process_rows(
             }
         )
 
-    # Sort: has window first, then by window title / name
     enriched.sort(
         key=lambda r: (
             0 if r.get("has_window") else 1,

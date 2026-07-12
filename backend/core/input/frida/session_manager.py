@@ -110,8 +110,11 @@ class FridaSessionManager:
 
         with self._lock:
             if self._attached and self._script:
-                return api_ok(**self.status())
+                st = {k: v for k, v in self.status().items() if k != "ok"}
+                return api_ok(**st)
 
+            session = None
+            script = None
             try:
                 device = frida.get_local_device()
                 self._device = device
@@ -140,22 +143,56 @@ class FridaSessionManager:
 
                 source = load_unity_ui_click_script()
                 script = session.create_script(source)
+
+                # Surface script runtime errors into last_error
+                def on_message(message, _data):
+                    if isinstance(message, dict) and message.get("type") == "error":
+                        self._last_error = str(
+                            message.get("description")
+                            or message.get("stack")
+                            or message
+                        )
+
+                try:
+                    script.on("message", on_message)
+                except Exception:
+                    pass
+
                 script.load()
                 self._session = session
                 self._script = script
                 self._attached = True
-                self._last_error = None
                 self._resolve_cache.clear()
 
-                # Install hooks
-                hook_result = self._call("attachHooks")
-                self._hooked = bool((hook_result or {}).get("ok", True))
+                # Soft-fail hooks: process attach success != Unity UI hook success
+                hook_warning = None
+                try:
+                    hook_result = self._call("attachHooks")
+                except Exception as hook_exc:
+                    hook_result = {"ok": False, "error": str(hook_exc)}
                 if isinstance(hook_result, dict) and not hook_result.get("ok", True):
-                    self._last_error = str(hook_result.get("error") or hook_result.get("message") or "hook failed")
-                    return api_error(ERROR_FRIDA_SCRIPT, self._last_error, **self.status())
+                    self._hooked = False
+                    hook_warning = str(
+                        hook_result.get("error")
+                        or hook_result.get("message")
+                        or "UI Hook 未就绪"
+                    )
+                    self._last_error = hook_warning
+                else:
+                    self._hooked = True
+                    self._last_error = None
 
-                return api_ok(**self.status())
+                st = {k: v for k, v in self.status().items() if k != "ok"}
+                st["attached"] = True
+                st["hooked"] = bool(self._hooked)
+                if hook_warning:
+                    st["warning"] = hook_warning
+                    st["message"] = f"已连接进程，但 UI Hook 未就绪：{hook_warning}"
+                return api_ok(**st)
             except Exception as exc:
+                # Clean partial session
+                self._script = script
+                self._session = session
                 self._cleanup_locked()
                 self._last_error = str(exc)
                 return api_error(ERROR_FRIDA_NOT_ATTACHED, f"Frida attach 失败: {exc}")
