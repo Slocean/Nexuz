@@ -126,7 +126,7 @@ function DropdownMenuLabel({ className, inset, ...props }) {
   return (
     <DropdownMenuPrimitive.Label
       className={cn(
-        'px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]',
+        'px-2 py-1 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]',
         inset && 'pl-8',
         className,
       )}

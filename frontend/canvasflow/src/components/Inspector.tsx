@@ -178,7 +178,7 @@ export default function Inspector({
         </Button>
       </div>
       <ScrollArea className="h-36">
-        <div className="space-y-1.5 font-mono text-xs pr-2 select-text cursor-text">
+        <div className="space-y-1.5 font-mono text-sm pr-2 select-text cursor-text">
           {logs.length === 0 && (
             <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
               尚无日志
@@ -834,7 +834,7 @@ export default function Inspector({
                 backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
                 borderColor: colors.border,
               }}
-              className="rounded-2xl p-3 border font-mono text-xs space-y-3"
+              className="rounded-2xl p-3 border font-mono text-sm space-y-3"
             >
               <div className="text-slate-400 select-text break-all min-h-16 max-h-28 overflow-y-auto">
                 {outputText ? (
@@ -866,7 +866,7 @@ export default function Inspector({
                 {nodeLogs.map((log) => (
                   <div
                     key={log.id}
-                    className={`text-xs font-mono leading-relaxed p-2 rounded-xl flex items-start gap-1.5 border ${
+                    className={`text-sm font-mono leading-relaxed p-2 rounded-xl flex items-start gap-1.5 border ${
                       log.type === 'error'
                         ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
                         : log.type === 'warning'

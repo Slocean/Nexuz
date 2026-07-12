@@ -32,6 +32,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+@layer utilities {
+  .text-xs {
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+  }
+  .text-sm {
+    font-size: 14px !important;
+    line-height: 1.45 !important;
+  }
+  .text-base {
+    font-size: 14px !important;
+    line-height: 1.5 !important;
+  }
+}
+
 /* Liquid Glass Custom styles */
 :root {
   --glass-blur: blur(20px);

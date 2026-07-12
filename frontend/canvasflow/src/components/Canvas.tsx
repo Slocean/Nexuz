@@ -926,7 +926,7 @@ function Canvas({
                     y={midY - 6}
                     textAnchor="middle"
                     fill={themeMode === "light" ? "#AF52DE" : "#C77DFF"}
-                    fontSize="9px"
+                    fontSize="12px"
                     className="pointer-events-none opacity-80"
                   >
                     {conn.label}
@@ -950,7 +950,7 @@ function Canvas({
                       y={labelY + 2}
                       textAnchor="middle"
                       fill={handleMeta.color}
-                      fontSize="9px"
+                      fontSize="12px"
                       fontWeight="bold"
                     >
                       {handleMeta.label}
@@ -973,7 +973,7 @@ function Canvas({
                       y={midY + 3}
                       textAnchor="middle"
                       fill="#FF5E57"
-                      fontSize="10px"
+                      fontSize="12px"
                       fontWeight="bold"
                       className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none"
                     >
@@ -1057,7 +1057,7 @@ function Canvas({
                 }`}
               >
                 {isForever && (
-                  <div className="absolute -top-2 left-2 px-1 py-0.5 rounded bg-rose-500 text-white text-[8px] font-bold tracking-wide uppercase">
+                  <div className="absolute -top-2 left-2 px-1 py-0.5 rounded bg-rose-500 text-white text-xs font-bold tracking-wide uppercase">
                     FOREVER
                   </div>
                 )}

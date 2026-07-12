@@ -220,7 +220,7 @@ export default function CodeEditor({ themeName, themeMode }: CodeEditorProps) {
           value={text}
           onChange={(v) => setText(v ?? '')}
           options={{
-            fontSize: 13,
+            fontSize: 14,
             fontFamily: 'JetBrains Mono, ui-monospace, monospace',
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
