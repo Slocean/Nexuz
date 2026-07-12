@@ -284,16 +284,15 @@ export default function Toolbar({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-2.5"
+            className="h-8 w-8 px-0"
             onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}
-            title="明暗"
+            title={themeMode === 'light' ? '切换暗色' : '切换亮色'}
           >
             {themeMode === 'light' ? (
               <Moon className="w-4 h-4 opacity-80" />
             ) : (
               <Sun className="w-4 h-4 opacity-80" />
             )}
-            <span>{themeMode === 'light' ? '暗色' : '亮色'}</span>
           </Button>
 
           {onViewModeChange && (
