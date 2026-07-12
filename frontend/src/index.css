@@ -87,6 +87,23 @@ body,
   background-color: var(--background);
 }
 
+/* Soft theme morph — only while html.theme-transitioning is set */
+html.theme-transitioning,
+html.theme-transitioning body,
+html.theme-transitioning #root,
+html.theme-transitioning #root * {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow, outline-color !important;
+  transition-duration: 0.38s !important;
+  transition-timing-function: ease !important;
+}
+
+html.theme-transitioning .animate-spin,
+html.theme-transitioning .animate-pulse,
+html.theme-transitioning .connection-flow,
+html.theme-transitioning .connection-flow-fast {
+  transition: none !important;
+}
+
 @keyframes dash {
   to {
     stroke-dashoffset: -40;

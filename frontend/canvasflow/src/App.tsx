@@ -62,6 +62,21 @@ function applyCssVars(colors: ReturnType<typeof getThemeColors>, themeMode: stri
   root.style.setProperty('--popover-foreground', colors.text);
 }
 
+let themeTransitionTimer: number | undefined;
+
+/** Enable color transitions only for the duration of a theme change. */
+function withThemeTransition(update: () => void) {
+  const root = document.documentElement;
+  root.classList.add('theme-transitioning');
+  // Force style flush so the next paint interpolates from current colors.
+  void root.offsetWidth;
+  update();
+  window.clearTimeout(themeTransitionTimer);
+  themeTransitionTimer = window.setTimeout(() => {
+    root.classList.remove('theme-transitioning');
+  }, 420);
+}
+
 export default function App() {
   return (
     <AppDialogProvider>
@@ -123,13 +138,17 @@ function AppShell() {
 
   const handleSetThemeMode = (nextMode: string) => {
     const next = (nextMode === 'light' ? 'light' : 'dark') as 'light' | 'dark';
-    applyCssVars(getThemeColors(themeName as any, next), next);
-    setThemeMode(next);
+    withThemeTransition(() => {
+      applyCssVars(getThemeColors(themeName as any, next), next);
+      setThemeMode(next);
+    });
   };
 
   const handleSetThemeName = (name: string) => {
-    applyCssVars(getThemeColors(name as any, themeMode as any), themeMode);
-    setThemeName(name);
+    withThemeTransition(() => {
+      applyCssVars(getThemeColors(name as any, themeMode as any), themeMode);
+      setThemeName(name);
+    });
   };
 
   const { nodes, connections } = useMemo(
