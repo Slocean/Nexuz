@@ -26,10 +26,11 @@ function createEmptyFlow() {
 function loadHideWindowOnRecord() {
   try {
     const v = localStorage.getItem('nexuz.hideWindowOnRecord');
-    if (v === null) return true;
+    // Default OFF: keep window visible so users can click「停止录制」
+    if (v === null) return false;
     return v === '1' || v === 'true';
   } catch {
-    return true;
+    return false;
   }
 }
 

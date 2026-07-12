@@ -274,14 +274,19 @@ export default function App() {
 
   const handleToggleRecord = async () => {
     if (!recording) {
+      const tip = hideWindowOnRecord
+        ? '录制会把你的鼠标点击、键盘操作转成流程节点。\n\n当前开启了「隐藏窗口」，主窗口会暂时消失，避免点到 Nexuz。\n\n停止方式：\n1. 屏幕右上角红色「停止录制」按钮\n2. 快捷键 Ctrl+Shift+F10\n\n开始录制？'
+        : '录制会把你的鼠标点击、键盘操作转成流程节点，追加到当前画布。\n\n窗口会保持显示；可再点顶栏「停止录制」，或按 Ctrl+Shift+F10。\n\n开始录制？';
+      if (!window.confirm(tip)) return;
+
       const res = await bridge.startRecording(50, hideWindowOnRecord);
       if (res?.ok) {
         setRecording(true);
         appendLog({
           level: 'info',
           message: hideWindowOnRecord
-            ? '开始录制（窗口已隐藏；Ctrl+Shift+F10 停止）'
-            : '开始录制（窗口保持显示）',
+            ? '开始录制（窗口已隐藏）。停止：右上角红按钮 或 Ctrl+Shift+F10'
+            : '开始录制。再点「停止录制」或按 Ctrl+Shift+F10',
         });
       } else {
         appendLog({ level: 'error', message: res?.error || '无法开始录制' });

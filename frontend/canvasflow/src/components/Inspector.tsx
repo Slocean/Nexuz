@@ -478,7 +478,8 @@ export default function Inspector({
               className="mt-0.5"
             />
             <Label htmlFor="hide-window" className="text-xs font-normal cursor-pointer leading-snug">
-              录制 / 运行 / 取点 / 框选时隐藏程序窗口（避免自动化点击点到本程序）
+              录制 / 运行 / 取点 / 框选时隐藏程序窗口（避免点到本程序）。录制隐藏后可用右上角红按钮或
+              Ctrl+Shift+F10 停止。
             </Label>
           </div>
         )}

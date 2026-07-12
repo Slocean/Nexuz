@@ -211,7 +211,7 @@ export default function Toolbar({
               size="sm"
               onClick={onToggleRecord}
               style={{ color: recording ? colors.danger : undefined }}
-              title={recording ? '停止录制' : '开始录制'}
+              title={recording ? '停止录制' : '录制操作：把鼠标/键盘转成流程节点'}
             >
               <CircleDot className={`w-3.5 h-3.5 ${recording ? 'animate-pulse' : ''}`} />
               <span>{recording ? '停止录制' : '录制'}</span>
