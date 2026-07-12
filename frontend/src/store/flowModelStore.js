@@ -82,21 +82,29 @@ export const useFlowStore = create((set, get) => ({
   },
 
   setThemeName: (themeName) => {
-    try {
-      localStorage.setItem('nexuz.themeName', themeName);
-    } catch {
-      /* ignore */
-    }
     set({ themeName });
+    const persist = () => {
+      try {
+        localStorage.setItem('nexuz.themeName', themeName);
+      } catch {
+        /* ignore */
+      }
+    };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(persist);
+    else setTimeout(persist, 0);
   },
 
   setThemeMode: (themeMode) => {
-    try {
-      localStorage.setItem('nexuz.themeMode', themeMode);
-    } catch {
-      /* ignore */
-    }
     set({ themeMode });
+    const persist = () => {
+      try {
+        localStorage.setItem('nexuz.themeMode', themeMode);
+      } catch {
+        /* ignore */
+      }
+    };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(persist);
+    else setTimeout(persist, 0);
   },
 
   clearRunHistory: () => set({ runHistory: [] }),

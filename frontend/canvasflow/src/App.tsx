@@ -119,7 +119,18 @@ function AppShell() {
 
   useEffect(() => {
     applyCssVars(colors, themeMode);
-  }, [colors, themeMode]);
+  }, [themeName, themeMode, colors]);
+
+  const handleSetThemeMode = (nextMode: string) => {
+    const next = (nextMode === 'light' ? 'light' : 'dark') as 'light' | 'dark';
+    applyCssVars(getThemeColors(themeName as any, next), next);
+    setThemeMode(next);
+  };
+
+  const handleSetThemeName = (name: string) => {
+    applyCssVars(getThemeColors(name as any, themeMode as any), themeMode);
+    setThemeName(name);
+  };
 
   const { nodes, connections } = useMemo(
     () => flowToCanvas(flow, schemaMap, execNodeStates, execNodeId, nodeOutputs),
@@ -481,13 +492,13 @@ function AppShell() {
   return (
     <div
       style={{ backgroundColor: colors.background }}
-      className="flex flex-col h-screen w-screen overflow-hidden font-sans transition-all duration-300"
+      className="flex flex-col h-screen w-screen overflow-hidden font-sans"
     >
       <Toolbar
         themeName={themeName as any}
-        setThemeName={setThemeName as any}
+        setThemeName={handleSetThemeName as any}
         themeMode={themeMode as any}
-        setThemeMode={setThemeMode as any}
+        setThemeMode={handleSetThemeMode as any}
         onRunWorkflow={handleRunWorkflow}
         isExecuting={isExecuting}
         onToggleAssistant={() => setIsAssistantOpen(!isAssistantOpen)}
