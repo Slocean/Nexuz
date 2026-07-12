@@ -14,7 +14,7 @@ import RecordingBanner from './components/RecordingBanner';
 import SettingsPage from './components/SettingsPage';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
 import { getThemeColors } from './theme';
-import { flowToCanvas, mapLogLevel } from './nexuzAdapter';
+import { applyDefaultCaptureMode, flowToCanvas, mapLogLevel } from './nexuzAdapter';
 import { useFlowStore } from '../../src/store/flowModelStore';
 import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
 
@@ -107,6 +107,7 @@ function AppShell() {
   const clearRunHistory = useFlowStore((s) => s.clearRunHistory);
   const filePath = useFlowStore((s) => s.filePath);
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
+  const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
 
   const setSchemas = useFlowStore((s) => s.setSchemas);
   const setBridgeReady = useFlowStore((s) => s.setBridgeReady);
@@ -127,6 +128,7 @@ function AppShell() {
 
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [recordingMode, setRecordingMode] = useState<'coord' | 'frida_ui'>('coord');
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
 
   const colors = getThemeColors(themeName as any, themeMode as any);
@@ -223,7 +225,8 @@ function AppShell() {
         ? '开始运行流程（已隐藏窗口，避免点击落到本程序上）…'
         : '开始运行流程…',
     });
-    const payload = filePath ? { ...flow, __file_path__: filePath } : flow;
+    const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
+    const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
     const res = await bridge.runFlow(payload, false, hideWindowOnRecord);
     if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
   };
@@ -232,7 +235,8 @@ function AppShell() {
     if (execStatus === 'idle') {
       clearLogs();
       appendLog({ level: 'info', message: '单步模式启动…' });
-      const payload = filePath ? { ...flow, __file_path__: filePath } : flow;
+      const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
+      const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
       const res = await bridge.runFlow(payload, true);
       if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
       return;
@@ -341,26 +345,39 @@ function AppShell() {
   const handleToggleRecord = async () => {
     if (!recording) {
       const hide = !!hideWindowOnRecord;
+      const mode = (defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord') as
+        | 'coord'
+        | 'frida_ui';
+      const modeLabel = mode === 'frida_ui' ? 'Frida UI（游戏内点击组件）' : '坐标（屏幕鼠键）';
       const ok = await confirm({
         title: '开始录制',
-        description: hide
-          ? '录制会把鼠标/键盘操作转成流程节点。\n\n已开启「操作时隐藏主窗口」：录制期间主窗口会隐藏，请用屏幕右上角外部浮窗或 Ctrl+Shift+F10 停止。'
-          : '录制会把鼠标/键盘操作转成流程节点，并追加到当前画布。\n\n主窗口保持显示，右上角会出现应用内「停止录制」浮层；也可按 Ctrl+Shift+F10。\n\n可在「设置」中改为录制时隐藏窗口。',
+        description:
+          mode === 'frida_ui'
+            ? hide
+              ? `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。主窗口将隐藏，用外部浮窗或 Ctrl+Shift+F10 停止。\n需先在设置页连接 Frida。`
+              : `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。右上角会出现停止浮层，也可按 Ctrl+Shift+F10。\n需先在设置页连接 Frida。`
+            : hide
+              ? `模式：${modeLabel}\n\n录制会把鼠标/键盘操作转成流程节点。\n\n已开启「操作时隐藏主窗口」：请用屏幕右上角外部浮窗或 Ctrl+Shift+F10 停止。`
+              : `模式：${modeLabel}\n\n录制会把鼠标/键盘操作转成流程节点。右上角会出现停止浮层；也可按 Ctrl+Shift+F10。`,
         confirmText: '开始录制',
       });
       if (!ok) return;
 
-      const res = await bridge.startRecording(50, hide);
+      const res = await bridge.startRecording(50, hide, mode);
       if (res?.ok) {
         setRecording(true);
+        setRecordingMode(mode);
         appendLog({
           level: 'info',
           message: hide
-            ? '开始录制（窗口已隐藏）。停止：外部浮窗 或 Ctrl+Shift+F10'
-            : '开始录制。点右上角浮层「停止录制」或按 Ctrl+Shift+F10',
+            ? `开始录制 [${modeLabel}]（窗口已隐藏）。停止：外部浮窗 或 Ctrl+Shift+F10`
+            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 Ctrl+Shift+F10`,
         });
       } else {
-        appendLog({ level: 'error', message: res?.error || '无法开始录制' });
+        appendLog({
+          level: 'error',
+          message: res?.error || res?.message || '无法开始录制',
+        });
       }
     } else {
       await stopRecordingNow();
@@ -626,9 +643,11 @@ function AppShell() {
           rawLogs={logs}
           schemaMap={schemaMap}
           onPickPoint={async () => bridge.pickPoint(hideWindowOnRecord)}
+          onPickClick={async (mode: string) => bridge.pickClick(mode, hideWindowOnRecord)}
           onPickRegion={async () => bridge.pickRegion(hideWindowOnRecord)}
           onCaptureTemplate={async () => bridge.captureTemplate(hideWindowOnRecord)}
           onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
+          defaultCaptureMode={defaultCaptureMode}
         />
 
         {/* Design-only: keep AI Assistant UI as-is */}
@@ -644,6 +663,7 @@ function AppShell() {
 
       <RecordingBanner
         open={recording && !hideWindowOnRecord}
+        mode={recordingMode}
         onStop={() => {
           void stopRecordingNow();
         }}

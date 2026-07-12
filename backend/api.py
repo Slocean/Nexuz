@@ -11,6 +11,8 @@ from typing import Any
 import webview
 
 from backend.core.dpi import get_dpi_scale, screen_size_logical
+from backend.core.input.provider_registry import get_provider_registry
+from backend.core.input.session import get_recording_session
 from backend.core.interpreter import get_interpreter
 from backend.core.recorder import get_recorder
 from backend.core.registry import get_schemas, register_all_blocks
@@ -34,10 +36,29 @@ class Api:
     def set_window(self, window: webview.Window) -> None:
         self._window = window
         get_interpreter(emit=self._emit)
-        get_recorder().set_stop_hotkey_callback(self._on_record_stop_hotkey)
+        session = get_recording_session(
+            set_window_visible=self._set_window_visible,
+            emit=self._emit,
+        )
+        session.set_stop_hotkey_callback(self._on_record_stop_hotkey)
+
+        from backend.core.input.frida.session_manager import get_frida_session_manager
+
+        def on_frida_detached():
+            # Stop Frida recording cleanly if process dies mid-record
+            sess = get_recording_session()
+            if sess.active and sess.mode == "frida_ui":
+                try:
+                    result = sess.stop()
+                    self._emit("recording_stopped", result)
+                except Exception:
+                    pass
+
+        get_frida_session_manager().set_detached_callback(on_frida_detached)
 
     def _on_record_stop_hotkey(self) -> None:
-        if not get_recorder().recording:
+        session = get_recording_session()
+        if not session.active and not get_recorder().recording:
             return
         result = self.stop_recording()
         self._emit("recording_stopped", result)
@@ -326,80 +347,89 @@ class Api:
         except Exception:
             pass
 
-    # --- recording ---
-    def start_recording(self, min_interval_ms: int = 50, hide_window: bool = False) -> dict:
-        """Start recorder. When hide_window, show external stop overlay."""
-        from backend.core.record_overlay import hide_stop_overlay, show_stop_overlay
+    # --- recording / capture providers ---
+    def list_capture_providers(self) -> dict:
+        return {"ok": True, "providers": get_provider_registry().list_providers()}
 
-        rec = get_recorder()
-        rec.min_interval_ms = int(min_interval_ms)
-        self._recording_hidden = bool(hide_window)
-        if self._recording_hidden:
-            self._set_window_visible(False)
-            show_stop_overlay(lambda: self._on_record_stop_hotkey())
-        else:
-            hide_stop_overlay()
-        rec.start()
-        return {
-            "ok": True,
-            "hide_window": self._recording_hidden,
-            "stop_hotkey": "Ctrl+Shift+F10",
-        }
+    def start_recording(
+        self,
+        min_interval_ms: int = 50,
+        hide_window: bool = False,
+        mode: str = "coord",
+    ) -> dict:
+        """Start capture provider sequence recording."""
+        session = get_recording_session(
+            set_window_visible=self._set_window_visible,
+            emit=self._emit,
+        )
+        return session.start(
+            mode=mode or "coord",
+            min_interval_ms=int(min_interval_ms),
+            hide_window=bool(hide_window),
+        )
 
     def stop_recording(self) -> dict:
-        from backend.core.record_overlay import hide_stop_overlay
+        session = get_recording_session(
+            set_window_visible=self._set_window_visible,
+            emit=self._emit,
+        )
+        if session.active:
+            return session.stop()
+        # Fallback: legacy recorder still running
+        if get_recorder().recording:
+            from backend.core.record_overlay import hide_stop_overlay
 
-        hide_stop_overlay()
-        nodes = get_recorder().stop()
-        if getattr(self, "_recording_hidden", False):
-            self._set_window_visible(True)
-            self._recording_hidden = False
-        return {"ok": True, "nodes": nodes}
+            hide_stop_overlay()
+            nodes = get_recorder().stop()
+            if getattr(self, "_recording_hidden", False):
+                self._set_window_visible(True)
+                self._recording_hidden = False
+            return {"ok": True, "nodes": nodes, "mode": "coord"}
+        return {"ok": False, "error_code": "NOT_RECORDING", "error": "当前未在录制", "nodes": []}
+
+    def pick_click(self, mode: str = "coord", hide_window: bool = True) -> dict:
+        """Single click capture routed by mode (auto-detect mouse button)."""
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪", "error_code": "WINDOW_NOT_READY"}
+        session = get_recording_session(
+            set_window_visible=self._set_window_visible,
+            emit=self._emit,
+        )
+        return session.pick_click(mode=mode or "coord", hide_window=bool(hide_window))
+
+    # --- Frida session ---
+    def frida_attach(self, process_name: str | None = None, pid: int | None = None) -> dict:
+        from backend.core.input.frida.session_manager import get_frida_session_manager
+
+        return get_frida_session_manager().attach(process_name=process_name, pid=pid)
+
+    def frida_detach(self) -> dict:
+        from backend.core.input.frida.session_manager import get_frida_session_manager
+
+        return get_frida_session_manager().detach()
+
+    def frida_status(self) -> dict:
+        from backend.core.input.frida.session_manager import get_frida_session_manager
+
+        return get_frida_session_manager().status()
 
     # --- screen pick ---
     def pick_point(self, hide_window: bool = True) -> dict:
-        """One left-click on screen to pick a point (not a region overlay)."""
-        if not self._window:
-            return {"ok": False, "error": "窗口未就绪"}
-
-        from backend.blocks._helpers import pack_point, pixel_color
-
-        self._pick_result = None
-        self._pick_event.clear()
-        do_hide = bool(hide_window)
-        if do_hide:
-            self._set_window_visible(False)
-
-        def listen():
-            from pynput import mouse
-
-            def on_click(x, y, button, pressed):
-                if pressed and button == mouse.Button.left:
-                    try:
-                        color = pixel_color(int(x), int(y))
-                    except Exception:
-                        color = None
-                    packed = pack_point(int(x), int(y))
-                    self._pick_result = {
-                        "ok": True,
-                        "x": packed["x"],
-                        "y": packed["y"],
-                        "color": color,
-                        "point_norm": packed["point_norm"],
-                        "coord_space": packed["coord_space"],
-                    }
-                    self._pick_event.set()
-                    return False
-                return True
-
-            with mouse.Listener(on_click=on_click) as listener:
-                listener.join()
-
-        threading.Thread(target=listen, daemon=True).start()
-        self._pick_event.wait(timeout=120)
-        if do_hide:
-            self._set_window_visible(True)
-        return self._pick_result or {"ok": False, "cancelled": True}
+        """Compat alias → pick_click(coord); captures real mouse button."""
+        result = self.pick_click(mode="coord", hide_window=hide_window)
+        if not result.get("ok"):
+            return result
+        # Preserve legacy flat fields expected by Inspector applyPointPick
+        params = result.get("params") or {}
+        return {
+            **result,
+            "x": params.get("x", result.get("x")),
+            "y": params.get("y", result.get("y")),
+            "button": params.get("button", result.get("button")),
+            "point_norm": params.get("point_norm", result.get("point_norm")),
+            "coord_space": params.get("coord_space", result.get("coord_space")),
+            "color": result.get("color"),
+        }
 
     def pick_region(self, hide_window: bool = True) -> dict:
         """Fullscreen drag overlay to select a region (+ relative norm)."""

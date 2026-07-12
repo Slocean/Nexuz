@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-import pyautogui
-
-from backend.blocks._helpers import resolve_point
+from backend.core.input.provider_registry import get_provider_registry
+from backend.core.input.resolve import normalize_click_params
+from backend.core.input.types import ERROR_INVALID_MODE
 
 SCHEMA = {
     "type": "click",
     "label": "鼠标点击",
     "category": "动作类",
     "inputs": [
+        {
+            "name": "capture_mode",
+            "type": "select",
+            "label": "录入模式",
+            "options": ["coord", "frida_ui"],
+            "default": "coord",
+        },
         {"name": "x", "type": "number", "label": "X", "default": 0},
         {"name": "y", "type": "number", "label": "Y", "default": 0},
         {
@@ -26,18 +33,22 @@ SCHEMA = {
             "default": "single",
         },
         {"name": "move_duration", "type": "number", "label": "移动耗时(ms)", "default": 0},
+        {
+            "name": "frida_ui",
+            "type": "object",
+            "label": "Frida UI 目标",
+            "default": None,
+        },
     ],
     "outputs": [],
 }
 
 
 def handler(params, context, **kwargs):
-    x, y = resolve_point(params)
-    button = params.get("button", "left")
-    click_type = params.get("click_type", "single")
-    move_duration = float(params.get("move_duration", 0) or 0) / 1000.0
-    clicks = 2 if click_type == "double" else 1
-    if move_duration > 0:
-        pyautogui.moveTo(x, y, duration=move_duration)
-    pyautogui.click(x=x, y=y, button=button, clicks=clicks, interval=0.05)
-    return {}
+    target = normalize_click_params(params)
+    registry = get_provider_registry()
+    provider_or_err = registry.require_playback(target.capture_mode)
+    if isinstance(provider_or_err, dict):
+        raise RuntimeError(provider_or_err.get("message") or ERROR_INVALID_MODE)
+    ctx = context if isinstance(context, dict) else {}
+    return provider_or_err.execute(target, ctx)

@@ -40,6 +40,12 @@ class FlowInterpreter:
 
         def worker():
             try:
+                try:
+                    from backend.core.input.frida.session_manager import get_frida_session_manager
+
+                    get_frida_session_manager().clear_resolve_cache()
+                except Exception:
+                    pass
                 self._execute(flow)
                 self._emit("flow_finished", {"ok": True})
             except InterruptedError:

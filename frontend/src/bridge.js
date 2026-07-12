@@ -29,6 +29,13 @@ export const MOCK_SCHEMAS = [
     label: '鼠标点击',
     category: '动作类',
     inputs: [
+      {
+        name: 'capture_mode',
+        type: 'select',
+        label: '录入模式',
+        options: ['coord', 'frida_ui'],
+        default: 'coord',
+      },
       { name: 'x', type: 'number', label: 'X', default: 0 },
       { name: 'y', type: 'number', label: 'Y', default: 0 },
       { name: 'button', type: 'select', label: '按键', options: ['left', 'right', 'middle'], default: 'left' },
@@ -339,8 +346,13 @@ function mockCall(method, ...args) {
     case 'start_recording':
     case 'stop_recording':
     case 'pick_point':
+    case 'pick_click':
     case 'pick_region':
     case 'capture_template':
+    case 'list_capture_providers':
+    case 'frida_attach':
+    case 'frida_detach':
+    case 'frida_status':
     case 'pause_flow':
     case 'resume_flow':
     case 'stop_flow':
@@ -377,13 +389,18 @@ export const bridge = {
   stepFlow: () => call('step_flow'),
   isRunning: () => call('is_running'),
   validateFlow: (flow) => call('validate_flow', JSON.stringify(flow)),
-  startRecording: (minIntervalMs = 50, hideWindow = false) =>
-    call('start_recording', minIntervalMs, hideWindow),
+  startRecording: (minIntervalMs = 50, hideWindow = false, mode = 'coord') =>
+    call('start_recording', minIntervalMs, hideWindow, mode),
   stopRecording: () => call('stop_recording'),
   pickPoint: (hideWindow = true) => call('pick_point', hideWindow),
+  pickClick: (mode = 'coord', hideWindow = true) => call('pick_click', mode, hideWindow),
   pickRegion: (hideWindow = true) => call('pick_region', hideWindow),
   captureTemplate: (hideWindow = true, filename = null) =>
     call('capture_template', hideWindow, filename),
+  listCaptureProviders: () => call('list_capture_providers'),
+  fridaAttach: (processName = null, pid = null) => call('frida_attach', processName, pid),
+  fridaDetach: () => call('frida_detach'),
+  fridaStatus: () => call('frida_status'),
   listScheduleJobs: () => call('list_schedule_jobs'),
   removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),

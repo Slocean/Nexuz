@@ -29,9 +29,11 @@ interface InspectorProps {
   logs: ExecutionLog[];
   schemaMap?: Record<string, any>;
   onPickPoint?: () => Promise<any>;
+  onPickClick?: (mode: string) => Promise<any>;
   onPickRegion?: () => Promise<any>;
   onCaptureTemplate?: () => Promise<any>;
   onSetEntry?: (id: string) => void;
+  defaultCaptureMode?: string;
   /** Raw store logs for file export */
   rawLogs?: { ts?: number; level?: string; message?: string; detail?: any }[];
 }
@@ -124,9 +126,11 @@ export default function Inspector({
   logs,
   schemaMap = {},
   onPickPoint,
+  onPickClick,
   onPickRegion,
   onCaptureTemplate,
   onSetEntry,
+  defaultCaptureMode = 'coord',
   rawLogs = [],
 }: InspectorProps) {
   const { alert } = useAppDialog();
@@ -251,16 +255,33 @@ export default function Inspector({
     if (!res?.ok) return;
     const yKey = xKey === 'from_x' ? 'from_y' : xKey === 'to_x' ? 'to_y' : 'y';
     const patch: any = { ...selectedNode.config };
-    patch[xKey] = res.x;
-    patch[yKey] = res.y;
-    patch.coord_space = res.coord_space || patch.coord_space;
-    if (xKey === 'from_x') patch.from_point_norm = res.point_norm;
-    else if (xKey === 'to_x') patch.to_point_norm = res.point_norm;
-    else patch.point_norm = res.point_norm;
+    const params = res.params || {};
+    patch[xKey] = params.x ?? res.x;
+    patch[yKey] = params.y ?? res.y;
+    patch.coord_space = params.coord_space || res.coord_space || patch.coord_space;
+    if (xKey === 'from_x') patch.from_point_norm = params.point_norm || res.point_norm;
+    else if (xKey === 'to_x') patch.to_point_norm = params.point_norm || res.point_norm;
+    else patch.point_norm = params.point_norm || res.point_norm;
+    if (params.button || res.button) patch.button = params.button || res.button;
+    if (params.capture_mode) patch.capture_mode = params.capture_mode;
+    if (params.coord) patch.coord = params.coord;
     if (selectedNode.subType.includes('color') && res.color) {
       patch.target_color = res.color;
     }
     onUpdateNodeConfig(selectedNode.id, patch);
+  };
+
+  const applyClickCapture = (res: any) => {
+    if (!res?.ok) return;
+    const params = res.params || {};
+    const patch: any = { ...selectedNode.config, ...params };
+    onUpdateNodeConfig(selectedNode.id, patch);
+  };
+
+  const resolveClickMode = () => {
+    const nodeMode = selectedNode?.config?.capture_mode;
+    if (nodeMode === 'coord' || nodeMode === 'frida_ui') return nodeMode;
+    return defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
   };
 
   const copyToClipboard = (text: string) => {
@@ -291,10 +312,68 @@ export default function Inspector({
     return (
       <div className="space-y-3">
         {isClick && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
             <p className="text-[11px] leading-relaxed opacity-90">
-              推荐用顶栏「录制」捕获真实点击序列。下方「单击取点」仅用于手动填入单个坐标，不是框选区域。
+              顶栏「录制」可连续录入多步。此处「重新录入」只更新当前节点；左右键会自动写入。
             </p>
+            <Field label="录入模式（节点覆盖）">
+              <Select
+                value={String(selectedNode.config?.capture_mode || 'inherit')}
+                onValueChange={(v) => {
+                  if (v === 'inherit') {
+                    const next = { ...selectedNode.config };
+                    delete next.capture_mode;
+                    onUpdateNodeConfig(selectedNode.id, next);
+                  } else {
+                    handleFieldChange('capture_mode', v);
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="inherit">
+                    跟随全局（{defaultCaptureMode === 'frida_ui' ? 'Frida UI' : '坐标'}）
+                  </SelectItem>
+                  <SelectItem value="coord">坐标</SelectItem>
+                  <SelectItem value="frida_ui">Frida UI</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            {(onPickClick || onPickPoint) && (
+              <Button
+                type="button"
+                size="sm"
+                className="w-full"
+                onClick={async () => {
+                  const mode = resolveClickMode();
+                  const res = onPickClick
+                    ? await onPickClick(mode)
+                    : await onPickPoint?.();
+                  if (!res?.ok) {
+                    await alert({
+                      title: '录入失败',
+                      description: res?.error || res?.message || '已取消或超时',
+                    });
+                    return;
+                  }
+                  applyClickCapture(res);
+                }}
+              >
+                重新录入（{resolveClickMode() === 'frida_ui' ? '游戏内点击' : '屏幕点击'}）
+              </Button>
+            )}
+            {selectedNode.config?.capture_mode === 'frida_ui' ||
+            (!selectedNode.config?.capture_mode && defaultCaptureMode === 'frida_ui') ||
+            selectedNode.config?.frida_ui?.hierarchy_path ? (
+              <p className="text-[10px] font-mono opacity-70 break-all">
+                {selectedNode.config?.frida_ui?.display_name ||
+                  selectedNode.config?.frida_ui?.hierarchy_path ||
+                  '尚未录入 Frida UI 目标'}
+                {selectedNode.config?.button ? ` · ${selectedNode.config.button}` : ''}
+              </p>
+            ) : null}
           </div>
         )}
         {isOcr && (
@@ -319,7 +398,18 @@ export default function Inspector({
           </div>
         )}
 
-        {(schema.inputs || []).map((input: any) => {
+        {(schema.inputs || [])
+          .filter((input: any) => {
+            if (!isClick) return true;
+            // Handled in the click panel above / nested object not edited as text
+            if (input.name === 'capture_mode' || input.name === 'frida_ui') return false;
+            const mode = resolveClickMode();
+            if (mode === 'frida_ui' && (input.name === 'x' || input.name === 'y' || input.name === 'move_duration')) {
+              return false;
+            }
+            return true;
+          })
+          .map((input: any) => {
           const value = selectedNode.config?.[input.name];
           const label = input.label || input.name;
 

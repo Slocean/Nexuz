@@ -1,14 +1,24 @@
 /**
  * App settings page — behavior / window prefs (not buried in Inspector).
  */
-import React from 'react';
-import { EyeOff, Monitor, Settings2 } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { EyeOff, Link2, Monitor, MousePointer2, Settings2, Unplug } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useFlowStore } from '@/store/flowModelStore';
+import { bridge } from '@/bridge';
 
 export default function SettingsPage({
   themeName,
@@ -20,6 +30,61 @@ export default function SettingsPage({
   const colors = getThemeColors(themeName, themeMode);
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
+  const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
+  const setDefaultCaptureMode = useFlowStore((s) => s.setDefaultCaptureMode);
+
+  const [processName, setProcessName] = useState('');
+  const [fridaStatus, setFridaStatus] = useState<{
+    attached?: boolean;
+    hooked?: boolean;
+    process_name?: string | null;
+    last_error?: string | null;
+  }>({});
+  const [fridaBusy, setFridaBusy] = useState(false);
+  const [fridaMsg, setFridaMsg] = useState('');
+
+  const refreshFrida = useCallback(async () => {
+    try {
+      const st = await bridge.fridaStatus();
+      setFridaStatus(st || {});
+    } catch {
+      setFridaStatus({});
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshFrida();
+    const t = setInterval(refreshFrida, 3000);
+    return () => clearInterval(t);
+  }, [refreshFrida]);
+
+  const handleAttach = async () => {
+    setFridaBusy(true);
+    setFridaMsg('');
+    try {
+      const res = await bridge.fridaAttach(processName.trim() || null);
+      if (res?.ok) {
+        setFridaMsg(`已连接${res.process_name ? `：${res.process_name}` : ''}`);
+      } else {
+        setFridaMsg(res?.error || res?.message || '连接失败');
+      }
+      await refreshFrida();
+    } finally {
+      setFridaBusy(false);
+    }
+  };
+
+  const handleDetach = async () => {
+    setFridaBusy(true);
+    setFridaMsg('');
+    try {
+      await bridge.fridaDetach();
+      setFridaMsg('已断开');
+      await refreshFrida();
+    } finally {
+      setFridaBusy(false);
+    }
+  };
 
   return (
     <div className="flex-1 min-w-0 h-full overflow-auto">
@@ -35,6 +100,101 @@ export default function SettingsPage({
             全局偏好，保存在本机，与当前流程无关。
           </p>
         </div>
+
+        <section
+          className="rounded-2xl border p-5 space-y-4"
+          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        >
+          <div className="flex items-center gap-2">
+            <MousePointer2 className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
+            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
+              点击录入
+            </h2>
+          </div>
+          <Separator />
+
+          <div className="space-y-2">
+            <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
+              默认录入模式
+            </Label>
+            <Select
+              value={defaultCaptureMode || 'coord'}
+              onValueChange={(v) => setDefaultCaptureMode(v)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="coord">坐标（屏幕点击）</SelectItem>
+                <SelectItem value="frida_ui">Frida UI（Unity 组件）</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
+              顶栏「录制」与新建点击节点默认使用此模式。单个节点可在右侧 Inspector 覆盖。
+              Frida 模式需先连接游戏进程。
+            </p>
+          </div>
+        </section>
+
+        <section
+          className="rounded-2xl border p-5 space-y-4"
+          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        >
+          <div className="flex items-center gap-2">
+            <Link2 className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
+            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
+              Frida 连接
+            </h2>
+          </div>
+          <Separator />
+
+          <div className="flex items-center gap-2 text-xs" style={{ color: colors.secondaryText }}>
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                fridaStatus.attached ? 'bg-emerald-500' : 'bg-zinc-400'
+              }`}
+            />
+            {fridaStatus.attached
+              ? `已连接${fridaStatus.process_name ? ` · ${fridaStatus.process_name}` : ''}${
+                  fridaStatus.hooked ? ' · Hook 就绪' : ' · Hook 未就绪'
+                }`
+              : '未连接'}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
+              进程名
+            </Label>
+            <Input
+              value={processName}
+              onChange={(e) => setProcessName(e.target.value)}
+              placeholder="例如 Game.exe"
+              className="font-mono text-xs"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <Button type="button" size="sm" disabled={fridaBusy} onClick={handleAttach}>
+              连接
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={fridaBusy || !fridaStatus.attached}
+              onClick={handleDetach}
+            >
+              <Unplug className="w-3.5 h-3.5" />
+              断开
+            </Button>
+          </div>
+          {fridaMsg && (
+            <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
+              {fridaMsg}
+              {fridaStatus.last_error ? ` · ${fridaStatus.last_error}` : ''}
+            </p>
+          )}
+        </section>
 
         <section
           className="rounded-2xl border p-5 space-y-4"

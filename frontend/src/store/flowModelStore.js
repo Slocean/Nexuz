@@ -34,6 +34,16 @@ function loadHideWindowOnRecord() {
   }
 }
 
+function loadDefaultCaptureMode() {
+  try {
+    const v = localStorage.getItem('nexuz.defaultCaptureMode');
+    if (v === 'frida_ui' || v === 'coord') return v;
+    return 'coord';
+  } catch {
+    return 'coord';
+  }
+}
+
 function loadTheme() {
   try {
     return {
@@ -62,6 +72,7 @@ export const useFlowStore = create((set, get) => ({
 
   // app settings
   hideWindowOnRecord: loadHideWindowOnRecord(),
+  defaultCaptureMode: loadDefaultCaptureMode(),
 
   // run history for sidebar
   runHistory: [],
@@ -79,6 +90,16 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ hideWindowOnRecord: !!hideWindowOnRecord });
+  },
+
+  setDefaultCaptureMode: (defaultCaptureMode) => {
+    const mode = defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
+    try {
+      localStorage.setItem('nexuz.defaultCaptureMode', mode);
+    } catch {
+      /* ignore */
+    }
+    set({ defaultCaptureMode: mode });
   },
 
   setThemeName: (themeName) => {
@@ -174,9 +195,14 @@ export const useFlowStore = create((set, get) => ({
     const schema = get().schemaMap[type];
     if (!schema) return null;
     const id = uid('node');
+    const params = defaultParams(schema);
+    if (type === 'click') {
+      const mode = get().defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
+      params.capture_mode = mode;
+    }
     const node = {
       type,
-      params: defaultParams(schema),
+      params,
       next: null,
       position,
     };
