@@ -2,7 +2,7 @@
  * CanvasFlow UI shell wired to Nexuz store + bridge.
  * Unused design-only UI (AI Assistant, demo templates) kept as-is.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Canvas from './components/Canvas';
@@ -367,18 +367,30 @@ function AppShell() {
     }
   };
 
-  const handleAddNexuzNode = (blockType: string, position?: { x: number; y: number }) => {
-    const id = addNodeFromSchema(blockType, position || {
-      x: 250 + Math.random() * 80,
-      y: 150 + Math.random() * 80,
-    });
-    if (id) appendLog({ level: 'info', message: `已添加节点: ${blockType}` });
-    else appendLog({ level: 'warn', message: `未知积木类型: ${blockType}` });
-  };
+  const handleAddNexuzNode = useCallback(
+    (blockType: string, position?: { x: number; y: number }) => {
+      const id = addNodeFromSchema(
+        blockType,
+        position || {
+          x: 250 + Math.random() * 80,
+          y: 150 + Math.random() * 80,
+        },
+      );
+      if (id) appendLog({ level: 'info', message: `已添加节点: ${blockType}` });
+      else appendLog({ level: 'warn', message: `未知积木类型: ${blockType}` });
+    },
+    [addNodeFromSchema, appendLog],
+  );
 
-  const handleDropBlock = (blockType: string, x: number, y: number) => {
-    handleAddNexuzNode(blockType, { x: Math.round(x / 10) * 10, y: Math.round(y / 10) * 10 });
-  };
+  const handleDropBlock = useCallback(
+    (blockType: string, x: number, y: number) => {
+      handleAddNexuzNode(blockType, {
+        x: Math.round(x / 10) * 10,
+        y: Math.round(y / 10) * 10,
+      });
+    },
+    [handleAddNexuzNode],
+  );
 
   // Design-only demo nodes (unused for backend) — keep Sidebar/AI API shape
   const handleAddDemoNode = (subType: string) => {
@@ -445,68 +457,92 @@ function AppShell() {
     });
   };
 
-  const handleUpdateNodePosition = (nodeId: string, x: number, y: number) => {
-    updateNodePosition(nodeId, { x, y });
-  };
+  const handleUpdateNodePosition = useCallback(
+    (nodeId: string, x: number, y: number) => {
+      updateNodePosition(nodeId, { x, y });
+    },
+    [updateNodePosition],
+  );
 
-  const handleUpdateNodePositions = (updates: { id: string; x: number; y: number }[]) => {
-    updateNodePositions(updates);
-  };
+  const handleUpdateNodePositions = useCallback(
+    (updates: { id: string; x: number; y: number }[]) => {
+      updateNodePositions(updates);
+    },
+    [updateNodePositions],
+  );
 
-  const handleAddConnection = (
-    sourceNodeId: string,
-    sourceSocketId: string,
-    targetNodeId: string,
-    _targetSocketId: string,
-  ) => {
-    const handle = sourceSocketId || 'next';
-    setNodeLink(sourceNodeId, handle, targetNodeId);
-    appendLog({ level: 'info', message: `已连接 ${sourceNodeId}.${handle} → ${targetNodeId}` });
-  };
+  const handleAddConnection = useCallback(
+    (
+      sourceNodeId: string,
+      sourceSocketId: string,
+      targetNodeId: string,
+      _targetSocketId: string,
+    ) => {
+      const handle = sourceSocketId || 'next';
+      setNodeLink(sourceNodeId, handle, targetNodeId);
+      appendLog({ level: 'info', message: `已连接 ${sourceNodeId}.${handle} → ${targetNodeId}` });
+    },
+    [setNodeLink, appendLog],
+  );
 
-  const handleRemoveConnection = (connectionId: string) => {
-    const conn = connections.find((c) => c.id === connectionId);
-    if (!conn) return;
-    if (conn.kind === 'data') {
-      appendLog({
-        level: 'warn',
-        message: '数据连线由 {{node.field}} 引用生成，请在参数中修改',
-      });
-      return;
-    }
-    removeNodeLink(conn.sourceNodeId, conn.sourceSocketId);
-    appendLog({ level: 'info', message: '已移除连线' });
-  };
+  const handleRemoveConnection = useCallback(
+    (connectionId: string) => {
+      const conn = connections.find((c) => c.id === connectionId);
+      if (!conn) return;
+      if (conn.kind === 'data') {
+        appendLog({
+          level: 'warn',
+          message: '数据连线由 {{node.field}} 引用生成，请在参数中修改',
+        });
+        return;
+      }
+      removeNodeLink(conn.sourceNodeId, conn.sourceSocketId);
+      appendLog({ level: 'info', message: '已移除连线' });
+    },
+    [connections, removeNodeLink, appendLog],
+  );
 
-  const handleRemoveNode = (nodeId: string) => {
-    deleteNodes([nodeId]);
-    appendLog({ level: 'info', message: `已删除节点 ${nodeId}` });
-  };
+  const handleRemoveNode = useCallback(
+    (nodeId: string) => {
+      deleteNodes([nodeId]);
+      appendLog({ level: 'info', message: `已删除节点 ${nodeId}` });
+    },
+    [deleteNodes, appendLog],
+  );
 
-  const handleRemoveNodes = (nodeIds: string[]) => {
-    if (!nodeIds.length) return;
-    deleteNodes(nodeIds);
-    appendLog({ level: 'info', message: `已删除 ${nodeIds.length} 个节点` });
-  };
+  const handleRemoveNodes = useCallback(
+    (nodeIds: string[]) => {
+      if (!nodeIds.length) return;
+      deleteNodes(nodeIds);
+      appendLog({ level: 'info', message: `已删除 ${nodeIds.length} 个节点` });
+    },
+    [deleteNodes, appendLog],
+  );
 
-  const handleDuplicateNodes = (nodeIds: string[]) => {
-    const newIds = duplicateNodes(nodeIds);
-    if (newIds?.length) {
-      appendLog({ level: 'info', message: `已复制 ${newIds.length} 个节点` });
-    }
-    return newIds || [];
-  };
+  const handleDuplicateNodes = useCallback(
+    (nodeIds: string[]) => {
+      const newIds = duplicateNodes(nodeIds);
+      if (newIds?.length) {
+        appendLog({ level: 'info', message: `已复制 ${newIds.length} 个节点` });
+      }
+      return newIds || [];
+    },
+    [duplicateNodes, appendLog],
+  );
 
-  const handleUpdateNodeConfig = (nodeId: string, updatedConfig: any) => {
-    updateNodeParams(nodeId, updatedConfig);
-  };
+  const handleUpdateNodeConfig = useCallback(
+    (nodeId: string, updatedConfig: any) => {
+      updateNodeParams(nodeId, updatedConfig);
+    },
+    [updateNodeParams],
+  );
 
-  const handleRunSingleNode = async (_nodeId: string) => {
+  const handleRunSingleNode = useCallback(async (_nodeId: string) => {
     appendLog({
       level: 'warn',
       message: '单节点运行未单独暴露；请使用顶栏 Run Pipeline 执行整条流程',
     });
-  };
+  }, [appendLog]);
 
   return (
     <div

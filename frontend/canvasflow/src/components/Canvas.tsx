@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import {
   ZoomIn,
   ZoomOut,
@@ -45,16 +45,17 @@ interface CanvasProps {
   executingNodeId: string | null;
 }
 
-const NODE_WIDTH = 220;
-/** Layout metrics must match the node card CSS (p-4 / header / h-6 / space-y-3). */
-const NODE_PAD_TOP = 16;
-const NODE_HEADER_H = 42;
-const SOCKET_ROW_H = 24;
-const SOCKET_ROW_GAP = 12;
-const SOCKET_DOT_OFFSET = 12; // vertical center within the row
-const NODE_HEIGHT_EST = 140;
+const NODE_WIDTH = 176;
+/** Layout metrics must match the node card CSS (p-2 / header / h-[18px] / space-y-1). */
+const NODE_PAD_TOP = 8;
+const NODE_HEADER_H = 28;
+const SOCKET_ROW_H = 18;
+const SOCKET_ROW_GAP = 4;
+const SOCKET_DOT_OFFSET = 9; // vertical center within the row
+const NODE_HEIGHT_EST = 96;
+const DATA_LINK_Y = NODE_PAD_TOP + Math.floor(NODE_HEADER_H / 2);
 
-export default function Canvas({
+function Canvas({
   nodes,
   connections,
   selectedNodeId,
@@ -70,7 +71,7 @@ export default function Canvas({
   onRunSingleNode,
   themeName,
   themeMode,
-  isExecuting,
+  isExecuting: _isExecuting,
   executingNodeId,
 }: CanvasProps) {
   const { confirm, alert } = useAppDialog();
@@ -102,6 +103,7 @@ export default function Canvas({
   } | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const worldLayerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef({ x: 0, y: 0 });
   const zoomRef = useRef(1);
   const isPanningRef = useRef(false);
@@ -118,6 +120,24 @@ export default function Canvas({
   const selectedIdsRef = useRef<string[]>([]);
   const draftRef = useRef(draftConnection);
   const rafRef = useRef<number | null>(null);
+  const marqueeRafRef = useRef<number | null>(null);
+  const draftRafRef = useRef<number | null>(null);
+
+  const applyWorldTransform = useCallback(() => {
+    const el = worldLayerRef.current;
+    if (!el) return;
+    el.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${zoomRef.current})`;
+  }, []);
+
+  const setPan = useCallback(
+    (x: number, y: number) => {
+      panRef.current = { x, y };
+      setPanX(x);
+      setPanY(y);
+      applyWorldTransform();
+    },
+    [applyWorldTransform],
+  );
   const onUpdateRef = useRef(onUpdateNodePosition);
   const onUpdateManyRef = useRef(onUpdateNodePositions);
   const onAddConnRef = useRef(onAddConnection);
@@ -128,10 +148,12 @@ export default function Canvas({
 
   useEffect(() => {
     panRef.current = { x: panX, y: panY };
-  }, [panX, panY]);
+    applyWorldTransform();
+  }, [panX, panY, applyWorldTransform]);
   useEffect(() => {
     zoomRef.current = zoom;
-  }, [zoom]);
+    applyWorldTransform();
+  }, [zoom, applyWorldTransform]);
   useEffect(() => {
     draftRef.current = draftConnection;
   }, [draftConnection]);
@@ -288,13 +310,20 @@ export default function Canvas({
         const pos = screenToCanvas(e.clientX, e.clientY);
         const next = { ...marqueeRef.current, x1: pos.x, y1: pos.y };
         marqueeRef.current = next;
-        setMarquee(next);
+        if (marqueeRafRef.current != null) return;
+        marqueeRafRef.current = requestAnimationFrame(() => {
+          marqueeRafRef.current = null;
+          if (marqueeRef.current) setMarquee({ ...marqueeRef.current });
+        });
         return;
       }
       if (isPanningRef.current) {
         didPanOrDragRef.current = true;
-        setPanX(e.clientX - panStartRef.current.x);
-        setPanY(e.clientY - panStartRef.current.y);
+        panRef.current = {
+          x: e.clientX - panStartRef.current.x,
+          y: e.clientY - panStartRef.current.y,
+        };
+        applyWorldTransform();
         return;
       }
       if (draggingIdRef.current) {
@@ -314,13 +343,20 @@ export default function Canvas({
       }
       if (draftRef.current) {
         const pos = screenToCanvas(e.clientX, e.clientY);
-        setDraftConnection((prev) =>
-          prev ? { ...prev, currentX: pos.x, currentY: pos.y } : null
-        );
+        draftRef.current = { ...draftRef.current, currentX: pos.x, currentY: pos.y };
+        if (draftRafRef.current != null) return;
+        draftRafRef.current = requestAnimationFrame(() => {
+          draftRafRef.current = null;
+          if (draftRef.current) setDraftConnection({ ...draftRef.current });
+        });
       }
     };
 
     const onUp = () => {
+      if (isPanningRef.current) {
+        setPanX(panRef.current.x);
+        setPanY(panRef.current.y);
+      }
       if (isMarqueeRef.current && marqueeRef.current) {
         const m = marqueeRef.current;
         const minX = Math.min(m.x0, m.x1);
@@ -378,6 +414,14 @@ export default function Canvas({
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      if (marqueeRafRef.current != null) {
+        cancelAnimationFrame(marqueeRafRef.current);
+        marqueeRafRef.current = null;
+      }
+      if (draftRafRef.current != null) {
+        cancelAnimationFrame(draftRafRef.current);
+        draftRafRef.current = null;
+      }
     };
 
     window.addEventListener("mousemove", onMove);
@@ -386,8 +430,10 @@ export default function Canvas({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      if (marqueeRafRef.current != null) cancelAnimationFrame(marqueeRafRef.current);
+      if (draftRafRef.current != null) cancelAnimationFrame(draftRafRef.current);
     };
-  }, [screenToCanvas]);
+  }, [screenToCanvas, applyWorldTransform]);
 
   // Keyboard: Delete, Ctrl+C/V, Ctrl+A
   useEffect(() => {
@@ -627,11 +673,22 @@ export default function Canvas({
   };
 
   // Nodes with live drag position for minimap
-  const displayNodes = nodes.map((n) => {
-    const xy = getNodeXY(n);
-    if (xy.x !== n.x || xy.y !== n.y) return { ...n, x: xy.x, y: xy.y };
-    return n;
-  });
+  const displayNodes = useMemo(() => {
+    if (!draggingNodeId && !localGroupDelta) return nodes;
+    return nodes.map((n) => {
+      const xy = getNodeXY(n);
+      if (xy.x !== n.x || xy.y !== n.y) return { ...n, x: xy.x, y: xy.y };
+      return n;
+    });
+  }, [nodes, draggingNodeId, localGroupDelta, getNodeXY]);
+
+  const nodeById = useMemo(() => {
+    const m = new Map<string, WorkflowNode>();
+    for (const n of displayNodes) m.set(n.id, n);
+    return m;
+  }, [displayNodes]);
+
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const isDragging = draggingNodeId != null;
 
@@ -652,7 +709,7 @@ export default function Canvas({
         const blockType = e.dataTransfer.getData("application/nexuz-block");
         if (!blockType || !/^[a-z][a-z0-9_]*$/i.test(blockType)) return;
         const pos = screenToCanvas(e.clientX, e.clientY);
-        onDropBlock(blockType, pos.x - NODE_WIDTH / 2, pos.y - 40);
+        onDropBlock(blockType, pos.x - NODE_WIDTH / 2, pos.y - 28);
       }}
       onAuxClick={(e) => {
         // Prevent middle-click auto-scroll chrome behavior after pan
@@ -709,8 +766,7 @@ export default function Canvas({
         themeMode={themeMode}
         getNodeColor={getNodeColor}
         onNavigate={(nx, ny) => {
-          setPanX(nx);
-          setPanY(ny);
+          setPan(nx, ny);
         }}
       />
 
@@ -748,50 +804,48 @@ export default function Canvas({
       </div>
 
       <div
+        ref={worldLayerRef}
         style={{
           transform: `translate(${panX}px, ${panY}px) scale(${zoom})`,
           transformOrigin: "0 0",
-          // No CSS transition while dragging — it fights pointer tracking
-          transition: isDragging || isPanningRef.current ? "none" : undefined,
+          willChange: "transform",
         }}
         className="absolute inset-0 pointer-events-none"
       >
-        <svg className="absolute inset-0 w-[10000px] h-[10000px] overflow-visible pointer-events-none">
+        <svg
+          className="absolute left-0 top-0 overflow-visible pointer-events-none"
+          width={1}
+          height={1}
+          style={{ overflow: "visible" }}
+        >
           <defs>
             <linearGradient id="connectionGrad" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor={colors.primary} stopOpacity="0.8" />
               <stop offset="100%" stopColor="#30D158" stopOpacity="0.8" />
             </linearGradient>
-            <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-              <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.15" />
-            </filter>
-            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
           </defs>
 
           {connections.map((conn) => {
             const isData = conn.kind === "data";
             if (isData && !showDataLinks) return null;
 
-            const sourceNode = nodes.find((n) => n.id === conn.sourceNodeId);
-            const targetNode = nodes.find((n) => n.id === conn.targetNodeId);
+            const sourceNode = nodeById.get(conn.sourceNodeId);
+            const targetNode = nodeById.get(conn.targetNodeId);
             if (!sourceNode || !targetNode) return null;
 
             const p1 = getSocketPosition(sourceNode, conn.sourceSocketId, false);
             const p2 = getSocketPosition(targetNode, conn.targetSocketId, true);
-            // Data links: mid-right of source → mid-left of target (visual only)
             const sp = isData
-              ? { x: getNodeXY(sourceNode).x + NODE_WIDTH, y: getNodeXY(sourceNode).y + 56 }
+              ? { x: sourceNode.x + NODE_WIDTH, y: sourceNode.y + DATA_LINK_Y }
               : p1;
             const tp = isData
-              ? { x: getNodeXY(targetNode).x, y: getNodeXY(targetNode).y + 56 }
+              ? { x: targetNode.x, y: targetNode.y + DATA_LINK_Y }
               : p2;
 
             const isPathExecuting =
               !isData &&
-              (isExecuting ||
+              !isDragging &&
+              (executingNodeId === sourceNode.id ||
                 sourceNode.status === "running" ||
                 targetNode.status === "running");
 
@@ -811,12 +865,13 @@ export default function Canvas({
             const midY = (sp.y + tp.y) / 2;
             const labelX = sp.x + (tp.x - sp.x) * 0.22;
             const labelY = sp.y + (tp.y - sp.y) * 0.22;
+            const pathD = drawBezierPath(sp.x, sp.y, tp.x, tp.y);
 
             return (
               <g key={conn.id} className="group pointer-events-auto cursor-pointer">
                 {!isData && (
                   <path
-                    d={drawBezierPath(sp.x, sp.y, tp.x, tp.y)}
+                    d={pathD}
                     fill="none"
                     stroke="transparent"
                     strokeWidth="12"
@@ -835,18 +890,8 @@ export default function Canvas({
                     }}
                   />
                 )}
-                {isPathExecuting && (
-                  <path
-                    d={drawBezierPath(sp.x, sp.y, tp.x, tp.y)}
-                    fill="none"
-                    stroke={colors.primary}
-                    strokeWidth="4"
-                    strokeOpacity="0.4"
-                    filter="url(#glow)"
-                  />
-                )}
                 <path
-                  d={drawBezierPath(sp.x, sp.y, tp.x, tp.y)}
+                  d={pathD}
                   fill="none"
                   stroke={stroke}
                   strokeWidth={isData ? 1.5 : 2.5}
@@ -959,7 +1004,7 @@ export default function Canvas({
 
         <div className="absolute inset-0 pointer-events-none">
           {nodes.map((node) => {
-            const isSelected = selectedIds.includes(node.id) || selectedNodeId === node.id;
+            const isSelected = selectedIdSet.has(node.id) || selectedNodeId === node.id;
             const isForever = node.subType === "loop_forever";
             const isNodeRunning =
               executingNodeId === node.id || node.status === "running";
@@ -967,7 +1012,7 @@ export default function Canvas({
             const xy = getNodeXY(node);
             const thisDragging =
               draggingNodeId === node.id ||
-              (localGroupDelta != null && selectedIds.includes(node.id) && dragGroupIdsRef.current.includes(node.id));
+              (localGroupDelta != null && selectedIdSet.has(node.id) && dragGroupIdsRef.current.includes(node.id));
 
             return (
               <div
@@ -976,7 +1021,7 @@ export default function Canvas({
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!(e.ctrlKey || e.metaKey)) {
-                    if (!selectedIds.includes(node.id) || selectedIds.length <= 1) {
+                    if (!selectedIdSet.has(node.id) || selectedIds.length <= 1) {
                       setSelectedIds([node.id]);
                     }
                     onSelectNode(node.id);
@@ -988,8 +1033,8 @@ export default function Canvas({
                   width: NODE_WIDTH,
                   backgroundColor:
                     themeMode === "light"
-                      ? "rgba(255, 255, 255, 0.72)"
-                      : "rgba(24, 28, 43, 0.75)",
+                      ? "rgba(255, 255, 255, 0.92)"
+                      : "rgba(24, 28, 43, 0.92)",
                   borderColor: isForever
                     ? "#FF5E57"
                     : isSelected
@@ -1000,39 +1045,37 @@ export default function Canvas({
                   borderWidth: isForever ? 2 : undefined,
                   boxShadow: isForever
                     ? "0 0 0 3px rgba(255, 94, 87, 0.25)"
-                    : undefined,
+                    : isSelected
+                      ? `0 0 0 2px ${colors.primary}33`
+                      : "0 8px 24px rgba(0,0,0,0.12)",
                   color: colors.text,
                   transition: thisDragging ? "none" : undefined,
                   willChange: thisDragging ? "left, top" : undefined,
                 }}
-                className={`absolute rounded-[22px] border-1.5 backdrop-blur-2xl p-4 pointer-events-auto shadow-xl flex flex-col space-y-3 cursor-grab active:cursor-grabbing ${
-                  isSelected
-                    ? "ring-4 ring-offset-2 ring-offset-transparent ring-blue-500/20"
-                    : ""
-                } ${
-                  themeMode === "light" ? "glass-shadow-light" : "glass-shadow-dark"
-                } ${thisDragging ? "" : "hover:shadow-2xl"}`}
+                className={`absolute rounded-xl border px-2.5 py-2 pointer-events-auto flex flex-col gap-1.5 cursor-grab active:cursor-grabbing ${
+                  thisDragging ? "" : "hover:shadow-lg"
+                }`}
               >
                 {isForever && (
-                  <div className="absolute -top-2.5 left-3 px-1.5 py-0.5 rounded-md bg-rose-500 text-white text-[9px] font-bold tracking-wide uppercase">
+                  <div className="absolute -top-2 left-2 px-1 py-0.5 rounded bg-rose-500 text-white text-[8px] font-bold tracking-wide uppercase">
                     FOREVER
                   </div>
                 )}
-                <div className="flex items-center justify-between border-b border-black/5 dark:border-white/5 pb-2.5 shrink-0">
-                  <div className="flex items-center space-x-2 truncate">
+                <div className="flex items-center justify-between border-b border-black/5 dark:border-white/5 pb-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 truncate min-w-0">
                     <span
                       style={{
                         backgroundColor: nodeAccentColor + "1E",
                         color: nodeAccentColor,
                       }}
-                      className="w-2.5 h-2.5 rounded-full"
+                      className="w-2 h-2 rounded-full shrink-0"
                     />
-                    <span className="font-display font-semibold text-xs truncate max-w-[120px]">
+                    <span className="font-display font-semibold text-[11px] truncate">
                       {node.name}
                     </span>
                   </div>
 
-                  <div className="flex items-center space-x-1 pointer-events-auto">
+                  <div className="flex items-center shrink-0 pointer-events-auto">
                     <button
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
@@ -1040,7 +1083,7 @@ export default function Canvas({
                         onRunSingleNode(node.id);
                       }}
                       style={{ color: colors.secondaryText }}
-                      className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 hover:text-emerald-500 transition-all cursor-pointer"
+                      className="p-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-emerald-500 cursor-pointer"
                       title="Run node solo"
                     >
                       <Loader2
@@ -1058,7 +1101,7 @@ export default function Canvas({
                         setSelectedIds((prev) => prev.filter((id) => id !== node.id));
                       }}
                       style={{ color: colors.danger }}
-                      className="p-1 rounded-lg hover:bg-red-500/15 transition-all cursor-pointer"
+                      className="p-0.5 rounded hover:bg-red-500/15 cursor-pointer"
                       title="Delete node"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -1066,11 +1109,11 @@ export default function Canvas({
                   </div>
                 </div>
 
-                <div className="flex flex-col space-y-3 relative">
+                <div className="flex flex-col gap-1 relative">
                   {node.inputs.map((inp) => (
                     <div
                       key={inp.id}
-                      className="flex items-center justify-start space-x-2 relative pointer-events-auto h-6"
+                      className="flex items-center justify-start relative pointer-events-auto h-[18px]"
                     >
                       <div
                         onMouseUp={(e) => handleSocketDragDrop(e, node, inp.id)}
@@ -1079,12 +1122,12 @@ export default function Canvas({
                             themeMode === "light" ? "#FFFFFF" : "#111524",
                           borderColor: nodeAccentColor,
                         }}
-                        className="w-3.5 h-3.5 rounded-full border-2 absolute -left-[23px] top-[5px] flex items-center justify-center hover:scale-125 hover:bg-blue-500 transition-transform cursor-crosshair z-30"
+                        className="w-3 h-3 rounded-full border-2 absolute -left-[18px] top-[3px] flex items-center justify-center hover:scale-125 hover:bg-blue-500 transition-transform cursor-crosshair z-30"
                         title="Drag connection to here"
                       >
-                        <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+                        <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
                       </div>
-                      <span className="text-[11px] font-medium tracking-wide opacity-80 pl-1">
+                      <span className="text-[10px] font-medium tracking-wide opacity-80 pl-0.5 truncate">
                         {inp.name}
                       </span>
                     </div>
@@ -1104,10 +1147,10 @@ export default function Canvas({
                     return (
                       <div
                         key={out.id}
-                        className="flex items-center justify-end space-x-2 relative pointer-events-auto h-6"
+                        className="flex items-center justify-end relative pointer-events-auto h-[18px]"
                       >
                         <span
-                          className={`text-[11px] font-semibold tracking-wide pr-1 ${
+                          className={`text-[10px] font-semibold tracking-wide pr-0.5 truncate ${
                             isThen
                               ? 'text-emerald-500'
                               : isElse
@@ -1126,7 +1169,7 @@ export default function Canvas({
                             borderColor:
                               themeMode === 'light' ? '#FFFFFF' : '#111524',
                           }}
-                          className="w-3.5 h-3.5 rounded-full border-2 absolute -right-[23px] top-[5px] flex items-center justify-center hover:scale-125 transition-transform cursor-crosshair z-30"
+                          className="w-3 h-3 rounded-full border-2 absolute -right-[18px] top-[3px] flex items-center justify-center hover:scale-125 transition-transform cursor-crosshair z-30"
                           title={
                             isThen
                               ? '是 / Then — 条件成立时走此分支'
@@ -1142,20 +1185,20 @@ export default function Canvas({
                   })}
                 </div>
 
-                <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-black/5 dark:border-white/5 font-mono text-slate-400">
-                  <div className="flex items-center space-x-1">
+                <div className="flex items-center justify-between text-[9px] pt-1 border-t border-black/5 dark:border-white/5 font-mono text-slate-400">
+                  <div className="flex items-center gap-0.5 min-w-0">
                     {node.status === "success" && (
-                      <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
                     )}
                     {node.status === "error" && (
-                      <AlertCircle className="w-3 h-3 text-rose-500" />
+                      <AlertCircle className="w-2.5 h-2.5 text-rose-500 shrink-0" />
                     )}
                     {node.status === "running" && (
-                      <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
+                      <Loader2 className="w-2.5 h-2.5 text-blue-500 animate-spin shrink-0" />
                     )}
-                    <span>{node.status.toUpperCase()}</span>
+                    <span className="truncate">{node.status.toUpperCase()}</span>
                   </div>
-                  <span className="opacity-60 capitalize">
+                  <span className="opacity-60 capitalize truncate max-w-[72px]">
                     {node.subType.replace("-", " ")}
                   </span>
                 </div>
@@ -1181,3 +1224,5 @@ export default function Canvas({
     </div>
   );
 }
+
+export default memo(Canvas);
