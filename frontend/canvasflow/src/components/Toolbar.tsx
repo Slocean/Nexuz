@@ -21,6 +21,7 @@ import {
   Minus,
   Maximize2,
   Minimize2,
+  Pin,
   X,
 } from 'lucide-react';
 import { ThemeName, ThemeMode } from '../types';
@@ -84,12 +85,16 @@ export default function Toolbar({
 }: ToolbarProps) {
   const [isSaved, setIsSaved] = useState(false);
   const [maximized, setMaximized] = useState(false);
+  const [onTop, setOnTop] = useState(false);
   const colors = getThemeColors(themeName, themeMode);
   const themes: ThemeName[] = ['Ocean', 'Mint', 'Purple', 'Rose', 'Orange'];
 
   useEffect(() => {
     bridge.windowIsMaximized?.().then((res: any) => {
       if (res?.maximized != null) setMaximized(!!res.maximized);
+    });
+    bridge.windowIsOnTop?.().then((res: any) => {
+      if (res?.on_top != null) setOnTop(!!res.on_top);
     });
   }, []);
 
@@ -119,6 +124,12 @@ export default function Toolbar({
   const onWinClose = (e: React.MouseEvent) => {
     e.stopPropagation();
     bridge.windowClose();
+  };
+  const onWinToggleOnTop = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const res = await bridge.windowToggleOnTop?.();
+    if (res?.on_top != null) setOnTop(!!res.on_top);
+    else setOnTop((v) => !v);
   };
 
   return (
@@ -293,39 +304,18 @@ export default function Toolbar({
               <Sun className="w-4 h-4 opacity-80" />
             )}
           </Button>
-
-          {onViewModeChange && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2.5"
-              onClick={() => onViewModeChange('settings')}
-              title="设置"
-              style={
-                viewMode === 'settings'
-                  ? {
-                      backgroundColor: colors.primary + '22',
-                      color: colors.primary,
-                    }
-                  : undefined
-              }
-            >
-              <Settings2 className="w-4 h-4 opacity-80" />
-              <span>设置</span>
-            </Button>
-          )}
         </div>
 
         {/* Drag filler */}
         <div className="pywebview-drag-region flex-1 self-stretch min-w-[24px] mx-2" />
 
-        {/* Right: view / AI + window */}
+        {/* Right: view tabs + AI + window */}
         <div className="flex items-center gap-1 shrink-0 z-10">
           {onViewModeChange && (
             <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5">
               <Button
                 size="sm"
-                className="h-8 px-2.5"
+                className="h-8 w-8 px-0"
                 onClick={() => onViewModeChange('canvas')}
                 title="画布"
                 style={
@@ -336,11 +326,10 @@ export default function Toolbar({
                 variant="ghost"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                <span>画布</span>
               </Button>
               <Button
                 size="sm"
-                className="h-8 px-2.5"
+                className="h-8 w-8 px-0"
                 onClick={() => onViewModeChange('code')}
                 title="JSON"
                 style={
@@ -351,7 +340,20 @@ export default function Toolbar({
                 variant="ghost"
               >
                 <FileCode2 className="w-3.5 h-3.5" />
-                <span>JSON</span>
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 w-8 px-0"
+                onClick={() => onViewModeChange('settings')}
+                title="设置"
+                style={
+                  viewMode === 'settings'
+                    ? { backgroundColor: colors.primary, color: '#FFFFFF' }
+                    : { backgroundColor: 'transparent', color: colors.text }
+                }
+                variant="ghost"
+              >
+                <Settings2 className="w-3.5 h-3.5" />
               </Button>
             </div>
           )}
@@ -368,6 +370,15 @@ export default function Toolbar({
           </Button>
 
           <div className="flex items-center ml-1 pl-1 border-l border-white/10">
+            <button
+              type="button"
+              onClick={onWinToggleOnTop}
+              title={onTop ? '取消置顶' : '窗口置顶'}
+              className="h-8 w-9 inline-flex items-center justify-center rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+              style={onTop ? { color: colors.primary } : undefined}
+            >
+              <Pin className={`w-3.5 h-3.5 ${onTop ? 'fill-current' : 'opacity-80'}`} />
+            </button>
             <button
               type="button"
               onClick={onWinMinimize}

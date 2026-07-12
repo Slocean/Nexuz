@@ -166,6 +166,25 @@ class Api:
             pass
         return {"ok": True, "maximized": maximized}
 
+    def window_toggle_on_top(self) -> dict:
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        try:
+            current = bool(getattr(self._window, "on_top", False))
+            self._window.on_top = not current
+            return {"ok": True, "on_top": bool(self._window.on_top)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def window_is_on_top(self) -> dict:
+        on_top = False
+        try:
+            if self._window is not None:
+                on_top = bool(getattr(self._window, "on_top", False))
+        except Exception:
+            pass
+        return {"ok": True, "on_top": on_top}
+
     # --- flow execution ---
     def run_flow(self, flow_json: str, step_mode: bool = False, hide_window: bool = True) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json

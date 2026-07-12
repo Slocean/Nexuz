@@ -348,6 +348,9 @@ function mockCall(method, ...args) {
     case 'window_close':
     case 'window_is_maximized':
       return Promise.resolve({ ok: true, maximized: false });
+    case 'window_toggle_on_top':
+    case 'window_is_on_top':
+      return Promise.resolve({ ok: true, on_top: false });
     case 'run_flow':
       return Promise.resolve({ ok: false, error: '请在桌面客户端中运行流程（python backend/main.py --dev）' });
     case 'save_flow':
@@ -435,4 +438,6 @@ export const bridge = {
   windowToggleMaximize: () => call('window_toggle_maximize'),
   windowClose: () => call('window_close'),
   windowIsMaximized: () => call('window_is_maximized'),
+  windowToggleOnTop: () => call('window_toggle_on_top'),
+  windowIsOnTop: () => call('window_is_on_top'),
 };
