@@ -53,9 +53,14 @@ class FridaSessionManager:
                 "script": script_status,
             }
 
-    def list_processes(self, query: str | None = None) -> dict[str, Any]:
-        """Enumerate local processes suitable for Frida attach (prefer Frida API)."""
-        q = (query or "").strip().lower()
+    def list_processes(
+        self,
+        query: str | None = None,
+        only_with_window: bool = True,
+    ) -> dict[str, Any]:
+        """Enumerate processes; default only those with a visible window (dedupe helpers)."""
+        from backend.core.input.frida.process_list import enrich_process_rows
+
         rows: list[dict[str, Any]] = []
         try:
             import frida
@@ -66,13 +71,10 @@ class FridaSessionManager:
                 pid = int(getattr(proc, "pid", 0) or 0)
                 if not pid or not name:
                     continue
-                if q and q not in name.lower() and q not in str(pid):
-                    continue
                 rows.append({"pid": pid, "name": name})
         except ImportError:
             return api_error(ERROR_FRIDA_SCRIPT, "未安装 frida，请 pip install frida")
         except Exception as exc:
-            # Fallback: psutil if available
             try:
                 import psutil
 
@@ -83,16 +85,22 @@ class FridaSessionManager:
                         pid = int(info.get("pid") or 0)
                         if not pid or not name:
                             continue
-                        if q and q not in name.lower() and q not in str(pid):
-                            continue
                         rows.append({"pid": pid, "name": name})
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
             except Exception:
                 return api_error(ERROR_FRIDA_SCRIPT, f"枚举进程失败: {exc}")
 
-        rows.sort(key=lambda r: (str(r["name"]).lower(), int(r["pid"])))
-        return api_ok(processes=rows, count=len(rows))
+        enriched = enrich_process_rows(
+            rows,
+            query=query,
+            only_with_window=bool(only_with_window),
+        )
+        return api_ok(
+            processes=enriched,
+            count=len(enriched),
+            only_with_window=bool(only_with_window),
+        )
 
     def attach(self, process_name: str | None = None, pid: int | None = None) -> dict[str, Any]:
         try:

@@ -398,10 +398,17 @@ class Api:
         return session.pick_click(mode=mode or "coord", hide_window=bool(hide_window))
 
     # --- Frida session ---
-    def frida_list_processes(self, query: str | None = None) -> dict:
+    def frida_list_processes(
+        self,
+        query: str | None = None,
+        only_with_window: bool = True,
+    ) -> dict:
         from backend.core.input.frida.session_manager import get_frida_session_manager
 
-        return get_frida_session_manager().list_processes(query=query)
+        return get_frida_session_manager().list_processes(
+            query=query,
+            only_with_window=bool(only_with_window),
+        )
 
     def frida_attach(self, process_name: str | None = None, pid: int | None = None) -> dict:
         from backend.core.input.frida.session_manager import get_frida_session_manager

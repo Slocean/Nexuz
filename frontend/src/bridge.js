@@ -402,7 +402,8 @@ export const bridge = {
   fridaAttach: (processName = null, pid = null) => call('frida_attach', processName, pid),
   fridaDetach: () => call('frida_detach'),
   fridaStatus: () => call('frida_status'),
-  fridaListProcesses: (query = null) => call('frida_list_processes', query),
+  fridaListProcesses: (query = null, onlyWithWindow = true) =>
+    call('frida_list_processes', query, onlyWithWindow),
   listScheduleJobs: () => call('list_schedule_jobs'),
   removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),

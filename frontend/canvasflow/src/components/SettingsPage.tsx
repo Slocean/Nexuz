@@ -20,7 +20,15 @@ import {
 import { useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 
-type ProcRow = { pid: number; name: string };
+type ProcRow = {
+  pid: number;
+  name: string;
+  window_title?: string;
+  exe?: string;
+  exe_base?: string;
+  has_window?: boolean;
+  display?: string;
+};
 
 export default function SettingsPage({
   themeName,
@@ -38,6 +46,7 @@ export default function SettingsPage({
   const [processes, setProcesses] = useState<ProcRow[]>([]);
   const [processFilter, setProcessFilter] = useState('');
   const [selectedKey, setSelectedKey] = useState(''); // "pid|name"
+  const [onlyWithWindow, setOnlyWithWindow] = useState(true);
   const [fridaStatus, setFridaStatus] = useState<{
     attached?: boolean;
     hooked?: boolean;
@@ -58,12 +67,17 @@ export default function SettingsPage({
     }
   }, []);
 
-  const refreshProcesses = useCallback(async () => {
+  const refreshProcesses = useCallback(async (withWindow = onlyWithWindow) => {
     setListBusy(true);
     try {
-      const res = await bridge.fridaListProcesses(null);
+      const res = await bridge.fridaListProcesses(null, withWindow);
       if (res?.ok && Array.isArray(res.processes)) {
         setProcesses(res.processes);
+        setSelectedKey((prev) => {
+          if (!prev) return prev;
+          const pid = Number(prev.split('|')[0]);
+          return res.processes.some((p: ProcRow) => p.pid === pid) ? prev : '';
+        });
       } else {
         setProcesses([]);
         setFridaMsg(res?.error || res?.message || '无法枚举进程');
@@ -74,21 +88,34 @@ export default function SettingsPage({
     } finally {
       setListBusy(false);
     }
-  }, []);
+  }, [onlyWithWindow]);
 
   useEffect(() => {
     refreshFrida();
-    refreshProcesses();
     const t = setInterval(refreshFrida, 3000);
     return () => clearInterval(t);
-  }, [refreshFrida, refreshProcesses]);
+  }, [refreshFrida]);
+
+  useEffect(() => {
+    void refreshProcesses(onlyWithWindow);
+  }, [onlyWithWindow, refreshProcesses]);
 
   const filtered = useMemo(() => {
     const q = processFilter.trim().toLowerCase();
     if (!q) return processes;
-    return processes.filter(
-      (p) => p.name.toLowerCase().includes(q) || String(p.pid).includes(q),
-    );
+    return processes.filter((p) => {
+      const hay = [
+        p.name,
+        String(p.pid),
+        p.window_title || '',
+        p.exe || '',
+        p.exe_base || '',
+        p.display || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
   }, [processes, processFilter]);
 
   const selected = useMemo(() => {
@@ -217,17 +244,34 @@ export default function SettingsPage({
                 variant="ghost"
                 className="h-7 px-2"
                 disabled={listBusy}
-                onClick={() => refreshProcesses()}
+                onClick={() => refreshProcesses(onlyWithWindow)}
                 title="刷新进程列表"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${listBusy ? 'animate-spin' : ''}`} />
                 刷新
               </Button>
             </div>
+
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="only-with-window"
+                checked={onlyWithWindow}
+                onCheckedChange={(v) => setOnlyWithWindow(!!v)}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="only-with-window"
+                className="text-xs font-normal normal-case tracking-normal cursor-pointer leading-relaxed"
+                style={{ color: colors.secondaryText }}
+              >
+                仅显示有窗口的进程（推荐：过滤掉同名后台/辅助进程）
+              </Label>
+            </div>
+
             <Input
               value={processFilter}
               onChange={(e) => setProcessFilter(e.target.value)}
-              placeholder="过滤：进程名或 PID"
+              placeholder="过滤：窗口标题 / 进程名 / PID / 路径"
               className="font-mono text-xs"
             />
             <Select
@@ -242,21 +286,34 @@ export default function SettingsPage({
               <SelectContent className="max-h-72">
                 {filtered.length === 0 ? (
                   <SelectItem value="__empty" disabled>
-                    {listBusy ? '加载中…' : '无匹配进程，点刷新重试'}
+                    {listBusy
+                      ? '加载中…'
+                      : onlyWithWindow
+                        ? '无带窗口的进程；可取消勾选或点刷新'
+                        : '无匹配进程，点刷新重试'}
                   </SelectItem>
                 ) : (
                   filtered.slice(0, 400).map((p) => (
                     <SelectItem key={`${p.pid}|${p.name}`} value={`${p.pid}|${p.name}`}>
-                      <span className="font-mono text-xs">
-                        {p.name} <span className="opacity-50">PID {p.pid}</span>
+                      <span className="font-mono text-[11px] leading-snug block max-w-[420px] truncate">
+                        {p.display ||
+                          (p.window_title
+                            ? `${p.window_title} · ${p.name} · PID ${p.pid}`
+                            : `${p.name} · PID ${p.pid}`)}
                       </span>
                     </SelectItem>
                   ))
                 )}
               </SelectContent>
             </Select>
+            {selected && (
+              <p className="text-[10px] font-mono leading-relaxed opacity-70 break-all" style={{ color: colors.secondaryText }}>
+                {selected.window_title ? `窗口：${selected.window_title}` : '无窗口标题'}
+                {selected.exe ? `\n路径：${selected.exe}` : ''}
+              </p>
+            )}
             <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
-              按 PID 连接，同名多开也能选对。列表最多显示 400 条，可用过滤缩小范围。
+              默认只列出有可见窗口的进程，避免同名辅助进程干扰。选中后按 PID 连接。
             </p>
           </div>
 
