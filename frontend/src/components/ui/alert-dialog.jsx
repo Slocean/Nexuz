@@ -35,7 +35,7 @@ function AlertDialogContent({ className, ...props }) {
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         className={cn(
-          'fixed left-1/2 top-1/2 z-[101] grid w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl outline-none',
+          'fixed left-1/2 top-1/2 z-[101] grid w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 text-[var(--popover-foreground)] shadow-2xl outline-none backdrop-blur-xl',
           'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
           className,
         )}
@@ -58,7 +58,10 @@ function AlertDialogFooter({ className, ...props }) {
 function AlertDialogTitle({ className, ...props }) {
   return (
     <AlertDialogPrimitive.Title
-      className={cn('font-display text-base font-semibold', className)}
+      className={cn(
+        'font-display text-base font-semibold text-[var(--popover-foreground)]',
+        className,
+      )}
       {...props}
     />
   );

@@ -83,6 +83,8 @@ body,
   margin: 0;
   height: 100%;
   font-family: var(--font-sans);
+  color: var(--foreground);
+  background-color: var(--background);
 }
 
 @keyframes dash {

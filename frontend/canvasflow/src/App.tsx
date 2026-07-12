@@ -54,8 +54,11 @@ function applyCssVars(colors: ReturnType<typeof getThemeColors>, themeMode: stri
   root.style.setProperty('--destructive', colors.danger);
   root.style.setProperty('--ring', colors.primary);
   root.style.setProperty('--card', colors.surface);
+  root.style.setProperty('--card-foreground', colors.text);
   root.style.setProperty('--border', colors.border);
-  root.style.setProperty('--popover', themeMode === 'dark' ? 'rgba(18, 22, 35, 0.95)' : 'rgba(255, 255, 255, 0.95)');
+  const popoverBg = themeMode === 'dark' ? 'rgba(18, 22, 35, 0.98)' : 'rgba(255, 255, 255, 0.98)';
+  root.style.setProperty('--popover', popoverBg);
+  root.style.setProperty('--popover-foreground', colors.text);
 }
 
 export default function App() {

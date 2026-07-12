@@ -39,7 +39,7 @@ function DialogContent({ className, children, showClose = true, showOverlay = tr
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          'fixed left-1/2 top-1/2 z-[101] grid w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl outline-none',
+          'fixed left-1/2 top-1/2 z-[101] grid w-[min(440px,92vw)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 text-[var(--popover-foreground)] shadow-2xl outline-none backdrop-blur-xl',
           'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
           className,
         )}
@@ -47,7 +47,7 @@ function DialogContent({ className, children, showClose = true, showOverlay = tr
       >
         {children}
         {showClose ? (
-          <DialogPrimitive.Close className="absolute right-3 top-3 rounded-lg p-1.5 opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer">
+          <DialogPrimitive.Close className="absolute right-3 top-3 rounded-lg p-1.5 text-[var(--popover-foreground)] opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer">
             <X className="w-4 h-4" />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
@@ -70,7 +70,10 @@ function DialogFooter({ className, ...props }) {
 function DialogTitle({ className, ...props }) {
   return (
     <DialogPrimitive.Title
-      className={cn('font-display text-base font-semibold leading-none', className)}
+      className={cn(
+        'font-display text-base font-semibold leading-none text-[var(--popover-foreground)]',
+        className,
+      )}
       {...props}
     />
   );
