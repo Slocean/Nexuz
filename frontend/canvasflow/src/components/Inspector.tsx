@@ -112,12 +112,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div className="flex items-start gap-2 min-w-0">
       <Label
-        className="text-xs font-medium opacity-75 shrink-0 w-[4.75rem] leading-8 truncate"
+        className="text-xs font-medium opacity-75 shrink-0 w-[7.5rem] leading-8"
         title={label}
       >
         {label}
       </Label>
-      <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-nowrap">{children}</div>
+      <div className="flex-1 min-w-0 max-w-[14rem] flex items-center gap-1.5 flex-nowrap">{children}</div>
     </div>
   );
 }
@@ -221,7 +221,7 @@ export default function Inspector({
           borderColor: colors.border,
           color: colors.text,
         }}
-        className="w-80 border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
+        className="w-96 border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
       >
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60">
           <div
@@ -396,7 +396,7 @@ export default function Inspector({
             </p>
             {onPickRegion && (
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium opacity-75 shrink-0 w-[4.75rem]">识别区域</span>
+                <span className="text-xs font-medium opacity-75 shrink-0 w-[7.5rem]">识别区域</span>
                 <Button
                   type="button"
                   size="sm"
@@ -774,7 +774,7 @@ export default function Inspector({
         borderColor: colors.border,
         color: colors.text,
       }}
-      className="w-80 border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
+      className="w-96 border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
     >
       <div className="px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
@@ -798,11 +798,11 @@ export default function Inspector({
               </span>
             </div>
             <div className="flex items-center gap-2 min-w-0">
-              <Label className="text-xs font-medium opacity-75 shrink-0 w-[4.75rem] leading-8">
+              <Label className="text-xs font-medium opacity-75 shrink-0 w-[7.5rem] leading-8">
                 名称
               </Label>
               <Input
-                className="h-8 flex-1 min-w-0"
+                className="h-8 flex-1 min-w-0 max-w-[14rem]"
                 value={selectedNode.name || ''}
                 placeholder="节点显示名称"
                 onChange={(e) => onUpdateNodeName?.(selectedNode.id, e.target.value)}
