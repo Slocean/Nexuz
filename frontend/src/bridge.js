@@ -146,6 +146,36 @@ export const MOCK_SCHEMAS = [
     outputs: [{ name: 'matched', type: 'boolean' }],
   },
   {
+    type: 'if_logic',
+    label: '组合条件',
+    category: '控制类',
+    inputs: [
+      {
+        name: 'mode',
+        type: 'select',
+        label: '组合方式',
+        options: ['and', 'or'],
+        default: 'and',
+        option_labels: {
+          and: '全部满足（与 AND）',
+          or: '任一满足（或 OR）',
+        },
+      },
+      {
+        name: 'conditions',
+        type: 'condition_list',
+        label: '条件列表',
+        default: [{ expression: '' }],
+        bindable: false,
+      },
+    ],
+    outputs: [
+      { name: 'matched', type: 'boolean' },
+      { name: 'matched_count', type: 'number' },
+      { name: 'total', type: 'number' },
+    ],
+  },
+  {
     type: 'switch',
     label: '多分支',
     category: '控制类',

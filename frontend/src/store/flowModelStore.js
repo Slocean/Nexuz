@@ -7,7 +7,19 @@ function uid(prefix = 'node') {
 function defaultParams(schema) {
   const params = {};
   for (const input of schema?.inputs || []) {
-    params[input.name] = input.default ?? (input.type === 'number' ? 0 : input.type === 'keys' ? [] : '');
+    if (input.default !== undefined) {
+      params[input.name] = Array.isArray(input.default)
+        ? JSON.parse(JSON.stringify(input.default))
+        : input.default && typeof input.default === 'object'
+          ? { ...input.default }
+          : input.default;
+      continue;
+    }
+    if (input.type === 'number') params[input.name] = 0;
+    else if (input.type === 'keys' || input.type === 'cases' || input.type === 'condition_list')
+      params[input.name] = [];
+    else if (input.type === 'keymap') params[input.name] = {};
+    else params[input.name] = '';
   }
   return params;
 }
@@ -101,6 +113,26 @@ export const useFlowStore = create((set, get) => ({
     }
     set({ defaultCaptureMode: mode });
   },
+
+  /** Force all click nodes to use the given capture_mode */
+  syncAllClickCaptureModes: (mode) =>
+    set((state) => {
+      const m = mode === 'frida_ui' ? 'frida_ui' : 'coord';
+      const nodes = { ...state.flow.nodes };
+      let changed = false;
+      for (const [id, node] of Object.entries(nodes)) {
+        if (node?.type !== 'click') continue;
+        const prev = node.params?.capture_mode;
+        if (prev === m) continue;
+        changed = true;
+        nodes[id] = {
+          ...node,
+          params: { ...(node.params || {}), capture_mode: m },
+        };
+      }
+      if (!changed) return state;
+      return { flow: { ...state.flow, nodes } };
+    }),
 
   setThemeName: (themeName) => {
     set({ themeName });

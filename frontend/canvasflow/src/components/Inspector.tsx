@@ -246,6 +246,65 @@ function CasesEditor({
   );
 }
 
+/** AND/OR condition list — each row is an expression */
+function ConditionsListEditor({
+  value,
+  onChange,
+  currentNodeId,
+  schemaMap,
+}: {
+  value: { expression?: string }[];
+  onChange: (next: { expression: string }[]) => void;
+  currentNodeId: string;
+  schemaMap: Record<string, any>;
+}) {
+  const rows = Array.isArray(value) && value.length ? value : [{ expression: '' }];
+
+  const update = (idx: number, expression: string) => {
+    onChange(rows.map((r, i) => (i === idx ? { expression } : { expression: r.expression || '' })));
+  };
+
+  return (
+    <div className="space-y-2 w-full">
+      {rows.map((row, idx) => (
+        <div
+          key={idx}
+          className="rounded-lg border border-black/10 dark:border-white/10 p-1.5 space-y-1"
+        >
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[11px] opacity-60 font-medium">条件 {idx + 1}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-rose-400 shrink-0"
+              disabled={rows.length <= 1}
+              onClick={() => onChange(rows.filter((_, i) => i !== idx).map((r) => ({ expression: r.expression || '' })))}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+          <ExpressionField
+            value={row.expression ?? ''}
+            onChange={(v) => update(idx, v)}
+            currentNodeId={currentNodeId}
+            schemaMap={schemaMap}
+          />
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => onChange([...rows.map((r) => ({ expression: r.expression || '' })), { expression: '' }])}
+      >
+        添加条件
+      </Button>
+    </div>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-2 min-w-0">
@@ -505,24 +564,20 @@ export default function Inspector({
             </p>
             <Field label="录入模式">
               <Select
-                value={String(selectedNode.config?.capture_mode || 'inherit')}
-                onValueChange={(v) => {
-                  if (v === 'inherit') {
-                    const next = { ...selectedNode.config };
-                    delete next.capture_mode;
-                    onUpdateNodeConfig(selectedNode.id, next);
-                  } else {
-                    handleFieldChange('capture_mode', v);
-                  }
-                }}
+                value={
+                  selectedNode.config?.capture_mode === 'frida_ui' ||
+                  selectedNode.config?.capture_mode === 'coord'
+                    ? selectedNode.config.capture_mode
+                    : defaultCaptureMode === 'frida_ui'
+                      ? 'frida_ui'
+                      : 'coord'
+                }
+                onValueChange={(v) => handleFieldChange('capture_mode', v)}
               >
                 <SelectTrigger className="h-8 flex-1 min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="inherit">
-                    跟随全局（{defaultCaptureMode === 'frida_ui' ? 'Frida UI' : '坐标'}）
-                  </SelectItem>
                   <SelectItem value="coord">坐标</SelectItem>
                   <SelectItem value="frida_ui">Frida UI</SelectItem>
                 </SelectContent>
@@ -659,6 +714,13 @@ export default function Inspector({
                 <CasesEditor
                   value={Array.isArray(value) ? value : []}
                   onChange={(cases) => handleFieldChange(input.name, cases)}
+                />
+              ) : input.type === 'condition_list' ? (
+                <ConditionsListEditor
+                  value={Array.isArray(value) ? value : [{ expression: '' }]}
+                  onChange={(next) => handleFieldChange(input.name, next)}
+                  currentNodeId={selectedNode.id}
+                  schemaMap={schemaMap}
                 />
               ) : input.type === 'keymap' ||
                 input.ui === 'input_map' ||

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select';
 import { useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
+import { useAppDialog } from './AppDialogs';
 
 type ProcRow = {
   pid: number;
@@ -54,10 +55,37 @@ export default function SettingsPage({
   themeMode: ThemeMode;
 }) {
   const colors = getThemeColors(themeName, themeMode);
+  const { confirm } = useAppDialog();
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
   const setDefaultCaptureMode = useFlowStore((s) => s.setDefaultCaptureMode);
+  const syncAllClickCaptureModes = useFlowStore((s) => s.syncAllClickCaptureModes);
+  const flowNodes = useFlowStore((s) => s.flow.nodes || {});
+
+  const handleDefaultCaptureModeChange = async (next: string) => {
+    const mode = next === 'frida_ui' ? 'frida_ui' : 'coord';
+    if (mode === defaultCaptureMode) return;
+
+    const clicks = Object.values(flowNodes).filter((n: any) => n?.type === 'click');
+    const differing = clicks.filter((n: any) => {
+      const cur = n.params?.capture_mode || defaultCaptureMode;
+      return cur !== mode;
+    });
+
+    if (differing.length > 0) {
+      const label = mode === 'frida_ui' ? 'Frida UI' : '坐标';
+      const ok = await confirm({
+        title: '修改默认点击录入模式',
+        description: `当前有 ${differing.length} 个点击节点的录入模式与「${label}」不同。确认后将把所有这些节点改为「${label}」，之后新建的点击节点也会默认使用此模式。`,
+        confirmText: '全部修改',
+      });
+      if (!ok) return;
+      syncAllClickCaptureModes(mode);
+    }
+
+    setDefaultCaptureMode(mode);
+  };
 
   const [processes, setProcesses] = useState<ProcRow[]>([]);
   const [processFilter, setProcessFilter] = useState('');
@@ -241,7 +269,9 @@ export default function SettingsPage({
             </Label>
             <Select
               value={defaultCaptureMode || 'coord'}
-              onValueChange={(v) => setDefaultCaptureMode(v)}
+              onValueChange={(v) => {
+                void handleDefaultCaptureModeChange(v);
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -252,7 +282,7 @@ export default function SettingsPage({
               </SelectContent>
             </Select>
             <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-              顶栏「录制」与新建点击节点默认使用此模式。单个节点可在右侧 Inspector 覆盖。
+              顶栏「录制」与新建点击节点默认使用此模式。修改时若已有节点模式不一致，将提示并同步全部点击节点。
               Frida 模式需先连接游戏进程。
             </p>
           </div>

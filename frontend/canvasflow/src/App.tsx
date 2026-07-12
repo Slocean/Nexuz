@@ -37,6 +37,7 @@ const REQUIRED_BLOCK_TYPES = [
   'find_image',
   'color_detect',
   'if_color_match',
+  'if_logic',
   'screenshot',
   'wait_until',
   'schedule_trigger',

@@ -51,7 +51,7 @@ function mapDataType(t?: string): NodeSocket['dataType'] {
 }
 
 function flowOutputsFor(blockType: string): NodeSocket[] {
-  if (['if_condition', 'if_color_match', 'if_text_contains'].includes(blockType)) {
+  if (['if_condition', 'if_color_match', 'if_text_contains', 'if_logic'].includes(blockType)) {
     return [
       { id: 'then', name: '是', type: 'output', dataType: 'any', kind: 'flow' },
       { id: 'else', name: '否', type: 'output', dataType: 'any', kind: 'flow' },
@@ -86,7 +86,7 @@ export function socketsForBlockType(
   params?: Record<string, any>,
 ): { inputs: NodeSocket[]; outputs: NodeSocket[] } {
   const inputs: NodeSocket[] = [
-    { id: 'in', name: '执行', type: 'input', dataType: 'any', kind: 'flow' },
+    { id: 'in', name: '入口', type: 'input', dataType: 'any', kind: 'flow' },
   ];
 
   const schemaInputs: any[] = Array.isArray(schema?.inputs) ? schema.inputs : [];

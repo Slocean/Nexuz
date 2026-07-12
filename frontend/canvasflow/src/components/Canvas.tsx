@@ -834,6 +834,78 @@ function Canvas({
               <stop offset="0%" stopColor={colors.primary} stopOpacity="0.8" />
               <stop offset="100%" stopColor="#30D158" stopOpacity="0.8" />
             </linearGradient>
+            <marker
+              id="arrowFlow"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill={colors.primary} />
+            </marker>
+            <marker
+              id="arrowThen"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#34C759" />
+            </marker>
+            <marker
+              id="arrowElse"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF5E57" />
+            </marker>
+            <marker
+              id="arrowBody"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#AF52DE" />
+            </marker>
+            <marker
+              id="arrowData"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="7"
+              markerHeight="7"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#AF52DE" />
+            </marker>
+            <marker
+              id="arrowExec"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#30D158" />
+            </marker>
           </defs>
 
           {connections.map((conn) => {
@@ -876,9 +948,24 @@ function Canvas({
 
             const midX = (sp.x + tp.x) / 2;
             const midY = (sp.y + tp.y) / 2;
-            const labelX = sp.x + (tp.x - sp.x) * 0.22;
-            const labelY = sp.y + (tp.y - sp.y) * 0.22;
+            // Labels sit at path midpoint
+            const labelX = midX;
+            const labelY = midY;
             const pathD = drawBezierPath(sp.x, sp.y, tp.x, tp.y);
+
+            const markerId = isData
+              ? "arrowData"
+              : isPathExecuting
+                ? "arrowExec"
+                : conn.sourceSocketId === "then"
+                  ? "arrowThen"
+                  : conn.sourceSocketId === "else"
+                    ? "arrowElse"
+                    : conn.sourceSocketId === "body"
+                      ? "arrowBody"
+                      : "arrowFlow";
+
+            const labelW = Math.max(36, (handleMeta?.label?.length || 2) * 12 + 12);
 
             return (
               <g key={conn.id} className="group pointer-events-auto cursor-pointer">
@@ -909,6 +996,7 @@ function Canvas({
                   stroke={stroke}
                   strokeWidth={isData ? 1.5 : 2.5}
                   strokeDasharray={isData ? "6,5" : undefined}
+                  markerEnd={`url(#${markerId})`}
                   className={`group-hover:stroke-red-400 ${
                     isPathExecuting ? "connection-flow" : ""
                   }`}
@@ -936,7 +1024,7 @@ function Canvas({
                 {isData && conn.label && (
                   <text
                     x={midX}
-                    y={midY - 6}
+                    y={midY - 8}
                     textAnchor="middle"
                     fill={themeMode === "light" ? "#AF52DE" : "#C77DFF"}
                     fontSize="12px"
@@ -948,9 +1036,9 @@ function Canvas({
                 {!isData && handleMeta && (
                   <g className="pointer-events-none">
                     <rect
-                      x={labelX - 18}
+                      x={labelX - labelW / 2}
                       y={labelY - 10}
-                      width={36}
+                      width={labelW}
                       height={16}
                       rx={4}
                       fill={themeMode === "light" ? "#FFFFFF" : "#1A2235"}
@@ -974,7 +1062,7 @@ function Canvas({
                   <>
                     <circle
                       cx={midX}
-                      cy={midY}
+                      cy={midY - 22}
                       r="10"
                       fill={themeMode === "light" ? "#FFF" : "#1A2235"}
                       stroke="#FF5E57"
@@ -983,7 +1071,7 @@ function Canvas({
                     />
                     <text
                       x={midX}
-                      y={midY + 3}
+                      y={midY - 19}
                       textAnchor="middle"
                       fill="#FF5E57"
                       fontSize="12px"
@@ -1182,7 +1270,7 @@ function Canvas({
                         className={`w-3 h-3 border-2 absolute -left-[18px] top-[3px] flex items-center justify-center hover:scale-125 transition-transform cursor-crosshair z-30 ${
                           isDataIn ? "rounded-sm hover:bg-purple-500/30" : "rounded-full hover:bg-blue-500"
                         }`}
-                        title={isDataIn ? `绑定到参数：${inp.name}` : "拖入执行连线"}
+                        title={isDataIn ? `绑定到参数：${inp.name}` : "执行入口（可接收多个上游）"}
                       >
                         <div className={`w-1 h-1 ${isDataIn ? "rounded-sm" : "rounded-full"} bg-slate-300 dark:bg-slate-700`} />
                       </div>
@@ -1259,7 +1347,7 @@ function Canvas({
                 </div>
 
                 <div className="flex items-center justify-between text-xs pt-1 border-t border-black/10 dark:border-white/10 font-mono text-slate-400">
-                  <div className="flex items-center gap-0.5 min-w-0">
+                  <div className="flex items-center gap-0.5 min-w-0 flex-1">
                     {node.status === "success" && (
                       <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
                     )}
@@ -1269,9 +1357,11 @@ function Canvas({
                     {node.status === "running" && (
                       <Loader2 className="w-2.5 h-2.5 text-blue-500 animate-spin shrink-0" />
                     )}
-                    <span className="truncate">{node.status.toUpperCase()}</span>
+                    <span className="truncate" title={node.id}>
+                      {node.id}
+                    </span>
                   </div>
-                  <span className="opacity-60 capitalize truncate max-w-[72px]">
+                  <span className="opacity-60 capitalize truncate max-w-[72px] shrink-0">
                     {node.subType.replace("-", " ")}
                   </span>
                 </div>
