@@ -17,6 +17,7 @@ import {
   StepForward,
   LayoutGrid,
   FileCode2,
+  Settings2,
   Minus,
   Maximize2,
   Minimize2,
@@ -54,8 +55,8 @@ interface ToolbarProps {
   onStop?: () => void;
   onStep?: () => void;
   execStatus?: string;
-  viewMode?: 'canvas' | 'code';
-  onViewModeChange?: (mode: 'canvas' | 'code') => void;
+  viewMode?: 'canvas' | 'code' | 'settings';
+  onViewModeChange?: (mode: 'canvas' | 'code' | 'settings') => void;
 }
 
 export default function Toolbar({
@@ -294,6 +295,27 @@ export default function Toolbar({
             )}
             <span>{themeMode === 'light' ? '暗色' : '亮色'}</span>
           </Button>
+
+          {onViewModeChange && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2.5"
+              onClick={() => onViewModeChange('settings')}
+              title="设置"
+              style={
+                viewMode === 'settings'
+                  ? {
+                      backgroundColor: colors.primary + '22',
+                      color: colors.primary,
+                    }
+                  : undefined
+              }
+            >
+              <Settings2 className="w-4 h-4 opacity-80" />
+              <span>设置</span>
+            </Button>
+          )}
         </div>
 
         {/* Drag filler */}
@@ -302,23 +324,33 @@ export default function Toolbar({
         {/* Right: view / AI + window */}
         <div className="flex items-center gap-1 shrink-0 z-10">
           {onViewModeChange && (
-            <div className="flex items-center p-0.5 rounded-xl border border-white/10 bg-black/5 dark:bg-white/5">
+            <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5">
               <Button
-                variant={viewMode === 'canvas' ? 'secondary' : 'ghost'}
                 size="sm"
                 className="h-8 px-2.5"
                 onClick={() => onViewModeChange('canvas')}
                 title="画布"
+                style={
+                  viewMode === 'canvas'
+                    ? { backgroundColor: colors.primary, color: '#FFFFFF' }
+                    : { backgroundColor: 'transparent', color: colors.text }
+                }
+                variant="ghost"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
                 <span>画布</span>
               </Button>
               <Button
-                variant={viewMode === 'code' ? 'secondary' : 'ghost'}
                 size="sm"
                 className="h-8 px-2.5"
                 onClick={() => onViewModeChange('code')}
                 title="JSON"
+                style={
+                  viewMode === 'code'
+                    ? { backgroundColor: colors.primary, color: '#FFFFFF' }
+                    : { backgroundColor: 'transparent', color: colors.text }
+                }
+                variant="ghost"
               >
                 <FileCode2 className="w-3.5 h-3.5" />
                 <span>JSON</span>

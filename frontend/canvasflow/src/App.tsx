@@ -11,6 +11,7 @@ import CodeEditor from './components/CodeEditor';
 import AIAssistant from './components/AIAssistant';
 import SaveNameDialog from './components/SaveNameDialog';
 import RecordingBanner from './components/RecordingBanner';
+import SettingsPage from './components/SettingsPage';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
 import { getThemeColors } from './theme';
 import { flowToCanvas, mapLogLevel } from './nexuzAdapter';
@@ -309,21 +310,24 @@ function AppShell() {
 
   const handleToggleRecord = async () => {
     if (!recording) {
+      const hide = !!hideWindowOnRecord;
       const ok = await confirm({
         title: '开始录制',
-        description:
-          '录制会把你的鼠标点击、键盘操作转成流程节点，并追加到当前画布。\n\n录制时窗口保持显示，右上角会出现「停止录制」浮层；也可按 Ctrl+Shift+F10。',
+        description: hide
+          ? '录制会把鼠标/键盘操作转成流程节点。\n\n已开启「操作时隐藏主窗口」：录制期间主窗口会隐藏，请用屏幕右上角外部浮窗或 Ctrl+Shift+F10 停止。'
+          : '录制会把鼠标/键盘操作转成流程节点，并追加到当前画布。\n\n主窗口保持显示，右上角会出现应用内「停止录制」浮层；也可按 Ctrl+Shift+F10。\n\n可在「设置」中改为录制时隐藏窗口。',
         confirmText: '开始录制',
       });
       if (!ok) return;
 
-      // Always keep window visible so RecordingBanner works
-      const res = await bridge.startRecording(50, false);
+      const res = await bridge.startRecording(50, hide);
       if (res?.ok) {
         setRecording(true);
         appendLog({
           level: 'info',
-          message: '开始录制。点右上角浮层「停止录制」或按 Ctrl+Shift+F10',
+          message: hide
+            ? '开始录制（窗口已隐藏）。停止：外部浮窗 或 Ctrl+Shift+F10'
+            : '开始录制。点右上角浮层「停止录制」或按 Ctrl+Shift+F10',
         });
       } else {
         appendLog({ level: 'error', message: res?.error || '无法开始录制' });
@@ -498,7 +502,7 @@ function AppShell() {
         onStop={() => bridge.stopFlow()}
         onStep={handleStep}
         execStatus={execStatus}
-        viewMode={viewMode as 'canvas' | 'code'}
+        viewMode={viewMode as 'canvas' | 'code' | 'settings'}
         onViewModeChange={(m) => setViewMode(m)}
       />
 
@@ -519,7 +523,9 @@ function AppShell() {
           onOpenFromDisk={handleOpen}
         />
 
-        {viewMode === 'code' ? (
+        {viewMode === 'settings' ? (
+          <SettingsPage themeName={themeName as any} themeMode={themeMode as any} />
+        ) : viewMode === 'code' ? (
           <CodeEditor themeName={themeName as any} themeMode={themeMode as any} />
         ) : (
           <Canvas
@@ -553,8 +559,6 @@ function AppShell() {
           logs={canvasLogs}
           rawLogs={logs}
           schemaMap={schemaMap}
-          hideWindowOnRecord={hideWindowOnRecord}
-          setHideWindowOnRecord={useFlowStore.getState().setHideWindowOnRecord}
           onPickPoint={async () => bridge.pickPoint(hideWindowOnRecord)}
           onPickRegion={async () => bridge.pickRegion(hideWindowOnRecord)}
           onCaptureTemplate={async () => bridge.captureTemplate(hideWindowOnRecord)}
@@ -573,7 +577,7 @@ function AppShell() {
       </div>
 
       <RecordingBanner
-        open={recording}
+        open={recording && !hideWindowOnRecord}
         onStop={() => {
           void stopRecordingNow();
         }}

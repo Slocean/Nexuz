@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -29,8 +28,6 @@ interface InspectorProps {
   themeMode: ThemeMode;
   logs: ExecutionLog[];
   schemaMap?: Record<string, any>;
-  hideWindowOnRecord?: boolean;
-  setHideWindowOnRecord?: (v: boolean) => void;
   onPickPoint?: () => Promise<any>;
   onPickRegion?: () => Promise<any>;
   onCaptureTemplate?: () => Promise<any>;
@@ -126,8 +123,6 @@ export default function Inspector({
   themeMode,
   logs,
   schemaMap = {},
-  hideWindowOnRecord = true,
-  setHideWindowOnRecord,
   onPickPoint,
   onPickRegion,
   onCaptureTemplate,
@@ -470,21 +465,6 @@ export default function Inspector({
             </Field>
           );
         })}
-
-        {showCapture && setHideWindowOnRecord && (
-          <div className="flex items-start gap-2 pt-2 border-t border-white/5">
-            <Checkbox
-              id="hide-window"
-              checked={hideWindowOnRecord}
-              onCheckedChange={(v) => setHideWindowOnRecord(!!v)}
-              className="mt-0.5"
-            />
-            <Label htmlFor="hide-window" className="text-xs font-normal cursor-pointer leading-snug">
-              录制 / 运行 / 取点 / 框选时隐藏程序窗口（避免点到本程序）。录制隐藏后可用右上角红按钮或
-              Ctrl+Shift+F10 停止。
-            </Label>
-          </div>
-        )}
 
         {onSetEntry && (
           <Button type="button" variant="outline" size="sm" onClick={() => onSetEntry(selectedNode.id)}>
