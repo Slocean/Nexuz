@@ -15,6 +15,9 @@ var state = {
   queue: [],
   ptrByKey: {},
   il2cppReady: false,
+  // TBH-style: never call Button.Press from Frida RPC thread — queue for EventSystem.Update
+  pressJobs: [],
+  mainThreadHooked: false,
 };
 
 var il2cpp = {
@@ -136,12 +139,20 @@ function bindIl2Cpp() {
   il2cpp.object_get_class = nf('il2cpp_object_get_class', 'pointer', ['pointer']);
   il2cpp.class_get_name = nf('il2cpp_class_get_name', 'pointer', ['pointer']);
   il2cpp.class_get_namespace = nf('il2cpp_class_get_namespace', 'pointer', ['pointer']);
-  state.il2cppReady = !!(il2cpp.domain_get && il2cpp.class_from_name && il2cpp.class_get_method_from_name);
+  // Hooks need method lookup; playback uses NativeFunction(Press) and may not need runtime_invoke
+  state.il2cppReady = !!(
+    il2cpp.domain_get &&
+    il2cpp.class_from_name &&
+    il2cpp.class_get_method_from_name
+  );
   if (!state.il2cppReady) {
+    var missing = [];
+    if (!il2cpp.domain_get) missing.push('il2cpp_domain_get');
+    if (!il2cpp.class_from_name) missing.push('il2cpp_class_from_name');
+    if (!il2cpp.class_get_method_from_name) missing.push('il2cpp_class_get_method_from_name');
+    if (!il2cpp.runtime_invoke) missing.push('il2cpp_runtime_invoke');
     state.lastError =
-      '已找到 ' +
-      ga.name +
-      ' 但缺少 il2cpp_* 导出。请确认 Frida 版本与游戏架构匹配。';
+      '已找到 ' + ga.name + ' 但缺少导出: ' + missing.join(', ');
   }
   return state.il2cppReady;
 }
@@ -188,10 +199,70 @@ function methodNativePtr(imageNs, className, methodName, argc) {
   var info = findMethodInfo(imageNs, className, methodName, argc);
   if (!info || info.isNull()) return NULL;
   try {
-    return info.readPointer();
+    var p = info.readPointer();
+    if (!p || p.isNull()) return NULL;
+    return p;
   } catch (e) {
     return NULL;
   }
+}
+
+function isReadable(p) {
+  try {
+    if (!p || p.isNull()) return false;
+    var r = Process.findRangeByAddress(p);
+    return !!(r && r.protection && r.protection.indexOf('r') !== -1);
+  } catch (e) {
+    return false;
+  }
+}
+
+function isAliveObject(p) {
+  try {
+    if (!isReadable(p)) return false;
+    if (il2cpp.object_get_class) {
+      var klass = il2cpp.object_get_class(p);
+      return !!(klass && !klass.isNull());
+    }
+    p.readU8();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function methodPointerOrNull(methodInfo) {
+  try {
+    if (!methodInfo || methodInfo.isNull()) return NULL;
+    var mp = methodInfo.readPointer();
+    if (!mp || mp.isNull()) return NULL;
+    return mp;
+  } catch (e) {
+    return NULL;
+  }
+}
+
+function invoke0(methodInfo, obj) {
+  if (!methodInfo || methodInfo.isNull()) {
+    throw new Error('MethodInfo 为空，无法 invoke');
+  }
+  if (!il2cpp.runtime_invoke) {
+    throw new Error('il2cpp_runtime_invoke 未绑定（无法回放点击）');
+  }
+  if (!methodPointerOrNull(methodInfo)) {
+    throw new Error('方法指针为 0，无法 invoke（MethodInfo.methodPointer=null）');
+  }
+  if (obj && !isAliveObject(obj)) {
+    throw new Error('目标组件指针已失效（可能界面已销毁，请重新录入）');
+  }
+  var exc = Memory.alloc(Process.pointerSize);
+  exc.writePointer(NULL);
+  var ret = il2cpp.runtime_invoke(methodInfo, obj || NULL, NULL, exc);
+  var ex = exc.readPointer();
+  if (ex && !ex.isNull()) {
+    throw new Error('il2cpp_runtime_invoke 抛出托管异常');
+  }
+  return ret;
 }
 
 function classNameOf(obj) {
@@ -215,17 +286,25 @@ function initUnityHelpers() {
   get_child = findMethodInfo('UnityEngine', 'Transform', 'GetChild', 1);
 }
 
-function invoke0(methodInfo, obj) {
-  if (!methodInfo || methodInfo.isNull() || !il2cpp.runtime_invoke) return NULL;
-  var exc = Memory.alloc(Process.pointerSize);
-  exc.writePointer(NULL);
-  return il2cpp.runtime_invoke(methodInfo, obj, NULL, exc);
-}
-
 function objectName(obj) {
   try {
-    if (!get_name) return '';
-    var s = invoke0(get_name, obj);
+    if (!obj || obj.isNull()) return '';
+    var s = null;
+    if (replay.getName) {
+      try {
+        if (replay.getNameInfo) s = replay.getName(obj, replay.getNameInfo);
+        else s = replay.getName(obj);
+      } catch (e0) {
+        s = null;
+      }
+    }
+    if ((!s || s.isNull()) && get_name) {
+      try {
+        s = invoke0(get_name, obj);
+      } catch (e1) {
+        s = null;
+      }
+    }
     if (!s || s.isNull()) return '';
     var len = s.add(0x10).readInt();
     if (len <= 0 || len > 256) return '';
@@ -239,10 +318,22 @@ function buildHierarchy(component) {
   var parts = [];
   var siblingIndex = 0;
   try {
-    if (!get_transform) {
-      return { hierarchy_path: 'Unknown', sibling_index: 0, display_name: 'Unknown' };
+    var t = null;
+    if (replay.getTransform) {
+      try {
+        if (replay.getTransformInfo) t = replay.getTransform(component, replay.getTransformInfo);
+        else t = replay.getTransform(component);
+      } catch (e0) {
+        t = null;
+      }
     }
-    var t = invoke0(get_transform, component);
+    if ((!t || t.isNull()) && get_transform) {
+      try {
+        t = invoke0(get_transform, component);
+      } catch (e1) {
+        t = null;
+      }
+    }
     if (!t || t.isNull()) {
       return { hierarchy_path: 'Unknown', sibling_index: 0, display_name: 'Unknown' };
     }
@@ -250,8 +341,24 @@ function buildHierarchy(component) {
     while (t && !t.isNull() && guard < 64) {
       var n = objectName(t) || ('node' + guard);
       parts.unshift(n);
-      if (!get_parent) break;
-      t = invoke0(get_parent, t);
+      var parent = null;
+      if (replay.getParent) {
+        try {
+          if (replay.getParentInfo) parent = replay.getParent(t, replay.getParentInfo);
+          else parent = replay.getParent(t);
+        } catch (e2) {
+          parent = null;
+        }
+      }
+      if ((!parent || parent.isNull()) && get_parent) {
+        try {
+          parent = invoke0(get_parent, t);
+        } catch (e3) {
+          parent = null;
+        }
+      }
+      if (!parent || parent.isNull()) break;
+      t = parent;
       guard++;
     }
   } catch (e) {
@@ -283,7 +390,28 @@ function stableKey(info) {
   return [info.hierarchy_path || '', info.component_type || '', String(info.sibling_index || 0)].join('|');
 }
 
-function captureFromClick(component, eventData) {
+var replay = {
+  buttonPress: null,
+  buttonPressInfo: null,
+  buttonPressPtr: null,
+  buttonOnPointerClick: null,
+  buttonOnPointerClickInfo: null,
+  lastPointerEvent: null,
+  getName: null,
+  getNameInfo: null,
+  getTransform: null,
+  getTransformInfo: null,
+  getParent: null,
+  getParentInfo: null,
+  eventSystemUpdatePtr: null,
+};
+
+function captureFromClick(component, eventData, kind) {
+  if (eventData && !eventData.isNull()) {
+    try {
+      replay.lastPointerEvent = eventData;
+    } catch (e0) {}
+  }
   var hier = buildHierarchy(component);
   var ctype = classNameOf(component) || 'UnityEngine.UI.Button';
   var button = pointerButtonName(eventData);
@@ -293,6 +421,7 @@ function captureFromClick(component, eventData) {
     sibling_index: hier.sibling_index,
     display_name: hier.display_name,
     button: button,
+    kind: kind || 'button',
   };
   try {
     state.ptrByKey[stableKey(info)] = component;
@@ -300,17 +429,21 @@ function captureFromClick(component, eventData) {
   return info;
 }
 
-function hookOnPointerClick(classNs, className) {
-  var impl = methodNativePtr(classNs, className, 'OnPointerClick', 1);
-  if (!impl || impl.isNull()) return false;
+function hookOnPointerClick(classNs, className, kind) {
+  var info = findMethodInfo(classNs, className, 'OnPointerClick', 1);
+  var impl = methodPointerOrNull(info);
+  if (!impl) return false;
   Interceptor.attach(impl, {
     onEnter: function (args) {
+      try {
+        if (args[1] && !args[1].isNull()) replay.lastPointerEvent = args[1];
+      } catch (e0) {}
       if (!state.recording) return;
       try {
-        var info = captureFromClick(args[0], args[1]);
-        if (state.sequence) state.queue.push(info);
+        var row = captureFromClick(args[0], args[1], kind || 'button');
+        if (state.sequence) state.queue.push(row);
         else {
-          state.queue = [info];
+          state.queue = [row];
           state.recording = false;
         }
       } catch (e) {
@@ -319,6 +452,74 @@ function hookOnPointerClick(classNs, className) {
     },
   });
   return true;
+}
+
+function setupReplayNatives() {
+  // Proven TBH approach: call native methodPointer(this, MethodInfo*) directly
+  var pressInfo = findMethodInfo('UnityEngine.UI', 'Button', 'Press', 0);
+  var pressPtr = methodPointerOrNull(pressInfo);
+  if (pressPtr) {
+    replay.buttonPressPtr = pressPtr;
+    replay.buttonPress = new NativeFunction(pressPtr, 'void', ['pointer', 'pointer']);
+    replay.buttonPressInfo = pressInfo;
+    try {
+      Interceptor.attach(pressPtr, {
+        onEnter: function (args) {
+          try {
+            if (args[1] && !args[1].isNull()) replay.buttonPressInfo = args[1];
+          } catch (e0) {}
+        },
+      });
+    } catch (eHookPress) {}
+  }
+  var opcInfo = findMethodInfo('UnityEngine.UI', 'Button', 'OnPointerClick', 1);
+  var opcPtr = methodPointerOrNull(opcInfo);
+  if (opcPtr) {
+    replay.buttonOnPointerClick = new NativeFunction(opcPtr, 'void', ['pointer', 'pointer', 'pointer']);
+    replay.buttonOnPointerClickInfo = opcInfo;
+  }
+  // Helpers: TBH uses single-arg this for Unity getters
+  var namePtr = methodNativePtr('UnityEngine', 'Object', 'get_name', 0);
+  if (namePtr && !namePtr.isNull()) {
+    try {
+      replay.getName = new NativeFunction(namePtr, 'pointer', ['pointer']);
+    } catch (e1) {}
+  }
+  var trPtr = methodNativePtr('UnityEngine', 'Component', 'get_transform', 0);
+  if (trPtr && !trPtr.isNull()) {
+    try {
+      replay.getTransform = new NativeFunction(trPtr, 'pointer', ['pointer']);
+    } catch (e3) {}
+  }
+  var parentPtr = methodNativePtr('UnityEngine', 'Transform', 'get_parent', 0);
+  if (parentPtr && !parentPtr.isNull()) {
+    try {
+      replay.getParent = new NativeFunction(parentPtr, 'pointer', ['pointer']);
+    } catch (e5) {}
+  }
+
+  // Drain press jobs on Unity main thread (EventSystem.Update) — required to avoid AV@0x0
+  var esUpdateInfo = findMethodInfo('UnityEngine.EventSystems', 'EventSystem', 'Update', 0);
+  var esUpdatePtr = methodPointerOrNull(esUpdateInfo);
+  if (esUpdatePtr) {
+    replay.eventSystemUpdatePtr = esUpdatePtr;
+    try {
+      Interceptor.attach(esUpdatePtr, {
+        onEnter: function () {
+          drainPressJobs();
+        },
+      });
+      state.mainThreadHooked = true;
+    } catch (eEs) {
+      state.mainThreadHooked = false;
+      state.lastError = 'EventSystem.Update Hook 失败: ' + eEs;
+    }
+  } else {
+    state.mainThreadHooked = false;
+    state.lastError = '未找到 EventSystem.Update（回放无法安全切主线程）';
+  }
+
+  return !!(replay.buttonPress && replay.buttonPressInfo && state.mainThreadHooked);
 }
 
 function attachHooks() {
@@ -332,15 +533,22 @@ function attachHooks() {
     }
     initUnityHelpers();
     var okAny = false;
-    okAny = hookOnPointerClick('UnityEngine.UI', 'Button') || okAny;
-    okAny = hookOnPointerClick('UnityEngine.UI', 'Toggle') || okAny;
-    okAny = hookOnPointerClick('UnityEngine.UI', 'Dropdown') || okAny;
-    okAny = hookOnPointerClick('TMPro', 'TMP_Dropdown') || okAny;
+    okAny = hookOnPointerClick('UnityEngine.UI', 'Button', 'button') || okAny;
+    okAny = hookOnPointerClick('UnityEngine.UI', 'Toggle', 'toggle') || okAny;
+    okAny = hookOnPointerClick('UnityEngine.UI', 'Dropdown', 'dropdown') || okAny;
+    okAny = hookOnPointerClick('TMPro', 'TMP_Dropdown', 'dropdown') || okAny;
+    var replayOk = setupReplayNatives();
     state.hooked = okAny;
     if (!okAny) {
       return fail('未能 Hook OnPointerClick（可能不是 uGUI，或程序集名不同）');
     }
-    return ok({ hooked: true, il2cpp: true });
+    if (!replayOk) {
+      state.lastError =
+        state.lastError ||
+        '已 Hook 录制，但主线程回放未就绪（缺少 Button.Press 或 EventSystem.Update）';
+      return ok({ hooked: true, il2cpp: true, replay: false, warning: state.lastError });
+    }
+    return ok({ hooked: true, il2cpp: true, replay: true, mainThread: true });
   } catch (e) {
     state.hooked = false;
     return fail(String(e));
@@ -349,14 +557,14 @@ function attachHooks() {
 
 function findByPath(hierarchyPath, componentType, siblingIndex) {
   var key = [hierarchyPath || '', componentType || '', String(siblingIndex || 0)].join('|');
-  if (state.ptrByKey[key] && !state.ptrByKey[key].isNull()) return state.ptrByKey[key];
-  for (var k in state.ptrByKey) {
-    var p = state.ptrByKey[k];
-    if (!p || p.isNull()) continue;
+  var cached = state.ptrByKey[key];
+  if (cached && isAliveObject(cached)) return cached;
+  if (cached) {
     try {
-      if (buildHierarchy(p).hierarchy_path === hierarchyPath) return p;
+      delete state.ptrByKey[key];
     } catch (e) {}
   }
+  // Do NOT walk unrelated cached ptrs with buildHierarchy — that can AV on stale objects.
   return NULL;
 }
 
@@ -364,41 +572,121 @@ function resolve(stableId) {
   try {
     var path = stableId && stableId.hierarchy_path;
     if (!path) return fail('hierarchy_path 为空');
+    if (path === 'Unknown') return fail('录制路径无效(Unknown)，请重新录入该点击');
     var p = findByPath(path, stableId.component_type, stableId.sibling_index || 0);
-    if (!p || p.isNull()) return fail('无法解析 UI 路径: ' + path);
+    if (!p || p.isNull()) {
+      return fail(
+        '无法解析 UI 路径: ' +
+          path +
+          '（请保持游戏停在录入时的界面；断开后重新连接并重新录入该节点）'
+      );
+    }
     return ok({ ptr: p.toString() });
   } catch (e) {
     return fail(String(e));
   }
 }
 
+function drainPressJobs() {
+  if (!state.pressJobs.length) return;
+  var job = state.pressJobs.shift();
+  if (!job) return;
+  try {
+    if (!isAliveObject(job.component)) {
+      job.ok = false;
+      job.error = '目标组件指针已失效，请重新录入';
+      job.done = true;
+      return;
+    }
+    if (!replay.buttonPress || !replay.buttonPressInfo || replay.buttonPressInfo.isNull()) {
+      job.ok = false;
+      job.error = 'Button.Press 未就绪';
+      job.done = true;
+      return;
+    }
+    replay.buttonPress(job.component, replay.buttonPressInfo);
+    job.ok = true;
+    job.invoked = 'Button.Press';
+    job.done = true;
+  } catch (e) {
+    if (
+      replay.buttonOnPointerClick &&
+      replay.buttonOnPointerClickInfo &&
+      replay.lastPointerEvent &&
+      !replay.lastPointerEvent.isNull()
+    ) {
+      try {
+        replay.buttonOnPointerClick(
+          job.component,
+          replay.lastPointerEvent,
+          replay.buttonOnPointerClickInfo
+        );
+        job.ok = true;
+        job.invoked = 'Button.OnPointerClick';
+        job.done = true;
+        return;
+      } catch (e2) {
+        job.ok = false;
+        job.error = 'Press/OnPointerClick 失败: ' + e + ' / ' + e2;
+        job.done = true;
+        return;
+      }
+    }
+    job.ok = false;
+    job.error = 'Button.Press 失败: ' + e;
+    job.done = true;
+  }
+}
+
+function queuePressOnMainThread(component, timeoutMs) {
+  if (!state.mainThreadHooked) {
+    return fail('主线程回放未就绪（EventSystem.Update 未 Hook），请重新连接 Frida');
+  }
+  if (!isAliveObject(component)) {
+    return fail('目标组件指针已失效，请重新录入');
+  }
+  var job = {
+    component: component,
+    done: false,
+    ok: false,
+    error: null,
+    invoked: null,
+  };
+  state.pressJobs.push(job);
+  var deadline = Date.now() + (timeoutMs || 3000);
+  while (!job.done && Date.now() < deadline) {
+    Thread.sleep(0.01);
+  }
+  if (!job.done) {
+    try {
+      var idx = state.pressJobs.indexOf(job);
+      if (idx >= 0) state.pressJobs.splice(idx, 1);
+    } catch (e0) {}
+    return fail('主线程回放超时（游戏可能已暂停/卡死）。请保持游戏前台运行后重试');
+  }
+  if (!job.ok) return fail(job.error || '回放失败');
+  return ok({ invoked: job.invoked || 'Button.Press' });
+}
+
 function invokeClick(stableId, button) {
   try {
-    var r = resolve(stableId);
+    var r = resolve(stableId || {});
     if (!r.ok) return r;
     var component = findByPath(
       stableId.hierarchy_path,
       stableId.component_type || 'UnityEngine.UI.Button',
       stableId.sibling_index || 0
     );
-    if (!component || component.isNull()) return fail('组件指针无效');
-    var clickMethod = findMethodInfo('UnityEngine.UI', 'Button', 'Press', 0);
-    if (clickMethod && !clickMethod.isNull()) {
-      invoke0(clickMethod, component);
-      return ok({ invoked: 'Press', button: button || 'left' });
+    if (!isAliveObject(component)) {
+      return fail('目标组件指针已失效，请重新录入该节点');
     }
-    var getOnClick = findMethodInfo('UnityEngine.UI', 'Button', 'get_onClick', 0);
-    var unityEventInvoke = findMethodInfo('UnityEngine.Events', 'UnityEvent', 'Invoke', 0);
-    if (getOnClick && unityEventInvoke) {
-      var ev = invoke0(getOnClick, component);
-      if (ev && !ev.isNull()) {
-        invoke0(unityEventInvoke, ev);
-        return ok({ invoked: 'onClick.Invoke', button: button || 'left' });
-      }
+    var pressed = queuePressOnMainThread(component, 3000);
+    if (pressed.ok) {
+      pressed.button = button || 'left';
     }
-    return fail('无法调用点击（Press/onClick 均不可用）');
+    return pressed;
   } catch (e) {
-    return fail(String(e));
+    return fail('回放点击失败: ' + e);
   }
 }
 
@@ -454,6 +742,9 @@ rpc.exports = {
       queueLength: state.queue.length,
       lastError: state.lastError,
       il2cppReady: state.il2cppReady,
+      mainThreadHooked: state.mainThreadHooked,
+      pressJobs: state.pressJobs.length,
+      cachedPtrs: Object.keys(state.ptrByKey).length,
     });
   },
 };

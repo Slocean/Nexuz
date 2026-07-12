@@ -181,10 +181,23 @@ class FridaSessionManager:
                 else:
                     self._hooked = True
                     self._last_error = None
+                    # Soft warning: recording ok but main-thread replay may be unavailable
+                    if isinstance(hook_result, dict) and hook_result.get("warning"):
+                        hook_warning = str(hook_result.get("warning"))
+                        self._last_error = hook_warning
+                    if isinstance(hook_result, dict) and hook_result.get("replay") is False:
+                        if not hook_warning:
+                            hook_warning = "录制可用，但主线程回放未就绪"
+                            self._last_error = hook_warning
 
                 st = {k: v for k, v in self.status().items() if k != "ok"}
                 st["attached"] = True
                 st["hooked"] = bool(self._hooked)
+                if isinstance(hook_result, dict):
+                    if "replay" in hook_result:
+                        st["replay"] = bool(hook_result.get("replay"))
+                    if "mainThread" in hook_result:
+                        st["main_thread"] = bool(hook_result.get("mainThread"))
                 if hook_warning:
                     st["warning"] = hook_warning
                     # Do not also put the same text into message — UI/log would triple it
