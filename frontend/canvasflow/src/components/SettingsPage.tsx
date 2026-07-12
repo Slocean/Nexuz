@@ -1,8 +1,8 @@
 /**
  * App settings page — behavior / window prefs (not buried in Inspector).
  */
-import React, { useCallback, useEffect, useState } from 'react';
-import { EyeOff, Link2, Monitor, MousePointer2, Settings2, Unplug } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { EyeOff, Link2, Monitor, MousePointer2, RefreshCw, Settings2, Unplug } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,6 +20,8 @@ import {
 import { useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 
+type ProcRow = { pid: number; name: string };
+
 export default function SettingsPage({
   themeName,
   themeMode,
@@ -33,14 +35,18 @@ export default function SettingsPage({
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
   const setDefaultCaptureMode = useFlowStore((s) => s.setDefaultCaptureMode);
 
-  const [processName, setProcessName] = useState('');
+  const [processes, setProcesses] = useState<ProcRow[]>([]);
+  const [processFilter, setProcessFilter] = useState('');
+  const [selectedKey, setSelectedKey] = useState(''); // "pid|name"
   const [fridaStatus, setFridaStatus] = useState<{
     attached?: boolean;
     hooked?: boolean;
     process_name?: string | null;
+    pid?: number | null;
     last_error?: string | null;
   }>({});
   const [fridaBusy, setFridaBusy] = useState(false);
+  const [listBusy, setListBusy] = useState(false);
   const [fridaMsg, setFridaMsg] = useState('');
 
   const refreshFrida = useCallback(async () => {
@@ -52,19 +58,58 @@ export default function SettingsPage({
     }
   }, []);
 
+  const refreshProcesses = useCallback(async () => {
+    setListBusy(true);
+    try {
+      const res = await bridge.fridaListProcesses(null);
+      if (res?.ok && Array.isArray(res.processes)) {
+        setProcesses(res.processes);
+      } else {
+        setProcesses([]);
+        setFridaMsg(res?.error || res?.message || '无法枚举进程');
+      }
+    } catch (e: any) {
+      setProcesses([]);
+      setFridaMsg(String(e?.message || e || '枚举进程失败'));
+    } finally {
+      setListBusy(false);
+    }
+  }, []);
+
   useEffect(() => {
     refreshFrida();
+    refreshProcesses();
     const t = setInterval(refreshFrida, 3000);
     return () => clearInterval(t);
-  }, [refreshFrida]);
+  }, [refreshFrida, refreshProcesses]);
+
+  const filtered = useMemo(() => {
+    const q = processFilter.trim().toLowerCase();
+    if (!q) return processes;
+    return processes.filter(
+      (p) => p.name.toLowerCase().includes(q) || String(p.pid).includes(q),
+    );
+  }, [processes, processFilter]);
+
+  const selected = useMemo(() => {
+    if (!selectedKey || selectedKey === '__empty') return null;
+    const pid = Number(selectedKey.split('|')[0]);
+    return processes.find((p) => p.pid === pid) || null;
+  }, [selectedKey, processes]);
 
   const handleAttach = async () => {
+    if (!selected) {
+      setFridaMsg('请先从列表选择进程');
+      return;
+    }
     setFridaBusy(true);
     setFridaMsg('');
     try {
-      const res = await bridge.fridaAttach(processName.trim() || null);
+      const res = await bridge.fridaAttach(selected.name, selected.pid);
       if (res?.ok) {
-        setFridaMsg(`已连接${res.process_name ? `：${res.process_name}` : ''}`);
+        setFridaMsg(
+          `已连接：${res.process_name || selected.name}${res.pid ? ` (PID ${res.pid})` : ''}`,
+        );
       } else {
         setFridaMsg(res?.error || res?.message || '连接失败');
       }
@@ -156,25 +201,67 @@ export default function SettingsPage({
             />
             {fridaStatus.attached
               ? `已连接${fridaStatus.process_name ? ` · ${fridaStatus.process_name}` : ''}${
-                  fridaStatus.hooked ? ' · Hook 就绪' : ' · Hook 未就绪'
-                }`
+                  fridaStatus.pid ? ` · PID ${fridaStatus.pid}` : ''
+                }${fridaStatus.hooked ? ' · Hook 就绪' : ' · Hook 未就绪'}`
               : '未连接'}
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
-              进程名
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
+                选择进程
+              </Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2"
+                disabled={listBusy}
+                onClick={() => refreshProcesses()}
+                title="刷新进程列表"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${listBusy ? 'animate-spin' : ''}`} />
+                刷新
+              </Button>
+            </div>
             <Input
-              value={processName}
-              onChange={(e) => setProcessName(e.target.value)}
-              placeholder="例如 Game.exe"
+              value={processFilter}
+              onChange={(e) => setProcessFilter(e.target.value)}
+              placeholder="过滤：进程名或 PID"
               className="font-mono text-xs"
             />
+            <Select
+              value={selectedKey || undefined}
+              onValueChange={(v) => {
+                if (v !== '__empty') setSelectedKey(v);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={listBusy ? '加载中…' : '从列表选择游戏进程'} />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {filtered.length === 0 ? (
+                  <SelectItem value="__empty" disabled>
+                    {listBusy ? '加载中…' : '无匹配进程，点刷新重试'}
+                  </SelectItem>
+                ) : (
+                  filtered.slice(0, 400).map((p) => (
+                    <SelectItem key={`${p.pid}|${p.name}`} value={`${p.pid}|${p.name}`}>
+                      <span className="font-mono text-xs">
+                        {p.name} <span className="opacity-50">PID {p.pid}</span>
+                      </span>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
+              按 PID 连接，同名多开也能选对。列表最多显示 400 条，可用过滤缩小范围。
+            </p>
           </div>
 
           <div className="flex gap-2">
-            <Button type="button" size="sm" disabled={fridaBusy} onClick={handleAttach}>
+            <Button type="button" size="sm" disabled={fridaBusy || !selected} onClick={handleAttach}>
               连接
             </Button>
             <Button

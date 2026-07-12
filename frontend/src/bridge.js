@@ -353,6 +353,7 @@ function mockCall(method, ...args) {
     case 'frida_attach':
     case 'frida_detach':
     case 'frida_status':
+    case 'frida_list_processes':
     case 'pause_flow':
     case 'resume_flow':
     case 'stop_flow':
@@ -401,6 +402,7 @@ export const bridge = {
   fridaAttach: (processName = null, pid = null) => call('frida_attach', processName, pid),
   fridaDetach: () => call('frida_detach'),
   fridaStatus: () => call('frida_status'),
+  fridaListProcesses: (query = null) => call('frida_list_processes', query),
   listScheduleJobs: () => call('list_schedule_jobs'),
   removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),

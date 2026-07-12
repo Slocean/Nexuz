@@ -32,7 +32,7 @@ At run time the frontend injects `defaultCaptureMode` into click nodes that omit
 - Script: `frida/scripts/unity_ui_click.js`
 - Session: `frida/session_manager.py`
 - Stable id: `hierarchy_path` + `component_type` + `sibling_index`
-- Connect via Settings → Frida 连接, or API `frida_attach`
+- Connect via Settings → Frida 连接 (process picker), or API `frida_attach` / `frida_list_processes`
 
 ## Error codes
 

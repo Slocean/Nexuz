@@ -53,6 +53,47 @@ class FridaSessionManager:
                 "script": script_status,
             }
 
+    def list_processes(self, query: str | None = None) -> dict[str, Any]:
+        """Enumerate local processes suitable for Frida attach (prefer Frida API)."""
+        q = (query or "").strip().lower()
+        rows: list[dict[str, Any]] = []
+        try:
+            import frida
+
+            device = frida.get_local_device()
+            for proc in device.enumerate_processes():
+                name = str(getattr(proc, "name", "") or "")
+                pid = int(getattr(proc, "pid", 0) or 0)
+                if not pid or not name:
+                    continue
+                if q and q not in name.lower() and q not in str(pid):
+                    continue
+                rows.append({"pid": pid, "name": name})
+        except ImportError:
+            return api_error(ERROR_FRIDA_SCRIPT, "未安装 frida，请 pip install frida")
+        except Exception as exc:
+            # Fallback: psutil if available
+            try:
+                import psutil
+
+                for proc in psutil.process_iter(["pid", "name"]):
+                    try:
+                        info = proc.info
+                        name = str(info.get("name") or "")
+                        pid = int(info.get("pid") or 0)
+                        if not pid or not name:
+                            continue
+                        if q and q not in name.lower() and q not in str(pid):
+                            continue
+                        rows.append({"pid": pid, "name": name})
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+            except Exception:
+                return api_error(ERROR_FRIDA_SCRIPT, f"枚举进程失败: {exc}")
+
+        rows.sort(key=lambda r: (str(r["name"]).lower(), int(r["pid"])))
+        return api_ok(processes=rows, count=len(rows))
+
     def attach(self, process_name: str | None = None, pid: int | None = None) -> dict[str, Any]:
         try:
             import frida

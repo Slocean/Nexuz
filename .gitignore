@@ -24,3 +24,5 @@ dist/
 *.spec
 *.log
 .flow.json.bak
+
+drop_items_jade_hybrid_ui_umi.py
