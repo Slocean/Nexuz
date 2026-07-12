@@ -141,7 +141,7 @@ export default function AIAssistant({
           </div>
           <div>
             <h3 className="font-display font-semibold text-sm">Flow AI Orchestrator</h3>
-            <p className="text-[11px] text-emerald-500 font-mono tracking-wider uppercase">Active Gemini model</p>
+            <p className="text-xs text-emerald-500 font-mono tracking-wider uppercase">Active Gemini model</p>
           </div>
         </div>
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
@@ -189,7 +189,7 @@ export default function AIAssistant({
                   {/* Nodes Suggestion Button Action */}
                   {isAi && msg.suggestedAction && (
                     <div className="mt-3 pt-3 border-t border-black/10 dark:border-white/10 space-y-2">
-                      <div className="flex items-center space-x-1 text-[11px] text-blue-400 font-bold uppercase tracking-wider">
+                      <div className="flex items-center space-x-1 text-xs text-blue-400 font-bold uppercase tracking-wider">
                         <Cpu className="w-3.5 h-3.5" />
                         <span>Recommended Workspace Nodes:</span>
                       </div>
@@ -216,7 +216,7 @@ export default function AIAssistant({
                 </div>
                 
                 <div 
-                  className={`text-[10px] font-mono text-slate-400 px-1 ${
+                  className={`text-xs font-mono text-slate-400 px-1 ${
                     !isAi ? "text-right" : ""
                   }`}
                 >

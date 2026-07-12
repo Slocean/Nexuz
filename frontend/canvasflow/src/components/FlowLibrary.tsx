@@ -107,14 +107,14 @@ export default function FlowLibrary({
           )}
         </div>
         {dir && (
-          <p style={{ color: colors.secondaryText }} className="text-[11px] truncate" title={dir}>
+          <p style={{ color: colors.secondaryText }} className="text-xs truncate" title={dir}>
             目录: {dir}
           </p>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-        {error && <p className="text-[12px] text-rose-400 px-2 py-1">{error}</p>}
+        {error && <p className="text-xs text-rose-400 px-2 py-1">{error}</p>}
         {!loading && flows.length === 0 && !error && (
           <p style={{ color: colors.secondaryText }} className="text-xs px-2 py-6 text-center opacity-70">
             暂无已保存流程
@@ -141,9 +141,9 @@ export default function FlowLibrary({
               >
                 <div className="flex items-center gap-1.5">
                   <FileJson className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                  <span className="text-[12px] font-semibold truncate">{f.name}</span>
+                  <span className="text-xs font-semibold truncate">{f.name}</span>
                 </div>
-                <div style={{ color: colors.secondaryText }} className="text-[11px] mt-0.5 truncate">
+                <div style={{ color: colors.secondaryText }} className="text-xs mt-0.5 truncate">
                   {fmtTime(f.mtime)}
                 </div>
               </button>

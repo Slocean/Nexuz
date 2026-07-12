@@ -724,7 +724,7 @@ function Canvas({
     >
       <div
         style={{ color: colors.secondaryText }}
-        className="absolute bottom-5 left-5 text-[11px] font-mono font-bold uppercase tracking-wider bg-black/5 dark:bg-white/5 backdrop-blur-md px-2.5 py-1 rounded-lg border border-black/10 dark:border-white/10 z-20 flex items-center space-x-1.5"
+        className="absolute bottom-5 left-5 text-xs font-mono font-bold uppercase tracking-wider bg-black/5 dark:bg-white/5 backdrop-blur-md px-2.5 py-1 rounded-lg border border-black/10 dark:border-white/10 z-20 flex items-center space-x-1.5"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
         <span>Scale: {Math.round(zoom * 100)}%</span>
@@ -743,14 +743,14 @@ function Canvas({
             borderColor: showDataLinks ? colors.primary : colors.border,
             color: showDataLinks ? colors.primary : colors.text,
           }}
-          className="h-8 text-[12px] shadow-lg"
+          className="h-8 text-xs shadow-lg"
           title="显示/隐藏由 {{node.field}} 自动生成的数据引用虚线"
         >
           数据连线 {showDataLinks ? "开" : "关"}
         </Button>
         <span
           style={{ color: colors.secondaryText }}
-          className="text-[11px] opacity-60 hidden md:inline"
+          className="text-xs opacity-60 hidden md:inline"
         >
           Shift框选 · Ctrl多选 · Ctrl+C/V · Del
         </span>
@@ -1070,7 +1070,7 @@ function Canvas({
                       }}
                       className="w-2 h-2 rounded-full shrink-0"
                     />
-                    <span className="font-display font-semibold text-[12px] truncate">
+                    <span className="font-display font-semibold text-xs truncate">
                       {node.name}
                     </span>
                   </div>
@@ -1127,7 +1127,7 @@ function Canvas({
                       >
                         <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
                       </div>
-                      <span className="text-[11px] font-medium tracking-wide opacity-80 pl-0.5 truncate">
+                      <span className="text-xs font-medium tracking-wide opacity-80 pl-0.5 truncate">
                         {inp.name}
                       </span>
                     </div>
@@ -1150,7 +1150,7 @@ function Canvas({
                         className="flex items-center justify-end relative pointer-events-auto h-[18px]"
                       >
                         <span
-                          className={`text-[11px] font-semibold tracking-wide pr-0.5 truncate ${
+                          className={`text-xs font-semibold tracking-wide pr-0.5 truncate ${
                             isThen
                               ? 'text-emerald-500'
                               : isElse
@@ -1185,7 +1185,7 @@ function Canvas({
                   })}
                 </div>
 
-                <div className="flex items-center justify-between text-[10px] pt-1 border-t border-black/10 dark:border-white/10 font-mono text-slate-400">
+                <div className="flex items-center justify-between text-xs pt-1 border-t border-black/10 dark:border-white/10 font-mono text-slate-400">
                   <div className="flex items-center gap-0.5 min-w-0">
                     {node.status === "success" && (
                       <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />

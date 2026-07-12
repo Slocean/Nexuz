@@ -33,12 +33,12 @@ export default function RecordingBanner({
             <div className="font-display font-semibold text-sm text-[var(--popover-foreground)]">
               正在录制 · {isFrida ? 'Frida UI' : '坐标'}
             </div>
-            <p className="text-[12px] leading-relaxed mt-0.5 text-[var(--muted-foreground)]">
+            <p className="text-xs leading-relaxed mt-0.5 text-[var(--muted-foreground)]">
               {isFrida
                 ? '请在游戏内点击 UI 控件（Button/Toggle/Dropdown）。左右键会自动记录。'
                 : '正在记录鼠标与键盘操作，左右键会自动写入节点。'}{' '}
               点下方停止，或顶栏「停止录制」，或按{' '}
-              <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-[11px]">
+              <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
                 Ctrl+Shift+F10
               </kbd>
             </p>

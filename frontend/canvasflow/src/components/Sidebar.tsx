@@ -193,26 +193,31 @@ function CatalogCard({
         color: 'inherit',
       }}
       className={cn(
-        'w-full text-left p-3 rounded-2xl border transition-all duration-200',
+        'w-full text-left px-3 py-2 rounded-2xl border transition-all duration-200',
         'hover:scale-[1.02] active:scale-[0.98] hover:shadow-md group cursor-grab active:cursor-grabbing',
         hoverBorderClass,
       )}
-      title={dragType ? '点击添加，或拖到画布' : undefined}
+      title={dragType ? '点击添加，或拖到画布' : `${title} · ${subtitle}`}
     >
-      <div className="flex justify-between items-center mb-1 gap-2">
-        <span className="font-semibold text-sm group-hover:text-blue-500 transition-colors truncate">
-          {title}
-        </span>
+      <div className="flex items-center gap-2 w-full min-w-0">
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="font-semibold text-sm group-hover:text-blue-500 transition-colors truncate shrink-0 max-w-[55%]">
+            {title}
+          </span>
+          <span
+            className="text-xs font-normal truncate min-w-0"
+            style={{ color: secondaryText }}
+          >
+            {subtitle}
+          </span>
+        </div>
         <div
           style={{ backgroundColor: accentColor + '1A' }}
-          className="p-1 rounded-lg shrink-0"
+          className="h-7 w-7 rounded-lg shrink-0 flex items-center justify-center"
         >
           <Plus className="w-3.5 h-3.5" style={{ color: accentColor }} />
         </div>
       </div>
-      <p className="text-xs leading-relaxed opacity-90 line-clamp-2" style={{ color: secondaryText }}>
-        {subtitle}
-      </p>
     </button>
   );
 }
@@ -417,7 +422,7 @@ export default function Sidebar({
                       accentColor={cat.color}
                       secondaryText={colors.secondaryText}
                       title={item.name}
-                      subtitle={item.description}
+                      subtitle={item.subType}
                       onClick={() => onAddNode(item.subType)}
                     />
                   ))}
@@ -518,7 +523,7 @@ export default function Sidebar({
                     </div>
                     <div
                       style={{ color: colors.secondaryText }}
-                      className="flex justify-between font-mono text-[11px]"
+                      className="flex justify-between font-mono text-xs"
                     >
                       <span>{run.timestamp}</span>
                       <span className="opacity-60">ID: {run.id.substring(0, 6)}</span>

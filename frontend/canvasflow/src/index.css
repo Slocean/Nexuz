@@ -6,15 +6,28 @@
   --font-sans: "Microsoft YaHei", "微软雅黑", "Microsoft YaHei UI", sans-serif;
   --font-display: "Microsoft YaHei", "微软雅黑", "Microsoft YaHei UI", sans-serif;
   --font-mono: "Microsoft YaHei", "微软雅黑", "Microsoft YaHei UI", ui-monospace, Consolas, monospace;
+
+  /* 系统字号约定：最小 12px，正文 14px */
+  --text-xs: 12px;
+  --text-xs--line-height: 1.4;
+  --text-sm: 14px;
+  --text-sm--line-height: 1.45;
+  --text-base: 14px;
+  --text-base--line-height: 1.5;
+  --text-lg: 16px;
+  --text-lg--line-height: 1.5;
+  --text-xl: 18px;
+  --text-xl--line-height: 1.4;
 }
 
 html {
-  /* 默认 16px 上调一号，Tailwind rem 字号整体随之变大 */
-  font-size: 17.5px;
+  font-size: 14px;
 }
 
 body {
   font-family: "Microsoft YaHei", "微软雅黑", "Microsoft YaHei UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

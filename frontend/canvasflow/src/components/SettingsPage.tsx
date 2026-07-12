@@ -218,7 +218,7 @@ export default function SettingsPage({
               设置
             </h1>
           </div>
-          <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
+          <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
             全局偏好，保存在本机，与当前流程无关。
           </p>
         </div>
@@ -251,7 +251,7 @@ export default function SettingsPage({
                 <SelectItem value="frida_ui">Frida UI（Unity 组件）</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
               顶栏「录制」与新建点击节点默认使用此模式。单个节点可在右侧 Inspector 覆盖。
               Frida 模式需先连接游戏进程。
             </p>
@@ -347,7 +347,7 @@ export default function SettingsPage({
                 ) : (
                   filtered.slice(0, 400).map((p) => (
                     <SelectItem key={`${p.pid}|${p.name}`} value={`${p.pid}|${p.name}`}>
-                      <span className="font-mono text-[12px] leading-snug block max-w-[420px] truncate">
+                      <span className="font-mono text-xs leading-snug block max-w-[420px] truncate">
                         {p.display ||
                           (p.window_title
                             ? `${p.window_title} · ${p.name} · PID ${p.pid}`
@@ -359,12 +359,12 @@ export default function SettingsPage({
               </SelectContent>
             </Select>
             {selected && (
-              <p className="text-[11px] font-mono leading-relaxed opacity-70 break-all" style={{ color: colors.secondaryText }}>
+              <p className="text-xs font-mono leading-relaxed opacity-70 break-all" style={{ color: colors.secondaryText }}>
                 {selected.window_title ? `窗口：${selected.window_title}` : '无窗口标题'}
                 {selected.exe ? `\n路径：${selected.exe}` : ''}
               </p>
             )}
-            <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
               默认只列出有可见窗口的进程，避免同名辅助进程干扰。选中后按 PID 连接。
             </p>
           </div>
@@ -385,7 +385,7 @@ export default function SettingsPage({
             </Button>
           </div>
           {fridaMsg && (
-            <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
               {fridaMsg}
             </p>
           )}
@@ -421,11 +421,11 @@ export default function SettingsPage({
                   操作时隐藏主窗口
                 </span>
               </Label>
-              <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
+              <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
                 开启后，录制、运行、取点、框选时会暂时隐藏 Nexuz，避免点到本程序。
                 <br />
                 录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。快捷键均为{' '}
-                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-[11px]">
+                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
                   Ctrl+Shift+F10
                 </kbd>
                 。

@@ -111,7 +111,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div className="flex items-start gap-2 min-w-0">
       <Label
-        className="text-[12px] font-medium opacity-75 shrink-0 w-[4.75rem] leading-8 truncate"
+        className="text-xs font-medium opacity-75 shrink-0 w-[4.75rem] leading-8 truncate"
         title={label}
       >
         {label}
@@ -164,13 +164,13 @@ export default function Inspector({
   const logsPanel = (
     <div className="space-y-2 p-3 border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text">
       <div className="flex items-center justify-between gap-2 select-none">
-        <h4 className="font-medium text-xs opacity-60 flex items-center gap-1.5">
+        <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5">
           <Terminal className="w-3.5 h-3.5" /> 运行日志
         </h4>
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 px-2 text-[11px] gap-1 opacity-70 hover:opacity-100"
+          className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
           onClick={exportLogs}
           title="导出日志为 .txt"
         >
@@ -178,7 +178,7 @@ export default function Inspector({
         </Button>
       </div>
       <ScrollArea className="h-36">
-        <div className="space-y-1.5 font-mono text-[11px] pr-2 select-text cursor-text">
+        <div className="space-y-1.5 font-mono text-xs pr-2 select-text cursor-text">
           {logs.length === 0 && (
             <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
               尚无日志
@@ -226,7 +226,7 @@ export default function Inspector({
           <h3 className="font-semibold text-sm mt-2">未选中</h3>
           <p
             style={{ color: colors.secondaryText }}
-            className="text-xs leading-relaxed max-w-[180px] mx-auto mt-1"
+            className="text-sm leading-relaxed max-w-[180px] mx-auto mt-1"
           >
             点击节点编辑参数
           </p>
@@ -318,7 +318,7 @@ export default function Inspector({
       <div className="space-y-3">
         {isClick && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
-            <p className="text-[12px] leading-relaxed opacity-90">
+            <p className="text-xs leading-relaxed opacity-90">
               顶栏「录制」可连续录入多步。此处「重新录入」只更新当前节点；左右键会自动写入。
             </p>
             <Field label="录入模式">
@@ -372,7 +372,7 @@ export default function Inspector({
             {selectedNode.config?.capture_mode === 'frida_ui' ||
             (!selectedNode.config?.capture_mode && defaultCaptureMode === 'frida_ui') ||
             selectedNode.config?.frida_ui?.hierarchy_path ? (
-              <p className="text-[11px] font-mono opacity-70 break-all">
+              <p className="text-xs font-mono opacity-70 break-all">
                 {selectedNode.config?.frida_ui?.display_name ||
                   selectedNode.config?.frida_ui?.hierarchy_path ||
                   '尚未录入 Frida UI 目标'}
@@ -383,13 +383,13 @@ export default function Inspector({
         )}
         {isOcr && (
           <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
-            <p className="text-[12px] leading-relaxed opacity-90">
+            <p className="text-xs leading-relaxed opacity-90">
               推荐：全屏拖拽框选识别区域（同时保存相对比例，分辨率变化后自动换算）。
               窗口会移动时，可填「锚点模板」：先找图定位，再在偏移区域 OCR。
             </p>
             {onPickRegion && (
               <div className="flex items-center gap-2">
-                <span className="text-[12px] font-medium opacity-75 shrink-0 w-[4.75rem]">识别区域</span>
+                <span className="text-xs font-medium opacity-75 shrink-0 w-[4.75rem]">识别区域</span>
                 <Button
                   type="button"
                   size="sm"
@@ -786,7 +786,7 @@ export default function Inspector({
               <span className="font-medium text-xs text-blue-500 truncate">
                 {selectedNode.type}
               </span>
-              <span className="text-[11px] opacity-50 font-mono shrink-0">
+              <span className="text-xs opacity-50 font-mono shrink-0">
                 {selectedNode.id.substring(0, 6)}
               </span>
             </div>
@@ -794,7 +794,7 @@ export default function Inspector({
           </div>
 
           <div className="space-y-3">
-            <h4 className="font-medium text-xs opacity-60">
+            <h4 className="font-medium text-sm opacity-70">
               参数
             </h4>
             {renderParametersForm()}
@@ -804,7 +804,7 @@ export default function Inspector({
 
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <h4 className="font-medium text-xs opacity-60">
+              <h4 className="font-medium text-sm opacity-70">
                 输出
               </h4>
               {outputText && (
@@ -834,7 +834,7 @@ export default function Inspector({
                 backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
                 borderColor: colors.border,
               }}
-              className="rounded-2xl p-3 border font-mono text-[12px] space-y-3"
+              className="rounded-2xl p-3 border font-mono text-xs space-y-3"
             >
               <div className="text-slate-400 select-text break-all min-h-16 max-h-28 overflow-y-auto">
                 {outputText ? (
@@ -859,14 +859,14 @@ export default function Inspector({
 
           {nodeLogs.length > 0 && (
             <div className="space-y-2">
-              <h4 className="font-medium text-xs opacity-60">
+              <h4 className="font-medium text-sm opacity-70">
                 日志
               </h4>
               <div className="space-y-1.5 max-h-32 overflow-y-auto">
                 {nodeLogs.map((log) => (
                   <div
                     key={log.id}
-                    className={`text-[11px] font-mono leading-relaxed p-2 rounded-xl flex items-start gap-1.5 border ${
+                    className={`text-xs font-mono leading-relaxed p-2 rounded-xl flex items-start gap-1.5 border ${
                       log.type === 'error'
                         ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
                         : log.type === 'warning'
