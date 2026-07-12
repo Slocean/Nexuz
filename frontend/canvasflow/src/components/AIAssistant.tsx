@@ -134,7 +134,7 @@ export default function AIAssistant({
       className="w-96 border-l h-full flex flex-col backdrop-blur-3xl z-40 relative shadow-2xl animate-in slide-in-from-right duration-300"
     >
       {/* Header */}
-      <div className="p-4 border-b border-black/5 dark:border-white/5 flex items-center justify-between shrink-0">
+      <div className="p-4 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-2.5">
           <div className="p-1.5 bg-blue-500/10 rounded-xl">
             <Sparkles className="w-5 h-5 text-blue-500 animate-pulse" />
@@ -180,7 +180,7 @@ export default function AIAssistant({
                   }}
                   className={`p-3 rounded-2xl text-xs leading-relaxed border ${
                     isAi 
-                      ? "border-black/5 dark:border-white/5 rounded-tl-none" 
+                      ? "border-black/10 dark:border-white/10 rounded-tl-none" 
                       : "border-transparent rounded-tr-none"
                   }`}
                 >
@@ -188,7 +188,7 @@ export default function AIAssistant({
 
                   {/* Nodes Suggestion Button Action */}
                   {isAi && msg.suggestedAction && (
-                    <div className="mt-3 pt-3 border-t border-black/5 dark:border-white/10 space-y-2">
+                    <div className="mt-3 pt-3 border-t border-black/10 dark:border-white/10 space-y-2">
                       <div className="flex items-center space-x-1 text-[10px] text-blue-400 font-bold uppercase tracking-wider">
                         <Cpu className="w-3.5 h-3.5" />
                         <span>Recommended Workspace Nodes:</span>
@@ -232,7 +232,7 @@ export default function AIAssistant({
             <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-500 to-indigo-500 flex items-center justify-center text-white shrink-0 animate-bounce">
               <Bot className="w-4 h-4" />
             </div>
-            <div className="bg-black/5 dark:bg-white/5 p-3 rounded-2xl rounded-tl-none border border-black/5 dark:border-white/5 flex items-center space-x-2 text-xs">
+            <div className="bg-black/5 dark:bg-white/5 p-3 rounded-2xl rounded-tl-none border border-black/10 dark:border-white/10 flex items-center space-x-2 text-xs">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
               <span className="text-slate-400 italic">Thinking up workflow node configurations...</span>
             </div>
@@ -241,7 +241,7 @@ export default function AIAssistant({
       </div>
 
       {/* Message input footer form */}
-      <form onSubmit={handleSend} className="p-4 border-t border-black/5 dark:border-white/5 shrink-0">
+      <form onSubmit={handleSend} className="p-4 border-t border-black/10 dark:border-white/10 shrink-0">
         <div className="relative flex items-center gap-2">
           <Input
             value={inputValue}

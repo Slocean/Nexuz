@@ -143,7 +143,7 @@ export default function Toolbar({
     >
       {/* True-centered primary actions */}
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
-        <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5">
+        <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-black/10 dark:border-white/10">
           <Button
             size="sm"
             onClick={onRunWorkflow}
@@ -197,7 +197,7 @@ export default function Toolbar({
             </Button>
           )}
 
-          <div className="w-px h-5 bg-white/10 mx-0.5" />
+          <div className="w-px h-5 bg-black/15 dark:bg-white/15 mx-0.5" />
 
           <Button variant="ghost" size="sm" onClick={handleSave} title="保存">
             {isSaved ? (
@@ -265,13 +265,13 @@ export default function Toolbar({
             >
               <Workflow style={{ color: colors.primary }} className="w-4 h-4" />
             </div>
-            <span className="font-display font-semibold text-sm tracking-wide opacity-90 select-none">
+            <span className="font-semibold text-sm opacity-90 select-none">
               Nexuz
             </span>
           </div>
 
           {onViewModeChange && (
-            <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5">
+            <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-black/10 dark:border-white/10">
               <Button
                 size="sm"
                 className="h-8 w-8 px-0"
@@ -346,7 +346,7 @@ export default function Toolbar({
                 <DropdownMenuItem key={t} onClick={() => setThemeName(t)}>
                   <span
                     style={{ backgroundColor: getThemeColors(t, themeMode).primary }}
-                    className="w-3 h-3 rounded-full border border-white/20"
+                    className="w-3 h-3 rounded-full border border-black/20 dark:border-white/20"
                   />
                   <span className="flex-1">{t}</span>
                   {themeName === t && <Check className="w-3.5 h-3.5 text-emerald-500" />}
@@ -369,7 +369,7 @@ export default function Toolbar({
             )}
           </Button>
 
-          <div className="flex items-center ml-1 pl-1 border-l border-white/10">
+          <div className="flex items-center ml-1 pl-1 border-l border-black/10 dark:border-white/10">
             <button
               type="button"
               onClick={onWinToggleOnTop}

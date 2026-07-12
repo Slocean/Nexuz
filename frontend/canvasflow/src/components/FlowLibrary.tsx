@@ -89,7 +89,7 @@ export default function FlowLibrary({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="p-3 border-b border-black/5 dark:border-white/5 space-y-2">
+      <div className="p-3 border-b border-black/10 dark:border-white/10 space-y-2">
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-display font-semibold text-sm">流程管理</h3>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={refresh} title="刷新">

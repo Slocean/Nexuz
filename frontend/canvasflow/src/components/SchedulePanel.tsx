@@ -71,7 +71,7 @@ export default function SchedulePanel({
   };
 
   return (
-    <div className="p-4 space-y-3 border-t border-black/5 dark:border-white/5">
+    <div className="p-4 space-y-3 border-t border-black/10 dark:border-white/10">
       <div className="flex items-center justify-between">
         <h4
           style={{ color: colors.text }}

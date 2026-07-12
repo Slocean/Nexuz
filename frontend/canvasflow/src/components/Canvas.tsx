@@ -724,7 +724,7 @@ function Canvas({
     >
       <div
         style={{ color: colors.secondaryText }}
-        className="absolute bottom-5 left-5 text-[10px] font-mono font-bold uppercase tracking-wider bg-black/5 dark:bg-white/5 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 z-20 flex items-center space-x-1.5"
+        className="absolute bottom-5 left-5 text-[10px] font-mono font-bold uppercase tracking-wider bg-black/5 dark:bg-white/5 backdrop-blur-md px-2.5 py-1 rounded-lg border border-black/10 dark:border-white/10 z-20 flex items-center space-x-1.5"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
         <span>Scale: {Math.round(zoom * 100)}%</span>
@@ -1061,7 +1061,7 @@ function Canvas({
                     FOREVER
                   </div>
                 )}
-                <div className="flex items-center justify-between border-b border-black/5 dark:border-white/5 pb-1.5 shrink-0">
+                <div className="flex items-center justify-between border-b border-black/10 dark:border-white/10 pb-1.5 shrink-0">
                   <div className="flex items-center gap-1.5 truncate min-w-0">
                     <span
                       style={{
@@ -1185,7 +1185,7 @@ function Canvas({
                   })}
                 </div>
 
-                <div className="flex items-center justify-between text-[9px] pt-1 border-t border-black/5 dark:border-white/5 font-mono text-slate-400">
+                <div className="flex items-center justify-between text-[9px] pt-1 border-t border-black/10 dark:border-white/10 font-mono text-slate-400">
                   <div className="flex items-center gap-0.5 min-w-0">
                     {node.status === "success" && (
                       <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
