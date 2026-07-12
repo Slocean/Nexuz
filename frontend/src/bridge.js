@@ -377,7 +377,7 @@ export const bridge = {
   stepFlow: () => call('step_flow'),
   isRunning: () => call('is_running'),
   validateFlow: (flow) => call('validate_flow', JSON.stringify(flow)),
-  startRecording: (minIntervalMs = 50, hideWindow = true) =>
+  startRecording: (minIntervalMs = 50, hideWindow = false) =>
     call('start_recording', minIntervalMs, hideWindow),
   stopRecording: () => call('stop_recording'),
   pickPoint: (hideWindow = true) => call('pick_point', hideWindow),

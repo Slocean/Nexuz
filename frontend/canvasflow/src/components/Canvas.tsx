@@ -18,6 +18,7 @@ import {
 import { getThemeColors } from "../theme";
 import MiniMap from "./MiniMap";
 import { Button } from "@/components/ui/button";
+import { useAppDialog } from "./AppDialogs";
 
 interface CanvasProps {
   nodes: WorkflowNode[];
@@ -72,6 +73,7 @@ export default function Canvas({
   isExecuting,
   executingNodeId,
 }: CanvasProps) {
+  const { confirm, alert } = useAppDialog();
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -821,13 +823,15 @@ export default function Canvas({
                     className="cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (
-                        window.confirm(
-                          "Do you want to disconnect this workflow socket connection?"
-                        )
-                      ) {
-                        onRemoveConnection(conn.id);
-                      }
+                      void (async () => {
+                        const ok = await confirm({
+                          title: "断开连接",
+                          description: "确定断开这条工作流连线？",
+                          confirmText: "断开",
+                          destructive: true,
+                        });
+                        if (ok) onRemoveConnection(conn.id);
+                      })();
                     }}
                   />
                 )}
@@ -852,15 +856,23 @@ export default function Canvas({
                   }`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (isData) {
-                      window.alert(
-                        "数据连线由参数中的 {{node.field}} 自动生成，请在 Inspector 中修改引用。"
-                      );
-                      return;
-                    }
-                    if (window.confirm("Disconnect this workflow pathway?")) {
-                      onRemoveConnection(conn.id);
-                    }
+                    void (async () => {
+                      if (isData) {
+                        await alert({
+                          title: "数据连线",
+                          description:
+                            "数据连线由参数中的 {{node.field}} 自动生成，请在 Inspector 中修改引用。",
+                        });
+                        return;
+                      }
+                      const ok = await confirm({
+                        title: "断开连接",
+                        description: "确定断开这条工作流连线？",
+                        confirmText: "断开",
+                        destructive: true,
+                      });
+                      if (ok) onRemoveConnection(conn.id);
+                    })();
                   }}
                 />
                 {isData && conn.label && (

@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useAppDialog } from './AppDialogs';
 
 interface InspectorProps {
   selectedNode: WorkflowNode | null;
@@ -133,17 +134,18 @@ export default function Inspector({
   onSetEntry,
   rawLogs = [],
 }: InspectorProps) {
+  const { alert } = useAppDialog();
   const [copied, setCopied] = React.useState(false);
   const colors = getThemeColors(themeName, themeMode);
 
-  const exportLogs = () => {
+  const exportLogs = async () => {
     const text = logsToText(rawLogs.length ? rawLogs : logs.map((l) => ({
       ts: Date.now(),
       level: l.type,
       message: l.message,
     })));
     if (!text.trim()) {
-      window.alert('暂无日志可导出');
+      await alert({ title: '导出日志', description: '暂无日志可导出' });
       return;
     }
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });

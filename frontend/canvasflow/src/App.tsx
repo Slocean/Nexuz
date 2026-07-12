@@ -10,6 +10,8 @@ import Inspector from './components/Inspector';
 import CodeEditor from './components/CodeEditor';
 import AIAssistant from './components/AIAssistant';
 import SaveNameDialog from './components/SaveNameDialog';
+import RecordingBanner from './components/RecordingBanner';
+import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
 import { getThemeColors } from './theme';
 import { flowToCanvas, mapLogLevel } from './nexuzAdapter';
 import { useFlowStore } from '../../src/store/flowModelStore';
@@ -57,6 +59,15 @@ function applyCssVars(colors: ReturnType<typeof getThemeColors>, themeMode: stri
 }
 
 export default function App() {
+  return (
+    <AppDialogProvider>
+      <AppShell />
+    </AppDialogProvider>
+  );
+}
+
+function AppShell() {
+  const { confirm } = useAppDialog();
   const flow = useFlowStore((s) => s.flow);
   const schemas = useFlowStore((s) => s.schemas);
   const schemaMap = useFlowStore((s) => s.schemaMap);
@@ -250,9 +261,15 @@ export default function App() {
     }
   };
 
-  const handleNewFlow = () => {
-    if (Object.keys(flow.nodes || {}).length && !window.confirm('新建流程将清空当前画布，继续？')) {
-      return;
+  const handleNewFlow = async () => {
+    if (Object.keys(flow.nodes || {}).length) {
+      const ok = await confirm({
+        title: '新建流程',
+        description: '新建流程将清空当前画布，是否继续？',
+        confirmText: '新建',
+        destructive: true,
+      });
+      if (!ok) return;
     }
     setFlow({
       flow_id: `flow_${Date.now()}`,
@@ -265,39 +282,51 @@ export default function App() {
     appendLog({ level: 'info', message: '已新建空白流程' });
   };
 
-  const handleClearCanvas = () => {
-    if (!window.confirm('确定清空当前画布上的全部节点？')) return;
+  const handleClearCanvas = async () => {
+    const ok = await confirm({
+      title: '清空画布',
+      description: '确定清空当前画布上的全部节点？此操作不可撤销。',
+      confirmText: '清空',
+      destructive: true,
+    });
+    if (!ok) return;
     const ids = Object.keys(flow.nodes || {});
     if (ids.length) deleteNodes(ids);
     appendLog({ level: 'warn', message: '画布已清空' });
   };
 
+  const stopRecordingNow = async () => {
+    const res = await bridge.stopRecording();
+    setRecording(false);
+    if (res?.ok) {
+      appendRecordedNodes(res.nodes || []);
+      appendLog({ level: 'ok', message: `录制结束，追加 ${res.nodes?.length || 0} 个节点` });
+    }
+  };
+
   const handleToggleRecord = async () => {
     if (!recording) {
-      const tip = hideWindowOnRecord
-        ? '录制会把你的鼠标点击、键盘操作转成流程节点。\n\n当前开启了「隐藏窗口」，主窗口会暂时消失，避免点到 Nexuz。\n\n停止方式：\n1. 屏幕右上角红色「停止录制」按钮\n2. 快捷键 Ctrl+Shift+F10\n\n开始录制？'
-        : '录制会把你的鼠标点击、键盘操作转成流程节点，追加到当前画布。\n\n窗口会保持显示；可再点顶栏「停止录制」，或按 Ctrl+Shift+F10。\n\n开始录制？';
-      if (!window.confirm(tip)) return;
+      const ok = await confirm({
+        title: '开始录制',
+        description:
+          '录制会把你的鼠标点击、键盘操作转成流程节点，并追加到当前画布。\n\n录制时窗口保持显示，右上角会出现「停止录制」浮层；也可按 Ctrl+Shift+F10。',
+        confirmText: '开始录制',
+      });
+      if (!ok) return;
 
-      const res = await bridge.startRecording(50, hideWindowOnRecord);
+      // Always keep window visible so RecordingBanner works
+      const res = await bridge.startRecording(50, false);
       if (res?.ok) {
         setRecording(true);
         appendLog({
           level: 'info',
-          message: hideWindowOnRecord
-            ? '开始录制（窗口已隐藏）。停止：右上角红按钮 或 Ctrl+Shift+F10'
-            : '开始录制。再点「停止录制」或按 Ctrl+Shift+F10',
+          message: '开始录制。点右上角浮层「停止录制」或按 Ctrl+Shift+F10',
         });
       } else {
         appendLog({ level: 'error', message: res?.error || '无法开始录制' });
       }
     } else {
-      const res = await bridge.stopRecording();
-      setRecording(false);
-      if (res?.ok) {
-        appendRecordedNodes(res.nodes || []);
-        appendLog({ level: 'ok', message: `录制结束，追加 ${res.nodes?.length || 0} 个节点` });
-      }
+      await stopRecordingNow();
     }
   };
 
@@ -540,11 +569,16 @@ export default function App() {
         />
       </div>
 
+      <RecordingBanner
+        open={recording}
+        onStop={() => {
+          void stopRecordingNow();
+        }}
+      />
+
       <SaveNameDialog
         open={saveDialogOpen}
         initialName={flow.name || ''}
-        themeName={themeName as any}
-        themeMode={themeMode as any}
         onCancel={() => setSaveDialogOpen(false)}
         onConfirm={(name) => {
           void handleSaveWithName(name);

@@ -327,27 +327,21 @@ class Api:
             pass
 
     # --- recording ---
-    def start_recording(self, min_interval_ms: int = 50, hide_window: bool = True) -> dict:
-        from backend.core.record_overlay import hide_stop_overlay, show_stop_overlay
-
+    def start_recording(self, min_interval_ms: int = 50, hide_window: bool = False) -> dict:
+        """Start recorder. Prefer keep window visible so in-app stop banner works."""
         rec = get_recorder()
         rec.min_interval_ms = int(min_interval_ms)
-        self._recording_hidden = bool(hide_window)
-        if self._recording_hidden:
-            self._set_window_visible(False)
+        # Recording hide is discouraged — React stop banner needs a visible window.
+        # Keep API param for compatibility but default False and ignore True for UX.
+        self._recording_hidden = False
         rec.start()
-        # Floating stop control — especially important when main window is hidden
-        show_stop_overlay(lambda: self._on_record_stop_hotkey())
         return {
             "ok": True,
-            "hide_window": self._recording_hidden,
+            "hide_window": False,
             "stop_hotkey": "Ctrl+Shift+F10",
         }
 
     def stop_recording(self) -> dict:
-        from backend.core.record_overlay import hide_stop_overlay
-
-        hide_stop_overlay()
         nodes = get_recorder().stop()
         if getattr(self, "_recording_hidden", False):
             self._set_window_visible(True)

@@ -4,6 +4,7 @@ import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
+import { useAppDialog } from './AppDialogs';
 
 interface ScheduleJob {
   id?: string;
@@ -23,6 +24,7 @@ export default function SchedulePanel({
   themeName: ThemeName;
   themeMode: ThemeMode;
 }) {
+  const { confirm } = useAppDialog();
   const colors = getThemeColors(themeName, themeMode);
   const [jobs, setJobs] = useState<ScheduleJob[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,7 +55,13 @@ export default function SchedulePanel({
   }, [refresh]);
 
   const remove = async (jobId: string) => {
-    if (!window.confirm(`移除定时任务 ${jobId}？`)) return;
+    const ok = await confirm({
+      title: '移除定时任务',
+      description: `确定移除定时任务 ${jobId}？`,
+      confirmText: '移除',
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await bridge.removeScheduleJob(jobId);
     if (res?.ok === false) {
       setError(res.error || '移除失败');

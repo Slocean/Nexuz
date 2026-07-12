@@ -7,6 +7,7 @@ import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
+import { useAppDialog } from './AppDialogs';
 
 export interface FlowListItem {
   name: string;
@@ -30,6 +31,7 @@ export default function FlowLibrary({
   onNewFlow: () => void;
   onOpenFromDisk?: () => void;
 }) {
+  const { confirm } = useAppDialog();
   const colors = getThemeColors(themeName, themeMode);
   const [flows, setFlows] = useState<FlowListItem[]>([]);
   const [dir, setDir] = useState('');
@@ -61,7 +63,13 @@ export default function FlowLibrary({
   }, [refresh]);
 
   const remove = async (item: FlowListItem) => {
-    if (!window.confirm(`删除流程「${item.name}」？\n${item.path}`)) return;
+    const ok = await confirm({
+      title: '删除流程',
+      description: `确定删除流程「${item.name}」？\n${item.path}`,
+      confirmText: '删除',
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await bridge.deleteFlow(item.path);
     if (res?.ok === false) {
       setError(res.error || '删除失败');
