@@ -129,37 +129,9 @@ export default function Toolbar({
       }}
       className="relative h-14 border-b z-40 shrink-0"
     >
-      <div className="relative z-10 h-full flex items-stretch">
-        {/* Left drag + brand */}
-        <div className="pywebview-drag-region flex items-center gap-2 pl-3 pr-2 shrink-0 min-w-[140px]">
-          {onBackToMain && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="pywebview-no-drag"
-              onClick={onBackToMain}
-            >
-              主程序
-            </Button>
-          )}
-          <div
-            style={{ backgroundColor: colors.primary + '1A' }}
-            className="h-8 w-8 rounded-xl flex items-center justify-center shrink-0"
-            title="Nexuz"
-          >
-            <Workflow style={{ color: colors.primary }} className="w-4 h-4" />
-          </div>
-          <span className="font-display font-semibold text-sm tracking-wide opacity-90 select-none">
-            Nexuz
-          </span>
-        </div>
-
-        {/* Flexible drag spacer */}
-        <div className="pywebview-drag-region flex-1 min-w-[24px]" />
-
-        {/* Center controls (not drag) */}
-        <div className="flex items-center self-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5 shrink-0">
+      {/* True-centered primary actions */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+        <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5">
           <Button
             size="sm"
             onClick={onRunWorkflow}
@@ -178,114 +150,122 @@ export default function Toolbar({
           </Button>
 
           {execStatus === 'paused' ? (
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onResume} title="继续">
+            <Button variant="ghost" size="sm" onClick={onResume} title="继续">
               <Play className="w-3.5 h-3.5" />
+              <span>继续</span>
             </Button>
           ) : (
             <Button
               variant="ghost"
-              size="icon"
-              className="h-8 w-8"
+              size="sm"
               onClick={onPause}
               disabled={!isExecuting}
               title="暂停"
             >
               <Pause className="w-3.5 h-3.5" />
+              <span>暂停</span>
             </Button>
           )}
 
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="sm"
             onClick={onStop}
             disabled={execStatus === 'idle'}
             title="停止"
           >
             <Square className="w-3 h-3" />
+            <span>停止</span>
           </Button>
 
           {onStep && (
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onStep} title="单步">
+            <Button variant="ghost" size="sm" onClick={onStep} title="单步">
               <StepForward className="w-3.5 h-3.5" />
+              <span>单步</span>
             </Button>
           )}
 
           <div className="w-px h-5 bg-white/10 mx-0.5" />
 
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleSave} title="保存">
+          <Button variant="ghost" size="sm" onClick={handleSave} title="保存">
             {isSaved ? (
               <Check className="w-3.5 h-3.5 text-emerald-500" />
             ) : (
               <Save className="w-3.5 h-3.5 opacity-80" />
             )}
+            <span className={isSaved ? 'text-emerald-500' : undefined}>
+              {isSaved ? '已保存' : '保存'}
+            </span>
           </Button>
 
           {onOpen && (
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onOpen} title="打开">
+            <Button variant="ghost" size="sm" onClick={onOpen} title="打开">
               <FolderOpen className="w-3.5 h-3.5 opacity-80" />
+              <span>打开</span>
             </Button>
           )}
 
           {onToggleRecord && (
             <Button
               variant="ghost"
-              size="icon"
-              className="h-8 w-8"
+              size="sm"
               onClick={onToggleRecord}
               style={{ color: recording ? colors.danger : undefined }}
               title={recording ? '停止录制' : '开始录制'}
             >
               <CircleDot className={`w-3.5 h-3.5 ${recording ? 'animate-pulse' : ''}`} />
+              <span>{recording ? '停止录制' : '录制'}</span>
             </Button>
           )}
 
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="sm"
             onClick={onClearCanvas}
             style={{ color: colors.danger }}
             title="清空画布"
           >
             <Trash2 className="w-3.5 h-3.5" />
+            <span>清空</span>
           </Button>
         </div>
+      </div>
 
-        <div className="pywebview-drag-region flex-1 min-w-[24px]" />
-
-        {/* Right tools + window */}
-        <div className="flex items-center gap-1 pr-1.5 shrink-0">
-          {onViewModeChange && (
-            <div className="flex items-center p-0.5 rounded-xl border border-white/10 bg-black/5 dark:bg-white/5">
+      <div className="relative z-10 h-full flex items-center justify-between px-2">
+        {/* Left: brand + theme / light-dark */}
+        <div className="flex items-center gap-1.5 min-w-0 shrink-0 z-10">
+          <div className="pywebview-drag-region flex items-center gap-2 pl-1 pr-2">
+            {onBackToMain && (
               <Button
-                variant={viewMode === 'canvas' ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => onViewModeChange('canvas')}
-                title="画布"
+                type="button"
+                variant="outline"
+                size="sm"
+                className="pywebview-no-drag"
+                onClick={onBackToMain}
               >
-                <LayoutGrid className="w-3.5 h-3.5" />
+                主程序
               </Button>
-              <Button
-                variant={viewMode === 'code' ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => onViewModeChange('code')}
-                title="JSON"
-              >
-                <FileCode2 className="w-3.5 h-3.5" />
-              </Button>
+            )}
+            <div
+              style={{ backgroundColor: colors.primary + '1A' }}
+              className="h-8 w-8 rounded-xl flex items-center justify-center shrink-0"
+              title="Nexuz"
+            >
+              <Workflow style={{ color: colors.primary }} className="w-4 h-4" />
             </div>
-          )}
+            <span className="font-display font-semibold text-sm tracking-wide opacity-90 select-none">
+              Nexuz
+            </span>
+          </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" title="主题色">
+              <Button variant="ghost" size="sm" className="h-8 px-2.5" title="主题色">
                 <Palette className="w-4 h-4 opacity-80" />
+                <span>主题</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="start" className="w-44">
               <DropdownMenuLabel>主题色</DropdownMenuLabel>
               {themes.map((t) => (
                 <DropdownMenuItem key={t} onClick={() => setThemeName(t)}>
@@ -302,8 +282,8 @@ export default function Toolbar({
 
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="sm"
+            className="h-8 px-2.5"
             onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}
             title="明暗"
           >
@@ -312,17 +292,50 @@ export default function Toolbar({
             ) : (
               <Sun className="w-4 h-4 opacity-80" />
             )}
+            <span>{themeMode === 'light' ? '暗色' : '亮色'}</span>
           </Button>
+        </div>
+
+        {/* Drag filler */}
+        <div className="pywebview-drag-region flex-1 self-stretch min-w-[24px] mx-2" />
+
+        {/* Right: view / AI + window */}
+        <div className="flex items-center gap-1 shrink-0 z-10">
+          {onViewModeChange && (
+            <div className="flex items-center p-0.5 rounded-xl border border-white/10 bg-black/5 dark:bg-white/5">
+              <Button
+                variant={viewMode === 'canvas' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={() => onViewModeChange('canvas')}
+                title="画布"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                <span>画布</span>
+              </Button>
+              <Button
+                variant={viewMode === 'code' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={() => onViewModeChange('code')}
+                title="JSON"
+              >
+                <FileCode2 className="w-3.5 h-3.5" />
+                <span>JSON</span>
+              </Button>
+            </div>
+          )}
 
           <Button
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="sm"
+            className="h-8 px-2.5"
             onClick={onToggleAssistant}
             title="Flow AI"
             style={isAssistantOpen ? { color: colors.primary } : undefined}
           >
             <Sparkles className="w-4 h-4" />
+            <span>AI</span>
           </Button>
 
           <div className="flex items-center ml-1 pl-1 border-l border-white/10">
