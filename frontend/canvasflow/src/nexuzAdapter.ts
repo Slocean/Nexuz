@@ -84,7 +84,7 @@ export function flowToCanvas(
     nodes.push({
       id,
       type: categoryToNodeType(schema.category),
-      name: schema.label || node.type,
+      name: node.name || schema.label || node.type,
       subType: node.type,
       x: pos.x,
       y: pos.y,

@@ -298,7 +298,7 @@ export default function Sidebar({
       {/* Left rail: Flows / Nodes */}
       <nav
         style={{ borderColor: colors.border }}
-        className="w-12 shrink-0 border-r flex flex-col items-center gap-1 py-2"
+        className="w-14 shrink-0 border-r flex flex-col items-center gap-2 py-3 px-1.5"
       >
         <button
           type="button"
@@ -344,10 +344,18 @@ export default function Sidebar({
           className="shrink-0"
           style={{ borderColor: colors.border }}
         >
-          <TabsTrigger value="components">Nodes</TabsTrigger>
-          <TabsTrigger value="variables">Vars</TabsTrigger>
-          <TabsTrigger value="templates">Templates</TabsTrigger>
-          <TabsTrigger value="history">Runs</TabsTrigger>
+          <TabsTrigger value="components" className="normal-case tracking-normal">
+            节点
+          </TabsTrigger>
+          <TabsTrigger value="variables" className="normal-case tracking-normal">
+            变量
+          </TabsTrigger>
+          <TabsTrigger value="templates" className="normal-case tracking-normal">
+            模板
+          </TabsTrigger>
+          <TabsTrigger value="history" className="normal-case tracking-normal">
+            运行
+          </TabsTrigger>
         </TabsList>
 
         <div className="flex-1 min-h-0 overflow-y-auto">

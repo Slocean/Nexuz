@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, Play, Terminal, X, Copy, Check, ChevronRight, Download } from 'lucide-react';
+import { Settings, Play, Terminal, X, Copy, Check, Download } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
@@ -22,6 +22,7 @@ import { useAppDialog } from './AppDialogs';
 interface InspectorProps {
   selectedNode: WorkflowNode | null;
   onUpdateNodeConfig: (nodeId: string, updatedConfig: any) => void;
+  onUpdateNodeName?: (nodeId: string, name: string) => void;
   onRunSingleNode: (nodeId: string) => void;
   onDeselect: () => void;
   themeName: ThemeName;
@@ -124,6 +125,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export default function Inspector({
   selectedNode,
   onUpdateNodeConfig,
+  onUpdateNodeName,
   onRunSingleNode,
   onDeselect,
   themeName,
@@ -178,7 +180,7 @@ export default function Inspector({
         </Button>
       </div>
       <ScrollArea className="h-36">
-        <div className="space-y-1.5 font-mono text-sm pr-2 select-text cursor-text">
+        <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed">
           {logs.length === 0 && (
             <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
               尚无日志
@@ -187,15 +189,20 @@ export default function Inspector({
           {logs.slice(0, 40).map((log) => (
             <div
               key={log.id}
-              className={`rounded-xl px-2 py-1.5 border border-black/10 dark:border-white/10 select-text ${
+              className={`select-text break-words whitespace-pre-wrap py-0.5 ${
                 log.type === 'error'
-                  ? 'text-rose-400'
+                  ? 'text-rose-500'
                   : log.type === 'success'
-                    ? 'text-emerald-400'
+                    ? 'text-emerald-500'
                     : log.type === 'warning'
-                      ? 'text-amber-400'
-                      : 'text-slate-400'
+                      ? 'text-amber-500'
+                      : ''
               }`}
+              style={
+                log.type === 'error' || log.type === 'success' || log.type === 'warning'
+                  ? undefined
+                  : { color: colors.secondaryText }
+              }
             >
               <span className="opacity-50 mr-2">{log.timestamp}</span>
               {log.message}
@@ -781,16 +788,26 @@ export default function Inspector({
 
       <ScrollArea className="flex-1">
         <div className="p-3 space-y-4">
-          <div className="bg-black/5 dark:bg-white/5 rounded-xl px-3 py-2 border border-black/10 dark:border-white/10">
+          <div className="bg-black/5 dark:bg-white/5 rounded-xl px-3 py-2 border border-black/10 dark:border-white/10 space-y-2">
             <div className="flex justify-between items-center gap-2">
               <span className="font-medium text-xs text-blue-500 truncate">
-                {selectedNode.type}
+                {selectedNode.subType || selectedNode.type}
               </span>
               <span className="text-xs opacity-50 font-mono shrink-0">
                 {selectedNode.id.substring(0, 6)}
               </span>
             </div>
-            <h4 className="font-semibold text-sm mt-0.5 truncate">{selectedNode.name}</h4>
+            <div className="flex items-center gap-2 min-w-0">
+              <Label className="text-xs font-medium opacity-75 shrink-0 w-[4.75rem] leading-8">
+                名称
+              </Label>
+              <Input
+                className="h-8 flex-1 min-w-0"
+                value={selectedNode.name || ''}
+                placeholder="节点显示名称"
+                onChange={(e) => onUpdateNodeName?.(selectedNode.id, e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -862,20 +879,19 @@ export default function Inspector({
               <h4 className="font-medium text-sm opacity-70">
                 日志
               </h4>
-              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+              <div className="space-y-0.5 max-h-32 overflow-y-auto font-mono text-sm leading-relaxed">
                 {nodeLogs.map((log) => (
                   <div
                     key={log.id}
-                    className={`text-sm font-mono leading-relaxed p-2 rounded-xl flex items-start gap-1.5 border ${
+                    className={`break-words whitespace-pre-wrap py-0.5 ${
                       log.type === 'error'
-                        ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                        ? 'text-rose-500'
                         : log.type === 'warning'
-                          ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                          : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                          ? 'text-amber-500'
+                          : 'text-emerald-500'
                     }`}
                   >
-                    <ChevronRight className="w-3 h-3 shrink-0 mt-0.5" />
-                    <span className="break-all">{log.message}</span>
+                    {log.message}
                   </div>
                 ))}
               </div>

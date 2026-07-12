@@ -39,6 +39,7 @@ interface CanvasProps {
   onDuplicateNodes?: (nodeIds: string[]) => void;
   onDropBlock?: (blockType: string, x: number, y: number) => void;
   onRunSingleNode: (nodeId: string) => void;
+  onUpdateNodeName?: (nodeId: string, name: string) => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
   isExecuting: boolean;
@@ -69,6 +70,7 @@ function Canvas({
   onDuplicateNodes,
   onDropBlock,
   onRunSingleNode,
+  onUpdateNodeName,
   themeName,
   themeMode,
   isExecuting: _isExecuting,
@@ -81,6 +83,8 @@ function Canvas({
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showDataLinks, setShowDataLinks] = useState(true);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState("");
   const [marquee, setMarquee] = useState<{
     x0: number;
     y0: number;
@@ -1062,7 +1066,7 @@ function Canvas({
                   </div>
                 )}
                 <div className="flex items-center justify-between border-b border-black/10 dark:border-white/10 pb-1.5 shrink-0">
-                  <div className="flex items-center gap-1.5 truncate min-w-0">
+                  <div className="flex items-center gap-1.5 truncate min-w-0 flex-1">
                     <span
                       style={{
                         backgroundColor: nodeAccentColor + "1E",
@@ -1070,9 +1074,41 @@ function Canvas({
                       }}
                       className="w-2 h-2 rounded-full shrink-0"
                     />
-                    <span className="font-display font-semibold text-xs truncate">
-                      {node.name}
-                    </span>
+                    {editingNameId === node.id ? (
+                      <input
+                        autoFocus
+                        value={editingNameValue}
+                        onChange={(e) => setEditingNameValue(e.target.value)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        onBlur={() => {
+                          onUpdateNodeName?.(node.id, editingNameValue);
+                          setEditingNameId(null);
+                        }}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === "Enter") {
+                            onUpdateNodeName?.(node.id, editingNameValue);
+                            setEditingNameId(null);
+                          } else if (e.key === "Escape") {
+                            setEditingNameId(null);
+                          }
+                        }}
+                        className="h-5 min-w-0 flex-1 rounded border border-black/15 dark:border-white/20 bg-transparent px-1 text-xs font-semibold outline-none"
+                      />
+                    ) : (
+                      <span
+                        className="font-semibold text-xs truncate cursor-text"
+                        title="双击修改名称"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setEditingNameId(node.id);
+                          setEditingNameValue(node.name || "");
+                        }}
+                      >
+                        {node.name}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center shrink-0 pointer-events-auto">

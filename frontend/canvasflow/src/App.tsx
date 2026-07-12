@@ -114,6 +114,7 @@ function AppShell() {
   const updateFlowMeta = useFlowStore((s) => s.updateFlowMeta);
   const addNodeFromSchema = useFlowStore((s) => s.addNodeFromSchema);
   const updateNodeParams = useFlowStore((s) => s.updateNodeParams);
+  const updateNodeName = useFlowStore((s) => s.updateNodeName);
   const updateNodePosition = useFlowStore((s) => s.updateNodePosition);
   const setNodeLink = useFlowStore((s) => s.setNodeLink);
   const removeNodeLink = useFlowStore((s) => s.removeNodeLink);
@@ -554,6 +555,13 @@ function AppShell() {
     [updateNodeParams],
   );
 
+  const handleUpdateNodeName = useCallback(
+    (nodeId: string, name: string) => {
+      updateNodeName(nodeId, name);
+    },
+    [updateNodeName],
+  );
+
   const handleRunSingleNode = useCallback(async (_nodeId: string) => {
     appendLog({
       level: 'warn',
@@ -625,6 +633,7 @@ function AppShell() {
             onDuplicateNodes={handleDuplicateNodes}
             onDropBlock={handleDropBlock}
             onRunSingleNode={handleRunSingleNode}
+            onUpdateNodeName={handleUpdateNodeName}
             themeName={themeName as any}
             themeMode={themeMode as any}
             isExecuting={isExecuting}
@@ -635,6 +644,7 @@ function AppShell() {
         <Inspector
           selectedNode={selectedNode}
           onUpdateNodeConfig={handleUpdateNodeConfig}
+          onUpdateNodeName={handleUpdateNodeName}
           onRunSingleNode={handleRunSingleNode}
           onDeselect={() => selectNode(null)}
           themeName={themeName as any}

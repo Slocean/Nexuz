@@ -289,6 +289,25 @@ export const useFlowStore = create((set, get) => ({
       };
     }),
 
+  updateNodeName: (nodeId, name) =>
+    set((state) => {
+      const node = state.flow.nodes[nodeId];
+      if (!node) return state;
+      const raw = String(name ?? '');
+      const nextNode = { ...node };
+      if (raw.trim()) nextNode.name = raw;
+      else delete nextNode.name;
+      return {
+        flow: {
+          ...state.flow,
+          nodes: {
+            ...state.flow.nodes,
+            [nodeId]: nextNode,
+          },
+        },
+      };
+    }),
+
   updateNodePosition: (nodeId, position) =>
     set((state) => {
       const node = state.flow.nodes[nodeId];
