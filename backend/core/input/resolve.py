@@ -49,18 +49,27 @@ def effective_capture_mode(
     return "coord"
 
 
+def _as_int(value: Any, default: int = 0) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def _coord_from_params(params: dict[str, Any]) -> CoordTarget:
     nested = params.get("coord")
     if isinstance(nested, dict):
         return CoordTarget(
-            x=int(nested.get("x", params.get("x", 0)) or 0),
-            y=int(nested.get("y", params.get("y", 0)) or 0),
+            x=_as_int(nested.get("x", params.get("x", 0)), 0),
+            y=_as_int(nested.get("y", params.get("y", 0)), 0),
             point_norm=nested.get("point_norm", params.get("point_norm")),
             coord_space=nested.get("coord_space", params.get("coord_space")),
         )
     return CoordTarget(
-        x=int(params.get("x", 0) or 0),
-        y=int(params.get("y", 0) or 0),
+        x=_as_int(params.get("x", 0), 0),
+        y=_as_int(params.get("y", 0), 0),
         point_norm=params.get("point_norm"),
         coord_space=params.get("coord_space"),
     )

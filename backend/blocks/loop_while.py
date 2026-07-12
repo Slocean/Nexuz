@@ -5,7 +5,7 @@ SCHEMA = {
     "label": "条件循环",
     "category": "控制类",
     "inputs": [
-        {"name": "expression", "type": "string", "label": "继续条件", "default": ""},
+        {"name": "expression", "type": "string", "label": "继续条件", "default": "", "bindable": False, "ui": "expression"},
         {"name": "max_times", "type": "number", "label": "最大次数", "default": 10000},
     ],
     "outputs": [

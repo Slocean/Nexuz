@@ -1,9 +1,13 @@
 import React from 'react';
-import { Settings, Play, Terminal, X, Copy, Check, Download } from 'lucide-react';
+import { Settings, Terminal, X, Copy, Check, Download } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
 import { logsToText } from '../nexuzAdapter';
+import { isBindableInput } from '../bindValue';
+import { type BindIssue } from '../bindValidate';
+import BindableInput, { OutputRefChip } from './BindableInput';
+import ExpressionField from './ExpressionField';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -37,6 +41,107 @@ interface InspectorProps {
   defaultCaptureMode?: string;
   /** Raw store logs for file export */
   rawLogs?: { ts?: number; level?: string; message?: string; detail?: any }[];
+  bindIssues?: BindIssue[];
+}
+
+/** Edit Record<string, string|number> as rows — values optionally bindable */
+function KeyMapEditor({
+  value,
+  onChange,
+  keyPlaceholder,
+  valueMode,
+  currentNodeId,
+  schemaMap,
+}: {
+  value: Record<string, any>;
+  onChange: (next: Record<string, any>) => void;
+  keyPlaceholder: string;
+  valueMode: 'bindable' | 'plain';
+  currentNodeId: string;
+  schemaMap: Record<string, any>;
+}) {
+  const entries = Object.entries(value && typeof value === 'object' ? value : {});
+
+  const setEntry = (idx: number, key: string, val: any) => {
+    const next: Record<string, any> = {};
+    entries.forEach(([k, v], i) => {
+      if (i === idx) next[key] = val;
+      else next[k] = v;
+    });
+    onChange(next);
+  };
+
+  const removeAt = (idx: number) => {
+    const next: Record<string, any> = {};
+    entries.forEach(([k, v], i) => {
+      if (i !== idx) next[k] = v;
+    });
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-2 w-full">
+      {entries.map(([k, v], idx) => (
+        <div key={idx} className="flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 p-1.5">
+          <div className="flex items-center gap-1">
+            <Input
+              className="h-7 text-xs font-mono flex-1"
+              placeholder={keyPlaceholder}
+              value={k}
+              onChange={(e) => setEntry(idx, e.target.value, v)}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-rose-400 shrink-0"
+              onClick={() => removeAt(idx)}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+          {valueMode === 'bindable' ? (
+            <BindableInput
+              value={v}
+              inputType="string"
+              currentNodeId={currentNodeId}
+              schemaMap={schemaMap}
+              onChange={(nv) => setEntry(idx, k, nv)}
+              placeholder="常量 / 上游 / 变量"
+            />
+          ) : (
+            <Input
+              className="h-7 text-xs font-mono"
+              placeholder="子流程键，如 node1.text 或 $result"
+              value={v == null ? '' : String(v)}
+              onChange={(e) => setEntry(idx, k, e.target.value)}
+            />
+          )}
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => {
+          let i = 0;
+          let key = `var${i}`;
+          const existing = new Set(Object.keys(Object.fromEntries(entries)));
+          while (existing.has(key)) {
+            i += 1;
+            key = `var${i}`;
+          }
+          onChange({
+            ...Object.fromEntries(entries),
+            [key]: valueMode === 'bindable' ? '' : '',
+          });
+        }}
+      >
+        添加映射
+      </Button>
+    </div>
+  );
 }
 
 function CasesEditor({
@@ -117,9 +222,32 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       >
         {label}
       </Label>
-      <div className="flex-1 min-w-0 max-w-[14rem] flex items-center gap-1.5 flex-nowrap">{children}</div>
+      <div className="flex-1 min-w-0 flex items-start gap-1.5 flex-wrap">{children}</div>
     </div>
   );
+}
+
+/** Schema show_when: { field: value | value[] } — all keys must match current config */
+function inputVisible(input: any, config: Record<string, any> | undefined): boolean {
+  const when = input?.show_when;
+  if (!when || typeof when !== 'object') return true;
+  const cfg = config || {};
+  for (const [key, expect] of Object.entries(when)) {
+    const actual = cfg[key];
+    // Defaults: source_mode missing → treat as "capture"
+    let cur = actual;
+    if (cur === undefined || cur === null || cur === '') {
+      if (key === 'source_mode') cur = 'capture';
+      else if (key === 'wait_type') cur = 'text';
+      else return false;
+    }
+    if (Array.isArray(expect)) {
+      if (!expect.map(String).includes(String(cur))) return false;
+    } else if (String(cur) !== String(expect)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export default function Inspector({
@@ -139,10 +267,16 @@ export default function Inspector({
   onSetEntry,
   defaultCaptureMode = 'coord',
   rawLogs = [],
+  bindIssues = [],
 }: InspectorProps) {
   const { alert } = useAppDialog();
   const [copied, setCopied] = React.useState(false);
   const colors = getThemeColors(themeName, themeMode);
+
+  const nodeIssues = React.useMemo(
+    () => (selectedNode ? bindIssues.filter((i) => i.nodeId === selectedNode.id) : []),
+    [bindIssues, selectedNode],
+  );
 
   const exportLogs = async () => {
     const text = logsToText(rawLogs.length ? rawLogs : logs.map((l) => ({
@@ -214,6 +348,8 @@ export default function Inspector({
   );
 
   if (!selectedNode) {
+    const errN = bindIssues.filter((i) => i.level === 'error').length;
+    const warnN = bindIssues.filter((i) => i.level === 'warn').length;
     return (
       <aside
         style={{
@@ -237,6 +373,11 @@ export default function Inspector({
           >
             点击节点编辑参数
           </p>
+          {(errN > 0 || warnN > 0) && (
+            <p className="text-xs mt-3 text-rose-500">
+              流程绑定：{errN} 错误{warnN ? ` / ${warnN} 警告` : ''}
+            </p>
+          )}
         </div>
         {logsPanel}
       </aside>
@@ -326,7 +467,8 @@ export default function Inspector({
         {isClick && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
             <p className="text-xs leading-relaxed opacity-90">
-              顶栏「录制」可连续录入多步。此处「重新录入」只更新当前节点；左右键会自动写入。
+              顶栏「录制」可连续录入多步。参数中的 X/Y 可切换为「上游」绑定找图等节点的输出（如{' '}
+              <code className="font-mono">{'{{find1.x}}'}</code>）。
             </p>
             <Field label="录入模式">
               <Select
@@ -415,6 +557,7 @@ export default function Inspector({
 
         {(schema.inputs || [])
           .filter((input: any) => {
+            if (!inputVisible(input, selectedNode.config)) return false;
             if (!isClick) return true;
             // Handled in the click panel above / nested object not edited as text
             if (input.name === 'capture_mode' || input.name === 'frida_ui') return false;
@@ -427,6 +570,7 @@ export default function Inspector({
           .map((input: any) => {
           const value = selectedNode.config?.[input.name];
           const label = input.label || input.name;
+          const optionLabels = input.option_labels || {};
 
           return (
             <Field key={input.name} label={label}>
@@ -441,47 +585,26 @@ export default function Inspector({
                   <SelectContent>
                     {(input.options || []).map((opt: string) => (
                       <SelectItem key={opt} value={opt}>
-                        {opt}
+                        {optionLabels[opt] || opt}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              ) : input.type === 'number' ? (
-                <>
-                  <Input
-                    type="number"
-                    className="h-8 flex-1 min-w-0"
-                    value={value ?? 0}
-                    onChange={(e) => handleFieldChange(input.name, Number(e.target.value))}
-                  />
-                  {(input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') &&
-                    onPickPoint && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 shrink-0 px-2"
-                        onClick={async () => {
-                          const res = await onPickPoint();
-                          applyPointPick(input.name, res);
-                        }}
-                      >
-                        取点
-                      </Button>
-                    )}
-                </>
               ) : input.type === 'color' ? (
                 <>
                   <Input
                     type="color"
-                    value={value || '#FF0000'}
+                    value={typeof value === 'string' && value.startsWith('#') ? value : '#FF0000'}
                     onChange={(e) => handleFieldChange(input.name, e.target.value.toUpperCase())}
                     className="h-8 w-10 p-1 cursor-pointer shrink-0"
                   />
-                  <Input
-                    value={value || ''}
-                    onChange={(e) => handleFieldChange(input.name, e.target.value)}
-                    className="h-8 flex-1 min-w-0"
+                  <BindableInput
+                    value={value}
+                    inputType="string"
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={(v) => handleFieldChange(input.name, v)}
+                    placeholder="#RRGGBB"
                   />
                 </>
               ) : input.type === 'keys' ? (
@@ -503,6 +626,19 @@ export default function Inspector({
                 <CasesEditor
                   value={Array.isArray(value) ? value : []}
                   onChange={(cases) => handleFieldChange(input.name, cases)}
+                />
+              ) : input.type === 'keymap' ||
+                input.ui === 'input_map' ||
+                input.ui === 'output_map' ? (
+                <KeyMapEditor
+                  value={value && typeof value === 'object' && !Array.isArray(value) ? value : {}}
+                  onChange={(next) => handleFieldChange(input.name, next)}
+                  keyPlaceholder={
+                    input.ui === 'output_map' ? '父流程变量名' : '子流程变量名'
+                  }
+                  valueMode={input.ui === 'output_map' ? 'plain' : 'bindable'}
+                  currentNodeId={selectedNode.id}
+                  schemaMap={schemaMap}
                 />
               ) : input.type === 'rect' ? (
                 <>
@@ -533,13 +669,24 @@ export default function Inspector({
                     </Button>
                   )}
                 </>
+              ) : input.ui === 'expression' ||
+                input.name === 'expression' ||
+                input.name === 'exit_condition' ? (
+                <ExpressionField
+                  value={value ?? ''}
+                  onChange={(v) => handleFieldChange(input.name, v)}
+                  currentNodeId={selectedNode.id}
+                  schemaMap={schemaMap}
+                />
               ) : input.name === 'template_image' ? (
                 <>
-                  <Input
-                    value={value ?? ''}
-                    onChange={(e) => handleFieldChange(input.name, e.target.value)}
+                  <BindableInput
+                    value={value}
+                    inputType="string"
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={(v) => handleFieldChange(input.name, v)}
                     placeholder="模板 PNG 路径"
-                    className="h-8 flex-1 min-w-0 font-mono text-xs"
                   />
                   {onCaptureTemplate && (
                     <Button
@@ -556,6 +703,32 @@ export default function Inspector({
                     </Button>
                   )}
                 </>
+              ) : isBindableInput(input) ? (
+                <BindableInput
+                  value={value ?? input.default ?? (input.type === 'number' ? 0 : '')}
+                  inputType={input.type === 'number' ? 'number' : 'string'}
+                  currentNodeId={selectedNode.id}
+                  schemaMap={schemaMap}
+                  onChange={(v) => handleFieldChange(input.name, v)}
+                  placeholder={input.label || input.name}
+                  trailing={
+                    (input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') &&
+                    onPickPoint ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0 px-2"
+                        onClick={async () => {
+                          const res = await onPickPoint();
+                          applyPointPick(input.name, res);
+                        }}
+                      >
+                        取点
+                      </Button>
+                    ) : undefined
+                  }
+                />
               ) : (
                 <Input
                   className="h-8"
@@ -814,6 +987,29 @@ export default function Inspector({
             <h4 className="font-medium text-sm opacity-70">
               参数
             </h4>
+            {nodeIssues.length > 0 && (
+              <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 space-y-1">
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                  绑定问题 ({nodeIssues.filter((i) => i.level === 'error').length} 错误
+                  {nodeIssues.some((i) => i.level === 'warn')
+                    ? ` / ${nodeIssues.filter((i) => i.level === 'warn').length} 警告`
+                    : ''}
+                  )
+                </p>
+                {nodeIssues.slice(0, 6).map((iss, idx) => (
+                  <p
+                    key={idx}
+                    className={`text-[11px] leading-snug ${
+                      iss.level === 'error'
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-amber-700 dark:text-amber-400'
+                    }`}
+                  >
+                    {iss.message}
+                  </p>
+                ))}
+              </div>
+            )}
             {renderParametersForm()}
           </div>
 
@@ -821,9 +1017,7 @@ export default function Inspector({
 
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <h4 className="font-medium text-sm opacity-70">
-                输出
-              </h4>
+              <h4 className="font-medium text-sm opacity-70">输出</h4>
               {outputText && (
                 <Button
                   variant="ghost"
@@ -834,44 +1028,66 @@ export default function Inspector({
                   {copied ? (
                     <>
                       <Check className="w-3 h-3 text-emerald-500" />
-                      Copied
+                      已复制
                     </>
                   ) : (
                     <>
                       <Copy className="w-3 h-3" />
-                      Copy
+                      复制 JSON
                     </>
                   )}
                 </Button>
               )}
             </div>
 
-            <div
-              style={{
-                backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
-                borderColor: colors.border,
-              }}
-              className="rounded-2xl p-3 border font-mono text-sm space-y-3"
-            >
-              <div className="text-slate-400 select-text break-all min-h-16 max-h-28 overflow-y-auto">
-                {outputText ? (
-                  <pre className="text-slate-800 dark:text-slate-300 whitespace-pre-wrap">
-                    {outputText}
-                  </pre>
-                ) : (
-                  <span className="italic">暂无输出，请先运行流程</span>
-                )}
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-full"
-                onClick={() => onRunSingleNode(selectedNode.id)}
+            {(() => {
+              const outs =
+                (schemaMap[selectedNode.subType]?.outputs as { name: string; type?: string }[]) ||
+                [];
+              const live =
+                selectedNode.outputData && typeof selectedNode.outputData === 'object'
+                  ? selectedNode.outputData
+                  : {};
+              if (outs.length === 0) {
+                return (
+                  <p className="text-xs opacity-50 py-2">此节点无声明输出字段</p>
+                );
+              }
+              return (
+                <div
+                  style={{ borderColor: colors.border }}
+                  className="rounded-xl border divide-y divide-black/5 dark:divide-white/5 overflow-hidden"
+                >
+                  <p className="text-xs opacity-60 px-2 py-1.5 bg-black/[0.03] dark:bg-white/[0.03]">
+                    点击字段复制引用，供下游参数选择「上游」时使用
+                  </p>
+                  {outs.map((o) => (
+                    <OutputRefChip
+                      key={o.name}
+                      nodeId={selectedNode.id}
+                      field={o.name}
+                      value={(live as any)[o.name]}
+                      onCopied={() => {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      }}
+                    />
+                  ))}
+                </div>
+              );
+            })()}
+
+            {outputText ? (
+              <pre
+                style={{
+                  backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
+                  borderColor: colors.border,
+                }}
+                className="rounded-xl p-2 border font-mono text-xs max-h-28 overflow-y-auto whitespace-pre-wrap break-all"
               >
-                <Play className="w-3 h-3 fill-current text-blue-500" />
-                Compute Node Solo
-              </Button>
-            </div>
+                {outputText}
+              </pre>
+            ) : null}
           </div>
 
           {nodeLogs.length > 0 && (

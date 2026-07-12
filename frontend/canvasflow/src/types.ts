@@ -20,6 +20,8 @@ export interface NodeSocket {
   name: string;
   type: "input" | "output";
   dataType: "string" | "boolean" | "number" | "any";
+  /** flow = 执行口；data = 参数/输出字段口 */
+  kind?: "flow" | "data";
 }
 
 export interface NodeConfig {
@@ -41,6 +43,8 @@ export interface WorkflowNode {
   status: "idle" | "running" | "success" | "warning" | "error";
   errorMessage?: string;
   outputData?: any;
+  /** P3: count of bind errors on this node */
+  bindErrorCount?: number;
 }
 
 export interface NodeConnection {
@@ -52,6 +56,8 @@ export interface NodeConnection {
   /** flow = 执行顺序实线；data = 变量引用虚线 */
   kind?: 'flow' | 'data';
   label?: string;
+  /** P3: broken ref or type mismatch on data edges */
+  bindIssue?: 'broken' | 'type_warn';
 }
 
 export interface WorkflowTemplate {

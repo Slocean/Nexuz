@@ -12,6 +12,8 @@ SCHEMA = {
             "type": "string",
             "label": "表达式",
             "default": "",
+            "bindable": False,
+            "ui": "expression",
         }
     ],
     "outputs": [

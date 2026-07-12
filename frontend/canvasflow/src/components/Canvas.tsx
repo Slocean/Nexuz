@@ -54,7 +54,7 @@ const SOCKET_ROW_H = 18;
 const SOCKET_ROW_GAP = 4;
 const SOCKET_DOT_OFFSET = 9; // vertical center within the row
 const NODE_HEIGHT_EST = 96;
-const DATA_LINK_Y = NODE_PAD_TOP + Math.floor(NODE_HEADER_H / 2);
+const DATA_SOCKET_COLOR = '#AF52DE';
 
 function Canvas({
   nodes,
@@ -254,20 +254,27 @@ function Canvas({
   const getSocketPosition = (node: WorkflowNode, socketId: string, isInput: boolean) => {
     const xy = getNodeXY(node);
     if (isInput) {
-      const index = node.inputs.findIndex((s) => s.id === socketId);
-      if (index === -1) return { x: xy.x, y: xy.y + NODE_HEADER_H };
-      const row = index;
+      let index = node.inputs.findIndex((s) => s.id === socketId);
+      if (index === -1 && socketId.startsWith("param:")) {
+        // Bound param may exceed visible cap — dock near last data-in
+        index = Math.max(0, node.inputs.length - 1);
+      } else if (index === -1) {
+        return { x: xy.x, y: xy.y + NODE_HEADER_H };
+      }
       const y =
         xy.y +
         NODE_PAD_TOP +
         NODE_HEADER_H +
-        row * (SOCKET_ROW_H + SOCKET_ROW_GAP) +
+        index * (SOCKET_ROW_H + SOCKET_ROW_GAP) +
         SOCKET_DOT_OFFSET;
       return { x: xy.x, y };
     }
-    // Outputs are rendered below all inputs in the same column
-    const index = node.outputs.findIndex((s) => s.id === socketId);
-    if (index === -1) return { x: xy.x + NODE_WIDTH, y: xy.y + NODE_HEADER_H };
+    let index = node.outputs.findIndex((s) => s.id === socketId);
+    if (index === -1 && socketId.startsWith("data:")) {
+      index = Math.max(0, node.outputs.length - 1);
+    } else if (index === -1) {
+      return { x: xy.x + NODE_WIDTH, y: xy.y + NODE_HEADER_H };
+    }
     const row = node.inputs.length + index;
     const y =
       xy.y +
@@ -837,14 +844,8 @@ function Canvas({
             const targetNode = nodeById.get(conn.targetNodeId);
             if (!sourceNode || !targetNode) return null;
 
-            const p1 = getSocketPosition(sourceNode, conn.sourceSocketId, false);
-            const p2 = getSocketPosition(targetNode, conn.targetSocketId, true);
-            const sp = isData
-              ? { x: sourceNode.x + NODE_WIDTH, y: sourceNode.y + DATA_LINK_Y }
-              : p1;
-            const tp = isData
-              ? { x: targetNode.x, y: targetNode.y + DATA_LINK_Y }
-              : p2;
+            const sp = getSocketPosition(sourceNode, conn.sourceSocketId, false);
+            const tp = getSocketPosition(targetNode, conn.targetSocketId, true);
 
             const isPathExecuting =
               !isData &&
@@ -855,9 +856,17 @@ function Canvas({
 
             const handleMeta = !isData ? flowHandleMeta(conn.sourceSocketId) : null;
             const stroke = isData
-              ? themeMode === "light"
-                ? "rgba(175, 82, 222, 0.55)"
-                : "rgba(175, 82, 222, 0.45)"
+              ? conn.bindIssue === "broken"
+                ? themeMode === "light"
+                  ? "rgba(255, 59, 48, 0.75)"
+                  : "rgba(255, 69, 58, 0.7)"
+                : conn.bindIssue === "type_warn"
+                  ? themeMode === "light"
+                    ? "rgba(255, 149, 0, 0.7)"
+                    : "rgba(255, 159, 10, 0.65)"
+                  : themeMode === "light"
+                    ? "rgba(175, 82, 222, 0.55)"
+                    : "rgba(175, 82, 222, 0.45)"
               : isPathExecuting
                 ? "url(#connectionGrad)"
                 : handleMeta?.color ||
@@ -873,27 +882,27 @@ function Canvas({
 
             return (
               <g key={conn.id} className="group pointer-events-auto cursor-pointer">
-                {!isData && (
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke="transparent"
-                    strokeWidth="12"
-                    className="cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void (async () => {
-                        const ok = await confirm({
-                          title: "断开连接",
-                          description: "确定断开这条工作流连线？",
-                          confirmText: "断开",
-                          destructive: true,
-                        });
-                        if (ok) onRemoveConnection(conn.id);
-                      })();
-                    }}
-                  />
-                )}
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth="12"
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void (async () => {
+                      const ok = await confirm({
+                        title: isData ? "清除数据绑定" : "断开连接",
+                        description: isData
+                          ? `确定清除这条数据绑定${conn.label ? `（${conn.label}）` : ""}？`
+                          : "确定断开这条工作流连线？",
+                        confirmText: isData ? "清除" : "断开",
+                        destructive: true,
+                      });
+                      if (ok) onRemoveConnection(conn.id);
+                    })();
+                  }}
+                />
                 <path
                   d={pathD}
                   fill="none"
@@ -1041,12 +1050,14 @@ function Canvas({
                       : "rgba(24, 28, 43, 0.92)",
                   borderColor: isForever
                     ? "#FF5E57"
+                    : (node.bindErrorCount || 0) > 0
+                      ? "#FF5E57"
                     : isSelected
                       ? colors.primary
                       : themeMode === "light"
                         ? "rgba(0, 0, 0, 0.08)"
                         : "rgba(255, 255, 255, 0.06)",
-                  borderWidth: isForever ? 2 : undefined,
+                  borderWidth: isForever || (node.bindErrorCount || 0) > 0 ? 2 : undefined,
                   boxShadow: isForever
                     ? "0 0 0 3px rgba(255, 94, 87, 0.25)"
                     : isSelected
@@ -1063,6 +1074,14 @@ function Canvas({
                 {isForever && (
                   <div className="absolute -top-2 left-2 px-1 py-0.5 rounded bg-rose-500 text-white text-xs font-bold tracking-wide uppercase">
                     FOREVER
+                  </div>
+                )}
+                {(node.bindErrorCount || 0) > 0 && !isForever && (
+                  <div
+                    className="absolute -top-2 right-2 px-1.5 py-0.5 rounded bg-rose-500 text-white text-[10px] font-semibold"
+                    title={`${node.bindErrorCount} 个绑定错误`}
+                  >
+                    {node.bindErrorCount} 绑定
                   </div>
                 )}
                 <div className="flex items-center justify-between border-b border-black/10 dark:border-white/10 pb-1.5 shrink-0">
@@ -1146,7 +1165,9 @@ function Canvas({
                 </div>
 
                 <div className="flex flex-col gap-1 relative">
-                  {node.inputs.map((inp) => (
+                  {node.inputs.map((inp) => {
+                    const isDataIn = inp.kind === "data";
+                    return (
                     <div
                       key={inp.id}
                       className="flex items-center justify-start relative pointer-events-auto h-[18px]"
@@ -1156,30 +1177,40 @@ function Canvas({
                         style={{
                           backgroundColor:
                             themeMode === "light" ? "#FFFFFF" : "#111524",
-                          borderColor: nodeAccentColor,
+                          borderColor: isDataIn ? DATA_SOCKET_COLOR : nodeAccentColor,
                         }}
-                        className="w-3 h-3 rounded-full border-2 absolute -left-[18px] top-[3px] flex items-center justify-center hover:scale-125 hover:bg-blue-500 transition-transform cursor-crosshair z-30"
-                        title="Drag connection to here"
+                        className={`w-3 h-3 border-2 absolute -left-[18px] top-[3px] flex items-center justify-center hover:scale-125 transition-transform cursor-crosshair z-30 ${
+                          isDataIn ? "rounded-sm hover:bg-purple-500/30" : "rounded-full hover:bg-blue-500"
+                        }`}
+                        title={isDataIn ? `绑定到参数：${inp.name}` : "拖入执行连线"}
                       >
-                        <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                        <div className={`w-1 h-1 ${isDataIn ? "rounded-sm" : "rounded-full"} bg-slate-300 dark:bg-slate-700`} />
                       </div>
-                      <span className="text-xs font-medium tracking-wide opacity-80 pl-0.5 truncate">
+                      <span
+                        className={`text-xs font-medium tracking-wide pl-0.5 truncate ${
+                          isDataIn ? "text-purple-500/90" : "opacity-80"
+                        }`}
+                      >
                         {inp.name}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {node.outputs.map((out) => {
+                    const isDataOut = out.kind === "data";
                     const isThen = out.id === 'then';
                     const isElse = out.id === 'else';
                     const isBody = out.id === 'body';
-                    const socketColor = isThen
-                      ? '#34C759'
-                      : isElse
-                        ? '#FF5E57'
-                        : isBody
-                          ? '#AF52DE'
-                          : nodeAccentColor;
+                    const socketColor = isDataOut
+                      ? DATA_SOCKET_COLOR
+                      : isThen
+                        ? '#34C759'
+                        : isElse
+                          ? '#FF5E57'
+                          : isBody
+                            ? '#AF52DE'
+                            : nodeAccentColor;
                     return (
                       <div
                         key={out.id}
@@ -1187,13 +1218,15 @@ function Canvas({
                       >
                         <span
                           className={`text-xs font-semibold tracking-wide pr-0.5 truncate ${
-                            isThen
-                              ? 'text-emerald-500'
-                              : isElse
-                                ? 'text-rose-500'
-                                : isBody
-                                  ? 'text-purple-400'
-                                  : 'opacity-80 font-medium'
+                            isDataOut
+                              ? 'text-purple-500'
+                              : isThen
+                                ? 'text-emerald-500'
+                                : isElse
+                                  ? 'text-rose-500'
+                                  : isBody
+                                    ? 'text-purple-400'
+                                    : 'opacity-80 font-medium'
                           }`}
                         >
                           {out.name}
@@ -1205,16 +1238,20 @@ function Canvas({
                             borderColor:
                               themeMode === 'light' ? '#FFFFFF' : '#111524',
                           }}
-                          className="w-3 h-3 rounded-full border-2 absolute -right-[18px] top-[3px] flex items-center justify-center hover:scale-125 transition-transform cursor-crosshair z-30"
+                          className={`w-3 h-3 border-2 absolute -right-[18px] top-[3px] flex items-center justify-center hover:scale-125 transition-transform cursor-crosshair z-30 ${
+                            isDataOut ? 'rounded-sm' : 'rounded-full'
+                          }`}
                           title={
-                            isThen
-                              ? '是 / Then — 条件成立时走此分支'
-                              : isElse
-                                ? '否 / Else — 条件不成立时走此分支'
-                                : '从此拖出连线'
+                            isDataOut
+                              ? `拖出数据：{{${node.id}.${out.name}}}`
+                              : isThen
+                                ? '是 / Then — 条件成立时走此分支'
+                                : isElse
+                                  ? '否 / Else — 条件不成立时走此分支'
+                                  : '从此拖出执行连线'
                           }
                         >
-                          <div className="w-1 h-1 rounded-full bg-white" />
+                          <div className={`w-1 h-1 ${isDataOut ? 'rounded-sm' : 'rounded-full'} bg-white`} />
                         </div>
                       </div>
                     );

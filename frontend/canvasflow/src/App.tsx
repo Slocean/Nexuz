@@ -14,7 +14,20 @@ import RecordingBanner from './components/RecordingBanner';
 import SettingsPage from './components/SettingsPage';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
 import { getThemeColors } from './theme';
-import { applyDefaultCaptureMode, flowToCanvas, mapLogLevel } from './nexuzAdapter';
+import {
+  applyDefaultCaptureMode,
+  dataOutField,
+  formatNodeRef,
+  flowToCanvas,
+  isDataOutSocket,
+  isParamInSocket,
+  listBindableParams,
+  mapLogLevel,
+  paramInName,
+  pickBestBindParam,
+} from './nexuzAdapter';
+import { parseNodeRef } from './bindValue';
+import { collectFlowBindIssues } from './bindValidate';
 import { useFlowStore } from '../../src/store/flowModelStore';
 import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
 
@@ -154,10 +167,45 @@ function AppShell() {
     });
   };
 
-  const { nodes, connections } = useMemo(
-    () => flowToCanvas(flow, schemaMap, execNodeStates, execNodeId, nodeOutputs),
-    [flow, schemaMap, execNodeStates, execNodeId, nodeOutputs],
+  const bindIssues = useMemo(
+    () => collectFlowBindIssues(flow, schemaMap),
+    [flow, schemaMap],
   );
+
+  const { nodes, connections } = useMemo(() => {
+    const base = flowToCanvas(flow, schemaMap, execNodeStates, execNodeId, nodeOutputs);
+    const errCount = new Map<string, number>();
+    for (const iss of bindIssues) {
+      if (iss.level !== 'error') continue;
+      errCount.set(iss.nodeId, (errCount.get(iss.nodeId) || 0) + 1);
+    }
+    const nodes = base.nodes.map((n) => ({
+      ...n,
+      bindErrorCount: errCount.get(n.id) || 0,
+    }));
+    const connections = base.connections.map((c) => {
+      if (c.kind !== 'data') return c;
+      const field = isDataOutSocket(c.sourceSocketId)
+        ? dataOutField(c.sourceSocketId)
+        : (c.label || '').split('→')[0];
+      const param = isParamInSocket(c.targetSocketId)
+        ? paramInName(c.targetSocketId)
+        : undefined;
+      const hit = bindIssues.find(
+        (i) =>
+          i.nodeId === c.targetNodeId &&
+          i.sourceId === c.sourceNodeId &&
+          i.field === field &&
+          (!param || !i.paramName || i.paramName === param || i.paramName.endsWith(`.${param}`)),
+      );
+      if (!hit) return c;
+      return {
+        ...c,
+        bindIssue: hit.level === 'error' ? ('broken' as const) : ('type_warn' as const),
+      };
+    });
+    return { nodes, connections };
+  }, [flow, schemaMap, execNodeStates, execNodeId, nodeOutputs, bindIssues]);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
 
@@ -494,13 +542,53 @@ function AppShell() {
       sourceNodeId: string,
       sourceSocketId: string,
       targetNodeId: string,
-      _targetSocketId: string,
+      targetSocketId: string,
     ) => {
+      // Data port → write {{source.field}} into target param
+      if (isDataOutSocket(sourceSocketId)) {
+        const field = dataOutField(sourceSocketId);
+        const targetNode = flow?.nodes?.[targetNodeId];
+        if (!targetNode) return;
+        const schema = schemaMap[targetNode.type] || {};
+        let paramName: string | null = isParamInSocket(targetSocketId)
+          ? paramInName(targetSocketId)
+          : null;
+        if (!paramName) {
+          const srcSchema = schemaMap[flow?.nodes?.[sourceNodeId]?.type] || {};
+          const outMeta = (srcSchema.outputs || []).find((o: any) => o.name === field);
+          paramName = pickBestBindParam(schema, field, outMeta?.type);
+        }
+        if (!paramName) {
+          const available = listBindableParams(schema);
+          appendLog({
+            level: 'warn',
+            message: available.length
+              ? `无法自动绑定：请拖到目标节点左侧的参数口（如 ${available[0].label}）`
+              : '目标节点没有可绑定的参数',
+          });
+          return;
+        }
+        const ref = formatNodeRef(sourceNodeId, field);
+        updateNodeParams(targetNodeId, { [paramName]: ref });
+        appendLog({
+          level: 'info',
+          message: `已绑定 ${ref} → ${targetNodeId}.${paramName}`,
+        });
+        return;
+      }
+
+      // Flow edges only: reject data-in targets
+      if (isParamInSocket(targetSocketId)) {
+        appendLog({ level: 'warn', message: '执行连线请拖到「执行」入口，数据请从紫色输出口拖出' });
+        return;
+      }
+
       const handle = sourceSocketId || 'next';
+      if (isDataOutSocket(handle)) return;
       setNodeLink(sourceNodeId, handle, targetNodeId);
       appendLog({ level: 'info', message: `已连接 ${sourceNodeId}.${handle} → ${targetNodeId}` });
     },
-    [setNodeLink, appendLog],
+    [setNodeLink, appendLog, flow, schemaMap, updateNodeParams],
   );
 
   const handleRemoveConnection = useCallback(
@@ -508,16 +596,38 @@ function AppShell() {
       const conn = connections.find((c) => c.id === connectionId);
       if (!conn) return;
       if (conn.kind === 'data') {
-        appendLog({
-          level: 'warn',
-          message: '数据连线由 {{node.field}} 引用生成，请在参数中修改',
-        });
+        const targetNode = flow?.nodes?.[conn.targetNodeId];
+        if (!targetNode) return;
+        const field = isDataOutSocket(conn.sourceSocketId)
+          ? dataOutField(conn.sourceSocketId)
+          : conn.label?.split('→')[0] || '';
+        const expected = formatNodeRef(conn.sourceNodeId, field);
+        let paramName = isParamInSocket(conn.targetSocketId)
+          ? paramInName(conn.targetSocketId)
+          : null;
+        if (!paramName) {
+          const params = targetNode.params || {};
+          paramName =
+            Object.keys(params).find((k) => {
+              const v = params[k];
+              return typeof v === 'string' && (v.trim() === expected || parseNodeRef(v)?.field === field);
+            }) || null;
+        }
+        if (paramName) {
+          const schema = schemaMap[targetNode.type];
+          const input = (schema?.inputs || []).find((i: any) => i.name === paramName);
+          const fallback = input?.type === 'number' ? 0 : '';
+          updateNodeParams(conn.targetNodeId, { [paramName]: fallback });
+          appendLog({ level: 'info', message: `已清除绑定 ${conn.targetNodeId}.${paramName}` });
+        } else {
+          appendLog({ level: 'warn', message: '未找到对应参数绑定，请在检查器中修改' });
+        }
         return;
       }
       removeNodeLink(conn.sourceNodeId, conn.sourceSocketId);
       appendLog({ level: 'info', message: '已移除连线' });
     },
-    [connections, removeNodeLink, appendLog],
+    [connections, removeNodeLink, appendLog, flow, schemaMap, updateNodeParams],
   );
 
   const handleRemoveNode = useCallback(
@@ -652,6 +762,7 @@ function AppShell() {
           logs={canvasLogs}
           rawLogs={logs}
           schemaMap={schemaMap}
+          bindIssues={bindIssues}
           onPickPoint={async () => bridge.pickPoint(hideWindowOnRecord)}
           onPickClick={async (mode: string) => bridge.pickClick(mode, hideWindowOnRecord)}
           onPickRegion={async () => bridge.pickRegion(hideWindowOnRecord)}

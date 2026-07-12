@@ -19,6 +19,24 @@ SCHEMA = {
             "label": "继承父流程变量",
             "options": ["true", "false"],
             "default": "true",
+            "option_labels": {
+                "true": "是（合并父级 $变量）",
+                "false": "否（仅用下方映射）",
+            },
+        },
+        {
+            "name": "input_map",
+            "type": "keymap",
+            "label": "传入变量（子流程 $名 ← 父侧值）",
+            "default": {},
+            "ui": "input_map",
+        },
+        {
+            "name": "output_map",
+            "type": "keymap",
+            "label": "取回变量（父 $名 ← 子流程键）",
+            "default": {},
+            "ui": "output_map",
         },
     ],
     "outputs": [
@@ -28,12 +46,40 @@ SCHEMA = {
 }
 
 
+def _normalize_var_key(name: str) -> str:
+    n = str(name or "").strip()
+    if not n:
+        return ""
+    return n if n.startswith("$") else f"${n}"
+
+
+def _lookup_sub(key: str, sub_ctx: dict):
+    """Resolve a key from subflow context: $var | node.field | bare name."""
+    k = str(key or "").strip()
+    if not k:
+        return None
+    if k in sub_ctx:
+        return sub_ctx[k]
+    if k.startswith("$"):
+        bare = k[1:]
+        if bare in sub_ctx:
+            return sub_ctx[bare]
+        if k in sub_ctx:
+            return sub_ctx[k]
+    else:
+        dollar = f"${k}"
+        if dollar in sub_ctx:
+            return sub_ctx[dollar]
+    return None
+
+
 def handler(params, context, **kwargs):
     """Run another flow file synchronously inside current interpreter thread."""
     import json
 
     from backend.core.interpreter import FlowInterpreter
     from backend.core.registry import get_handler  # noqa: F401 — ensure blocks ready
+    from backend.core.variable_resolver import resolve_value
 
     path = str(params.get("subflow_path") or "").strip()
     if not path:
@@ -45,19 +91,47 @@ def handler(params, context, **kwargs):
     flow = json.loads(p.read_text(encoding="utf-8"))
     inherit = str(params.get("inherit_variables", "true")).lower() != "false"
 
-    # Nested sync execution: reuse decide/handler logic without starting a new thread
     interp = FlowInterpreter(emit=kwargs.get("emit"))
-    # Inject parent context variables into subflow variables
+    flow_vars = dict(flow.get("variables") or {})
+
     if inherit:
         parent_vars = {k: v for k, v in context.items() if str(k).startswith("$")}
-        flow_vars = dict(flow.get("variables") or {})
         flow_vars.update(parent_vars)
-        flow = {**flow, "variables": flow_vars}
 
-    # Run nested execute synchronously
+    # Explicit input map: subflow $name ← resolved parent value
+    raw_in = params.get("input_map") or {}
+    if isinstance(raw_in, dict):
+        for sub_key, parent_val in raw_in.items():
+            nk = _normalize_var_key(str(sub_key))
+            if not nk:
+                continue
+            # params already resolved by interpreter, but nested map values
+            # may still be refs if resolve_variables walked them — double-safe
+            resolved = resolve_value(parent_val, context)
+            flow_vars[nk] = resolved
+            flow_vars[nk.lstrip("$")] = resolved
+
+    flow = {**flow, "variables": flow_vars}
+
     sub_ctx = interp._execute(flow)
-    # Merge key outputs back (prefixed)
+
+    # Always mirror as sub.* for discovery
     for k, v in sub_ctx.items():
         if str(k).startswith("$") or "." in str(k):
             context[f"sub.{k}"] = v
+
+    # Explicit output map: parent $name ← subflow key
+    raw_out = params.get("output_map") or {}
+    if isinstance(raw_out, dict):
+        for parent_key, sub_key in raw_out.items():
+            pk = _normalize_var_key(str(parent_key))
+            if not pk:
+                continue
+            val = _lookup_sub(str(sub_key), sub_ctx)
+            if val is None:
+                # try sub. prefix already written
+                val = context.get(f"sub.{sub_key}")
+            context[pk] = val
+            context[pk.lstrip("$")] = val
+
     return {"ok": True, "context_keys": len(sub_ctx)}

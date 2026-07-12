@@ -5,9 +5,20 @@ SCHEMA = {
     "label": "多分支",
     "category": "控制类",
     "inputs": [
-        {"name": "variable", "type": "string", "label": "变量引用", "default": ""},
+        {
+            "name": "variable",
+            "type": "string",
+            "label": "判断值（可绑上游/变量）",
+            "default": "",
+        },
         {"name": "cases", "type": "cases", "label": "分支", "default": []},
-        {"name": "default", "type": "string", "label": "默认节点ID", "default": ""},
+        {
+            "name": "default",
+            "type": "string",
+            "label": "默认节点ID",
+            "default": "",
+            "bindable": False,
+        },
     ],
     "outputs": [
         {"name": "value", "type": "string"},
