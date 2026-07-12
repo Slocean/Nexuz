@@ -347,7 +347,7 @@ export default function SettingsPage({
                 ) : (
                   filtered.slice(0, 400).map((p) => (
                     <SelectItem key={`${p.pid}|${p.name}`} value={`${p.pid}|${p.name}`}>
-                      <span className="font-mono text-[11px] leading-snug block max-w-[420px] truncate">
+                      <span className="font-mono text-[12px] leading-snug block max-w-[420px] truncate">
                         {p.display ||
                           (p.window_title
                             ? `${p.window_title} · ${p.name} · PID ${p.pid}`
@@ -359,7 +359,7 @@ export default function SettingsPage({
               </SelectContent>
             </Select>
             {selected && (
-              <p className="text-[10px] font-mono leading-relaxed opacity-70 break-all" style={{ color: colors.secondaryText }}>
+              <p className="text-[11px] font-mono leading-relaxed opacity-70 break-all" style={{ color: colors.secondaryText }}>
                 {selected.window_title ? `窗口：${selected.window_title}` : '无窗口标题'}
                 {selected.exe ? `\n路径：${selected.exe}` : ''}
               </p>
@@ -425,7 +425,7 @@ export default function SettingsPage({
                 开启后，录制、运行、取点、框选时会暂时隐藏 Nexuz，避免点到本程序。
                 <br />
                 录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。快捷键均为{' '}
-                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-[10px]">
+                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-[11px]">
                   Ctrl+Shift+F10
                 </kbd>
                 。

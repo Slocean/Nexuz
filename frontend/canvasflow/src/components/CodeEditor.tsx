@@ -162,7 +162,7 @@ export default function CodeEditor({ themeName, themeMode }: CodeEditorProps) {
           </Badge>
         )}
         <div className="ml-auto flex items-center gap-1.5">
-          <label className="flex items-center gap-1.5 text-[10px] opacity-70 cursor-pointer mr-1">
+          <label className="flex items-center gap-1.5 text-[11px] opacity-70 cursor-pointer mr-1">
             <input
               type="checkbox"
               checked={autoSync}

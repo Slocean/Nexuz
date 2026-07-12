@@ -90,12 +90,12 @@ export default function SchedulePanel({
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </Button>
       </div>
-      <p style={{ color: colors.secondaryText }} className="text-[10px] leading-relaxed">
+      <p style={{ color: colors.secondaryText }} className="text-[11px] leading-relaxed">
         由 schedule_trigger 节点注册。运行含该节点的流程后会出现在此列表。
       </p>
-      {error && <p className="text-[10px] text-rose-400">{error}</p>}
+      {error && <p className="text-[11px] text-rose-400">{error}</p>}
       {jobs.length === 0 && !error && (
-        <p style={{ color: colors.secondaryText }} className="text-[11px] opacity-60 py-2">
+        <p style={{ color: colors.secondaryText }} className="text-[12px] opacity-60 py-2">
           暂无定时任务
         </p>
       )}
@@ -109,15 +109,15 @@ export default function SchedulePanel({
               className="rounded-xl border px-2.5 py-2 flex items-start justify-between gap-2"
             >
               <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-semibold truncate">{job.name || id}</div>
-                <div style={{ color: colors.secondaryText }} className="text-[10px] mt-0.5 truncate">
+                <div className="text-[12px] font-semibold truncate">{job.name || id}</div>
+                <div style={{ color: colors.secondaryText }} className="text-[11px] mt-0.5 truncate">
                   {job.trigger || job.trigger_type || '—'}
                 </div>
-                <div style={{ color: colors.secondaryText }} className="text-[10px] opacity-70">
+                <div style={{ color: colors.secondaryText }} className="text-[11px] opacity-70">
                   下次: {job.next_run || job.next_run_time || '—'}
                 </div>
                 {job.file_path && (
-                  <div style={{ color: colors.secondaryText }} className="text-[9px] opacity-50 truncate">
+                  <div style={{ color: colors.secondaryText }} className="text-[10px] opacity-50 truncate">
                     {job.file_path}
                   </div>
                 )}

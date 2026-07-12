@@ -81,7 +81,7 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
         style={{ borderColor: colors.border }}
         className="rounded-2xl border p-3 space-y-2.5"
       >
-        <Label className="text-[11px] font-bold uppercase tracking-wider opacity-75">
+        <Label className="text-[12px] font-bold uppercase tracking-wider opacity-75">
           新增变量
         </Label>
         <Input
@@ -201,7 +201,7 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
                     />
                   )}
                 </div>
-                <p style={{ color: colors.secondaryText }} className="text-[10px] font-mono">
+                <p style={{ color: colors.secondaryText }} className="text-[11px] font-mono">
                   引用: {name.startsWith('$') ? name : `$${name}`}
                 </p>
               </div>

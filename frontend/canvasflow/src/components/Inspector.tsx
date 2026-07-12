@@ -109,9 +109,14 @@ function CasesEditor({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label className="text-[11px] font-bold uppercase tracking-wider opacity-75">{label}</Label>
-      {children}
+    <div className="flex items-start gap-2 min-w-0">
+      <Label
+        className="text-[12px] font-medium opacity-75 shrink-0 w-[4.75rem] leading-8 truncate"
+        title={label}
+      >
+        {label}
+      </Label>
+      <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-nowrap">{children}</div>
     </div>
   );
 }
@@ -165,7 +170,7 @@ export default function Inspector({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 px-2 text-[10px] gap-1 opacity-70 hover:opacity-100"
+          className="h-7 px-2 text-[11px] gap-1 opacity-70 hover:opacity-100"
           onClick={exportLogs}
           title="导出日志为 .txt"
         >
@@ -173,7 +178,7 @@ export default function Inspector({
         </Button>
       </div>
       <ScrollArea className="h-36">
-        <div className="space-y-1.5 font-mono text-[10px] pr-2 select-text cursor-text">
+        <div className="space-y-1.5 font-mono text-[11px] pr-2 select-text cursor-text">
           {logs.length === 0 && (
             <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
               尚无日志
@@ -313,10 +318,10 @@ export default function Inspector({
       <div className="space-y-3">
         {isClick && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
-            <p className="text-[11px] leading-relaxed opacity-90">
+            <p className="text-[12px] leading-relaxed opacity-90">
               顶栏「录制」可连续录入多步。此处「重新录入」只更新当前节点；左右键会自动写入。
             </p>
-            <Field label="录入模式（节点覆盖）">
+            <Field label="录入模式">
               <Select
                 value={String(selectedNode.config?.capture_mode || 'inherit')}
                 onValueChange={(v) => {
@@ -329,7 +334,7 @@ export default function Inspector({
                   }
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-8 flex-1 min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -340,34 +345,34 @@ export default function Inspector({
                   <SelectItem value="frida_ui">Frida UI</SelectItem>
                 </SelectContent>
               </Select>
+              {(onPickClick || onPickPoint) && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 shrink-0 px-2"
+                  onClick={async () => {
+                    const mode = resolveClickMode();
+                    const res = onPickClick
+                      ? await onPickClick(mode)
+                      : await onPickPoint?.();
+                    if (!res?.ok) {
+                      await alert({
+                        title: '录入失败',
+                        description: res?.error || res?.message || '已取消或超时',
+                      });
+                      return;
+                    }
+                    applyClickCapture(res);
+                  }}
+                >
+                  重新录入
+                </Button>
+              )}
             </Field>
-            {(onPickClick || onPickPoint) && (
-              <Button
-                type="button"
-                size="sm"
-                className="w-full"
-                onClick={async () => {
-                  const mode = resolveClickMode();
-                  const res = onPickClick
-                    ? await onPickClick(mode)
-                    : await onPickPoint?.();
-                  if (!res?.ok) {
-                    await alert({
-                      title: '录入失败',
-                      description: res?.error || res?.message || '已取消或超时',
-                    });
-                    return;
-                  }
-                  applyClickCapture(res);
-                }}
-              >
-                重新录入（{resolveClickMode() === 'frida_ui' ? '游戏内点击' : '屏幕点击'}）
-              </Button>
-            )}
             {selectedNode.config?.capture_mode === 'frida_ui' ||
             (!selectedNode.config?.capture_mode && defaultCaptureMode === 'frida_ui') ||
             selectedNode.config?.frida_ui?.hierarchy_path ? (
-              <p className="text-[10px] font-mono opacity-70 break-all">
+              <p className="text-[11px] font-mono opacity-70 break-all">
                 {selectedNode.config?.frida_ui?.display_name ||
                   selectedNode.config?.frida_ui?.hierarchy_path ||
                   '尚未录入 Frida UI 目标'}
@@ -378,22 +383,25 @@ export default function Inspector({
         )}
         {isOcr && (
           <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
-            <p className="text-[11px] leading-relaxed opacity-90">
+            <p className="text-[12px] leading-relaxed opacity-90">
               推荐：全屏拖拽框选识别区域（同时保存相对比例，分辨率变化后自动换算）。
               窗口会移动时，可填「锚点模板」：先找图定位，再在偏移区域 OCR。
             </p>
             {onPickRegion && (
-              <Button
-                type="button"
-                size="sm"
-                className="w-full"
-                onClick={async () => {
-                  const res = await onPickRegion();
-                  applyRegionPick('region', res);
-                }}
-              >
-                拖拽框选识别区域
-              </Button>
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] font-medium opacity-75 shrink-0 w-[4.75rem]">识别区域</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 flex-1"
+                  onClick={async () => {
+                    const res = await onPickRegion();
+                    applyRegionPick('region', res);
+                  }}
+                >
+                  拖拽框选
+                </Button>
+              </div>
             )}
           </div>
         )}
@@ -420,7 +428,7 @@ export default function Inspector({
                   value={String(value ?? input.default ?? '')}
                   onValueChange={(v) => handleFieldChange(input.name, v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-8">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -432,26 +440,46 @@ export default function Inspector({
                   </SelectContent>
                 </Select>
               ) : input.type === 'number' ? (
-                <Input
-                  type="number"
-                  value={value ?? 0}
-                  onChange={(e) => handleFieldChange(input.name, Number(e.target.value))}
-                />
+                <>
+                  <Input
+                    type="number"
+                    className="h-8 flex-1 min-w-0"
+                    value={value ?? 0}
+                    onChange={(e) => handleFieldChange(input.name, Number(e.target.value))}
+                  />
+                  {(input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') &&
+                    onPickPoint && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0 px-2"
+                        onClick={async () => {
+                          const res = await onPickPoint();
+                          applyPointPick(input.name, res);
+                        }}
+                      >
+                        取点
+                      </Button>
+                    )}
+                </>
               ) : input.type === 'color' ? (
-                <div className="flex gap-2">
+                <>
                   <Input
                     type="color"
                     value={value || '#FF0000'}
                     onChange={(e) => handleFieldChange(input.name, e.target.value.toUpperCase())}
-                    className="h-9 w-12 p-1 cursor-pointer"
+                    className="h-8 w-10 p-1 cursor-pointer shrink-0"
                   />
                   <Input
                     value={value || ''}
                     onChange={(e) => handleFieldChange(input.name, e.target.value)}
+                    className="h-8 flex-1 min-w-0"
                   />
-                </div>
+                </>
               ) : input.type === 'keys' ? (
                 <Input
+                  className="h-8"
                   value={Array.isArray(value) ? value.join('+') : value || ''}
                   placeholder="ctrl+c"
                   onChange={(e) =>
@@ -470,8 +498,9 @@ export default function Inspector({
                   onChange={(cases) => handleFieldChange(input.name, cases)}
                 />
               ) : input.type === 'rect' ? (
-                <div className="space-y-2">
+                <>
                   <Input
+                    className="h-8 flex-1 min-w-0 font-mono text-xs"
                     value={value ? JSON.stringify(value) : ''}
                     placeholder="[x1,y1,x2,y2]"
                     onChange={(e) => {
@@ -482,75 +511,50 @@ export default function Inspector({
                       }
                     }}
                   />
-                  {selectedNode.config?.region_norm && input.name === 'region' && (
-                    <p className="text-[10px] opacity-50 font-mono truncate">
-                      相对比例已保存 · 录制屏{' '}
-                      {selectedNode.config?.coord_space?.w}×
-                      {selectedNode.config?.coord_space?.h}
-                    </p>
-                  )}
-                  {selectedNode.config?.search_region_norm && input.name === 'search_region' && (
-                    <p className="text-[10px] opacity-50 font-mono truncate">
-                      相对比例已保存
-                    </p>
-                  )}
                   {onPickRegion && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
+                      className="h-8 shrink-0 px-2"
                       onClick={async () => {
                         const res = await onPickRegion();
                         applyRegionPick(input.name, res);
                       }}
                     >
-                      拖拽框选
+                      框选
                     </Button>
                   )}
-                </div>
+                </>
               ) : input.name === 'template_image' ? (
-                <div className="space-y-2">
+                <>
                   <Input
                     value={value ?? ''}
                     onChange={(e) => handleFieldChange(input.name, e.target.value)}
                     placeholder="模板 PNG 路径"
-                    className="font-mono text-xs"
+                    className="h-8 flex-1 min-w-0 font-mono text-xs"
                   />
                   {onCaptureTemplate && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
+                      className="h-8 shrink-0 px-2"
                       onClick={async () => {
                         const res = await onCaptureTemplate();
                         if (res?.ok && res.path) handleFieldChange(input.name, res.path);
                       }}
                     >
-                      框选并保存模板
+                      截模板
                     </Button>
                   )}
-                </div>
+                </>
               ) : (
                 <Input
+                  className="h-8"
                   value={value ?? ''}
                   onChange={(e) => handleFieldChange(input.name, e.target.value)}
                 />
-              )}
-
-              {(input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') &&
-                onPickPoint && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  onClick={async () => {
-                    const res = await onPickPoint();
-                    applyPointPick(input.name, res);
-                  }}
-                >
-                  单击屏幕取点
-                </Button>
               )}
             </Field>
           );
@@ -782,7 +786,7 @@ export default function Inspector({
               <span className="font-medium text-xs text-blue-500 truncate">
                 {selectedNode.type}
               </span>
-              <span className="text-[10px] opacity-50 font-mono shrink-0">
+              <span className="text-[11px] opacity-50 font-mono shrink-0">
                 {selectedNode.id.substring(0, 6)}
               </span>
             </div>
@@ -830,7 +834,7 @@ export default function Inspector({
                 backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
                 borderColor: colors.border,
               }}
-              className="rounded-2xl p-3 border font-mono text-[11px] space-y-3"
+              className="rounded-2xl p-3 border font-mono text-[12px] space-y-3"
             >
               <div className="text-slate-400 select-text break-all min-h-16 max-h-28 overflow-y-auto">
                 {outputText ? (
@@ -862,7 +866,7 @@ export default function Inspector({
                 {nodeLogs.map((log) => (
                   <div
                     key={log.id}
-                    className={`text-[10px] font-mono leading-relaxed p-2 rounded-xl flex items-start gap-1.5 border ${
+                    className={`text-[11px] font-mono leading-relaxed p-2 rounded-xl flex items-start gap-1.5 border ${
                       log.type === 'error'
                         ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
                         : log.type === 'warning'

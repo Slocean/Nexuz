@@ -518,7 +518,7 @@ export default function Sidebar({
                     </div>
                     <div
                       style={{ color: colors.secondaryText }}
-                      className="flex justify-between font-mono text-[10px]"
+                      className="flex justify-between font-mono text-[11px]"
                     >
                       <span>{run.timestamp}</span>
                       <span className="opacity-60">ID: {run.id.substring(0, 6)}</span>
