@@ -187,7 +187,10 @@ class FridaSessionManager:
                 st["hooked"] = bool(self._hooked)
                 if hook_warning:
                     st["warning"] = hook_warning
-                    st["message"] = f"已连接进程，但 UI Hook 未就绪：{hook_warning}"
+                    # Do not also put the same text into message — UI/log would triple it
+                    st.pop("message", None)
+                else:
+                    st.pop("warning", None)
                 return api_ok(**st)
             except Exception as exc:
                 # Clean partial session

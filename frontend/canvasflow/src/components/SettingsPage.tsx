@@ -173,14 +173,14 @@ export default function SettingsPage({
       );
       const ok = res?.ok === true;
       if (ok && res?.attached !== false) {
-        const hookPart = res.hooked
-          ? ' · Hook 就绪'
-          : ` · 已附加但 Hook 未就绪${res.warning || res.last_error ? `：${res.warning || res.last_error}` : ''}`;
-        setFridaMsg(
-          `连接成功：${res.process_name || selected.name}${
-            res.pid ? ` (PID ${res.pid})` : ''
-          }${hookPart}`,
-        );
+        if (res.hooked) {
+          setFridaMsg(`连接成功：${res.process_name || selected.name}${res.pid ? ` (PID ${res.pid})` : ''} · Hook 就绪`);
+        } else {
+          const warn = res.warning || res.last_error || 'UI Hook 未就绪';
+          setFridaMsg(
+            `连接成功：${res.process_name || selected.name}${res.pid ? ` (PID ${res.pid})` : ''} · Hook 未就绪：${warn}`,
+          );
+        }
       } else {
         setFridaMsg(res?.error || res?.message || res?.last_error || '连接失败');
       }
@@ -387,7 +387,6 @@ export default function SettingsPage({
           {fridaMsg && (
             <p className="text-xs leading-relaxed" style={{ color: colors.secondaryText }}>
               {fridaMsg}
-              {fridaStatus.last_error ? ` · ${fridaStatus.last_error}` : ''}
             </p>
           )}
         </section>

@@ -492,6 +492,12 @@ export const useFlowStore = create((set, get) => ({
         level: 'ok',
         message: `快捷键停止录制，追加 ${payload?.nodes?.length || 0} 个节点`,
       });
+    } else if (event === 'log') {
+      appendLog({
+        level: payload?.level || 'info',
+        message: payload?.message || '',
+        detail: payload?.detail,
+      });
     }
   },
 }));

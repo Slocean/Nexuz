@@ -49,35 +49,81 @@ function fail(msg, extra) {
   return o;
 }
 
-function findExport(name) {
-  var modNames = ['GameAssembly.dll', 'GameAssembly', 'UnityPlayer.dll', null, 'libil2cpp.so'];
-  for (var i = 0; i < modNames.length; i++) {
-    try {
-      var addr = Module.findExportByName(modNames[i], name);
-      if (addr && !addr.isNull()) return addr;
-    } catch (e) {}
-  }
+function findGameAssemblyModule() {
   try {
     var mods = Process.enumerateModules();
-    for (var j = 0; j < mods.length; j++) {
-      var m = mods[j];
-      var n = (m.name || '').toLowerCase();
-      if (n.indexOf('gameassembly') >= 0 || n.indexOf('il2cpp') >= 0) {
-        var a = Module.findExportByName(m.name, name);
-        if (a && !a.isNull()) return a;
-      }
+    for (var i = 0; i < mods.length; i++) {
+      var n = (mods[i].name || '').toLowerCase();
+      if (n.indexOf('gameassembly') !== -1) return mods[i];
     }
-  } catch (e2) {}
+  } catch (e) {}
   return null;
 }
 
+function findExport(name) {
+  // Prefer jade-style: module.getExportByName after locating GameAssembly
+  var ga = findGameAssemblyModule();
+  if (ga) {
+    try {
+      var addr = ga.getExportByName(name);
+      if (addr && !addr.isNull()) return addr;
+    } catch (e) {}
+    try {
+      var addr2 = Module.findExportByName(ga.name, name);
+      if (addr2 && !addr2.isNull()) return addr2;
+    } catch (e2) {}
+  }
+  var modNames = [null, 'GameAssembly.dll', 'GameAssembly', 'UnityPlayer.dll', 'libil2cpp.so'];
+  for (var i = 0; i < modNames.length; i++) {
+    try {
+      var a = Module.findExportByName(modNames[i], name);
+      if (a && !a.isNull()) return a;
+    } catch (e3) {}
+  }
+  return null;
+}
+
+function waitForGameAssembly(timeoutMs) {
+  var deadline = Date.now() + (timeoutMs || 8000);
+  while (Date.now() < deadline) {
+    var ga = findGameAssemblyModule();
+    if (ga) return ga;
+    Thread.sleep(0.25);
+  }
+  return findGameAssemblyModule();
+}
+
+function listModuleHint() {
+  try {
+    var mods = Process.enumerateModules();
+    var names = [];
+    for (var i = 0; i < Math.min(mods.length, 40); i++) {
+      names.push(mods[i].name);
+    }
+    return names.join(', ');
+  } catch (e) {
+    return '';
+  }
+}
+
 function bindIl2Cpp() {
+  var ga = waitForGameAssembly(8000);
+  if (!ga) {
+    state.lastError =
+      '未找到 GameAssembly.dll（已等待加载）。模块抽样: ' + listModuleHint();
+    state.il2cppReady = false;
+    return false;
+  }
   function nf(name, ret, args) {
-    var addr = findExport(name);
-    if (!addr) return null;
+    var addr = null;
+    try {
+      addr = ga.getExportByName(name);
+    } catch (e) {}
+    if (!addr || addr.isNull()) addr = findExport(name);
+    if (!addr || addr.isNull()) return null;
     try {
       return new NativeFunction(addr, ret, args);
-    } catch (e) {
+    } catch (e2) {
       return null;
     }
   }
@@ -91,6 +137,12 @@ function bindIl2Cpp() {
   il2cpp.class_get_name = nf('il2cpp_class_get_name', 'pointer', ['pointer']);
   il2cpp.class_get_namespace = nf('il2cpp_class_get_namespace', 'pointer', ['pointer']);
   state.il2cppReady = !!(il2cpp.domain_get && il2cpp.class_from_name && il2cpp.class_get_method_from_name);
+  if (!state.il2cppReady) {
+    state.lastError =
+      '已找到 ' +
+      ga.name +
+      ' 但缺少 il2cpp_* 导出。请确认 Frida 版本与游戏架构匹配。';
+  }
   return state.il2cppReady;
 }
 
@@ -274,7 +326,8 @@ function attachHooks() {
     if (!bindIl2Cpp()) {
       state.hooked = false;
       return fail(
-        '未找到 IL2CPP 导出（GameAssembly.dll）。进程已附加，但 UI Hook 不可用。请确认目标是 Unity IL2CPP 游戏。'
+        state.lastError ||
+          '未找到 IL2CPP 导出（GameAssembly.dll）。进程已附加，但 UI Hook 不可用。'
       );
     }
     initUnityHelpers();

@@ -76,6 +76,12 @@ class Api:
             self._set_window_visible(True)
             self._run_hidden = False
 
+    def _log(self, level: str, message: str, **detail) -> None:
+        payload: dict[str, Any] = {"level": level, "message": message}
+        if detail:
+            payload["detail"] = detail
+        self._emit("log", payload)
+
     def _load_flow_schema(self) -> dict | None:
         path = Path(__file__).resolve().parent.parent / "schemas" / "flow_schema.json"
         if not path.exists():
@@ -417,13 +423,18 @@ class Api:
         elif options is None:
             pass
         else:
-            # legacy: accidental boolean as first arg
             only_with_window = bool(options)
 
-        return get_frida_session_manager().list_processes(
+        self._log("info", f"枚举进程…（仅有窗口={only_with_window}）")
+        result = get_frida_session_manager().list_processes(
             query=query,
             only_with_window=only_with_window,
         )
+        if result.get("ok"):
+            self._log("ok", f"进程列表就绪：{result.get('count', 0)} 个")
+        else:
+            self._log("error", f"枚举进程失败：{result.get('error') or result.get('message')}")
+        return result
 
     def frida_attach(self, options=None, pid=None) -> dict:
         """
@@ -444,12 +455,38 @@ class Api:
                 pid_i = int(raw_pid)
             except Exception:
                 pid_i = None
-        return get_frida_session_manager().attach(process_name=process_name, pid=pid_i)
+
+        self._log(
+            "info",
+            f"正在 Frida 连接：{process_name or '?'}{f' (PID {pid_i})' if pid_i else ''}",
+        )
+        result = get_frida_session_manager().attach(process_name=process_name, pid=pid_i)
+        if result.get("ok") and result.get("attached") is not False:
+            if result.get("hooked"):
+                self._log(
+                    "ok",
+                    f"已连接 {result.get('process_name')} PID {result.get('pid')} · Hook 就绪",
+                )
+            else:
+                warn = result.get("warning") or result.get("last_error") or "UI Hook 未就绪"
+                self._log(
+                    "warn",
+                    f"已连接 {result.get('process_name')} PID {result.get('pid')}，但 Hook 未就绪：{warn}",
+                )
+        else:
+            self._log(
+                "error",
+                f"Frida 连接失败：{result.get('error') or result.get('message') or '未知错误'}",
+            )
+        return result
 
     def frida_detach(self) -> dict:
         from backend.core.input.frida.session_manager import get_frida_session_manager
 
-        return get_frida_session_manager().detach()
+        self._log("info", "正在断开 Frida…")
+        result = get_frida_session_manager().detach()
+        self._log("ok", "Frida 已断开")
+        return result
 
     def frida_status(self) -> dict:
         from backend.core.input.frida.session_manager import get_frida_session_manager

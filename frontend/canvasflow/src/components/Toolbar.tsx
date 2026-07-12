@@ -358,14 +358,13 @@ export default function Toolbar({
 
           <Button
             variant="ghost"
-            size="sm"
-            className="h-8 px-2.5"
+            size="icon"
+            className="h-8 w-8"
             onClick={onToggleAssistant}
             title="Flow AI"
             style={isAssistantOpen ? { color: colors.primary } : undefined}
           >
             <Sparkles className="w-4 h-4" />
-            <span>AI</span>
           </Button>
 
           <div className="flex items-center ml-1 pl-1 border-l border-white/10">
