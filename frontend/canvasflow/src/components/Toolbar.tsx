@@ -15,13 +15,13 @@ import {
   Square,
   Trash2,
   StepForward,
-  LayoutGrid,
   FileCode2,
   Settings2,
   Minus,
   Maximize2,
   Minimize2,
   Pin,
+  Waypoints,
   X,
 } from 'lucide-react';
 import { ThemeName, ThemeMode } from '../types';
@@ -244,7 +244,7 @@ export default function Toolbar({
       </div>
 
       <div className="relative z-10 h-full flex items-center justify-between px-2">
-        {/* Left: brand + theme / light-dark */}
+        {/* Left: brand + view tabs + AI */}
         <div className="flex items-center gap-1.5 min-w-0 shrink-0 z-10">
           <div className="pywebview-drag-region flex items-center gap-2 pl-1 pr-2">
             {onBackToMain && (
@@ -270,47 +270,6 @@ export default function Toolbar({
             </span>
           </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" title="主题色">
-                <Palette className="w-4 h-4 opacity-80" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-44">
-              <DropdownMenuLabel>主题色</DropdownMenuLabel>
-              {themes.map((t) => (
-                <DropdownMenuItem key={t} onClick={() => setThemeName(t)}>
-                  <span
-                    style={{ backgroundColor: getThemeColors(t, themeMode).primary }}
-                    className="w-3 h-3 rounded-full border border-white/20"
-                  />
-                  <span className="flex-1">{t}</span>
-                  {themeName === t && <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 px-0"
-            onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}
-            title={themeMode === 'light' ? '切换暗色' : '切换亮色'}
-          >
-            {themeMode === 'light' ? (
-              <Moon className="w-4 h-4 opacity-80" />
-            ) : (
-              <Sun className="w-4 h-4 opacity-80" />
-            )}
-          </Button>
-        </div>
-
-        {/* Drag filler */}
-        <div className="pywebview-drag-region flex-1 self-stretch min-w-[24px] mx-2" />
-
-        {/* Right: view tabs + AI + window */}
-        <div className="flex items-center gap-1 shrink-0 z-10">
           {onViewModeChange && (
             <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-white/5">
               <Button
@@ -325,7 +284,7 @@ export default function Toolbar({
                 }
                 variant="ghost"
               >
-                <LayoutGrid className="w-3.5 h-3.5" />
+                <Waypoints className="w-3.5 h-3.5" />
               </Button>
               <Button
                 size="sm"
@@ -367,6 +326,47 @@ export default function Toolbar({
             style={isAssistantOpen ? { color: colors.primary } : undefined}
           >
             <Sparkles className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* Drag filler */}
+        <div className="pywebview-drag-region flex-1 self-stretch min-w-[24px] mx-2" />
+
+        {/* Right: theme / light-dark + window */}
+        <div className="flex items-center gap-1 shrink-0 z-10">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" title="主题色">
+                <Palette className="w-4 h-4 opacity-80" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel>主题色</DropdownMenuLabel>
+              {themes.map((t) => (
+                <DropdownMenuItem key={t} onClick={() => setThemeName(t)}>
+                  <span
+                    style={{ backgroundColor: getThemeColors(t, themeMode).primary }}
+                    className="w-3 h-3 rounded-full border border-white/20"
+                  />
+                  <span className="flex-1">{t}</span>
+                  {themeName === t && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 px-0"
+            onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}
+            title={themeMode === 'light' ? '切换暗色' : '切换亮色'}
+          >
+            {themeMode === 'light' ? (
+              <Moon className="w-4 h-4 opacity-80" />
+            ) : (
+              <Sun className="w-4 h-4 opacity-80" />
+            )}
           </Button>
 
           <div className="flex items-center ml-1 pl-1 border-l border-white/10">
