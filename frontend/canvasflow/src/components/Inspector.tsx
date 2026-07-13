@@ -449,7 +449,7 @@ export default function Inspector({
           borderColor: colors.border,
           color: colors.text,
         }}
-        className="w-96 border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
+        className="w-[31.2rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
       >
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60">
           <div
@@ -1043,7 +1043,7 @@ export default function Inspector({
         borderColor: colors.border,
         color: colors.text,
       }}
-      className="w-96 border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
+      className="w-[31.2rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
     >
       <div className="px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
