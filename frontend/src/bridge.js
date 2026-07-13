@@ -260,8 +260,11 @@ export const MOCK_SCHEMAS = [
       {
         name: 'match_texts',
         type: 'string',
-        label: '匹配多字(每行一个；一次识别输出 matches)',
+        label: '匹配多字（每行一个目标）',
         default: '',
+        bindable: false,
+        ui: 'textarea',
+        placeholder: '确定\n取消\n下一步',
       },
       {
         name: 'match_mode',

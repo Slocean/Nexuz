@@ -832,6 +832,18 @@ export default function Inspector({
                     </Button>
                   )}
                 </>
+              ) : input.ui === 'textarea' || input.type === 'textarea' ? (
+                <Textarea
+                  rows={4}
+                  className="w-full text-sm min-h-[5.5rem]"
+                  value={value ?? input.default ?? ''}
+                  placeholder={
+                    input.placeholder ||
+                    placeholder ||
+                    '每行填写一个要匹配的文字'
+                  }
+                  onChange={(e) => handleFieldChange(input.name, e.target.value)}
+                />
               ) : isBindableInput(input) ? (
                 <BindableInput
                   value={value ?? input.default ?? (input.type === 'number' ? 0 : '')}
