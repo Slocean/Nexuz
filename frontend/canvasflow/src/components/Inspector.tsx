@@ -663,6 +663,7 @@ function inputVisible(input: any, config: Record<string, any> | undefined): bool
       else if (key === 'click_mode') cur = 'single';
       else if (key === 'key_mode') cur = 'single';
       else if (key === 'sample_mode') cur = 'single';
+      else if (key === 'hover_mode') cur = 'single';
       else return false;
     }
     if (Array.isArray(expect)) {
@@ -870,17 +871,6 @@ export default function Inspector({
   const renderNexuzSchemaForm = () => {
     const schema = schemaMap[selectedNode.subType];
     if (!schema) return null;
-    const showCapture = [
-      'click',
-      'drag',
-      'color_detect',
-      'if_color_match',
-      'ocr_recognize',
-      'if_text_contains',
-      'find_image',
-      'screenshot',
-      'wait_until',
-    ].includes(selectedNode.subType);
     const isClick = selectedNode.subType === 'click';
     const clickMode = String(selectedNode.config?.click_mode || 'single');
     const isOcr =
@@ -1034,13 +1024,16 @@ export default function Inspector({
                   value={Array.isArray(value) ? value : []}
                   onChange={(next) => handleFieldChange(input.name, next)}
                   onPickPoint={onPickPoint}
-                  onPickClick={onPickClick}
+                  onPickClick={selectedNode.subType === 'click' ? onPickClick : undefined}
                   captureMode={
                     selectedNode.subType === 'click'
                       ? resolveClickMode()
                       : 'coord'
                   }
-                  showDelay={selectedNode.subType === 'click'}
+                  showDelay={
+                    selectedNode.subType === 'click' ||
+                    selectedNode.subType === 'mouse_hover'
+                  }
                 />
               ) : input.type === 'key_steps' ? (
                 <KeyStepsEditor

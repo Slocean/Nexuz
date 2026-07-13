@@ -99,7 +99,7 @@ python package.py --onedir          # 目录模式（exe + _internal，启动更
 
 | 类别 | Block |
 |------|--------|
-| 动作 | click / drag / key_press / type_text / delay / **wait_until** |
+| 动作 | click / **mouse_hover** / drag / key_press / type_text / delay / **wait_until** |
 | 识别 | color_detect / if_color_match / ocr_recognize / **locate_text** / if_text_contains / find_image / **screenshot** |
 | 控制 | if_condition / switch / loop_* / **schedule_trigger** / **call_subflow** / **assign** |
 | 平台 | 画布↔JSON（可自动同步）、变量面板、参数表单、运行控制、日志、保存加载、录制 |
