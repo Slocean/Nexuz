@@ -167,23 +167,121 @@ class Api:
         return {"ok": True, "maximized": maximized}
 
     def window_toggle_on_top(self) -> dict:
+        """Toggle always-on-top without freezing the UI.
+
+        pywebview's WinForms ``set_on_top`` assigns ``Form.TopMost`` from the
+        JS-API worker thread (no ``Invoke``). That cross-thread UI access
+        deadlocks EdgeChromium + frameless windows on Windows. Use Win32
+        ``SetWindowPos`` instead, and only sync pywebview's Python flag.
+        """
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
         try:
-            current = bool(getattr(self._window, "on_top", False))
-            self._window.on_top = not current
-            return {"ok": True, "on_top": bool(self._window.on_top)}
+            if hasattr(self, "_ui_on_top"):
+                current = bool(self._ui_on_top)
+            else:
+                try:
+                    current = bool(getattr(self._window, "on_top", False))
+                except Exception:
+                    current = False
+            next_val = not current
+            if not self._apply_window_topmost(next_val):
+                return {"ok": False, "error": "无法设置窗口置顶", "on_top": current}
+            self._ui_on_top = next_val
+            self._sync_pywebview_on_top_flag(next_val)
+            return {"ok": True, "on_top": next_val}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
     def window_is_on_top(self) -> dict:
+        if hasattr(self, "_ui_on_top"):
+            return {"ok": True, "on_top": bool(self._ui_on_top)}
         on_top = False
         try:
             if self._window is not None:
                 on_top = bool(getattr(self._window, "on_top", False))
         except Exception:
-            pass
+            on_top = False
         return {"ok": True, "on_top": on_top}
+
+    def _window_hwnd(self) -> int | None:
+        w = self._window
+        if w is None:
+            return None
+        native = getattr(w, "native", None)
+        if native is not None:
+            try:
+                handle = getattr(native, "Handle", None)
+                if handle is not None:
+                    to_int = getattr(handle, "ToInt32", None)
+                    if callable(to_int):
+                        return int(to_int())
+                    return int(handle)
+            except Exception:
+                pass
+        for attr in ("hwnd", "handle"):
+            try:
+                h = getattr(w, attr, None)
+                if h is not None:
+                    return int(h)
+            except Exception:
+                pass
+        return None
+
+    def _apply_window_topmost(self, on_top: bool) -> bool:
+        hwnd = self._window_hwnd()
+        if hwnd:
+            try:
+                import ctypes
+
+                HWND_TOPMOST = -1
+                HWND_NOTOPMOST = -2
+                SWP_NOSIZE = 0x0001
+                SWP_NOMOVE = 0x0002
+                SWP_NOACTIVATE = 0x0010
+                flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+                ok = ctypes.windll.user32.SetWindowPos(
+                    ctypes.c_void_p(hwnd),
+                    ctypes.c_void_p(HWND_TOPMOST if on_top else HWND_NOTOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    flags,
+                )
+                if ok:
+                    return True
+            except Exception:
+                pass
+
+        # Non-Windows / hwnd unavailable: defer pywebview setter so JS bridge can return.
+        window = self._window
+        if window is None:
+            return False
+
+        def _apply() -> None:
+            try:
+                window.on_top = on_top
+            except Exception:
+                pass
+
+        threading.Thread(target=_apply, daemon=True).start()
+        return True
+
+    def _sync_pywebview_on_top_flag(self, on_top: bool) -> None:
+        """Update pywebview's cached flag without calling the WinForms setter."""
+        w = self._window
+        if w is None:
+            return
+        try:
+            # name-mangled storage for Window.on_top
+            object.__setattr__(w, "_Window__on_top", bool(on_top))
+        except Exception:
+            try:
+                w.__dict__["_Window__on_top"] = bool(on_top)
+            except Exception:
+                pass
+
 
     # --- flow execution ---
     def run_flow(self, flow_json: str, step_mode: bool = False, hide_window: bool = True) -> dict:

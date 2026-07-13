@@ -127,9 +127,18 @@ export default function Toolbar({
   };
   const onWinToggleOnTop = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const res = await bridge.windowToggleOnTop?.();
-    if (res?.on_top != null) setOnTop(!!res.on_top);
-    else setOnTop((v) => !v);
+    try {
+      const res = await Promise.race([
+        bridge.windowToggleOnTop?.() ?? Promise.resolve(null),
+        new Promise<{ ok: false; error: string }>((resolve) =>
+          setTimeout(() => resolve({ ok: false, error: 'timeout' }), 3000),
+        ),
+      ]);
+      if (res && (res as any).on_top != null) setOnTop(!!(res as any).on_top);
+      else if ((res as any)?.ok !== false) setOnTop((v) => !v);
+    } catch {
+      /* ignore bridge errors */
+    }
   };
 
   return (

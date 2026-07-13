@@ -31,16 +31,18 @@ function Labeled({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1 min-w-0 w-full">
-      <span className="text-[11px] font-medium opacity-60 leading-none">{title}</span>
-      {children}
+    <div className="flex items-center gap-2 min-w-0 w-full">
+      <span className="text-[11px] font-medium opacity-60 shrink-0 w-[4.5rem] leading-8">
+        {title}
+      </span>
+      <div className="flex-1 min-w-0">{children}</div>
     </div>
   );
 }
 
 /**
  * Lightweight expression builder → writes expression string for evaluate_expression.
- * Layout: each control is title + input (stacked), not a crowded horizontal row.
+ * Quick-fill card: each row is title + control on one line.
  */
 export default function ExpressionField({
   value,
