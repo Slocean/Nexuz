@@ -6,10 +6,16 @@ import os
 import sys
 from pathlib import Path
 
-# Ensure project root on sys.path
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# Bootstrap project root onto sys.path before importing backend.*
+_BOOT_ROOT = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    _BOOT_ROOT = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+if str(_BOOT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BOOT_ROOT))
+
+from backend.paths import project_root
+
+ROOT = project_root()
 
 
 def _enable_dpi_awareness() -> None:

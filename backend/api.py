@@ -16,6 +16,7 @@ from backend.core.input.session import get_recording_session
 from backend.core.interpreter import get_interpreter
 from backend.core.recorder import get_recorder
 from backend.core.registry import get_schemas, register_all_blocks
+from backend.paths import exe_dir, project_root
 
 try:
     from jsonschema import Draft202012Validator
@@ -83,7 +84,7 @@ class Api:
         self._emit("log", payload)
 
     def _load_flow_schema(self) -> dict | None:
-        path = Path(__file__).resolve().parent.parent / "schemas" / "flow_schema.json"
+        path = project_root() / "schemas" / "flow_schema.json"
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
@@ -330,8 +331,8 @@ class Api:
 
     # --- file / flow library ---
     def _flows_dir(self) -> Path:
-        root = Path(__file__).resolve().parent.parent
-        d = root / "flows"
+        # Writable next to exe when frozen; project root in dev.
+        d = exe_dir() / "flows"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -660,7 +661,7 @@ class Api:
 
             x1, y1, x2, y2 = validate_region(region)
             img = grab_region(x1, y1, x2, y2)
-            templates_dir = Path(__file__).resolve().parent.parent / "templates"
+            templates_dir = exe_dir() / "templates"
             templates_dir.mkdir(parents=True, exist_ok=True)
             stamp = time.strftime("%Y%m%d_%H%M%S")
             name = filename.strip() if isinstance(filename, str) and filename.strip() else f"tpl_{stamp}.png"

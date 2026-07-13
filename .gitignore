@@ -21,8 +21,10 @@ Thumbs.db
 # Build / local
 build/
 dist/
-*.spec
 *.log
 .flow.json.bak
+
+# Generated PyInstaller specs live under build/
+# Keep package.py as the source of truth (do not commit ad-hoc *.spec at root)
 
 drop_items_jade_hybrid_ui_umi.py

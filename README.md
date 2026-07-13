@@ -51,18 +51,39 @@ npm run dev
 
 ## 生产/打包前构建
 
+仅构建前端静态资源：
+
 ```bash
 cd frontend
 npm run build
 ```
 
-然后：
+然后可用 `python backend/main.py` 加载 `frontend/dist/index.html`。
+
+## 一键打包（Windows exe）
+
+在项目根目录：
 
 ```bash
-python backend/main.py
+python package.py
 ```
 
-会加载 `frontend/dist/index.html`。
+或：
+
+```bash
+package.bat
+```
+
+默认产出单文件：`dist/Nexuz.exe`（可直接分发）。
+
+可选参数：
+
+```bash
+python package.py --skip-frontend   # 已有 frontend/dist 时跳过 npm build
+python package.py --onedir          # 目录模式（exe + _internal，启动更快）
+```
+
+首次打包会自动安装 `pyinstaller`。产物含前端 `dist`、schemas、Frida 脚本与 OCR 运行时依赖。
 
 ## 界面
 
