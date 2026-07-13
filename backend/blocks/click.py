@@ -25,7 +25,6 @@ SCHEMA = {
             "label": "录入模式",
             "options": ["coord", "frida_ui"],
             "default": "coord",
-            "show_when": {"click_mode": "single"},
         },
         {
             "name": "x",
@@ -121,6 +120,33 @@ def _as_int(value, default: int = 0) -> int:
         return default
 
 
+def _point_to_click_params(pt: dict, base: dict) -> dict:
+    """Build one click params from a multi-point entry + shared node params."""
+    button = base.get("button") or "left"
+    click_type = base.get("click_type") or "single"
+    frida = pt.get("frida_ui") if isinstance(pt.get("frida_ui"), dict) else None
+    if frida and frida.get("hierarchy_path"):
+        return {
+            "capture_mode": "frida_ui",
+            "frida_ui": frida,
+            "button": pt.get("button") or button,
+            "click_type": click_type,
+            "move_duration": 0,
+            "x": _as_int(pt.get("x"), 0),
+            "y": _as_int(pt.get("y"), 0),
+        }
+    return {
+        "capture_mode": "coord",
+        "x": pt.get("x", 0),
+        "y": pt.get("y", 0),
+        "point_norm": pt.get("point_norm"),
+        "coord_space": pt.get("coord_space") or base.get("coord_space"),
+        "button": pt.get("button") or button,
+        "click_type": click_type,
+        "move_duration": 0,
+    }
+
+
 def handler(params, context, **kwargs):
     ctx = context if isinstance(context, dict) else {}
     mode = str(params.get("click_mode") or "single").strip() or "single"
@@ -136,7 +162,6 @@ def handler(params, context, **kwargs):
 
     interval = max(0, _as_int(params.get("interval_ms"), 200))
     button = params.get("button") or "left"
-    click_type = params.get("click_type") or "single"
     last: dict = {"ok": True, "x": 0, "y": 0, "button": button}
     done = 0
 
@@ -148,16 +173,18 @@ def handler(params, context, **kwargs):
             wait = _as_int(delay, interval) if delay is not None and delay != "" else interval
             if wait > 0:
                 time.sleep(wait / 1000.0)
-        one = {
-            "capture_mode": "coord",
-            "x": pt.get("x", 0),
-            "y": pt.get("y", 0),
-            "point_norm": pt.get("point_norm"),
-            "coord_space": pt.get("coord_space") or params.get("coord_space"),
-            "button": button,
-            "click_type": click_type,
-            "move_duration": 0,
-        }
+        one = _point_to_click_params(pt, params)
+        # Prefer node-level capture_mode when point has no frida target
+        node_cap = str(params.get("capture_mode") or "coord")
+        if node_cap == "frida_ui" and not (
+            isinstance(pt.get("frida_ui"), dict) and pt["frida_ui"].get("hierarchy_path")
+        ):
+            raise ValueError(
+                f"多点 #{i + 1} 为 Frida 模式但未录入 UI 目标，请对该点点击「录入」"
+            )
+        if node_cap == "coord":
+            one["capture_mode"] = "coord"
+            one.pop("frida_ui", None)
         last = _click_once(one, ctx)
         done += 1
 

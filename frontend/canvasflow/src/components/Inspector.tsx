@@ -182,35 +182,44 @@ function PointListEditor({
   value,
   onChange,
   onPickPoint,
+  onPickClick,
+  captureMode = 'coord',
   showDelay = false,
 }: {
-  value: { x?: number; y?: number; delay_ms?: number | string }[];
-  onChange: (next: { x: number; y: number; delay_ms?: number }[]) => void;
+  value: {
+    x?: number;
+    y?: number;
+    delay_ms?: number | string;
+    frida_ui?: any;
+    button?: string;
+  }[];
+  onChange: (next: any[]) => void;
   onPickPoint?: () => Promise<any>;
+  onPickClick?: (mode: string) => Promise<any>;
+  captureMode?: string;
   showDelay?: boolean;
 }) {
   const { alert } = useAppDialog();
   const points = Array.isArray(value) ? value : [];
+  const isFrida = captureMode === 'frida_ui';
 
-  const update = (idx: number, patch: Partial<{ x: number; y: number; delay_ms: number }>) => {
-    const next = points.map((p, i) => {
-      if (i !== idx) return { x: Number(p.x) || 0, y: Number(p.y) || 0, delay_ms: p.delay_ms as any };
-      return {
-        x: patch.x !== undefined ? patch.x : Number(p.x) || 0,
-        y: patch.y !== undefined ? patch.y : Number(p.y) || 0,
-        ...(showDelay
-          ? {
-              delay_ms:
-                patch.delay_ms !== undefined
-                  ? patch.delay_ms
-                  : p.delay_ms === '' || p.delay_ms == null
-                    ? undefined
-                    : Number(p.delay_ms),
-            }
-          : {}),
-      };
-    });
-    onChange(next as any);
+  const normalize = (p: any) => {
+    const out: any = {
+      x: Number(p?.x) || 0,
+      y: Number(p?.y) || 0,
+    };
+    if (showDelay && p?.delay_ms != null && p.delay_ms !== '') {
+      out.delay_ms = Number(p.delay_ms);
+    }
+    if (p?.frida_ui && typeof p.frida_ui === 'object') out.frida_ui = p.frida_ui;
+    if (p?.button) out.button = p.button;
+    if (p?.point_norm) out.point_norm = p.point_norm;
+    if (p?.coord_space) out.coord_space = p.coord_space;
+    return out;
+  };
+
+  const update = (idx: number, patch: Record<string, any>) => {
+    onChange(points.map((p, i) => (i === idx ? normalize({ ...p, ...patch }) : normalize(p))));
   };
 
   const move = (idx: number, dir: -1 | 1) => {
@@ -220,15 +229,33 @@ function PointListEditor({
     const tmp = next[idx];
     next[idx] = next[j];
     next[j] = tmp;
-    onChange(
-      next.map((p) => ({
-        x: Number(p.x) || 0,
-        y: Number(p.y) || 0,
-        ...(showDelay && p.delay_ms != null && p.delay_ms !== ''
-          ? { delay_ms: Number(p.delay_ms) }
-          : {}),
-      })) as any,
-    );
+    onChange(next.map(normalize));
+  };
+
+  const pickAt = async (idx: number) => {
+    const res = onPickClick
+      ? await onPickClick(isFrida ? 'frida_ui' : 'coord')
+      : await onPickPoint?.();
+    if (!res?.ok) {
+      await alert({
+        title: '录入失败',
+        description: res?.error || res?.message || '已取消或超时',
+      });
+      return;
+    }
+    const params = res.params || {};
+    const patch: any = {
+      x: Number(params.x ?? res.x) || 0,
+      y: Number(params.y ?? res.y) || 0,
+    };
+    if (params.point_norm || res.point_norm) patch.point_norm = params.point_norm || res.point_norm;
+    if (params.coord_space || res.coord_space) {
+      patch.coord_space = params.coord_space || res.coord_space;
+    }
+    if (params.button || res.button) patch.button = params.button || res.button;
+    if (params.frida_ui) patch.frida_ui = params.frida_ui;
+    else if (isFrida && res.frida_ui) patch.frida_ui = res.frida_ui;
+    update(idx, patch);
   };
 
   return (
@@ -267,50 +294,57 @@ function PointListEditor({
               variant="ghost"
               size="icon"
               className="h-6 w-6 text-rose-400 shrink-0 ml-auto"
-              onClick={() => onChange(points.filter((_, i) => i !== idx) as any)}
+              onClick={() => onChange(points.filter((_, i) => i !== idx).map(normalize))}
             >
               <X className="w-3.5 h-3.5" />
             </Button>
           </div>
-          <div className="flex items-center gap-1">
-            <Input
-              className="h-7 text-xs font-mono flex-1 min-w-0"
-              placeholder="X"
-              value={p.x ?? 0}
-              onChange={(e) => update(idx, { x: Number(e.target.value) || 0 })}
-            />
-            <Input
-              className="h-7 text-xs font-mono flex-1 min-w-0"
-              placeholder="Y"
-              value={p.y ?? 0}
-              onChange={(e) => update(idx, { y: Number(e.target.value) || 0 })}
-            />
-            {onPickPoint && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 shrink-0 px-2"
-                onClick={async () => {
-                  const res = await onPickPoint();
-                  if (!res?.ok) {
-                    await alert({
-                      title: '取点失败',
-                      description: res?.error || res?.message || '已取消或超时',
-                    });
-                    return;
-                  }
-                  const params = res.params || {};
-                  update(idx, {
-                    x: Number(params.x ?? res.x) || 0,
-                    y: Number(params.y ?? res.y) || 0,
-                  });
-                }}
-              >
-                取点
-              </Button>
-            )}
-          </div>
+          {isFrida ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] font-mono opacity-70 truncate flex-1 min-w-0">
+                {p.frida_ui?.display_name ||
+                  p.frida_ui?.hierarchy_path ||
+                  '尚未录入 Frida UI'}
+              </span>
+              {(onPickClick || onPickPoint) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 px-2"
+                  onClick={() => pickAt(idx)}
+                >
+                  录入
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <Input
+                className="h-7 text-xs font-mono flex-1 min-w-0"
+                placeholder="X"
+                value={p.x ?? 0}
+                onChange={(e) => update(idx, { x: Number(e.target.value) || 0 })}
+              />
+              <Input
+                className="h-7 text-xs font-mono flex-1 min-w-0"
+                placeholder="Y"
+                value={p.y ?? 0}
+                onChange={(e) => update(idx, { y: Number(e.target.value) || 0 })}
+              />
+              {(onPickClick || onPickPoint) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 px-2"
+                  onClick={() => pickAt(idx)}
+                >
+                  取点
+                </Button>
+              )}
+            </div>
+          )}
           {showDelay && (
             <Input
               className="h-7 text-xs font-mono w-full"
@@ -318,7 +352,7 @@ function PointListEditor({
               value={p.delay_ms ?? ''}
               onChange={(e) => {
                 const v = e.target.value.trim();
-                update(idx, { delay_ms: v === '' ? (undefined as any) : Number(v) || 0 });
+                update(idx, { delay_ms: v === '' ? undefined : Number(v) || 0 });
               }}
             />
           )}
@@ -329,18 +363,7 @@ function PointListEditor({
         variant="outline"
         size="sm"
         className="w-full"
-        onClick={() =>
-          onChange([
-            ...points.map((p) => ({
-              x: Number(p.x) || 0,
-              y: Number(p.y) || 0,
-              ...(showDelay && p.delay_ms != null && p.delay_ms !== ''
-                ? { delay_ms: Number(p.delay_ms) }
-                : {}),
-            })),
-            { x: 0, y: 0 },
-          ] as any)
-        }
+        onClick={() => onChange([...points.map(normalize), { x: 0, y: 0 }])}
       >
         添加点
       </Button>
@@ -866,7 +889,7 @@ export default function Inspector({
 
     return (
       <div className="space-y-3">
-        {isClick && clickMode === 'single' && (
+        {isClick && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
             <Field label="录入模式">
               <Select
@@ -888,7 +911,7 @@ export default function Inspector({
                   <SelectItem value="frida_ui">Frida UI</SelectItem>
                 </SelectContent>
               </Select>
-              {(onPickClick || onPickPoint) && (
+              {clickMode === 'single' && (onPickClick || onPickPoint) && (
                 <Button
                   type="button"
                   size="sm"
@@ -912,9 +935,10 @@ export default function Inspector({
                 </Button>
               )}
             </Field>
-            {selectedNode.config?.capture_mode === 'frida_ui' ||
-            (!selectedNode.config?.capture_mode && defaultCaptureMode === 'frida_ui') ||
-            selectedNode.config?.frida_ui?.hierarchy_path ? (
+            {clickMode === 'single' &&
+            (selectedNode.config?.capture_mode === 'frida_ui' ||
+              (!selectedNode.config?.capture_mode && defaultCaptureMode === 'frida_ui') ||
+              selectedNode.config?.frida_ui?.hierarchy_path) ? (
               <p className="text-xs font-mono opacity-70 break-all">
                 {selectedNode.config?.frida_ui?.display_name ||
                   selectedNode.config?.frida_ui?.hierarchy_path ||
@@ -1010,6 +1034,12 @@ export default function Inspector({
                   value={Array.isArray(value) ? value : []}
                   onChange={(next) => handleFieldChange(input.name, next)}
                   onPickPoint={onPickPoint}
+                  onPickClick={onPickClick}
+                  captureMode={
+                    selectedNode.subType === 'click'
+                      ? resolveClickMode()
+                      : 'coord'
+                  }
                   showDelay={selectedNode.subType === 'click'}
                 />
               ) : input.type === 'key_steps' ? (

@@ -43,7 +43,6 @@ export const MOCK_SCHEMAS = [
         label: '录入模式',
         options: ['coord', 'frida_ui'],
         default: 'coord',
-        show_when: { click_mode: 'single' },
       },
       { name: 'x', type: 'number', label: 'X', default: 0, show_when: { click_mode: 'single' } },
       { name: 'y', type: 'number', label: 'Y', default: 0, show_when: { click_mode: 'single' } },
