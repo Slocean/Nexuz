@@ -10,8 +10,9 @@ from backend.blocks._helpers import (
 from backend.blocks._ocr_match import (
     aabb_from_polygon,
     empty_match_outputs,
-    find_first_matching_box,
-    match_outputs_from_box,
+    match_all_queries,
+    parse_match_queries,
+    primary_match_from_list,
 )
 
 SCHEMA = {
@@ -101,7 +102,13 @@ SCHEMA = {
         {
             "name": "match_text",
             "type": "string",
-            "label": "匹配文字(可选，填则输出该字中心坐标供点击)",
+            "label": "匹配文字(单目标，可选)",
+            "default": "",
+        },
+        {
+            "name": "match_texts",
+            "type": "string",
+            "label": "匹配多字(每行一个；一次识别输出 matches)",
             "default": "",
         },
         {
@@ -139,9 +146,10 @@ SCHEMA = {
         {"name": "matched_text", "type": "string"},
         {"name": "text", "type": "string"},
         {"name": "confidence", "type": "number"},
-        {"name": "boxes", "type": "any"},
-        {"name": "region", "type": "any"},
-        {"name": "anchor", "type": "any"},
+        {"name": "matches", "type": "any", "canvas": False},
+        {"name": "boxes", "type": "any", "canvas": False},
+        {"name": "region", "type": "any", "canvas": False},
+        {"name": "anchor", "type": "any", "canvas": False},
     ],
 }
 
@@ -233,6 +241,7 @@ def _empty_ocr_result(
         **empty_match_outputs(),
         "text": "",
         "confidence": 0.0,
+        "matches": [],
         "boxes": [],
         "region": region,
         "anchor": anchor,
@@ -265,8 +274,8 @@ def run_ocr(params: dict) -> dict:
         params.get("min_confidence") if params.get("min_confidence") is not None else 0.3
     )
     include_geometry = str(params.get("include_box_geometry", "false")).lower() == "true"
-    match_expect = str(params.get("match_text") or "").strip()
     match_mode = str(params.get("match_mode") or "contains")
+    queries = parse_match_queries(params)
 
     texts: list[str] = []
     scores: list[float] = []
@@ -300,13 +309,14 @@ def run_ocr(params: dict) -> dict:
     joined = "\n".join(texts)
     avg = sum(scores) / len(scores) if scores else 0.0
 
-    hit = find_first_matching_box(boxes, match_expect, match_mode) if match_expect else None
-    match_out = match_outputs_from_box(hit)
+    matches = match_all_queries(boxes, queries, match_mode) if queries else []
+    match_out = primary_match_from_list(matches) if matches else empty_match_outputs()
 
     return {
         **match_out,
         "text": joined,
         "confidence": round(avg, 4),
+        "matches": matches,
         "boxes": boxes,
         "region": region,
         "anchor": anchor,

@@ -1,9 +1,10 @@
 /**
- * Param binding helpers: literal | {{nodeId.field}} | $var
+ * Param binding helpers: literal | {{nodeId.field}} | {{nodeId.matches.0.x}} | $var
  */
 export type BindKind = 'literal' | 'node' | 'variable';
 
-const NODE_REF_RE = /^\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\s*\}\}$/;
+/** field may include dotted path / numeric segments after the root output name */
+const NODE_REF_RE = /^\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\s*\}\}$/;
 const VAR_REF_RE = /^\$([A-Za-z_][A-Za-z0-9_]*)$/;
 const VAR_BRACE_RE = /^\{\{\s*\$([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$/;
 
@@ -25,6 +26,13 @@ export function parseNodeRef(value: string): { nodeId: string; field: string } |
   const m = NODE_REF_RE.exec(String(value || '').trim());
   if (!m) return null;
   return { nodeId: m[1], field: m[2] };
+}
+
+/** Root schema output name for a possibly nested field path (matches.0.x → matches) */
+export function rootFieldName(field: string): string {
+  const s = String(field || '');
+  const i = s.indexOf('.');
+  return i >= 0 ? s.slice(0, i) : s;
 }
 
 export function parseVarRef(value: string): string | null {

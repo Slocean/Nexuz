@@ -5,6 +5,7 @@ import {
   detectBindKind,
   parseNodeRef,
   parseVarRef,
+  rootFieldName,
 } from './bindValue';
 import { collectParamRefs } from './nexuzAdapter';
 
@@ -20,7 +21,7 @@ export type BindIssue = {
   field?: string;
 };
 
-const EMBEDDED_NODE_REF = /\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\s*\}\}/g;
+const EMBEDDED_NODE_REF = /\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
 const EMBEDDED_VAR_REF = /\$([A-Za-z_][A-Za-z0-9_]*)/g;
 
 /** Normalize schema/output types for compatibility checks */
@@ -61,7 +62,11 @@ export function lookupOutputType(
   if (!node) return undefined;
   const outs = schemaMap[node.type]?.outputs;
   if (!Array.isArray(outs)) return undefined;
-  const hit = outs.find((o: any) => o?.name === field);
+  const root = rootFieldName(field);
+  const hit = outs.find((o: any) => o?.name === root);
+  if (!hit) return undefined;
+  // Nested path into any/list → treat as any for loose compat
+  if (root !== field) return 'any';
   return hit?.type;
 }
 
@@ -78,7 +83,8 @@ export function validateNodeRef(
     // No declared outputs — still allow (runtime may set keys), but treat missing schema as ok
     return { ok: true };
   }
-  if (!outs.some((o: any) => o?.name === field)) {
+  const root = rootFieldName(field);
+  if (!outs.some((o: any) => o?.name === root)) {
     return { ok: false, reason: 'missing_field' };
   }
   return { ok: true };

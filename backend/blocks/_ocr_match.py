@@ -117,3 +117,78 @@ def find_first_matching_box(
         if match_text(str(item.get("text") or ""), expect, mode):
             return item
     return None
+
+
+def parse_match_queries(params: dict[str, Any] | None) -> list[str]:
+    """Collect match targets from match_text + match_texts (lines or JSON array)."""
+    import json
+
+    params = params or {}
+    queries: list[str] = []
+    single = str(params.get("match_text") or "").strip()
+    if single:
+        queries.append(single)
+
+    raw = params.get("match_texts")
+    items: list[Any] = []
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, str) and raw.strip():
+        text = raw.strip()
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    items = parsed
+                else:
+                    items = text.splitlines()
+            except Exception:
+                items = text.splitlines()
+        else:
+            items = text.splitlines()
+
+    for item in items:
+        s = str(item or "").strip()
+        if s:
+            queries.append(s)
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for q in queries:
+        if q in seen:
+            continue
+        seen.add(q)
+        out.append(q)
+    return out
+
+
+def match_all_queries(
+    boxes: list[dict[str, Any]] | None,
+    queries: list[str],
+    mode: str,
+) -> list[dict[str, Any]]:
+    """Match each query against boxes; preserve query order."""
+    matches: list[dict[str, Any]] = []
+    for q in queries:
+        hit = find_first_matching_box(boxes, q, mode)
+        entry = match_outputs_from_box(hit)
+        entry["query"] = q
+        matches.append(entry)
+    return matches
+
+
+def primary_match_from_list(matches: list[dict[str, Any]]) -> dict[str, Any]:
+    """Top-level found/x/y: first successful hit, else empty."""
+    for m in matches:
+        if m.get("found"):
+            return {
+                "found": True,
+                "x": int(m.get("x") or 0),
+                "y": int(m.get("y") or 0),
+                "left": int(m.get("left") or 0),
+                "top": int(m.get("top") or 0),
+                "width": int(m.get("width") or 0),
+                "height": int(m.get("height") or 0),
+                "matched_text": str(m.get("matched_text") or ""),
+            }
+    return empty_match_outputs()

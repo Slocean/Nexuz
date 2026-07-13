@@ -1,0 +1,56 @@
+{
+  "flow_id": "flow_demo_ocr_multi",
+  "name": "OCR多字与定位复用示例",
+  "version": 1,
+  "variables": {},
+  "entry": "node_ocr",
+  "nodes": {
+    "node_ocr": {
+      "type": "ocr_recognize",
+      "params": {
+        "region": [80, 80, 640, 400],
+        "match_texts": "确定\n取消",
+        "match_mode": "contains",
+        "min_confidence": 0.3
+      },
+      "next": "node_click_ok",
+      "position": { "x": 60, "y": 100 }
+    },
+    "node_click_ok": {
+      "type": "click",
+      "params": {
+        "capture_mode": "coord",
+        "x": "{{node_ocr.matches.0.x}}",
+        "y": "{{node_ocr.matches.0.y}}",
+        "button": "left",
+        "click_type": "single",
+        "move_duration": 0
+      },
+      "next": "node_locate_cancel",
+      "position": { "x": 60, "y": 280 }
+    },
+    "node_locate_cancel": {
+      "type": "locate_text",
+      "params": {
+        "boxes": "{{node_ocr.boxes}}",
+        "match_text": "取消",
+        "match_mode": "contains"
+      },
+      "next": "node_click_cancel",
+      "position": { "x": 60, "y": 440 }
+    },
+    "node_click_cancel": {
+      "type": "click",
+      "params": {
+        "capture_mode": "coord",
+        "x": "{{node_locate_cancel.x}}",
+        "y": "{{node_locate_cancel.y}}",
+        "button": "left",
+        "click_type": "single",
+        "move_duration": 0
+      },
+      "next": null,
+      "position": { "x": 60, "y": 600 }
+    }
+  }
+}

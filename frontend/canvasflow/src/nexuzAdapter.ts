@@ -2,9 +2,9 @@
  * FlowModel (Nexuz) ↔ CanvasFlow visual nodes/connections
  */
 import type { WorkflowNode, NodeConnection, NodeType, NodeSocket } from './types';
-import { formatNodeRef, isBindableInput, parseNodeRef } from './bindValue';
+import { formatNodeRef, isBindableInput, parseNodeRef, rootFieldName } from './bindValue';
 
-const VAR_REF = /\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\s*\}\}/g;
+const VAR_REF = /\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
 
 export const DATA_OUT_PREFIX = 'data:';
 export const PARAM_IN_PREFIX = 'param:';
@@ -24,6 +24,46 @@ const BIND_PRIORITY = [
   'text',
   'value',
 ];
+
+/** Primary scalar outputs shown as canvas data ports (panel still lists all). */
+const PRIMARY_DATA_OUTS = new Set([
+  'found',
+  'x',
+  'y',
+  'matched',
+  'matched_text',
+  'text',
+  'color',
+  'path',
+  'ok',
+  'index',
+  'confidence',
+  'score',
+  'elapsed_ms',
+  'from_x',
+  'from_y',
+  'to_x',
+  'to_y',
+  'button',
+  'width',
+  'height',
+  'left',
+  'top',
+  'actual_text',
+  'registered',
+  'job_id',
+  'value',
+]);
+
+function isCanvasDataOut(out: { name?: string; type?: string; canvas?: boolean }): boolean {
+  if (!out?.name) return false;
+  if (out.canvas === false) return false;
+  const t = String(out.type || 'any').toLowerCase();
+  if (t === 'any' || t === 'object' || t === 'list' || t === 'dict') return false;
+  if (t !== 'string' && t !== 'number' && t !== 'boolean') return false;
+  // Prefer whitelist so OCR doesn't flood the node with every scalar.
+  return PRIMARY_DATA_OUTS.has(String(out.name));
+}
 
 export function isDataOutSocket(id: string): boolean {
   return String(id || '').startsWith(DATA_OUT_PREFIX);
@@ -99,9 +139,10 @@ export function socketsForBlockType(
     return pri >= 0 ? pri : 50 + name.length;
   };
   const sorted = [...candidates].sort((a, b) => score(a.name) - score(b.name));
-  const maxParamIns = 6;
+  const maxParamIns = 3;
   const chosen: any[] = sorted.slice(0, maxParamIns);
   const chosenNames = new Set(chosen.map((i) => i.name));
+  // Always show already-bound params so existing data edges keep a target socket.
   for (const name of bound) {
     if (chosenNames.has(name)) continue;
     const inp = candidates.find((c) => c.name === name);
@@ -123,7 +164,7 @@ export function socketsForBlockType(
   const outputs: NodeSocket[] = [...flowOutputsFor(blockType)];
   const schemaOuts: any[] = Array.isArray(schema?.outputs) ? schema.outputs : [];
   for (const out of schemaOuts) {
-    if (!out?.name) continue;
+    if (!isCanvasDataOut(out)) continue;
     outputs.push({
       id: `${DATA_OUT_PREFIX}${out.name}`,
       name: out.name,
@@ -321,7 +362,7 @@ export function flowToCanvas(
       connections.push({
         id: `data-${key}`,
         sourceNodeId: ref.sourceId,
-        sourceSocketId: `${DATA_OUT_PREFIX}${ref.field}`,
+        sourceSocketId: `${DATA_OUT_PREFIX}${rootFieldName(ref.field)}`,
         targetNodeId: id,
         targetSocketId: ref.paramName ? `${PARAM_IN_PREFIX}${ref.paramName}` : 'in',
         kind: 'data',

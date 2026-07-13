@@ -82,7 +82,7 @@ function Canvas({
   const [zoom, setZoom] = useState(1);
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [showDataLinks, setShowDataLinks] = useState(true);
+  const [showDataLinks, setShowDataLinks] = useState(false);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState("");
   const [marquee, setMarquee] = useState<{
@@ -755,7 +755,7 @@ function Canvas({
             color: showDataLinks ? colors.primary : colors.text,
           }}
           className="h-8 text-xs shadow-lg"
-          title="显示/隐藏由 {{node.field}} 自动生成的数据引用虚线"
+          title="数据请优先在右侧面板绑定；连线仅辅助显示 {{node.field}} 引用"
         >
           数据连线 {showDataLinks ? "开" : "关"}
         </Button>

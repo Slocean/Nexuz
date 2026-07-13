@@ -623,8 +623,10 @@ export default function Inspector({
             <p className="text-xs leading-relaxed opacity-90">
               推荐：全屏拖拽框选识别区域（同时保存相对比例，分辨率变化后自动换算）。
               窗口会移动时，可填「锚点模板」：先找图定位，再在偏移区域 OCR。
-              填写「匹配文字」后会输出 <code className="font-mono">found/x/y</code>
-              ，可直接绑到点击节点。
+              填写「匹配文字」或「匹配多字」后会输出 <code className="font-mono">found/x/y</code>
+              与 <code className="font-mono">matches</code>；多字可用{' '}
+              <code className="font-mono">{'{{ocr.matches.0.x}}'}</code>，或下游「文字定位」复用{' '}
+              <code className="font-mono">boxes</code>。
             </p>
             {onPickRegion && (
               <div className="flex items-center gap-2">
@@ -1187,7 +1189,8 @@ export default function Inspector({
                   className="rounded-xl border divide-y divide-black/5 dark:divide-white/5 overflow-hidden"
                 >
                   <p className="text-xs opacity-60 px-2 py-1.5 bg-black/[0.03] dark:bg-white/[0.03]">
-                    点击字段复制引用，供下游参数选择「上游」时使用
+                    点击字段复制引用，供下游在右侧选择「上游」或粘贴使用（复杂字段如
+                    boxes/matches 不上画布口）
                   </p>
                   {outs.map((o) => (
                     <OutputRefChip

@@ -62,17 +62,24 @@ def compact_context_value(key: str, value: Any) -> Any:
     """Keep context bindable but drop heavy OCR/geometry payloads."""
     k = str(key)
     leaf = k.rsplit(".", 1)[-1].lower()
-    if leaf == "boxes" and isinstance(value, list):
+    if leaf in ("boxes", "matches") and isinstance(value, list):
         # Keep text + light AABB/center for binding; drop heavy polygons.
         compact = []
         for item in value[:80]:
             if not isinstance(item, dict):
                 continue
-            entry: dict[str, Any] = {
-                "text": str(item.get("text") or "")[:120],
-                "confidence": item.get("confidence"),
-            }
-            for geom_key in ("left", "top", "width", "height", "cx", "cy"):
+            entry: dict[str, Any] = {}
+            if "text" in item or leaf == "boxes":
+                entry["text"] = str(item.get("text") or "")[:120]
+            if "confidence" in item:
+                entry["confidence"] = item.get("confidence")
+            if "query" in item:
+                entry["query"] = str(item.get("query") or "")[:120]
+            if "matched_text" in item:
+                entry["matched_text"] = str(item.get("matched_text") or "")[:120]
+            if "found" in item:
+                entry["found"] = bool(item.get("found"))
+            for geom_key in ("left", "top", "width", "height", "cx", "cy", "x", "y"):
                 if geom_key in item and item[geom_key] is not None:
                     entry[geom_key] = item[geom_key]
             compact.append(entry)
