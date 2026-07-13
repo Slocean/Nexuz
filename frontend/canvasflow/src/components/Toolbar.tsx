@@ -6,7 +6,6 @@ import {
   Moon,
   Sparkles,
   Palette,
-  Workflow,
   RefreshCw,
   Check,
   FolderOpen,
@@ -267,13 +266,13 @@ export default function Toolbar({
                 主程序
               </Button>
             )}
-            <div
-              style={{ backgroundColor: colors.primary + '1A' }}
-              className="h-8 w-8 rounded-xl flex items-center justify-center shrink-0"
+            <img
+              src="./logo.png"
+              alt="Nexuz"
               title="Nexuz"
-            >
-              <Workflow style={{ color: colors.primary }} className="w-4 h-4" />
-            </div>
+              className="h-8 w-8 rounded-xl object-cover shrink-0 select-none"
+              draggable={false}
+            />
             <span className="font-semibold text-sm opacity-90 select-none">
               Nexuz
             </span>
