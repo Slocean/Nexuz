@@ -67,16 +67,26 @@ function defaultParams(schema) {
   const params = {};
   for (const input of schema?.inputs || []) {
     if (input.default !== undefined) {
-      params[input.name] = Array.isArray(input.default)
-        ? cloneValue(input.default)
-        : input.default && typeof input.default === 'object'
-          ? { ...input.default }
+      params[input.name] =
+        Array.isArray(input.default) || (input.default && typeof input.default === 'object')
+          ? cloneValue(input.default)
           : input.default;
       continue;
     }
     if (input.type === 'number') params[input.name] = 0;
     else if (input.type === 'keys' || input.type === 'cases' || input.type === 'condition_list')
       params[input.name] = [];
+    else if (input.type === 'logic_tree')
+      params[input.name] =
+        input.default && typeof input.default === 'object'
+          ? cloneValue(input.default)
+          : {
+              kind: 'group',
+              id: 'root',
+              op: 'and',
+              not: false,
+              children: [{ kind: 'expr', id: 'c0', expression: '', not: false, label: '' }],
+            };
     else if (input.type === 'keymap') params[input.name] = {};
     else params[input.name] = '';
   }

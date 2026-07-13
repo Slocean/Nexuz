@@ -86,7 +86,8 @@ export function isBindableInput(input: {
   if (input.bindable === false) return false;
   if (input.ui === 'expression') return false;
   if (input.type === 'keymap' || input.ui === 'input_map' || input.ui === 'output_map') return false;
-  if (input.type === 'condition_list' || input.type === 'cases') return false;
+  if (input.type === 'condition_list' || input.type === 'cases' || input.type === 'logic_tree')
+    return false;
   if (input.bindable === true) return true;
   const t = input.type || 'string';
   return t === 'number' || t === 'string' || t === 'color';

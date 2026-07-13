@@ -151,21 +151,16 @@ export const MOCK_SCHEMAS = [
     category: '控制类',
     inputs: [
       {
-        name: 'mode',
-        type: 'select',
-        label: '组合方式',
-        options: ['and', 'or'],
-        default: 'and',
-        option_labels: {
-          and: '全部满足（与 AND）',
-          or: '任一满足（或 OR）',
+        name: 'logic',
+        type: 'logic_tree',
+        label: '条件树',
+        default: {
+          kind: 'group',
+          id: 'root',
+          op: 'and',
+          not: false,
+          children: [{ kind: 'expr', id: 'c0', expression: '', not: false, label: '' }],
         },
-      },
-      {
-        name: 'conditions',
-        type: 'condition_list',
-        label: '条件列表',
-        default: [{ expression: '' }],
         bindable: false,
       },
     ],

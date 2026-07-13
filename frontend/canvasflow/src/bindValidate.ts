@@ -245,6 +245,35 @@ export function collectFlowBindIssues(
         continue;
       }
 
+      if (input.type === 'logic_tree' || input.type === 'condition_list') {
+        const walkLogic = (node: any, path: string) => {
+          if (!node) return;
+          if (Array.isArray(node)) {
+            node.forEach((item, i) => walkLogic(item, `${path}[${i}]`));
+            return;
+          }
+          if (typeof node !== 'object') return;
+          const kind = node.kind || node.type;
+          if (kind === 'group' && Array.isArray(node.children)) {
+            node.children.forEach((ch: any, i: number) => walkLogic(ch, `${path}.children[${i}]`));
+            return;
+          }
+          const expr =
+            typeof node.expression === 'string'
+              ? node.expression
+              : typeof node === 'string'
+                ? node
+                : '';
+          if (!expr) return;
+          for (const iss of inspectEmbeddedRefs(expr, nodeId, nodes, schemaMap, variables)) {
+            issues.push({ ...iss, paramName: `${name}${path}` });
+          }
+        };
+        if (input.type === 'logic_tree') walkLogic(val, '');
+        else walkLogic({ kind: 'group', children: val }, '');
+        continue;
+      }
+
       const status = inspectBindValue(
         val,
         input.type,

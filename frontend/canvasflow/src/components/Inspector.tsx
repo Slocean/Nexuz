@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, Terminal, X, Copy, Check, Download } from 'lucide-react';
+import { ChevronDown, ChevronRight, Settings, Terminal, X, Copy, Check, Download } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
@@ -9,6 +9,7 @@ import { type BindIssue } from '../bindValidate';
 import BindableInput, { OutputRefChip } from './BindableInput';
 import VariableSelect from './VariableSelect';
 import ExpressionField from './ExpressionField';
+import LogicTreeEditor, { normalizeLogicValue } from './LogicTreeEditor';
 import { listFlowVariableNames } from '../bindValue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -187,6 +188,7 @@ function CasesEditor({
   const nodes = useFlowStore((s) => s.flow.nodes || {});
   const nodeIds = Object.keys(nodes);
   const cases = Array.isArray(value) ? value : [];
+  const [collapsed, setCollapsed] = React.useState<Record<number, boolean>>({});
 
   const update = (idx: number, patch: Partial<{ value: string; node_id: string }>) => {
     const next = cases.map((c, i) =>
@@ -197,52 +199,77 @@ function CasesEditor({
 
   return (
     <div className="space-y-2">
-      {cases.map((c, idx) => (
-        <div
-          key={idx}
-          className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2"
-        >
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-[11px] opacity-60 font-medium">分支 {idx + 1}</span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-rose-400 shrink-0"
-              onClick={() => onChange(cases.filter((_, i) => i !== idx) as any)}
-            >
-              <X className="w-3.5 h-3.5" />
-            </Button>
+      {cases.map((c, idx) => {
+        const closed = !!collapsed[idx];
+        const summary = `${c.value || '（空匹配值）'} → ${c.node_id || '未选节点'}`;
+        return (
+          <div
+            key={idx}
+            className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2"
+          >
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="h-6 w-6 inline-flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 shrink-0"
+                onClick={() => setCollapsed((p) => ({ ...p, [idx]: !p[idx] }))}
+                title={closed ? '展开' : '折叠'}
+              >
+                {closed ? (
+                  <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+                )}
+              </button>
+              <span className="text-[11px] opacity-60 font-medium shrink-0">分支 {idx + 1}</span>
+              {closed && (
+                <span className="text-[11px] opacity-50 truncate flex-1 min-w-0 font-mono">
+                  {summary}
+                </span>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-rose-400 shrink-0 ml-auto"
+                onClick={() => onChange(cases.filter((_, i) => i !== idx) as any)}
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            {!closed && (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">匹配值</span>
+                  <Input
+                    className="h-8 text-xs flex-1 min-w-0"
+                    placeholder="匹配值"
+                    value={c.value ?? ''}
+                    onChange={(e) => update(idx, { value: e.target.value })}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">跳转节点</span>
+                  <Select
+                    value={c.node_id || undefined}
+                    onValueChange={(v) => update(idx, { node_id: v })}
+                  >
+                    <SelectTrigger className="h-8 text-xs flex-1 min-w-0">
+                      <SelectValue placeholder="跳转节点" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {nodeIds.map((id) => (
+                        <SelectItem key={id} value={id}>
+                          {id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
           </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] opacity-60">匹配值</span>
-            <Input
-              className="h-8 text-xs w-full"
-              placeholder="匹配值"
-              value={c.value ?? ''}
-              onChange={(e) => update(idx, { value: e.target.value })}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] opacity-60">跳转节点</span>
-            <Select
-              value={c.node_id || undefined}
-              onValueChange={(v) => update(idx, { node_id: v })}
-            >
-              <SelectTrigger className="h-8 text-xs w-full">
-                <SelectValue placeholder="跳转节点" />
-              </SelectTrigger>
-              <SelectContent>
-                {nodeIds.map((id) => (
-                  <SelectItem key={id} value={id}>
-                    {id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      ))}
+        );
+      })}
       <Button
         type="button"
         variant="outline"
@@ -253,65 +280,6 @@ function CasesEditor({
         }
       >
         添加分支
-      </Button>
-    </div>
-  );
-}
-
-/** AND/OR condition list — each row is an expression */
-function ConditionsListEditor({
-  value,
-  onChange,
-  currentNodeId,
-  schemaMap,
-}: {
-  value: { expression?: string }[];
-  onChange: (next: { expression: string }[]) => void;
-  currentNodeId: string;
-  schemaMap: Record<string, any>;
-}) {
-  const rows = Array.isArray(value) && value.length ? value : [{ expression: '' }];
-
-  const update = (idx: number, expression: string) => {
-    onChange(rows.map((r, i) => (i === idx ? { expression } : { expression: r.expression || '' })));
-  };
-
-  return (
-    <div className="space-y-2 w-full">
-      {rows.map((row, idx) => (
-        <div
-          key={idx}
-          className="rounded-lg border border-black/10 dark:border-white/10 p-1.5 space-y-1"
-        >
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-[11px] opacity-60 font-medium">条件 {idx + 1}</span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-rose-400 shrink-0"
-              disabled={rows.length <= 1}
-              onClick={() => onChange(rows.filter((_, i) => i !== idx).map((r) => ({ expression: r.expression || '' })))}
-            >
-              <X className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-          <ExpressionField
-            value={row.expression ?? ''}
-            onChange={(v) => update(idx, v)}
-            currentNodeId={currentNodeId}
-            schemaMap={schemaMap}
-          />
-        </div>
-      ))}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="w-full"
-        onClick={() => onChange([...rows.map((r) => ({ expression: r.expression || '' })), { expression: '' }])}
-      >
-        添加条件
       </Button>
     </div>
   );
@@ -692,6 +660,7 @@ export default function Inspector({
           const optionLabels = input.option_labels || {};
           const stacked =
             input.type === 'condition_list' ||
+            input.type === 'logic_tree' ||
             input.type === 'cases' ||
             input.ui === 'expression' ||
             input.name === 'expression' ||
@@ -757,10 +726,27 @@ export default function Inspector({
                   value={Array.isArray(value) ? value : []}
                   onChange={(cases) => handleFieldChange(input.name, cases)}
                 />
-              ) : input.type === 'condition_list' ? (
-                <ConditionsListEditor
-                  value={Array.isArray(value) ? value : [{ expression: '' }]}
-                  onChange={(next) => handleFieldChange(input.name, next)}
+              ) : input.type === 'logic_tree' || input.type === 'condition_list' ? (
+                <LogicTreeEditor
+                  value={
+                    input.type === 'logic_tree'
+                      ? value ??
+                        normalizeLogicValue(
+                          selectedNode.config?.conditions,
+                          selectedNode.config?.mode,
+                        )
+                      : value
+                  }
+                  legacyMode={selectedNode.config?.mode}
+                  onChange={(logic) => {
+                    // Prefer new tree; drop flat legacy fields when present.
+                    onUpdateNodeConfig(selectedNode.id, {
+                      ...selectedNode.config,
+                      logic,
+                      mode: undefined,
+                      conditions: undefined,
+                    });
+                  }}
                   currentNodeId={selectedNode.id}
                   schemaMap={schemaMap}
                 />
