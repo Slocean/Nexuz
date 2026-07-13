@@ -115,10 +115,19 @@ def handler(params, context, **kwargs):
 
     sub_ctx = interp._execute(flow)
 
-    # Always mirror as sub.* for discovery
+    # Do not mirror the entire sub-context into the parent (can be huge with OCR etc.).
+    # Only expose a light key list for discovery; values come via output_map.
+    discoverable = [
+        str(k)
+        for k in sub_ctx.keys()
+        if str(k).startswith("$") or "." in str(k)
+    ]
+    context["sub.__keys__"] = discoverable[:200]
+    # Keep $variables only (usually small) under sub.$name for optional binding.
     for k, v in sub_ctx.items():
-        if str(k).startswith("$") or "." in str(k):
-            context[f"sub.{k}"] = v
+        sk = str(k)
+        if sk.startswith("$"):
+            context[f"sub.{sk}"] = v
 
     # Explicit output map: parent $name ← subflow key
     raw_out = params.get("output_map") or {}
@@ -129,9 +138,11 @@ def handler(params, context, **kwargs):
                 continue
             val = _lookup_sub(str(sub_key), sub_ctx)
             if val is None:
-                # try sub. prefix already written
                 val = context.get(f"sub.{sub_key}")
             context[pk] = val
             context[pk.lstrip("$")] = val
 
-    return {"ok": True, "context_keys": len(sub_ctx)}
+    # Drop the heavy sub_ctx reference ASAP for GC in long parent runs.
+    key_count = len(sub_ctx)
+    del sub_ctx
+    return {"ok": True, "context_keys": key_count}

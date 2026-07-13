@@ -173,17 +173,33 @@ function AppShell() {
     [flow, schemaMap],
   );
 
+  // Avoid stuffing every nodeOutputs blob into the canvas graph — Inspector
+  // reads the selected node's output separately, which cuts React retention.
   const { nodes, connections } = useMemo(() => {
-    const base = flowToCanvas(flow, schemaMap, execNodeStates, execNodeId, nodeOutputs);
+    const base = flowToCanvas(flow, schemaMap, execNodeStates, execNodeId, {});
     const errCount = new Map<string, number>();
     for (const iss of bindIssues) {
       if (iss.level !== 'error') continue;
       errCount.set(iss.nodeId, (errCount.get(iss.nodeId) || 0) + 1);
     }
-    const nodes = base.nodes.map((n) => ({
-      ...n,
-      bindErrorCount: errCount.get(n.id) || 0,
-    }));
+    const issueByConn = new Map<string, 'broken' | 'type_warn'>();
+    for (const iss of bindIssues) {
+      if (!iss.sourceId || !iss.field) continue;
+      const mark = iss.level === 'error' ? ('broken' as const) : ('type_warn' as const);
+      const base = `${iss.sourceId}|${iss.nodeId}|${iss.field}`;
+      issueByConn.set(`${base}|`, mark);
+      if (iss.paramName) {
+        issueByConn.set(`${base}|${iss.paramName}`, mark);
+        const leaf = iss.paramName.includes('.')
+          ? iss.paramName.slice(iss.paramName.lastIndexOf('.') + 1)
+          : iss.paramName;
+        issueByConn.set(`${base}|${leaf}`, mark);
+      }
+    }
+    const nodes = base.nodes.map((n) => {
+      const count = errCount.get(n.id) || 0;
+      return count ? { ...n, bindErrorCount: count } : n;
+    });
     const connections = base.connections.map((c) => {
       if (c.kind !== 'data') return c;
       const field = isDataOutSocket(c.sourceSocketId)
@@ -191,35 +207,36 @@ function AppShell() {
         : (c.label || '').split('→')[0];
       const param = isParamInSocket(c.targetSocketId)
         ? paramInName(c.targetSocketId)
-        : undefined;
-      const hit = bindIssues.find(
-        (i) =>
-          i.nodeId === c.targetNodeId &&
-          i.sourceId === c.sourceNodeId &&
-          i.field === field &&
-          (!param || !i.paramName || i.paramName === param || i.paramName.endsWith(`.${param}`)),
-      );
+        : '';
+      const base = `${c.sourceNodeId}|${c.targetNodeId}|${field}`;
+      const hit =
+        (param && issueByConn.get(`${base}|${param}`)) || issueByConn.get(`${base}|`);
       if (!hit) return c;
-      return {
-        ...c,
-        bindIssue: hit.level === 'error' ? ('broken' as const) : ('type_warn' as const),
-      };
+      return { ...c, bindIssue: hit };
     });
     return { nodes, connections };
-  }, [flow, schemaMap, execNodeStates, execNodeId, nodeOutputs, bindIssues]);
+  }, [flow, schemaMap, execNodeStates, execNodeId, bindIssues]);
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
+  const selectedNode = useMemo(() => {
+    const n = nodes.find((node) => node.id === selectedNodeId) || null;
+    if (!n) return null;
+    const outputData = nodeOutputs[n.id] ?? null;
+    return outputData ? { ...n, outputData } : n;
+  }, [nodes, selectedNodeId, nodeOutputs]);
 
   const canvasLogs = useMemo(
     () =>
-      [...logs].reverse().map((l) => ({
-        id: String(l.ts) + l.message,
-        timestamp: new Date(l.ts).toLocaleTimeString(),
-        type: mapLogLevel(l.level),
-        message: l.message,
-        nodeId: undefined,
-        nodeName: undefined,
-      })),
+      logs
+        .slice(-80)
+        .reverse()
+        .map((l) => ({
+          id: String(l.ts) + l.message,
+          timestamp: new Date(l.ts).toLocaleTimeString(),
+          type: mapLogLevel(l.level),
+          message: l.message,
+          nodeId: undefined,
+          nodeName: undefined,
+        })),
     [logs],
   );
 

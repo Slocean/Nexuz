@@ -92,6 +92,17 @@ SCHEMA = {
             "label": "最低置信度(0-1)",
             "default": 0.3,
         },
+        {
+            "name": "include_box_geometry",
+            "type": "select",
+            "label": "保留文字框坐标",
+            "options": ["false", "true"],
+            "default": "false",
+            "option_labels": {
+                "false": "否（更省内存，默认）",
+                "true": "是（boxes 含多边形）",
+            },
+        },
     ],
     "outputs": [
         {"name": "text", "type": "string"},
@@ -170,6 +181,18 @@ def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | 
     return validate_region([x, y, x + w, y + h]), None
 
 
+def _compact_box(box) -> list:
+    """Round polygon points to ints to cut float payload size."""
+    out = []
+    try:
+        for pt in box or []:
+            if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                out.append([int(round(float(pt[0]))), int(round(float(pt[1])))])
+    except Exception:
+        return []
+    return out
+
+
 def run_ocr(params: dict) -> dict:
     (x1, y1, x2, y2), anchor = resolve_ocr_region(params)
     img = grab_region(x1, y1, x2, y2)
@@ -177,8 +200,17 @@ def run_ocr(params: dict) -> dict:
     engine = _get_ocr()
     import numpy as np
 
-    arr = np.array(img)
-    result, _elapsed = engine(arr)
+    arr = np.asarray(img)
+    try:
+        result, _elapsed = engine(arr)
+    finally:
+        # Release screenshot buffer promptly; RapidOCR may retain its own copy.
+        del arr
+        try:
+            img.close()
+        except Exception:
+            pass
+
     if not result:
         return {
             "text": "",
@@ -191,6 +223,7 @@ def run_ocr(params: dict) -> dict:
     min_conf = float(
         params.get("min_confidence") if params.get("min_confidence") is not None else 0.3
     )
+    include_geometry = str(params.get("include_box_geometry", "false")).lower() == "true"
     texts: list[str] = []
     scores: list[float] = []
     boxes: list[dict] = []
@@ -202,7 +235,12 @@ def run_ocr(params: dict) -> dict:
             continue
         texts.append(str(text))
         scores.append(score)
-        boxes.append({"text": text, "confidence": score, "box": box})
+        entry: dict = {"text": text, "confidence": round(score, 4)}
+        if include_geometry:
+            entry["box"] = _compact_box(box)
+        boxes.append(entry)
+        if len(boxes) >= 80:
+            break
 
     joined = "\n".join(texts)
     avg = sum(scores) / len(scores) if scores else 0.0

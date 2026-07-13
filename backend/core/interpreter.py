@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from .expression import evaluate_expression
 from .registry import get_handler
+from .runtime_payload import compact_context_value, summarize_params, summarize_result
 from .variable_resolver import resolve_value, resolve_variables
 
 
@@ -128,7 +129,12 @@ class FlowInterpreter:
             params = resolve_variables(node.get("params") or {}, context)
             self._emit(
                 "node_start",
-                {"node_id": node_id, "type": block_type, "params": params},
+                {
+                    "node_id": node_id,
+                    "type": block_type,
+                    # Slim IPC payload — full params stay local for the handler only.
+                    "params": summarize_params(params),
+                },
             )
             t0 = time.perf_counter()
             try:
@@ -145,13 +151,14 @@ class FlowInterpreter:
                 )
                 elapsed_ms = (time.perf_counter() - t0) * 1000
                 for out_name, val in result.items():
-                    context[f"{node_id}.{out_name}"] = val
+                    ctx_key = f"{node_id}.{out_name}"
+                    context[ctx_key] = compact_context_value(ctx_key, val)
                 self._emit(
                     "node_end",
                     {
                         "node_id": node_id,
                         "type": block_type,
-                        "result": result,
+                        "result": summarize_result(result),
                         "elapsed_ms": round(elapsed_ms, 2),
                         "ok": True,
                     },

@@ -1,7 +1,66 @@
 import { create } from 'zustand';
 
+const MAX_LOGS = 200;
+const HEAVY_KEYS = new Set(['boxes', 'box', 'image', 'bitmap', 'pixels', 'raw', 'screenshot']);
+
 function uid(prefix = 'node') {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function cloneValue(value) {
+  if (value === null || typeof value !== 'object') return value;
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch {
+      /* fall through */
+    }
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    if (Array.isArray(value)) return value.map((v) => cloneValue(v));
+    return { ...value };
+  }
+}
+
+/** Slim runtime values kept in UI store / logs to avoid retaining OCR polygons etc. */
+function summarizeRuntimeValue(value, depth = 0, key = null) {
+  if (depth >= 4) return '…';
+  if (key && HEAVY_KEYS.has(String(key).toLowerCase())) {
+    if (Array.isArray(value)) return { _omitted: 'boxes', count: value.length };
+    return value == null ? value : { _omitted: key };
+  }
+  if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    return value.length > 240 ? `${value.slice(0, 240)}…(+${value.length - 240})` : value;
+  }
+  if (Array.isArray(value)) {
+    const head = value.slice(0, 24).map((v) => summarizeRuntimeValue(v, depth + 1));
+    if (value.length > 24) head.push(`…(+${value.length - 24})`);
+    return head;
+  }
+  if (typeof value === 'object') {
+    const out = {};
+    const entries = Object.entries(value);
+    for (let i = 0; i < entries.length; i++) {
+      if (i >= 40) {
+        out['…'] = `+${entries.length - 40} keys`;
+        break;
+      }
+      const [k, v] = entries[i];
+      out[k] = summarizeRuntimeValue(v, depth + 1, k);
+    }
+    return out;
+  }
+  return String(value).slice(0, 240);
+}
+
+function summarizeDetail(detail) {
+  if (detail == null) return detail;
+  if (typeof detail === 'string') return summarizeRuntimeValue(detail);
+  if (typeof detail === 'object') return summarizeRuntimeValue(detail);
+  return detail;
 }
 
 function defaultParams(schema) {
@@ -9,7 +68,7 @@ function defaultParams(schema) {
   for (const input of schema?.inputs || []) {
     if (input.default !== undefined) {
       params[input.name] = Array.isArray(input.default)
-        ? JSON.parse(JSON.stringify(input.default))
+        ? cloneValue(input.default)
         : input.default && typeof input.default === 'object'
           ? { ...input.default }
           : input.default;
@@ -440,7 +499,7 @@ export const useFlowStore = create((set, get) => ({
         const newId = idMap[oldId];
         const pos = src.position || { x: 100, y: 100 };
         const copy = {
-          ...JSON.parse(JSON.stringify(src)),
+          ...cloneValue(src),
           position: { x: pos.x + offset.x, y: pos.y + offset.y },
         };
         for (const key of ['next', 'then', 'else', 'body']) {
@@ -462,12 +521,19 @@ export const useFlowStore = create((set, get) => ({
     })),
 
   // execution UI
-  nodeOutputs: {}, // nodeId -> last result object
+  nodeOutputs: {}, // nodeId -> last summarized result (UI only)
   clearLogs: () =>
     set({ logs: [], execNodeStates: {}, execNodeId: null, execStatus: 'idle', nodeOutputs: {} }),
   appendLog: (entry) =>
     set((state) => ({
-      logs: [...state.logs.slice(-500), { ...entry, ts: Date.now() }],
+      logs: [
+        ...state.logs.slice(-(MAX_LOGS - 1)),
+        {
+          ...entry,
+          detail: entry.detail !== undefined ? summarizeDetail(entry.detail) : undefined,
+          ts: Date.now(),
+        },
+      ],
     })),
   onRuntimeEvent: (event, payload) => {
     const appendLog = get().appendLog;
@@ -480,10 +546,10 @@ export const useFlowStore = create((set, get) => ({
       appendLog({
         level: 'info',
         message: `▶ ${payload.node_id} (${payload.type})`,
-        detail: payload.params,
+        detail: summarizeDetail(payload.params),
       });
     } else if (event === 'node_end') {
-      const result = payload.result || {};
+      const result = summarizeDetail(payload.result || {}) || {};
       set((state) => ({
         execNodeStates: {
           ...state.execNodeStates,
@@ -512,7 +578,7 @@ export const useFlowStore = create((set, get) => ({
       appendLog({
         level: payload.ok ? 'ok' : 'error',
         message: msg,
-        detail: payload.result || payload.error,
+        detail: payload.ok ? result : summarizeDetail(payload.error),
       });
     } else if (event === 'flow_paused') {
       set({ execStatus: 'paused' });
@@ -521,10 +587,25 @@ export const useFlowStore = create((set, get) => ({
       set({ execStatus: 'running' });
       appendLog({ level: 'info', message: '流程已继续' });
     } else if (event === 'flow_stopped') {
-      set({ execStatus: 'idle', execNodeId: null });
+      set((state) => {
+        const keepId = state.selectedNodeId;
+        const slim =
+          keepId && state.nodeOutputs[keepId]
+            ? { [keepId]: state.nodeOutputs[keepId] }
+            : {};
+        return { execStatus: 'idle', execNodeId: null, nodeOutputs: slim };
+      });
       appendLog({ level: 'warn', message: '流程已停止' });
     } else if (event === 'flow_finished') {
-      set({ execStatus: 'idle', execNodeId: null });
+      // Keep only the selected node's output for Inspector; drop the rest.
+      set((state) => {
+        const keepId = state.selectedNodeId;
+        const slim =
+          keepId && state.nodeOutputs[keepId]
+            ? { [keepId]: state.nodeOutputs[keepId] }
+            : {};
+        return { execStatus: 'idle', execNodeId: null, nodeOutputs: slim };
+      });
       appendLog({
         level: payload.ok ? 'ok' : 'error',
         message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`,
@@ -547,7 +628,7 @@ export const useFlowStore = create((set, get) => ({
       appendLog({
         level: payload?.level || 'info',
         message: payload?.message || '',
-        detail: payload?.detail,
+        detail: summarizeDetail(payload?.detail),
       });
     }
   },

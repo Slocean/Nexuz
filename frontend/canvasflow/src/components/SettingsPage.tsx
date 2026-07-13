@@ -128,11 +128,19 @@ export default function SettingsPage({
       );
       if (seq !== listSeq.current) return;
       if (res?.ok && Array.isArray(res.processes)) {
-        setProcesses(res.processes);
+        // Keep only fields the UI needs, and cap list size to bound memory.
+        const slim = res.processes.slice(0, 500).map((p: ProcRow) => ({
+          pid: p.pid,
+          name: p.name,
+          window_title: p.window_title,
+          exe_base: p.exe_base,
+          display: p.display,
+        }));
+        setProcesses(slim);
         setSelectedKey((prev) => {
           if (!prev) return prev;
           const pid = Number(prev.split('|')[0]);
-          return res.processes.some((p: ProcRow) => p.pid === pid) ? prev : '';
+          return slim.some((p: ProcRow) => p.pid === pid) ? prev : '';
         });
         setFridaMsg((m) => (m.startsWith('无法枚举') || m.includes('枚举进程') ? '' : m));
       } else {

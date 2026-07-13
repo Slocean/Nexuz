@@ -283,9 +283,11 @@ export function flowToCanvas(
       height: 140,
       inputs,
       outputs,
-      config: { ...(node.params || {}) },
+      // Share params by reference — Canvas/Inspector must not mutate in place.
+      config: node.params || {},
       status,
-      outputData: nodeOutputs[id] ?? null,
+      // Only attach live output for nodes that produced one (already summarized upstream).
+      outputData: nodeOutputs[id] || null,
     });
 
     const links: [string, string | null | undefined][] = [
@@ -353,18 +355,18 @@ export function logsToText(logs: { ts?: number; level?: string; message?: string
 export function applyDefaultCaptureMode(flow: any, defaultCaptureMode: string = 'coord') {
   if (!flow?.nodes || typeof flow.nodes !== 'object') return flow;
   const mode = defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
+  let changed = false;
   const nodes: Record<string, any> = {};
   for (const [id, node] of Object.entries(flow.nodes)) {
     const n: any = node;
-    if (n?.type === 'click') {
-      const params = { ...(n.params || {}) };
-      if (!params.capture_mode) params.capture_mode = mode;
-      nodes[id] = { ...n, params };
+    if (n?.type === 'click' && !(n.params || {}).capture_mode) {
+      changed = true;
+      nodes[id] = { ...n, params: { ...(n.params || {}), capture_mode: mode } };
     } else {
       nodes[id] = n;
     }
   }
-  return { ...flow, nodes };
+  return changed ? { ...flow, nodes } : flow;
 }
 
 export { formatNodeRef };
