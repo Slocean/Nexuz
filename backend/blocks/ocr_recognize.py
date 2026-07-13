@@ -7,6 +7,12 @@ from backend.blocks._helpers import (
     validate_point,
     validate_region,
 )
+from backend.blocks._ocr_match import (
+    aabb_from_polygon,
+    empty_match_outputs,
+    find_first_matching_box,
+    match_outputs_from_box,
+)
 
 SCHEMA = {
     "type": "ocr_recognize",
@@ -93,18 +99,44 @@ SCHEMA = {
             "default": 0.3,
         },
         {
+            "name": "match_text",
+            "type": "string",
+            "label": "匹配文字(可选，填则输出该字中心坐标供点击)",
+            "default": "",
+        },
+        {
+            "name": "match_mode",
+            "type": "select",
+            "label": "匹配模式",
+            "options": ["contains", "exact", "regex"],
+            "default": "contains",
+            "option_labels": {
+                "contains": "包含",
+                "exact": "完全相等",
+                "regex": "正则",
+            },
+        },
+        {
             "name": "include_box_geometry",
             "type": "select",
-            "label": "保留文字框坐标",
+            "label": "保留文字框多边形",
             "options": ["false", "true"],
             "default": "false",
             "option_labels": {
-                "false": "否（更省内存，默认）",
-                "true": "是（boxes 含多边形）",
+                "false": "否（默认；仍保留中心/包围盒）",
+                "true": "是（boxes 另含多边形）",
             },
         },
     ],
     "outputs": [
+        {"name": "found", "type": "boolean"},
+        {"name": "x", "type": "number"},
+        {"name": "y", "type": "number"},
+        {"name": "left", "type": "number"},
+        {"name": "top", "type": "number"},
+        {"name": "width", "type": "number"},
+        {"name": "height", "type": "number"},
+        {"name": "matched_text", "type": "string"},
         {"name": "text", "type": "string"},
         {"name": "confidence", "type": "number"},
         {"name": "boxes", "type": "any"},
@@ -193,8 +225,23 @@ def _compact_box(box) -> list:
     return out
 
 
+def _empty_ocr_result(
+    region: list[int],
+    anchor: dict | None,
+) -> dict:
+    return {
+        **empty_match_outputs(),
+        "text": "",
+        "confidence": 0.0,
+        "boxes": [],
+        "region": region,
+        "anchor": anchor,
+    }
+
+
 def run_ocr(params: dict) -> dict:
     (x1, y1, x2, y2), anchor = resolve_ocr_region(params)
+    region = [x1, y1, x2, y2]
     img = grab_region(x1, y1, x2, y2)
 
     engine = _get_ocr()
@@ -212,18 +259,15 @@ def run_ocr(params: dict) -> dict:
             pass
 
     if not result:
-        return {
-            "text": "",
-            "confidence": 0.0,
-            "boxes": [],
-            "region": [x1, y1, x2, y2],
-            "anchor": anchor,
-        }
+        return _empty_ocr_result(region, anchor)
 
     min_conf = float(
         params.get("min_confidence") if params.get("min_confidence") is not None else 0.3
     )
     include_geometry = str(params.get("include_box_geometry", "false")).lower() == "true"
+    match_expect = str(params.get("match_text") or "").strip()
+    match_mode = str(params.get("match_mode") or "contains")
+
     texts: list[str] = []
     scores: list[float] = []
     boxes: list[dict] = []
@@ -235,20 +279,36 @@ def run_ocr(params: dict) -> dict:
             continue
         texts.append(str(text))
         scores.append(score)
-        entry: dict = {"text": text, "confidence": round(score, 4)}
+        poly = _compact_box(box)
+        geom = aabb_from_polygon(poly, offset_x=x1, offset_y=y1)
+        entry: dict = {
+            "text": text,
+            "confidence": round(score, 4),
+            "left": geom["left"],
+            "top": geom["top"],
+            "width": geom["width"],
+            "height": geom["height"],
+            "cx": geom["cx"],
+            "cy": geom["cy"],
+        }
         if include_geometry:
-            entry["box"] = _compact_box(box)
+            entry["box"] = poly
         boxes.append(entry)
         if len(boxes) >= 80:
             break
 
     joined = "\n".join(texts)
     avg = sum(scores) / len(scores) if scores else 0.0
+
+    hit = find_first_matching_box(boxes, match_expect, match_mode) if match_expect else None
+    match_out = match_outputs_from_box(hit)
+
     return {
+        **match_out,
         "text": joined,
         "confidence": round(avg, 4),
         "boxes": boxes,
-        "region": [x1, y1, x2, y2],
+        "region": region,
         "anchor": anchor,
     }
 

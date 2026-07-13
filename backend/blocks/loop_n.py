@@ -14,9 +14,9 @@ SCHEMA = {
 
 
 def handler(params, context, node=None, **kwargs):
-    node_id = (node or {}).get("_id") or ""
-    # index comes from interpreter counter after decide; expose current for body
-    # Before body runs, counter is already incremented in decide_next — for first entry
-    # handler runs once per loop decision. We store counter in context by node id from kwargs.
-    # Interpreter calls handler then decide_next; for loop nodes we just echo times.
-    return {"index": int(params.get("times", 0) or 0)}
+    """Expose 0-based iteration index (counter before decide_next increments)."""
+    node_id = (node or {}).get("_id") or kwargs.get("node_id") or ""
+    counter_key = f"__loop_{node_id}__counter"
+    ctx = context if isinstance(context, dict) else {}
+    index = int(ctx.get(counter_key, 0) or 0)
+    return {"index": index}

@@ -1,0 +1,47 @@
+{
+  "flow_id": "flow_demo_ocr_click",
+  "name": "OCR找字点击示例",
+  "version": 1,
+  "variables": {
+    "$target": "确定"
+  },
+  "entry": "node_ocr",
+  "nodes": {
+    "node_ocr": {
+      "type": "ocr_recognize",
+      "params": {
+        "region": [100, 100, 500, 300],
+        "match_text": "{{$target}}",
+        "match_mode": "contains",
+        "min_confidence": 0.3
+      },
+      "next": "node_assign",
+      "position": { "x": 80, "y": 120 }
+    },
+    "node_assign": {
+      "type": "assign",
+      "params": {
+        "mappings": {
+          "$clickX": "{{node_ocr.x}}",
+          "$clickY": "{{node_ocr.y}}",
+          "$found": "{{node_ocr.found}}"
+        }
+      },
+      "next": "node_click",
+      "position": { "x": 80, "y": 280 }
+    },
+    "node_click": {
+      "type": "click",
+      "params": {
+        "capture_mode": "coord",
+        "x": "{{node_ocr.x}}",
+        "y": "{{node_ocr.y}}",
+        "button": "left",
+        "click_type": "single",
+        "move_duration": 0
+      },
+      "next": null,
+      "position": { "x": 80, "y": 440 }
+    }
+  }
+}

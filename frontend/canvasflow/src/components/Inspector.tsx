@@ -558,8 +558,9 @@ export default function Inspector({
         {isClick && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
             <p className="text-xs leading-relaxed opacity-90">
-              顶栏「录制」可连续录入多步。参数中的 X/Y 可切换为「上游」绑定找图等节点的输出（如{' '}
-              <code className="font-mono">{'{{find1.x}}'}</code>）。
+              顶栏「录制」可连续录入多步。参数中的 X/Y 可切换为「上游」绑定找图 / OCR
+              的输出（如 <code className="font-mono">{'{{find1.x}}'}</code> 或{' '}
+              <code className="font-mono">{'{{ocr1.x}}'}</code>）。
             </p>
             <Field label="录入模式">
               <Select
@@ -622,6 +623,8 @@ export default function Inspector({
             <p className="text-xs leading-relaxed opacity-90">
               推荐：全屏拖拽框选识别区域（同时保存相对比例，分辨率变化后自动换算）。
               窗口会移动时，可填「锚点模板」：先找图定位，再在偏移区域 OCR。
+              填写「匹配文字」后会输出 <code className="font-mono">found/x/y</code>
+              ，可直接绑到点击节点。
             </p>
             {onPickRegion && (
               <div className="flex items-center gap-2">

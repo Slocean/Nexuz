@@ -62,6 +62,14 @@ SCHEMA = {
             "show_when": {"wait_type": "text"},
         },
         {
+            "name": "match_mode",
+            "type": "select",
+            "label": "匹配模式",
+            "options": ["contains", "exact", "regex"],
+            "default": "contains",
+            "show_when": {"wait_type": "text"},
+        },
+        {
             "name": "expression",
             "type": "string",
             "label": "表达式(为真则继续)",
@@ -87,11 +95,32 @@ SCHEMA = {
         {"name": "ok", "type": "boolean"},
         {"name": "elapsed_ms", "type": "number"},
         {"name": "detail", "type": "string"},
+        {"name": "found", "type": "boolean"},
+        {"name": "x", "type": "number"},
+        {"name": "y", "type": "number"},
+        {"name": "left", "type": "number"},
+        {"name": "top", "type": "number"},
+        {"name": "width", "type": "number"},
+        {"name": "height", "type": "number"},
+        {"name": "matched_text", "type": "string"},
     ],
 }
 
 
-def _check(params: dict, context: dict) -> tuple[bool, str]:
+def _empty_coords() -> dict:
+    return {
+        "found": False,
+        "x": 0,
+        "y": 0,
+        "left": 0,
+        "top": 0,
+        "width": 0,
+        "height": 0,
+        "matched_text": "",
+    }
+
+
+def _check(params: dict, context: dict) -> tuple[bool, str, dict]:
     wait_type = str(params.get("wait_type") or "text")
 
     if wait_type == "color":
@@ -108,11 +137,35 @@ def _check(params: dict, context: dict) -> tuple[bool, str]:
         region = resolve_region_from_params(params)
         if region:
             actual = region_dominant_color(region)
+            cx = (region[0] + region[2]) // 2
+            cy = (region[1] + region[3]) // 2
+            coords = {
+                "found": True,
+                "x": cx,
+                "y": cy,
+                "left": region[0],
+                "top": region[1],
+                "width": region[2] - region[0],
+                "height": region[3] - region[1],
+                "matched_text": "",
+            }
         else:
             x, y = resolve_point(params)
             actual = pixel_color(x, y)
+            coords = {
+                "found": True,
+                "x": x,
+                "y": y,
+                "left": x,
+                "top": y,
+                "width": 0,
+                "height": 0,
+                "matched_text": "",
+            }
         matched = color_distance(actual, target) <= tol
-        return matched, f"color={actual}"
+        if not matched:
+            coords = _empty_coords()
+        return matched, f"color={actual}", coords
 
     if wait_type == "expression":
         from backend.core.expression import evaluate_expression
@@ -121,18 +174,39 @@ def _check(params: dict, context: dict) -> tuple[bool, str]:
         if not expr.strip():
             raise ValueError("表达式等待需要填写 expression")
         matched = bool(evaluate_expression(expr, context))
-        return matched, f"expr={expr}"
+        return matched, f"expr={expr}", _empty_coords()
 
     # text (default)
+    from backend.blocks._ocr_match import match_text
     from backend.blocks.ocr_recognize import run_ocr
 
     expect = str(params.get("expect_text") or "")
     if not expect:
         raise ValueError("文字等待需要填写 expect_text")
-    ocr = run_ocr(params)
+    mode = str(params.get("match_mode") or "contains")
+    ocr = run_ocr({**params, "match_text": expect, "match_mode": mode})
     actual = str(ocr.get("text") or "")
-    matched = expect in actual
-    return matched, f"text={actual[:80]}"
+    # Prefer box hit; fall back to joined-text match (legacy wait behavior).
+    box_found = bool(ocr.get("found"))
+    text_matched = match_text(actual, expect, mode)
+    matched = box_found or text_matched
+    if box_found:
+        coords = {
+            "found": True,
+            "x": int(ocr.get("x") or 0),
+            "y": int(ocr.get("y") or 0),
+            "left": int(ocr.get("left") or 0),
+            "top": int(ocr.get("top") or 0),
+            "width": int(ocr.get("width") or 0),
+            "height": int(ocr.get("height") or 0),
+            "matched_text": str(ocr.get("matched_text") or ""),
+        }
+    else:
+        coords = _empty_coords()
+        if matched:
+            coords["found"] = False
+            coords["matched_text"] = actual[:120]
+    return matched, f"text={actual[:80]}", coords
 
 
 def handler(params, context, **kwargs):
@@ -141,12 +215,18 @@ def handler(params, context, **kwargs):
     t0 = time.perf_counter()
     deadline = None if timeout_ms <= 0 else t0 + timeout_ms / 1000.0
     detail = ""
+    coords = _empty_coords()
 
     while True:
-        matched, detail = _check(params, context)
+        matched, detail, coords = _check(params, context)
         if matched:
             elapsed = (time.perf_counter() - t0) * 1000
-            return {"ok": True, "elapsed_ms": round(elapsed, 1), "detail": detail}
+            return {
+                "ok": True,
+                "elapsed_ms": round(elapsed, 1),
+                "detail": detail,
+                **coords,
+            }
         if deadline is not None and time.perf_counter() >= deadline:
             elapsed = (time.perf_counter() - t0) * 1000
             raise TimeoutError(f"条件等待超时({timeout_ms}ms): {detail}")

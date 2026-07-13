@@ -63,17 +63,19 @@ def compact_context_value(key: str, value: Any) -> Any:
     k = str(key)
     leaf = k.rsplit(".", 1)[-1].lower()
     if leaf == "boxes" and isinstance(value, list):
-        # Keep short text+confidence for binding; drop polygon coordinates.
+        # Keep text + light AABB/center for binding; drop heavy polygons.
         compact = []
         for item in value[:80]:
             if not isinstance(item, dict):
                 continue
-            compact.append(
-                {
-                    "text": str(item.get("text") or "")[:120],
-                    "confidence": item.get("confidence"),
-                }
-            )
+            entry: dict[str, Any] = {
+                "text": str(item.get("text") or "")[:120],
+                "confidence": item.get("confidence"),
+            }
+            for geom_key in ("left", "top", "width", "height", "cx", "cy"):
+                if geom_key in item and item[geom_key] is not None:
+                    entry[geom_key] = item[geom_key]
+            compact.append(entry)
         return compact
     if leaf in ("box", "image", "bitmap", "pixels") and isinstance(value, (list, dict)):
         return None

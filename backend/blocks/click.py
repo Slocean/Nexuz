@@ -40,7 +40,12 @@ SCHEMA = {
             "default": None,
         },
     ],
-    "outputs": [],
+    "outputs": [
+        {"name": "ok", "type": "boolean"},
+        {"name": "x", "type": "number"},
+        {"name": "y", "type": "number"},
+        {"name": "button", "type": "string"},
+    ],
 }
 
 
@@ -51,4 +56,12 @@ def handler(params, context, **kwargs):
     if isinstance(provider_or_err, dict):
         raise RuntimeError(provider_or_err.get("message") or ERROR_INVALID_MODE)
     ctx = context if isinstance(context, dict) else {}
-    return provider_or_err.execute(target, ctx)
+    result = provider_or_err.execute(target, ctx) or {}
+    # Echo resolved coords when provider omits them (e.g. frida_ui).
+    if "x" not in result and target.coord is not None:
+        result["x"] = int(target.coord.x)
+    if "y" not in result and target.coord is not None:
+        result["y"] = int(target.coord.y)
+    result.setdefault("ok", True)
+    result.setdefault("button", target.button or "left")
+    return result

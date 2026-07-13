@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import re
+from backend.blocks._ocr_match import empty_match_outputs, match_text
 
 SCHEMA = {
     "type": "if_text_contains",
@@ -129,19 +129,16 @@ SCHEMA = {
     "outputs": [
         {"name": "matched", "type": "boolean"},
         {"name": "actual_text", "type": "string"},
+        {"name": "found", "type": "boolean"},
+        {"name": "x", "type": "number"},
+        {"name": "y", "type": "number"},
+        {"name": "left", "type": "number"},
+        {"name": "top", "type": "number"},
+        {"name": "width", "type": "number"},
+        {"name": "height", "type": "number"},
+        {"name": "matched_text", "type": "string"},
     ],
 }
-
-
-def _match_text(actual: str, expect: str, mode: str) -> bool:
-    if mode == "exact":
-        return actual.strip() == expect.strip()
-    if mode == "regex":
-        try:
-            return bool(re.search(expect, actual))
-        except re.error as exc:
-            raise ValueError(f"无效正则: {exc}") from exc
-    return expect in actual if expect else False
 
 
 def handler(params, context, **kwargs):
@@ -151,11 +148,30 @@ def handler(params, context, **kwargs):
 
     if source == "value":
         actual = str(params.get("actual_text") or "")
-    else:
-        from backend.blocks.ocr_recognize import run_ocr
+        matched = match_text(actual, expect, mode)
+        return {
+            "matched": matched,
+            "actual_text": actual,
+            **empty_match_outputs(),
+            "matched_text": actual if matched else "",
+            "found": matched,
+        }
 
-        ocr_out = run_ocr(params)
-        actual = str(ocr_out.get("text") or "")
+    from backend.blocks.ocr_recognize import run_ocr
 
-    matched = _match_text(actual, expect, mode)
-    return {"matched": matched, "actual_text": actual}
+    ocr_out = run_ocr({**params, "match_text": expect, "match_mode": mode})
+    actual = str(ocr_out.get("text") or "")
+    # Branch on full joined text (existing semantics); coords from box-level hit.
+    matched = match_text(actual, expect, mode)
+    return {
+        "matched": matched,
+        "actual_text": actual,
+        "found": bool(ocr_out.get("found")),
+        "x": int(ocr_out.get("x") or 0),
+        "y": int(ocr_out.get("y") or 0),
+        "left": int(ocr_out.get("left") or 0),
+        "top": int(ocr_out.get("top") or 0),
+        "width": int(ocr_out.get("width") or 0),
+        "height": int(ocr_out.get("height") or 0),
+        "matched_text": str(ocr_out.get("matched_text") or ""),
+    }

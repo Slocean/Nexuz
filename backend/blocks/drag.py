@@ -15,7 +15,12 @@ SCHEMA = {
         {"name": "to_y", "type": "number", "label": "终点Y", "default": 0},
         {"name": "duration", "type": "number", "label": "耗时(ms)", "default": 300},
     ],
-    "outputs": [],
+    "outputs": [
+        {"name": "from_x", "type": "number"},
+        {"name": "from_y", "type": "number"},
+        {"name": "to_x", "type": "number"},
+        {"name": "to_y", "type": "number"},
+    ],
 }
 
 
@@ -39,4 +44,4 @@ def handler(params, context, **kwargs):
     duration = float(params.get("duration", 300) or 0) / 1000.0
     pyautogui.moveTo(fx, fy)
     pyautogui.dragTo(tx, ty, duration=duration, button="left")
-    return {}
+    return {"from_x": fx, "from_y": fy, "to_x": tx, "to_y": ty}

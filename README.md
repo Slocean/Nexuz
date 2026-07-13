@@ -101,7 +101,7 @@ python package.py --onedir          # 目录模式（exe + _internal，启动更
 |------|--------|
 | 动作 | click / drag / key_press / type_text / delay / **wait_until** |
 | 识别 | color_detect / if_color_match / ocr_recognize / if_text_contains / find_image / **screenshot** |
-| 控制 | if_condition / switch / loop_* / **schedule_trigger** / **call_subflow** |
+| 控制 | if_condition / switch / loop_* / **schedule_trigger** / **call_subflow** / **assign** |
 | 平台 | 画布↔JSON（可自动同步）、变量面板、参数表单、运行控制、日志、保存加载、录制 |
 
 ## 使用提示
@@ -111,10 +111,13 @@ python package.py --onedir          # 目录模式（exe + _internal，启动更
 3. 右键节点可设为入口；右侧可「点击选取」坐标/区域
 4. 切换到 JSON 视图可直接编辑，校验通过后自动同步画布
 5. 录制：点「录制」后在屏幕操作，再点「停止录制」追加节点
+6. **OCR 找字点击**：OCR 节点填写「匹配文字」，输出 `found/x/y`（与找图一致）；点击节点把 X/Y 绑成 `{{ocr节点.x}}` / `{{ocr节点.y}}`。需要自定义变量名时用 **赋值变量**（`assign`）把上游字段写入 `$变量`
+7. 数据绑定：参数可切「上游 / 变量」，引用格式为 `{{nodeId.field}}` 或 `$name`
 
 ## 示例流程
 
-见 [`examples/demo_color_loop.flow.json`](examples/demo_color_loop.flow.json)，可在客户端「打开」后运行（会执行 delay / 取色 / 循环，几乎无副作用）。
+- [`examples/demo_color_loop.flow.json`](examples/demo_color_loop.flow.json)：delay / 取色 / 循环（几乎无副作用）
+- [`examples/demo_ocr_click.flow.json`](examples/demo_ocr_click.flow.json)：OCR 匹配文字 → 赋值变量 → 点击坐标（请按屏幕改 `region` / `$target`）
 
 ## 目录
 
