@@ -623,10 +623,8 @@ export default function Inspector({
             <p className="text-xs leading-relaxed opacity-90">
               推荐：全屏拖拽框选识别区域（同时保存相对比例，分辨率变化后自动换算）。
               窗口会移动时，可填「锚点模板」：先找图定位，再在偏移区域 OCR。
-              填写「匹配文字」或「匹配多字」后会输出 <code className="font-mono">found/x/y</code>
-              与 <code className="font-mono">matches</code>；多字可用{' '}
-              <code className="font-mono">{'{{ocr.matches.0.x}}'}</code>，或下游「文字定位」复用{' '}
-              <code className="font-mono">boxes</code>。
+              多字结果用 <code className="font-mono">{'{{ocr.matches.0.x}}'}</code>，
+              或下游「文字定位」复用 <code className="font-mono">boxes</code>。
             </p>
             {onPickRegion && (
               <div className="flex items-center gap-2">
@@ -837,11 +835,7 @@ export default function Inspector({
                   rows={4}
                   className="w-full text-sm min-h-[5.5rem]"
                   value={value ?? input.default ?? ''}
-                  placeholder={
-                    input.placeholder ||
-                    placeholder ||
-                    '每行填写一个要匹配的文字'
-                  }
+                  placeholder={input.placeholder || placeholder || ''}
                   onChange={(e) => handleFieldChange(input.name, e.target.value)}
                 />
               ) : isBindableInput(input) ? (

@@ -102,17 +102,17 @@ SCHEMA = {
         {
             "name": "match_text",
             "type": "string",
-            "label": "匹配文字(单目标，可选)",
+            "label": "匹配文字",
             "default": "",
         },
         {
             "name": "match_texts",
             "type": "string",
-            "label": "匹配多字（每行一个目标）",
+            "label": "匹配多字",
             "default": "",
             "bindable": False,
             "ui": "textarea",
-            "placeholder": "确定\n取消\n下一步",
+            "placeholder": "匹配值一\n匹配值二\n...",
         },
         {
             "name": "match_mode",
