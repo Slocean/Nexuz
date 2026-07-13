@@ -8,7 +8,7 @@ SCHEMA = {
         {
             "name": "variable",
             "type": "string",
-            "label": "判断值（可绑上游/变量）",
+            "label": "判断值",
             "default": "",
         },
         {"name": "cases", "type": "cases", "label": "分支", "default": []},

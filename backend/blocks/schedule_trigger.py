@@ -21,7 +21,8 @@ SCHEMA = {
         {
             "name": "run_at",
             "type": "string",
-            "label": "单次时间(once，如 2026-07-12 10:00:00)",
+            "label": "单次时间(once)",
+            "placeholder": "如 2026-07-12 10:00:00",
             "default": "",
         },
         {

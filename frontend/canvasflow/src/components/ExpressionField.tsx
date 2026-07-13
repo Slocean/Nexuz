@@ -23,8 +23,24 @@ const OPS = [
   { value: 'contains', label: '包含' },
 ];
 
+function Labeled({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1 min-w-0 w-full">
+      <span className="text-[11px] font-medium opacity-60 leading-none">{title}</span>
+      {children}
+    </div>
+  );
+}
+
 /**
  * Lightweight expression builder → writes expression string for evaluate_expression.
+ * Layout: each control is title + input (stacked), not a crowded horizontal row.
  */
 export default function ExpressionField({
   value,
@@ -92,132 +108,157 @@ export default function ExpressionField({
   };
 
   return (
-    <div className="flex flex-col gap-1.5 w-full min-w-0">
+    <div className="flex flex-col gap-2 w-full min-w-0">
       <Input
-        className="h-8 font-mono text-xs"
+        className="h-8 font-mono text-xs w-full"
         value={String(value ?? '')}
         placeholder='例如 {{ocr1.text}} contains "成功"'
         onChange={(e) => onChange(e.target.value)}
       />
-      <div className="flex flex-wrap items-center gap-1">
-        <Select
-          value={leftNode || undefined}
-          onValueChange={(v) => {
-            setLeftNode(v);
-            const n = nodeOptions.find((x) => x.id === v);
-            setLeftField(n?.outputs?.[0]?.name || '');
-          }}
-        >
-          <SelectTrigger className="h-7 w-[6.5rem] text-xs">
-            <SelectValue placeholder="左：节点" />
-          </SelectTrigger>
-          <SelectContent>
-            {nodeOptions.map((n) => (
-              <SelectItem key={n.id} value={n.id}>
-                {n.label}
+
+      <div className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2.5">
+        <p className="text-[11px] opacity-50 leading-none">快速填入</p>
+
+        <Labeled title="左值节点">
+          <Select
+            value={leftNode || undefined}
+            onValueChange={(v) => {
+              setLeftNode(v);
+              const n = nodeOptions.find((x) => x.id === v);
+              setLeftField(n?.outputs?.[0]?.name || '');
+            }}
+          >
+            <SelectTrigger className="h-8 w-full text-xs">
+              <SelectValue placeholder="选择节点" />
+            </SelectTrigger>
+            <SelectContent>
+              {nodeOptions.map((n) => (
+                <SelectItem key={n.id} value={n.id}>
+                  {n.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Labeled>
+
+        <Labeled title="左值字段">
+          <Select value={leftField || undefined} onValueChange={setLeftField}>
+            <SelectTrigger className="h-8 w-full text-xs">
+              <SelectValue placeholder="选择字段" />
+            </SelectTrigger>
+            <SelectContent>
+              {leftFields.map((f) => (
+                <SelectItem key={f.name} value={f.name}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Labeled>
+
+        <Labeled title="比较方式">
+          <Select value={op} onValueChange={setOp}>
+            <SelectTrigger className="h-8 w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {OPS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Labeled>
+
+        <Labeled title="右值类型">
+          <Select
+            value={rightKind}
+            onValueChange={(v) => {
+              const next = v as 'literal' | 'node' | 'variable';
+              setRightKind(next);
+              if (next === 'variable' && !rightVar && varOptions[0]) {
+                setRightVar(varOptions[0]);
+              }
+            }}
+          >
+            <SelectTrigger className="h-8 w-full text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="literal">常量</SelectItem>
+              <SelectItem value="node">上游</SelectItem>
+              <SelectItem value="variable" disabled={varOptions.length === 0}>
+                变量{varOptions.length === 0 ? '（未创建）' : ''}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={leftField || undefined} onValueChange={setLeftField}>
-          <SelectTrigger className="h-7 w-[5rem] text-xs">
-            <SelectValue placeholder="字段" />
-          </SelectTrigger>
-          <SelectContent>
-            {leftFields.map((f) => (
-              <SelectItem key={f.name} value={f.name}>
-                {f.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={op} onValueChange={setOp}>
-          <SelectTrigger className="h-7 w-[5.5rem] text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {OPS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={rightKind}
-          onValueChange={(v) => {
-            const next = v as 'literal' | 'node' | 'variable';
-            setRightKind(next);
-            if (next === 'variable' && !rightVar && varOptions[0]) {
-              setRightVar(varOptions[0]);
-            }
-          }}
-        >
-          <SelectTrigger className="h-7 w-[4.5rem] text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="literal">常量</SelectItem>
-            <SelectItem value="node">上游</SelectItem>
-            <SelectItem value="variable" disabled={varOptions.length === 0}>
-              变量{varOptions.length === 0 ? '（未创建）' : ''}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+            </SelectContent>
+          </Select>
+        </Labeled>
+
         {rightKind === 'literal' ? (
-          <Input
-            className="h-7 w-[6rem] text-xs"
-            value={rightLiteral}
-            placeholder="右值"
-            onChange={(e) => setRightLiteral(e.target.value)}
-          />
+          <Labeled title="右值">
+            <Input
+              className="h-8 w-full text-xs"
+              value={rightLiteral}
+              placeholder="输入常量"
+              onChange={(e) => setRightLiteral(e.target.value)}
+            />
+          </Labeled>
         ) : rightKind === 'variable' ? (
-          <VariableSelect
-            value={rightVar ? `$${rightVar}` : ''}
-            bare
-            onChange={(name) => setRightVar(name)}
-            placeholder="$变量"
-            triggerClassName="h-7 w-[6rem] text-xs"
-          />
+          <Labeled title="右值变量">
+            <VariableSelect
+              value={rightVar ? `$${rightVar}` : ''}
+              bare
+              onChange={(name) => setRightVar(name)}
+              placeholder="$变量"
+              triggerClassName="h-8 w-full text-xs"
+            />
+          </Labeled>
         ) : (
           <>
-            <Select
-              value={rightNode || undefined}
-              onValueChange={(v) => {
-                setRightNode(v);
-                const n = nodeOptions.find((x) => x.id === v);
-                setRightField(n?.outputs?.[0]?.name || '');
-              }}
-            >
-              <SelectTrigger className="h-7 w-[6rem] text-xs">
-                <SelectValue placeholder="节点" />
-              </SelectTrigger>
-              <SelectContent>
-                {nodeOptions.map((n) => (
-                  <SelectItem key={n.id} value={n.id}>
-                    {n.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={rightField || undefined} onValueChange={setRightField}>
-              <SelectTrigger className="h-7 w-[5rem] text-xs">
-                <SelectValue placeholder="字段" />
-              </SelectTrigger>
-              <SelectContent>
-                {rightFields.map((f) => (
-                  <SelectItem key={f.name} value={f.name}>
-                    {f.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Labeled title="右值节点">
+              <Select
+                value={rightNode || undefined}
+                onValueChange={(v) => {
+                  setRightNode(v);
+                  const n = nodeOptions.find((x) => x.id === v);
+                  setRightField(n?.outputs?.[0]?.name || '');
+                }}
+              >
+                <SelectTrigger className="h-8 w-full text-xs">
+                  <SelectValue placeholder="选择节点" />
+                </SelectTrigger>
+                <SelectContent>
+                  {nodeOptions.map((n) => (
+                    <SelectItem key={n.id} value={n.id}>
+                      {n.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Labeled>
+            <Labeled title="右值字段">
+              <Select value={rightField || undefined} onValueChange={setRightField}>
+                <SelectTrigger className="h-8 w-full text-xs">
+                  <SelectValue placeholder="选择字段" />
+                </SelectTrigger>
+                <SelectContent>
+                  {rightFields.map((f) => (
+                    <SelectItem key={f.name} value={f.name}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Labeled>
           </>
         )}
-        <Button type="button" size="sm" className="h-7 px-2 text-xs" onClick={apply}>
-          填入
+
+        <Button type="button" size="sm" className="h-8 w-full text-xs" onClick={apply}>
+          填入表达式
         </Button>
       </div>
+
       {exprIssues.length > 0 && (
         <div className="space-y-0.5">
           {exprIssues.slice(0, 4).map((iss, i) => (

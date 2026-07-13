@@ -198,37 +198,49 @@ function CasesEditor({
   return (
     <div className="space-y-2">
       {cases.map((c, idx) => (
-        <div key={idx} className="flex gap-1.5 items-center">
-          <Input
-            className="h-8 text-xs flex-1"
-            placeholder="匹配值"
-            value={c.value ?? ''}
-            onChange={(e) => update(idx, { value: e.target.value })}
-          />
-          <Select
-            value={c.node_id || undefined}
-            onValueChange={(v) => update(idx, { node_id: v })}
-          >
-            <SelectTrigger className="h-8 text-xs w-[120px]">
-              <SelectValue placeholder="跳转节点" />
-            </SelectTrigger>
-            <SelectContent>
-              {nodeIds.map((id) => (
-                <SelectItem key={id} value={id}>
-                  {id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-rose-400 shrink-0"
-            onClick={() => onChange(cases.filter((_, i) => i !== idx) as any)}
-          >
-            <X className="w-3.5 h-3.5" />
-          </Button>
+        <div
+          key={idx}
+          className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2"
+        >
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[11px] opacity-60 font-medium">分支 {idx + 1}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-rose-400 shrink-0"
+              onClick={() => onChange(cases.filter((_, i) => i !== idx) as any)}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] opacity-60">匹配值</span>
+            <Input
+              className="h-8 text-xs w-full"
+              placeholder="匹配值"
+              value={c.value ?? ''}
+              onChange={(e) => update(idx, { value: e.target.value })}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] opacity-60">跳转节点</span>
+            <Select
+              value={c.node_id || undefined}
+              onValueChange={(v) => update(idx, { node_id: v })}
+            >
+              <SelectTrigger className="h-8 text-xs w-full">
+                <SelectValue placeholder="跳转节点" />
+              </SelectTrigger>
+              <SelectContent>
+                {nodeIds.map((id) => (
+                  <SelectItem key={id} value={id}>
+                    {id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       ))}
       <Button
@@ -305,7 +317,26 @@ function ConditionsListEditor({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+  stacked = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  /** Title above control — use for expression / multi-control editors */
+  stacked?: boolean;
+}) {
+  if (stacked) {
+    return (
+      <div className="flex flex-col gap-1.5 min-w-0 w-full">
+        <Label className="text-xs font-medium opacity-75 leading-none" title={label}>
+          {label}
+        </Label>
+        <div className="w-full min-w-0">{children}</div>
+      </div>
+    );
+  }
   return (
     <div className="flex items-start gap-2 min-w-0">
       <Label
@@ -659,15 +690,26 @@ export default function Inspector({
           const value = selectedNode.config?.[input.name];
           const label = input.label || input.name;
           const optionLabels = input.option_labels || {};
+          const stacked =
+            input.type === 'condition_list' ||
+            input.type === 'cases' ||
+            input.ui === 'expression' ||
+            input.name === 'expression' ||
+            input.name === 'exit_condition';
+          const placeholder =
+            input.placeholder ||
+            (typeof input.label === 'string' && !String(input.label).includes('(')
+              ? input.label
+              : input.name);
 
           return (
-            <Field key={input.name} label={label}>
+            <Field key={input.name} label={label} stacked={stacked}>
               {input.type === 'select' ? (
                 <Select
                   value={String(value ?? input.default ?? '')}
                   onValueChange={(v) => handleFieldChange(input.name, v)}
                 >
-                  <SelectTrigger className="h-8">
+                  <SelectTrigger className="h-8 w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -697,7 +739,7 @@ export default function Inspector({
                 </>
               ) : input.type === 'keys' ? (
                 <Input
-                  className="h-8"
+                  className="h-8 w-full"
                   value={Array.isArray(value) ? value.join('+') : value || ''}
                   placeholder="ctrl+c"
                   onChange={(e) =>
@@ -806,7 +848,7 @@ export default function Inspector({
                   currentNodeId={selectedNode.id}
                   schemaMap={schemaMap}
                   onChange={(v) => handleFieldChange(input.name, v)}
-                  placeholder={input.label || input.name}
+                  placeholder={placeholder}
                   trailing={
                     (input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') &&
                     onPickPoint ? (
@@ -827,8 +869,9 @@ export default function Inspector({
                 />
               ) : (
                 <Input
-                  className="h-8"
+                  className="h-8 w-full"
                   value={value ?? ''}
+                  placeholder={placeholder}
                   onChange={(e) => handleFieldChange(input.name, e.target.value)}
                 />
               )}

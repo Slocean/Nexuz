@@ -180,7 +180,7 @@ export const MOCK_SCHEMAS = [
     label: '多分支',
     category: '控制类',
     inputs: [
-      { name: 'variable', type: 'string', label: '判断值（可绑上游/变量）', default: '' },
+      { name: 'variable', type: 'string', label: '判断值', default: '' },
       { name: 'cases', type: 'cases', label: '分支', default: [] },
       { name: 'default', type: 'string', label: '默认节点ID', default: '', bindable: false },
     ],
@@ -459,7 +459,13 @@ export const MOCK_SCHEMAS = [
         default: 'interval',
       },
       { name: 'interval_seconds', type: 'number', label: '周期秒数(interval)', default: 60 },
-      { name: 'run_at', type: 'string', label: '单次时间(once)', default: '' },
+      {
+        name: 'run_at',
+        type: 'string',
+        label: '单次时间(once)',
+        placeholder: '如 2026-07-12 10:00:00',
+        default: '',
+      },
       { name: 'cron_expression', type: 'string', label: 'Cron(分 时 日 月 周)', default: '0 * * * *' },
       { name: 'enabled', type: 'select', label: '启用', options: ['true', 'false'], default: 'true' },
     ],
