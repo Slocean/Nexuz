@@ -37,6 +37,7 @@ const PRIMARY_DATA_OUTS = new Set([
   'path',
   'ok',
   'index',
+  'count',
   'confidence',
   'score',
   'elapsed_ms',

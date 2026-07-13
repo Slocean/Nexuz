@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, Settings, Terminal, X, Copy, Check, Download } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Settings, Terminal, X, Copy, Check, Download } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
@@ -178,6 +178,313 @@ function KeyMapEditor({
   );
 }
 
+function PointListEditor({
+  value,
+  onChange,
+  onPickPoint,
+  showDelay = false,
+}: {
+  value: { x?: number; y?: number; delay_ms?: number | string }[];
+  onChange: (next: { x: number; y: number; delay_ms?: number }[]) => void;
+  onPickPoint?: () => Promise<any>;
+  showDelay?: boolean;
+}) {
+  const { alert } = useAppDialog();
+  const points = Array.isArray(value) ? value : [];
+
+  const update = (idx: number, patch: Partial<{ x: number; y: number; delay_ms: number }>) => {
+    const next = points.map((p, i) => {
+      if (i !== idx) return { x: Number(p.x) || 0, y: Number(p.y) || 0, delay_ms: p.delay_ms as any };
+      return {
+        x: patch.x !== undefined ? patch.x : Number(p.x) || 0,
+        y: patch.y !== undefined ? patch.y : Number(p.y) || 0,
+        ...(showDelay
+          ? {
+              delay_ms:
+                patch.delay_ms !== undefined
+                  ? patch.delay_ms
+                  : p.delay_ms === '' || p.delay_ms == null
+                    ? undefined
+                    : Number(p.delay_ms),
+            }
+          : {}),
+      };
+    });
+    onChange(next as any);
+  };
+
+  const move = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= points.length) return;
+    const next = [...points];
+    const tmp = next[idx];
+    next[idx] = next[j];
+    next[j] = tmp;
+    onChange(
+      next.map((p) => ({
+        x: Number(p.x) || 0,
+        y: Number(p.y) || 0,
+        ...(showDelay && p.delay_ms != null && p.delay_ms !== ''
+          ? { delay_ms: Number(p.delay_ms) }
+          : {}),
+      })) as any,
+    );
+  };
+
+  return (
+    <div className="space-y-2 w-full">
+      {points.map((p, idx) => (
+        <div
+          key={idx}
+          className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-1.5"
+        >
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] opacity-60 font-medium shrink-0 w-10">#{idx + 1}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0"
+              disabled={idx === 0}
+              onClick={() => move(idx, -1)}
+              title="上移"
+            >
+              <ChevronUp className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0"
+              disabled={idx >= points.length - 1}
+              onClick={() => move(idx, 1)}
+              title="下移"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-rose-400 shrink-0 ml-auto"
+              onClick={() => onChange(points.filter((_, i) => i !== idx) as any)}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+          <div className="flex items-center gap-1">
+            <Input
+              className="h-7 text-xs font-mono flex-1 min-w-0"
+              placeholder="X"
+              value={p.x ?? 0}
+              onChange={(e) => update(idx, { x: Number(e.target.value) || 0 })}
+            />
+            <Input
+              className="h-7 text-xs font-mono flex-1 min-w-0"
+              placeholder="Y"
+              value={p.y ?? 0}
+              onChange={(e) => update(idx, { y: Number(e.target.value) || 0 })}
+            />
+            {onPickPoint && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 px-2"
+                onClick={async () => {
+                  const res = await onPickPoint();
+                  if (!res?.ok) {
+                    await alert({
+                      title: '取点失败',
+                      description: res?.error || res?.message || '已取消或超时',
+                    });
+                    return;
+                  }
+                  const params = res.params || {};
+                  update(idx, {
+                    x: Number(params.x ?? res.x) || 0,
+                    y: Number(params.y ?? res.y) || 0,
+                  });
+                }}
+              >
+                取点
+              </Button>
+            )}
+          </div>
+          {showDelay && (
+            <Input
+              className="h-7 text-xs font-mono w-full"
+              placeholder="本点前延迟毫秒（空=用全局）"
+              value={p.delay_ms ?? ''}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                update(idx, { delay_ms: v === '' ? (undefined as any) : Number(v) || 0 });
+              }}
+            />
+          )}
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() =>
+          onChange([
+            ...points.map((p) => ({
+              x: Number(p.x) || 0,
+              y: Number(p.y) || 0,
+              ...(showDelay && p.delay_ms != null && p.delay_ms !== ''
+                ? { delay_ms: Number(p.delay_ms) }
+                : {}),
+            })),
+            { x: 0, y: 0 },
+          ] as any)
+        }
+      >
+        添加点
+      </Button>
+    </div>
+  );
+}
+
+function KeyStepsEditor({
+  value,
+  onChange,
+}: {
+  value: { keys?: string; delay_ms?: number | string }[];
+  onChange: (next: { keys: string; delay_ms?: number }[]) => void;
+}) {
+  const steps = Array.isArray(value) ? value : [];
+
+  const update = (idx: number, patch: Partial<{ keys: string; delay_ms: number }>) => {
+    const next = steps.map((s, i) => {
+      if (i !== idx) {
+        return {
+          keys: typeof s.keys === 'string' ? s.keys : Array.isArray(s.keys) ? (s.keys as any).join('+') : '',
+          delay_ms: s.delay_ms as any,
+        };
+      }
+      return {
+        keys: patch.keys !== undefined ? patch.keys : (typeof s.keys === 'string' ? s.keys : ''),
+        delay_ms:
+          patch.delay_ms !== undefined
+            ? patch.delay_ms
+            : s.delay_ms === '' || s.delay_ms == null
+              ? undefined
+              : Number(s.delay_ms),
+      };
+    });
+    onChange(next as any);
+  };
+
+  const move = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= steps.length) return;
+    const next = [...steps];
+    const tmp = next[idx];
+    next[idx] = next[j];
+    next[j] = tmp;
+    onChange(
+      next.map((s) => ({
+        keys: typeof s.keys === 'string' ? s.keys : Array.isArray(s.keys) ? (s.keys as any).join('+') : '',
+        ...(s.delay_ms != null && s.delay_ms !== '' ? { delay_ms: Number(s.delay_ms) } : {}),
+      })) as any,
+    );
+  };
+
+  return (
+    <div className="space-y-2 w-full">
+      {steps.map((s, idx) => {
+        const keysStr =
+          typeof s.keys === 'string'
+            ? s.keys
+            : Array.isArray(s.keys)
+              ? (s.keys as any).join('+')
+              : '';
+        return (
+          <div
+            key={idx}
+            className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-1.5"
+          >
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] opacity-60 font-medium shrink-0 w-10">#{idx + 1}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0"
+                disabled={idx === 0}
+                onClick={() => move(idx, -1)}
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0"
+                disabled={idx >= steps.length - 1}
+                onClick={() => move(idx, 1)}
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-rose-400 shrink-0 ml-auto"
+                onClick={() => onChange(steps.filter((_, i) => i !== idx) as any)}
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            <Input
+              className="h-7 text-xs font-mono w-full"
+              placeholder="ctrl+c"
+              value={keysStr}
+              onChange={(e) => update(idx, { keys: e.target.value })}
+            />
+            <Input
+              className="h-7 text-xs font-mono w-full"
+              placeholder="本步前延迟毫秒（空=用全局）"
+              value={s.delay_ms ?? ''}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                update(idx, { delay_ms: v === '' ? (undefined as any) : Number(v) || 0 });
+              }}
+            />
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() =>
+          onChange([
+            ...steps.map((s) => ({
+              keys:
+                typeof s.keys === 'string'
+                  ? s.keys
+                  : Array.isArray(s.keys)
+                    ? (s.keys as any).join('+')
+                    : '',
+              ...(s.delay_ms != null && s.delay_ms !== ''
+                ? { delay_ms: Number(s.delay_ms) }
+                : {}),
+            })),
+            { keys: 'enter' },
+          ] as any)
+        }
+      >
+        添加步骤
+      </Button>
+    </div>
+  );
+}
+
 function CasesEditor({
   value,
   onChange,
@@ -330,6 +637,9 @@ function inputVisible(input: any, config: Record<string, any> | undefined): bool
     if (cur === undefined || cur === null || cur === '') {
       if (key === 'source_mode') cur = 'capture';
       else if (key === 'wait_type') cur = 'text';
+      else if (key === 'click_mode') cur = 'single';
+      else if (key === 'key_mode') cur = 'single';
+      else if (key === 'sample_mode') cur = 'single';
       else return false;
     }
     if (Array.isArray(expect)) {
@@ -549,17 +859,15 @@ export default function Inspector({
       'wait_until',
     ].includes(selectedNode.subType);
     const isClick = selectedNode.subType === 'click';
+    const clickMode = String(selectedNode.config?.click_mode || 'single');
     const isOcr =
       selectedNode.subType === 'ocr_recognize' ||
       selectedNode.subType === 'if_text_contains';
 
     return (
       <div className="space-y-3">
-        {isClick && (
+        {isClick && clickMode === 'single' && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
-            <p className="text-xs leading-relaxed opacity-90">
-              X/Y 可切换为「上游」绑定，例如 <code className="font-mono">{'{{ocr1.x}}'}</code>
-            </p>
             <Field label="录入模式">
               <Select
                 value={
@@ -648,7 +956,11 @@ export default function Inspector({
             // Handled in the click panel above / nested object not edited as text
             if (input.name === 'capture_mode' || input.name === 'frida_ui') return false;
             const mode = resolveClickMode();
-            if (mode === 'frida_ui' && (input.name === 'x' || input.name === 'y' || input.name === 'move_duration')) {
+            if (
+              clickMode === 'single' &&
+              mode === 'frida_ui' &&
+              (input.name === 'x' || input.name === 'y' || input.name === 'move_duration')
+            ) {
               return false;
             }
             return true;
@@ -658,9 +970,14 @@ export default function Inspector({
           const label = input.label || input.name;
           const optionLabels = input.option_labels || {};
           const stacked =
+            input.type === 'keymap' ||
+            input.ui === 'input_map' ||
+            input.ui === 'output_map' ||
             input.type === 'condition_list' ||
             input.type === 'logic_tree' ||
             input.type === 'cases' ||
+            input.type === 'point_list' ||
+            input.type === 'key_steps' ||
             input.ui === 'expression' ||
             input.name === 'expression' ||
             input.name === 'exit_condition';
@@ -688,6 +1005,18 @@ export default function Inspector({
                     ))}
                   </SelectContent>
                 </Select>
+              ) : input.type === 'point_list' ? (
+                <PointListEditor
+                  value={Array.isArray(value) ? value : []}
+                  onChange={(next) => handleFieldChange(input.name, next)}
+                  onPickPoint={onPickPoint}
+                  showDelay={selectedNode.subType === 'click'}
+                />
+              ) : input.type === 'key_steps' ? (
+                <KeyStepsEditor
+                  value={Array.isArray(value) ? value : []}
+                  onChange={(next) => handleFieldChange(input.name, next)}
+                />
               ) : input.type === 'color' ? (
                 <>
                   <Input
