@@ -10,8 +10,9 @@ SCHEMA = {
         {
             "name": "keys",
             "type": "keys",
-            "label": "按键(组合)",
+            "label": "按键",
             "default": ["enter"],
+            "placeholder": "ctrl+c",
         }
     ],
     "outputs": [],

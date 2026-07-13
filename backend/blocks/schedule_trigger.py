@@ -15,21 +15,22 @@ SCHEMA = {
         {
             "name": "interval_seconds",
             "type": "number",
-            "label": "周期秒数(interval)",
+            "label": "周期秒数",
             "default": 60,
         },
         {
             "name": "run_at",
             "type": "string",
-            "label": "单次时间(once)",
-            "placeholder": "如 2026-07-12 10:00:00",
+            "label": "单次时间",
+            "placeholder": "2026-07-12 10:00:00",
             "default": "",
         },
         {
             "name": "cron_expression",
             "type": "string",
-            "label": "Cron(分 时 日 月 周)",
+            "label": "Cron",
             "default": "0 * * * *",
+            "placeholder": "分 时 日 月 周",
         },
         {
             "name": "enabled",

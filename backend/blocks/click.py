@@ -32,7 +32,7 @@ SCHEMA = {
             "options": ["single", "double"],
             "default": "single",
         },
-        {"name": "move_duration", "type": "number", "label": "移动耗时(ms)", "default": 0},
+        {"name": "move_duration", "type": "number", "label": "移动耗时毫秒", "default": 0},
         {
             "name": "frida_ui",
             "type": "object",

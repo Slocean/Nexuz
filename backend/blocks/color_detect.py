@@ -12,9 +12,9 @@ SCHEMA = {
     "label": "区域取色",
     "category": "识别类",
     "inputs": [
-        {"name": "x", "type": "number", "label": "X（单点）", "default": 0},
-        {"name": "y", "type": "number", "label": "Y（单点）", "default": 0},
-        {"name": "region", "type": "rect", "label": "区域(可选)", "default": None},
+        {"name": "x", "type": "number", "label": "X", "default": 0},
+        {"name": "y", "type": "number", "label": "Y", "default": 0},
+        {"name": "region", "type": "rect", "label": "区域", "default": None},
     ],
     "outputs": [
         {"name": "color", "type": "string"},

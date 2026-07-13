@@ -19,8 +19,9 @@ SCHEMA = {
         {
             "name": "save_path",
             "type": "string",
-            "label": "保存路径(可选，空则自动)",
+            "label": "保存路径",
             "default": "",
+            "placeholder": "留空则自动保存",
         },
     ],
     "outputs": [

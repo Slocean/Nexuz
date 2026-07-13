@@ -10,20 +10,22 @@ SCHEMA = {
         {
             "name": "template_image",
             "type": "string",
-            "label": "模板图片路径",
+            "label": "模板图片",
             "default": "",
+            "placeholder": "模板 PNG 路径",
         },
         {
             "name": "search_region",
             "type": "rect",
-            "label": "搜索区域(可选)",
+            "label": "搜索区域",
             "default": None,
         },
         {
             "name": "threshold",
             "type": "number",
-            "label": "相似度阈值(0-1)",
+            "label": "相似度阈值",
             "default": 0.8,
+            "placeholder": "0~1",
         },
     ],
     "outputs": [

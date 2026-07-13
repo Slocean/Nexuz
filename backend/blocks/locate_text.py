@@ -14,15 +14,17 @@ SCHEMA = {
         {
             "name": "boxes",
             "type": "string",
-            "label": "OCR boxes（绑 {{ocr.boxes}}）",
+            "label": "boxes",
             "default": "",
             "bindable": True,
+            "placeholder": "{{ocr节点.boxes}}",
         },
         {
             "name": "match_text",
             "type": "string",
             "label": "匹配文字",
             "default": "",
+            "placeholder": "要找的字",
         },
         {
             "name": "match_mode",

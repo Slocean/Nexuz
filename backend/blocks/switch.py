@@ -15,9 +15,10 @@ SCHEMA = {
         {
             "name": "default",
             "type": "string",
-            "label": "默认节点ID",
+            "label": "默认节点",
             "default": "",
             "bindable": False,
+            "placeholder": "节点 ID",
         },
     ],
     "outputs": [

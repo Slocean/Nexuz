@@ -10,7 +10,7 @@ SCHEMA = {
         {
             "name": "mappings",
             "type": "keymap",
-            "label": "变量赋值（$名 ← 值/上游引用）",
+            "label": "变量映射",
             "default": {},
             "ui": "input_map",
         },

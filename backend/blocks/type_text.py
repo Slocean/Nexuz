@@ -8,7 +8,7 @@ SCHEMA = {
     "category": "动作类",
     "inputs": [
         {"name": "text", "type": "string", "label": "文本", "default": ""},
-        {"name": "interval", "type": "number", "label": "字符间隔(ms)", "default": 0},
+        {"name": "interval", "type": "number", "label": "字符间隔毫秒", "default": 0},
     ],
     "outputs": [],
 }

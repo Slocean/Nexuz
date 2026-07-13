@@ -13,7 +13,7 @@ SCHEMA = {
         {"name": "from_y", "type": "number", "label": "起点Y", "default": 0},
         {"name": "to_x", "type": "number", "label": "终点X", "default": 0},
         {"name": "to_y", "type": "number", "label": "终点Y", "default": 0},
-        {"name": "duration", "type": "number", "label": "耗时(ms)", "default": 300},
+        {"name": "duration", "type": "number", "label": "耗时毫秒", "default": 300},
     ],
     "outputs": [
         {"name": "from_x", "type": "number"},

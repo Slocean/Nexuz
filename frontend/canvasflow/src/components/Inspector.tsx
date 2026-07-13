@@ -152,12 +152,12 @@ function KeyMapEditor({
               currentNodeId={currentNodeId}
               schemaMap={schemaMap}
               onChange={(nv) => setEntry(idx, k, nv)}
-              placeholder="常量 / 上游 / 变量"
+              placeholder="值"
             />
           ) : (
             <Input
               className="h-7 text-xs font-mono"
-              placeholder="子流程键，如 node1.text 或 $result"
+              placeholder="node1.text"
               value={v == null ? '' : String(v)}
               onChange={(e) => setEntry(idx, k, e.target.value)}
             />
@@ -558,9 +558,7 @@ export default function Inspector({
         {isClick && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
             <p className="text-xs leading-relaxed opacity-90">
-              顶栏「录制」可连续录入多步。参数中的 X/Y 可切换为「上游」绑定找图 / OCR
-              的输出（如 <code className="font-mono">{'{{find1.x}}'}</code> 或{' '}
-              <code className="font-mono">{'{{ocr1.x}}'}</code>）。
+              X/Y 可切换为「上游」绑定，例如 <code className="font-mono">{'{{ocr1.x}}'}</code>
             </p>
             <Field label="录入模式">
               <Select
@@ -621,10 +619,8 @@ export default function Inspector({
         {isOcr && (
           <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
             <p className="text-xs leading-relaxed opacity-90">
-              推荐：全屏拖拽框选识别区域（同时保存相对比例，分辨率变化后自动换算）。
-              窗口会移动时，可填「锚点模板」：先找图定位，再在偏移区域 OCR。
-              多字结果用 <code className="font-mono">{'{{ocr.matches.0.x}}'}</code>，
-              或下游「文字定位」复用 <code className="font-mono">boxes</code>。
+              多字结果：<code className="font-mono">{'{{ocr.matches.0.x}}'}</code>
+              ；或「文字定位」复用 <code className="font-mono">boxes</code>
             </p>
             {onPickRegion && (
               <div className="flex items-center gap-2">
@@ -759,10 +755,12 @@ export default function Inspector({
                 <KeyMapEditor
                   value={value && typeof value === 'object' && !Array.isArray(value) ? value : {}}
                   onChange={(next) => handleFieldChange(input.name, next)}
-                  keyPlaceholder={
-                    input.ui === 'output_map' ? '父流程变量' : '子流程侧变量名'
+                  keyPlaceholder="变量名"
+                  keyMode={
+                    input.ui === 'output_map' || input.name === 'mappings'
+                      ? 'variable'
+                      : 'text'
                   }
-                  keyMode={input.ui === 'output_map' ? 'variable' : 'text'}
                   valueMode={input.ui === 'output_map' ? 'plain' : 'bindable'}
                   currentNodeId={selectedNode.id}
                   schemaMap={schemaMap}
@@ -1195,8 +1193,7 @@ export default function Inspector({
                   className="rounded-xl border divide-y divide-black/5 dark:divide-white/5 overflow-hidden"
                 >
                   <p className="text-xs opacity-60 px-2 py-1.5 bg-black/[0.03] dark:bg-white/[0.03]">
-                    点击字段复制引用，供下游在右侧选择「上游」或粘贴使用（复杂字段如
-                    boxes/matches 不上画布口）
+                    点击字段复制引用
                   </p>
                   {outs.map((o) => (
                     <OutputRefChip

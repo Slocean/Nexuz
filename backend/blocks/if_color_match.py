@@ -21,7 +21,7 @@ SCHEMA = {
             "default": "capture",
             "option_labels": {
                 "capture": "现场取色",
-                "value": "使用已有颜色（上游/变量）",
+                "value": "上游颜色",
             },
         },
         {
@@ -30,6 +30,7 @@ SCHEMA = {
             "label": "实际颜色",
             "default": "",
             "show_when": {"source_mode": "value"},
+            "placeholder": "#RRGGBB",
         },
         {
             "name": "x",
@@ -48,7 +49,7 @@ SCHEMA = {
         {
             "name": "region",
             "type": "rect",
-            "label": "区域(可选)",
+            "label": "区域",
             "default": None,
             "show_when": {"source_mode": "capture"},
         },

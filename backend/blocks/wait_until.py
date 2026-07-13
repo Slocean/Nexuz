@@ -22,21 +22,21 @@ SCHEMA = {
         {
             "name": "region",
             "type": "rect",
-            "label": "检测区域(颜色/文字)",
+            "label": "检测区域",
             "default": None,
             "show_when": {"wait_type": ["color", "text"]},
         },
         {
             "name": "x",
             "type": "number",
-            "label": "单点X(颜色可选)",
+            "label": "单点 X",
             "default": 0,
             "show_when": {"wait_type": "color"},
         },
         {
             "name": "y",
             "type": "number",
-            "label": "单点Y(颜色可选)",
+            "label": "单点 Y",
             "default": 0,
             "show_when": {"wait_type": "color"},
         },
@@ -57,9 +57,10 @@ SCHEMA = {
         {
             "name": "expect_text",
             "type": "string",
-            "label": "期望文字(包含)",
+            "label": "期望文字",
             "default": "",
             "show_when": {"wait_type": "text"},
+            "placeholder": "要等待出现的字",
         },
         {
             "name": "match_mode",
@@ -72,7 +73,7 @@ SCHEMA = {
         {
             "name": "expression",
             "type": "string",
-            "label": "表达式(为真则继续)",
+            "label": "表达式",
             "default": "",
             "bindable": False,
             "ui": "expression",
@@ -81,8 +82,9 @@ SCHEMA = {
         {
             "name": "timeout_ms",
             "type": "number",
-            "label": "超时毫秒(0=不限)",
+            "label": "超时毫秒",
             "default": 30000,
+            "placeholder": "0 = 不限",
         },
         {
             "name": "poll_interval_ms",
