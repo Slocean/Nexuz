@@ -295,36 +295,48 @@ export default function Sidebar({
         interactionLocked ? 'pointer-events-none opacity-60' : ''
       }`}
     >
-      {/* Left rail: Flows / Nodes */}
+      {/* Left rail: Nodes / Flows */}
       <nav
         style={{ borderColor: colors.border }}
-        className="w-14 shrink-0 border-r flex flex-col items-center gap-2 py-3 px-1.5"
+        className="w-14 shrink-0 border-r flex flex-col items-center gap-2.5 py-4 px-2"
       >
-        <button
-          type="button"
-          title="流程管理"
-          onClick={() => setPanel('flows')}
-          className={cn(
-            'w-9 h-9 rounded-xl flex items-center justify-center transition-colors',
-            panel === 'flows'
-              ? 'bg-blue-500/20 text-blue-400'
-              : 'hover:bg-black/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100',
-          )}
-        >
-          <Workflow className="w-4 h-4" />
-        </button>
         <button
           type="button"
           title="积木节点"
           onClick={() => setPanel('nodes')}
           className={cn(
             'w-9 h-9 rounded-xl flex items-center justify-center transition-colors',
-            panel === 'nodes'
-              ? 'bg-blue-500/20 text-blue-400'
-              : 'hover:bg-black/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100',
+            panel !== 'nodes' && 'hover:bg-black/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100',
           )}
+          style={
+            panel === 'nodes'
+              ? {
+                  backgroundColor: colors.primary + '33',
+                  color: colors.primary,
+                }
+              : undefined
+          }
         >
           <Boxes className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          title="流程管理"
+          onClick={() => setPanel('flows')}
+          className={cn(
+            'w-9 h-9 rounded-xl flex items-center justify-center transition-colors',
+            panel !== 'flows' && 'hover:bg-black/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100',
+          )}
+          style={
+            panel === 'flows'
+              ? {
+                  backgroundColor: colors.primary + '33',
+                  color: colors.primary,
+                }
+              : undefined
+          }
+        >
+          <Workflow className="w-4 h-4" />
         </button>
       </nav>
 
