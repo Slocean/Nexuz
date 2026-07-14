@@ -9,7 +9,7 @@ from backend.blocks._helpers import (
 
 SCHEMA = {
     "type": "color_detect",
-    "label": "区域取色",
+    "label": "取色",
     "category": "识别类",
     "inputs": [
         {

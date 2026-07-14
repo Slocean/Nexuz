@@ -17,7 +17,7 @@ from backend.blocks._ocr_match import (
 
 SCHEMA = {
     "type": "ocr_recognize",
-    "label": "OCR 文字识别",
+    "label": "OCR取字",
     "category": "识别类",
     "inputs": [
         {

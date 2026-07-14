@@ -207,7 +207,7 @@ export const MOCK_SCHEMAS = [
   },
   {
     type: 'color_detect',
-    label: '区域取色',
+    label: '取色',
     category: '识别类',
     inputs: [
       {
@@ -392,7 +392,7 @@ export const MOCK_SCHEMAS = [
   },
   {
     type: 'ocr_recognize',
-    label: 'OCR 文字识别',
+    label: 'OCR取字',
     category: '识别类',
     inputs: [
       { name: 'region', type: 'rect', label: '识别区域', default: null },

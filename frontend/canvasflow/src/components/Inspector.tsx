@@ -820,7 +820,7 @@ export default function Inspector({
       ...selectedNode.config,
       [key]: value,
     };
-    // 区域取色：单点 / 区域 / 多点互斥，切换时清空另一侧残留
+    // 取色：单点 / 区域 / 多点互斥，切换时清空另一侧残留
     if (key === 'sample_mode' && selectedNode.subType === 'color_detect') {
       const mode = String(value) === 'single' ? 'point' : String(value);
       patch.sample_mode = mode;
