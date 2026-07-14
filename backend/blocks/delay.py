@@ -13,9 +13,9 @@ SCHEMA = {
 }
 
 
-def handler(params, context, should_stop=None, **kwargs):
+def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     ms = int(params.get("ms", 0) or 0)
     if ms < 0:
         raise ValueError("延时不能为负数")
-    interruptible_sleep(ms / 1000.0, should_stop)
+    interruptible_sleep(ms / 1000.0, should_stop, cooperate=cooperate)
     return {}

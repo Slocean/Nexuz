@@ -174,3 +174,26 @@ body {
     display: none;
   }
 }
+
+/* Paused node — static amber outline, no motion */
+.node-paused-halo {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+.node-paused-ring {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.node-paused-ring-stroke {
+  fill: none;
+  stroke: var(--node-halo, #f59e0b);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--node-halo, #f59e0b) 55%, transparent));
+}

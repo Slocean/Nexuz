@@ -74,7 +74,7 @@ def _lookup_sub(key: str, sub_ctx: dict):
     return None
 
 
-def handler(params, context, **kwargs):
+def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     """Run another flow file synchronously inside current interpreter thread."""
     import json
 
@@ -93,6 +93,8 @@ def handler(params, context, **kwargs):
     inherit = str(params.get("inherit_variables", "true")).lower() != "false"
 
     interp = FlowInterpreter(emit=kwargs.get("emit"))
+    # Nested run must honor parent pause/stop (e.g. delay inside subflow).
+    interp.bind_parent_controls(should_stop=should_stop, cooperate=cooperate)
     flow_vars = dict(flow.get("variables") or {})
 
     if inherit:

@@ -146,7 +146,7 @@ def _point_to_click_params(pt: dict, base: dict) -> dict:
     }
 
 
-def handler(params, context, should_stop=None, **kwargs):
+def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     ctx = context if isinstance(context, dict) else {}
     mode = str(params.get("click_mode") or "single").strip() or "single"
 
@@ -171,7 +171,7 @@ def handler(params, context, should_stop=None, **kwargs):
             delay = pt.get("delay_ms")
             wait = _as_int(delay, interval) if delay is not None and delay != "" else interval
             if wait > 0:
-                interruptible_sleep(wait / 1000.0, should_stop)
+                interruptible_sleep(wait / 1000.0, should_stop, cooperate=cooperate)
         one = _point_to_click_params(pt, params)
         # Prefer node-level capture_mode when point has no frida target
         node_cap = str(params.get("capture_mode") or "coord")

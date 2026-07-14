@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Pause,
   Waypoints,
 } from "lucide-react";
 import {
@@ -45,6 +46,8 @@ interface CanvasProps {
   themeName: ThemeName;
   themeMode: ThemeMode;
   isExecuting: boolean;
+  /** idle | running | paused | stopping — drives running vs paused node visuals */
+  execStatus?: string;
   executingNodeId: string | null;
 }
 
@@ -130,6 +133,53 @@ function NodeRunningOrbit() {
   );
 }
 
+/** Static amber ring while the current node is paused mid-run. */
+function NodePausedRing() {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [size, setSize] = useState({ w: NODE_WIDTH, h: NODE_HEIGHT_EST });
+
+  useLayoutEffect(() => {
+    const parent = svgRef.current?.parentElement;
+    if (!parent) return;
+    const update = () => {
+      const width = parent.offsetWidth;
+      const height = parent.offsetHeight;
+      if (width > 0 && height > 0) {
+        setSize({ w: width, h: height });
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, []);
+
+  const w = size.w + NODE_ORBIT_PAD * 2;
+  const h = size.h + NODE_ORBIT_PAD * 2;
+  const r = NODE_ORBIT_RADIUS + NODE_ORBIT_PAD;
+
+  return (
+    <svg
+      ref={svgRef}
+      className="node-paused-ring"
+      aria-hidden
+      width={w}
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+    >
+      <rect
+        className="node-paused-ring-stroke"
+        x={1}
+        y={1}
+        width={w - 2}
+        height={h - 2}
+        rx={r}
+        ry={r}
+      />
+    </svg>
+  );
+}
+
 function Canvas({
   nodes,
   connections,
@@ -148,6 +198,7 @@ function Canvas({
   themeName,
   themeMode,
   isExecuting: _isExecuting,
+  execStatus = "idle",
   executingNodeId,
 }: CanvasProps) {
   const { confirm, alert } = useAppDialog();
@@ -1061,6 +1112,7 @@ function Canvas({
             const isPathExecuting =
               !isData &&
               !isDragging &&
+              execStatus === "running" &&
               (executingNodeId === sourceNode.id ||
                 sourceNode.status === "running" ||
                 targetNode.status === "running");
@@ -1248,6 +1300,8 @@ function Canvas({
             const isForever = node.subType === "loop_forever";
             const isNodeRunning =
               executingNodeId === node.id || node.status === "running";
+            const isNodePaused = isNodeRunning && execStatus === "paused";
+            const isNodeLive = isNodeRunning && execStatus === "running";
             const nodeAccentColor = isForever ? "#FF5E57" : getNodeColor(node.type);
             const xy = getNodeXY(node);
             const thisDragging =
@@ -1291,17 +1345,22 @@ function Canvas({
                       ? `0 0 0 2px ${colors.primary}33`
                       : "0 8px 24px rgba(0,0,0,0.12)",
                   color: colors.text,
-                  ["--node-halo" as string]: isNodeRunning
+                  ["--node-halo" as string]: isNodeLive
                     ? colors.primary || "#34d399"
-                    : undefined,
+                    : isNodePaused
+                      ? "#f59e0b"
+                      : undefined,
                   transition: thisDragging ? "none" : undefined,
                   willChange: thisDragging ? "left, top" : undefined,
                 }}
                 className={`absolute rounded-xl border px-2.5 py-2 pointer-events-auto flex flex-col gap-1.5 cursor-grab active:cursor-grabbing overflow-visible ${
                   thisDragging ? "" : "hover:shadow-lg"
-                } ${isNodeRunning ? "node-running-halo" : ""}`}
+                } ${isNodeLive ? "node-running-halo" : ""} ${
+                  isNodePaused ? "node-paused-halo" : ""
+                }`}
               >
-                {isNodeRunning ? <NodeRunningOrbit /> : null}
+                {isNodeLive ? <NodeRunningOrbit /> : null}
+                {isNodePaused ? <NodePausedRing /> : null}
                 {isForever && (
                   <div className="absolute -top-2 left-2 px-1 py-0.5 rounded bg-rose-500 text-white text-xs font-bold tracking-wide uppercase">
                     FOREVER
@@ -1370,13 +1429,17 @@ function Canvas({
                       }}
                       style={{ color: colors.secondaryText }}
                       className="p-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-emerald-500 cursor-pointer"
-                      title="Run node solo"
+                      title={isNodePaused ? "已暂停" : "Run node solo"}
                     >
-                      <Loader2
-                        className={`w-3 h-3 ${
-                          isNodeRunning ? "animate-spin text-emerald-500" : ""
-                        }`}
-                      />
+                      {isNodePaused ? (
+                        <Pause className="w-3 h-3 text-amber-500 fill-amber-500/30" />
+                      ) : (
+                        <Loader2
+                          className={`w-3 h-3 ${
+                            isNodeLive ? "animate-spin text-emerald-500" : ""
+                          }`}
+                        />
+                      )}
                     </button>
                     <button
                       onMouseDown={(e) => e.stopPropagation()}
@@ -1507,8 +1570,11 @@ function Canvas({
                     {node.status === "error" && (
                       <AlertCircle className="w-2.5 h-2.5 text-rose-500 shrink-0" />
                     )}
-                    {node.status === "running" && (
+                    {node.status === "running" && execStatus === "running" && (
                       <Loader2 className="w-2.5 h-2.5 text-blue-500 animate-spin shrink-0" />
+                    )}
+                    {node.status === "running" && execStatus === "paused" && (
+                      <Pause className="w-2.5 h-2.5 text-amber-500 fill-amber-500/30 shrink-0" />
                     )}
                     <span className="truncate" title={node.id}>
                       {node.id}

@@ -24,6 +24,25 @@ class FlowInterpreter:
         self._step_event = threading.Event()
         self._running = False
         self._lock = threading.Lock()
+        # Optional parent controls when nested (call_subflow).
+        self._parent_should_stop: Callable[[], bool] | None = None
+        self._parent_cooperate: Callable[[], None] | None = None
+
+    def bind_parent_controls(
+        self,
+        should_stop: Callable[[], bool] | None = None,
+        cooperate: Callable[[], None] | None = None,
+    ) -> None:
+        """Wire nested interpreter to parent pause/stop (call_subflow)."""
+        self._parent_should_stop = should_stop
+        self._parent_cooperate = cooperate
+
+    def _is_stop_requested(self) -> bool:
+        if self._stop_flag.is_set():
+            return True
+        if self._parent_should_stop is not None and self._parent_should_stop():
+            return True
+        return False
 
     @property
     def running(self) -> bool:
@@ -108,16 +127,39 @@ class FlowInterpreter:
             self._thread.join(timeout=timeout)
 
     def _wait_controls(self) -> None:
-        if self._stop_flag.is_set():
+        if self._is_stop_requested():
             raise InterruptedError("流程已停止")
-        self._pause_event.wait()
-        if self._stop_flag.is_set():
+        if self._parent_cooperate is not None:
+            self._parent_cooperate()
+        else:
+            self._pause_event.wait()
+        if self._is_stop_requested():
             raise InterruptedError("流程已停止")
         if self._step_mode:
             self._step_event.wait()
             self._step_event.clear()
-            if self._stop_flag.is_set():
+            if self._is_stop_requested():
                 raise InterruptedError("流程已停止")
+
+    def _cooperate_wait(self) -> None:
+        """Honor pause/stop inside a long-running block (delay, wait, etc.).
+
+        Unlike ``_wait_controls``, this does not consume step tokens — step still
+        advances per node, not per sleep chunk.
+        """
+        if self._is_stop_requested():
+            raise InterruptedError("流程已停止")
+        if self._parent_cooperate is not None:
+            self._parent_cooperate()
+            if self._is_stop_requested():
+                raise InterruptedError("流程已停止")
+            return
+        # stop() sets pause_event so a paused wait wakes and then sees stop.
+        while not self._pause_event.wait(timeout=0.05):
+            if self._is_stop_requested():
+                raise InterruptedError("流程已停止")
+        if self._is_stop_requested():
+            raise InterruptedError("流程已停止")
 
     def _execute(self, flow: dict[str, Any]) -> dict[str, Any]:
         nodes = flow.get("nodes") or {}
@@ -166,7 +208,8 @@ class FlowInterpreter:
                         node_id=node_id,
                         flow=flow,
                         emit=self._emit,
-                        should_stop=lambda: self._stop_flag.is_set(),
+                        should_stop=self._is_stop_requested,
+                        cooperate=self._cooperate_wait,
                     )
                     or {}
                 )
@@ -344,11 +387,13 @@ class FlowInterpreter:
                 return self._resolve_fallthrough(node.get("next"), loop_stack), loop_stack
             context[counter_key] = count + 1
             if interval > 0:
-                end = time.time() + interval / 1000.0
-                while time.time() < end:
-                    if self._stop_flag.is_set():
-                        raise InterruptedError("流程已停止")
-                    time.sleep(min(0.05, max(0, end - time.time())))
+                from backend.blocks._helpers import interruptible_sleep
+
+                interruptible_sleep(
+                    interval / 1000.0,
+                    should_stop=self._is_stop_requested,
+                    cooperate=self._cooperate_wait,
+                )
             body = node.get("body")
             if not body:
                 raise ValueError(f"loop_forever 节点 {node_id} 缺少 body")

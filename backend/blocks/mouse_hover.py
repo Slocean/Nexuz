@@ -85,15 +85,16 @@ def _hover_at(
     hold_ms: int,
     move_duration: float,
     should_stop=None,
+    cooperate=None,
 ) -> tuple[int, int]:
     x, y = resolve_point(params)
     pyautogui.moveTo(x, y, duration=max(0.0, move_duration))
     if hold_ms > 0:
-        interruptible_sleep(hold_ms / 1000.0, should_stop)
+        interruptible_sleep(hold_ms / 1000.0, should_stop, cooperate=cooperate)
     return x, y
 
 
-def handler(params, context, should_stop=None, **kwargs):
+def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     mode = str(params.get("hover_mode") or "single").strip() or "single"
     move_duration = float(params.get("move_duration") or 0) / 1000.0
     hold_default = max(0, _as_int(params.get("hold_ms"), 300))
@@ -104,6 +105,7 @@ def handler(params, context, should_stop=None, **kwargs):
             hold_ms=hold_default,
             move_duration=move_duration,
             should_stop=should_stop,
+            cooperate=cooperate,
         )
         return {"ok": True, "x": x, "y": y, "count": 1}
 
@@ -122,7 +124,7 @@ def handler(params, context, should_stop=None, **kwargs):
             delay = pt.get("delay_ms")
             wait = _as_int(delay, interval) if delay is not None and delay != "" else interval
             if wait > 0:
-                interruptible_sleep(wait / 1000.0, should_stop)
+                interruptible_sleep(wait / 1000.0, should_stop, cooperate=cooperate)
         hold = pt.get("hold_ms")
         hold_ms = (
             _as_int(hold, hold_default)
@@ -140,6 +142,7 @@ def handler(params, context, should_stop=None, **kwargs):
             hold_ms=hold_ms,
             move_duration=move_duration,
             should_stop=should_stop,
+            cooperate=cooperate,
         )
         done += 1
 

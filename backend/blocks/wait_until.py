@@ -215,7 +215,7 @@ def _check(params: dict, context: dict) -> tuple[bool, str, dict]:
     return matched, f"text={actual[:80]}", coords
 
 
-def handler(params, context, should_stop=None, **kwargs):
+def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     timeout_ms = int(params.get("timeout_ms") if params.get("timeout_ms") is not None else 30000)
     poll = max(50, int(params.get("poll_interval_ms") if params.get("poll_interval_ms") is not None else 300))
     t0 = time.perf_counter()
@@ -226,6 +226,12 @@ def handler(params, context, should_stop=None, **kwargs):
     while True:
         if should_stop and should_stop():
             raise InterruptedError("流程已停止")
+        if cooperate is not None:
+            paused_at = time.perf_counter()
+            cooperate()
+            if deadline is not None:
+                # Pause time must not burn the wait timeout.
+                deadline += time.perf_counter() - paused_at
         matched, detail, coords = _check(params, context)
         if matched:
             elapsed = (time.perf_counter() - t0) * 1000
@@ -238,4 +244,4 @@ def handler(params, context, should_stop=None, **kwargs):
         if deadline is not None and time.perf_counter() >= deadline:
             elapsed = (time.perf_counter() - t0) * 1000
             raise TimeoutError(f"条件等待超时({timeout_ms}ms): {detail}")
-        interruptible_sleep(poll / 1000.0, should_stop)
+        interruptible_sleep(poll / 1000.0, should_stop, cooperate=cooperate)

@@ -660,7 +660,11 @@ export const useFlowStore = create((set, get) => ({
     const appendLog = get().appendLog;
     if (event === 'node_start') {
       set((state) => ({
-        execStatus: 'running',
+        // Don't clobber pause/stopping if a late event races the control channel.
+        execStatus:
+          state.execStatus === 'paused' || state.execStatus === 'stopping'
+            ? state.execStatus
+            : 'running',
         execNodeId: payload.node_id,
         execNodeStates: { ...state.execNodeStates, [payload.node_id]: 'running' },
       }));

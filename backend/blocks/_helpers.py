@@ -27,17 +27,29 @@ def interruptible_sleep(
     seconds: float,
     should_stop: Callable[[], bool] | None = None,
     *,
+    cooperate: Callable[[], None] | None = None,
     chunk: float = 0.05,
 ) -> None:
-    """Sleep in small chunks so flow stop can interrupt mid-wait."""
+    """Sleep in small chunks so flow pause/stop can interrupt mid-wait.
+
+    - ``should_stop``: polled each chunk; raises InterruptedError when true.
+    - ``cooperate``: called before each chunk (interpreter pause wait). Time spent
+      blocked inside cooperate does **not** count toward the delay.
+    """
     if seconds <= 0:
         return
     check = should_stop or (lambda: False)
-    end = time.time() + float(seconds)
-    while time.time() < end:
+    remaining = float(seconds)
+    while remaining > 0:
         if check():
             raise InterruptedError("流程已停止")
-        time.sleep(min(chunk, max(0.0, end - time.time())))
+        if cooperate is not None:
+            cooperate()  # may block while paused; may raise InterruptedError
+            if check():
+                raise InterruptedError("流程已停止")
+        slice_s = min(chunk, remaining)
+        time.sleep(slice_s)
+        remaining -= slice_s
 
 
 def validate_point(x: int, y: int) -> tuple[int, int]:

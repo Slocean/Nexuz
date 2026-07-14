@@ -75,7 +75,7 @@ def _as_int(value, default: int = 0) -> int:
         return default
 
 
-def handler(params, context, should_stop=None, **kwargs):
+def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     mode = str(params.get("key_mode") or "single").strip() or "single"
 
     if mode != "sequence":
@@ -101,7 +101,7 @@ def handler(params, context, should_stop=None, **kwargs):
             else:
                 wait = interval
             if wait > 0:
-                interruptible_sleep(wait / 1000.0, should_stop)
+                interruptible_sleep(wait / 1000.0, should_stop, cooperate=cooperate)
         keys = _parse_keys(step.get("keys") if isinstance(step, dict) else step)
         _press(keys)
         done += 1

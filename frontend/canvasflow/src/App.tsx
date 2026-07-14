@@ -858,6 +858,7 @@ function AppShell() {
             themeName={themeName as any}
             themeMode={themeMode as any}
             isExecuting={isExecuting}
+            execStatus={execStatus}
             executingNodeId={execNodeId}
           />
         )}
