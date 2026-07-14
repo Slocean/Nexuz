@@ -226,7 +226,7 @@ def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | 
         x, y = resolve_point(params)
     w = max(8, int(params.get("width") or 320))
     h = max(8, int(params.get("height") or 80))
-    validate_point(x, y)
+    x, y = validate_point(x, y)
     return validate_region([x, y, x + w, y + h]), None
 
 

@@ -10,16 +10,23 @@ import mss
 import pyautogui
 from PIL import Image
 
-from backend.core.dpi import get_dpi_scale, screen_size_logical
+from backend.core.dpi import (
+    get_dpi_scale,
+    screen_size_logical,
+    virtual_screen_rect,
+    virtual_screen_size,
+)
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.01
 
 
-def validate_point(x: int, y: int) -> None:
-    w, h = screen_size_logical()
-    if x < 0 or y < 0 or x >= w or y >= h:
-        raise ValueError(f"坐标超出屏幕范围: ({x},{y})，屏幕逻辑尺寸 {w}x{h}")
+def validate_point(x: int, y: int) -> tuple[int, int]:
+    """Clamp point into the virtual desktop (all monitors)."""
+    left, top, right, bottom = virtual_screen_rect()
+    cx = max(left, min(int(x), right - 1))
+    cy = max(top, min(int(y), bottom - 1))
+    return cx, cy
 
 
 def validate_region(region: list | tuple) -> tuple[int, int, int, int]:
@@ -28,71 +35,107 @@ def validate_region(region: list | tuple) -> tuple[int, int, int, int]:
     x1, y1, x2, y2 = [int(v) for v in region]
     if x2 <= x1 or y2 <= y1:
         raise ValueError(f"无效区域: {region}")
-    w, h = screen_size_logical()
-    # Clamp soft edges for scaled restores that may be 1px off
-    x1 = max(0, min(x1, w - 1))
-    y1 = max(0, min(y1, h - 1))
-    x2 = max(x1 + 1, min(x2, w))
-    y2 = max(y1 + 1, min(y2, h))
+    left, top, right, bottom = virtual_screen_rect()
+    # Clamp soft edges for scaled restores / multi-monitor
+    x1 = max(left, min(x1, right - 1))
+    y1 = max(top, min(y1, bottom - 1))
+    x2 = max(x1 + 1, min(x2, right))
+    y2 = max(y1 + 1, min(y2, bottom))
     return x1, y1, x2, y2
 
 
 def pack_coord_space() -> dict[str, Any]:
-    w, h = screen_size_logical()
-    return {"w": w, "h": h, "dpi_scale": get_dpi_scale()}
+    left, top, width, height = virtual_screen_size()
+    pw, ph = screen_size_logical()
+    return {
+        "w": width,
+        "h": height,
+        "left": left,
+        "top": top,
+        "primary_w": pw,
+        "primary_h": ph,
+        "dpi_scale": get_dpi_scale(),
+    }
 
 
 def pack_point(x: int, y: int) -> dict[str, Any]:
-    w, h = screen_size_logical()
-    w = max(1, w)
-    h = max(1, h)
+    left, top, width, height = virtual_screen_size()
+    x, y = validate_point(x, y)
     return {
         "x": int(x),
         "y": int(y),
-        "point_norm": [x / w, y / h],
+        "point_norm": [(x - left) / width, (y - top) / height],
         "coord_space": pack_coord_space(),
     }
 
 
 def pack_region(region: list | tuple) -> dict[str, Any]:
-    x1, y1, x2, y2 = [int(v) for v in region]
-    w, h = screen_size_logical()
-    w = max(1, w)
-    h = max(1, h)
+    x1, y1, x2, y2 = validate_region(region)
+    left, top, width, height = virtual_screen_size()
     return {
         "region": [x1, y1, x2, y2],
-        "region_norm": [x1 / w, y1 / h, x2 / w, y2 / h],
+        "region_norm": [
+            (x1 - left) / width,
+            (y1 - top) / height,
+            (x2 - left) / width,
+            (y2 - top) / height,
+        ],
         "coord_space": pack_coord_space(),
     }
+
+
+def _space_origin_size(space: dict) -> tuple[int, int, int, int, bool]:
+    """Return (left, top, w, h, has_virtual_origin) from coord_space."""
+    left, top, vw, vh = virtual_screen_size()
+    if not isinstance(space, dict):
+        return left, top, vw, vh, True
+    sw = int(space.get("w") or 0)
+    sh = int(space.get("h") or 0)
+    if sw <= 0 or sh <= 0:
+        return left, top, vw, vh, True
+    has_origin = "left" in space or "top" in space
+    ox = int(space.get("left") or 0) if has_origin else 0
+    oy = int(space.get("top") or 0) if has_origin else 0
+    return ox, oy, sw, sh, has_origin
 
 
 def resolve_point(params: dict, x_key: str = "x", y_key: str = "y") -> tuple[int, int]:
     """
     Resolve a point from absolute coords, optional *_norm, or scale via coord_space.
-    Prefer point_norm when present (survives resolution changes).
+    Prefer absolute x/y when present; point_norm is a fallback for resolution changes.
     """
-    w, h = screen_size_logical()
+    left, top, vw, vh = virtual_screen_size()
+    space = params.get("coord_space") if isinstance(params.get("coord_space"), dict) else {}
+    ox, oy, sw, sh, has_origin = _space_origin_size(space)
+
+    raw_x = params.get(x_key)
+    raw_y = params.get(y_key)
+    has_abs = raw_x is not None and raw_x != "" and raw_y is not None and raw_y != ""
+
+    if has_abs:
+        x = int(float(raw_x))
+        y = int(float(raw_y))
+        if has_origin and sw > 0 and sh > 0 and (sw != vw or sh != vh or ox != left or oy != top):
+            x = int(round(left + (x - ox) * (vw / sw)))
+            y = int(round(top + (y - oy) * (vh / sh)))
+        return validate_point(x, y)
+
     norm = params.get("point_norm")
     if (
         isinstance(norm, (list, tuple))
         and len(norm) == 2
         and all(isinstance(v, (int, float)) for v in norm)
     ):
-        x = int(round(float(norm[0]) * w))
-        y = int(round(float(norm[1]) * h))
-        validate_point(x, y)
-        return x, y
+        x = int(round(ox + float(norm[0]) * sw))
+        y = int(round(oy + float(norm[1]) * sh))
+        # Legacy packs (no left/top) stored abs-derived norms against primary size;
+        # reconstructed x/y are already desktop absolute — do not remap to virtual size.
+        if has_origin and (sw != vw or sh != vh or ox != left or oy != top):
+            x = int(round(left + (x - ox) * (vw / sw)))
+            y = int(round(top + (y - oy) * (vh / sh)))
+        return validate_point(x, y)
 
-    x = int(params.get(x_key) or 0)
-    y = int(params.get(y_key) or 0)
-    space = params.get("coord_space") or {}
-    sw = int(space.get("w") or 0)
-    sh = int(space.get("h") or 0)
-    if sw > 0 and sh > 0 and (sw != w or sh != h):
-        x = int(round(x * (w / sw)))
-        y = int(round(y * (h / sh)))
-    validate_point(x, y)
-    return x, y
+    return validate_point(0, 0)
 
 
 def resolve_region_from_params(
@@ -101,39 +144,41 @@ def resolve_region_from_params(
     norm_key: str = "region_norm",
 ) -> tuple[int, int, int, int] | None:
     """
-    Resolve [x1,y1,x2,y2] preferring region_norm, then proportional scale, then absolute.
+    Resolve [x1,y1,x2,y2] preferring absolute region, then region_norm.
     Returns None if no region configured.
     """
-    w, h = screen_size_logical()
+    left, top, vw, vh = virtual_screen_size()
+    space = params.get("coord_space") if isinstance(params.get("coord_space"), dict) else {}
+    ox, oy, sw, sh, has_origin = _space_origin_size(space)
+
+    region = params.get(region_key)
+    if region and len(region) == 4:
+        x1, y1, x2, y2 = [int(v) for v in region]
+        if has_origin and sw > 0 and sh > 0 and (sw != vw or sh != vh or ox != left or oy != top):
+            x1 = int(round(left + (x1 - ox) * (vw / sw)))
+            y1 = int(round(top + (y1 - oy) * (vh / sh)))
+            x2 = int(round(left + (x2 - ox) * (vw / sw)))
+            y2 = int(round(top + (y2 - oy) * (vh / sh)))
+        return validate_region([x1, y1, x2, y2])
+
     norm = params.get(norm_key)
     if (
         isinstance(norm, (list, tuple))
         and len(norm) == 4
         and all(isinstance(v, (int, float)) for v in norm)
     ):
-        return validate_region(
-            [
-                int(round(float(norm[0]) * w)),
-                int(round(float(norm[1]) * h)),
-                int(round(float(norm[2]) * w)),
-                int(round(float(norm[3]) * h)),
-            ]
-        )
+        x1 = int(round(ox + float(norm[0]) * sw))
+        y1 = int(round(oy + float(norm[1]) * sh))
+        x2 = int(round(ox + float(norm[2]) * sw))
+        y2 = int(round(oy + float(norm[3]) * sh))
+        if has_origin and (sw != vw or sh != vh or ox != left or oy != top):
+            x1 = int(round(left + (x1 - ox) * (vw / sw)))
+            y1 = int(round(top + (y1 - oy) * (vh / sh)))
+            x2 = int(round(left + (x2 - ox) * (vw / sw)))
+            y2 = int(round(top + (y2 - oy) * (vh / sh)))
+        return validate_region([x1, y1, x2, y2])
 
-    region = params.get(region_key)
-    if not region:
-        return None
-
-    space = params.get("coord_space") or {}
-    sw = int(space.get("w") or 0)
-    sh = int(space.get("h") or 0)
-    x1, y1, x2, y2 = [int(v) for v in region]
-    if sw > 0 and sh > 0 and (sw != w or sh != h):
-        x1 = int(round(x1 * (w / sw)))
-        y1 = int(round(y1 * (h / sh)))
-        x2 = int(round(x2 * (w / sw)))
-        y2 = int(round(y2 * (h / sh)))
-    return validate_region([x1, y1, x2, y2])
+    return None
 
 
 def grab_region(x1: int, y1: int, x2: int, y2: int) -> Image.Image:
@@ -144,7 +189,7 @@ def grab_region(x1: int, y1: int, x2: int, y2: int) -> Image.Image:
 
 
 def pixel_color(x: int, y: int) -> str:
-    validate_point(x, y)
+    x, y = validate_point(x, y)
     img = grab_region(x, y, x + 1, y + 1)
     r, g, b = img.getpixel((0, 0))
     return f"#{r:02X}{g:02X}{b:02X}"

@@ -662,9 +662,15 @@ function inputVisible(input: any, config: Record<string, any> | undefined): bool
       else if (key === 'wait_type') cur = 'text';
       else if (key === 'click_mode') cur = 'single';
       else if (key === 'key_mode') cur = 'single';
-      else if (key === 'sample_mode') cur = 'single';
+      else if (key === 'sample_mode') cur = 'point';
       else if (key === 'hover_mode') cur = 'single';
       else return false;
+    }
+    // Legacy color_detect: sample_mode "single" → region if configured, else point
+    if (key === 'sample_mode' && String(cur) === 'single') {
+      const hasRegion =
+        Array.isArray(cfg.region) && cfg.region.length === 4;
+      cur = hasRegion ? 'region' : 'point';
     }
     if (Array.isArray(expect)) {
       if (!expect.map(String).includes(String(cur))) return false;
@@ -810,10 +816,32 @@ export default function Inspector({
   }
 
   const handleFieldChange = (key: string, value: any) => {
-    onUpdateNodeConfig(selectedNode.id, {
+    const patch: any = {
       ...selectedNode.config,
       [key]: value,
-    });
+    };
+    // 区域取色：单点 / 区域 / 多点互斥，切换时清空另一侧残留
+    if (key === 'sample_mode' && selectedNode.subType === 'color_detect') {
+      const mode = String(value) === 'single' ? 'point' : String(value);
+      patch.sample_mode = mode;
+      if (mode === 'point') {
+        patch.region = null;
+        patch.region_norm = undefined;
+        patch.points = [];
+      } else if (mode === 'region') {
+        patch.x = undefined;
+        patch.y = undefined;
+        patch.point_norm = undefined;
+        patch.points = [];
+      } else if (mode === 'multi') {
+        patch.region = null;
+        patch.region_norm = undefined;
+        patch.x = undefined;
+        patch.y = undefined;
+        patch.point_norm = undefined;
+      }
+    }
+    onUpdateNodeConfig(selectedNode.id, patch);
   };
 
   const applyRegionPick = (fieldName: string, res: any) => {
@@ -825,6 +853,13 @@ export default function Inspector({
       patch.search_region_norm = res.region_norm;
     } else {
       patch.region_norm = res.region_norm;
+    }
+    if (selectedNode.subType === 'color_detect') {
+      patch.sample_mode = 'region';
+      patch.x = undefined;
+      patch.y = undefined;
+      patch.point_norm = undefined;
+      patch.points = [];
     }
     onUpdateNodeConfig(selectedNode.id, patch);
   };
@@ -845,6 +880,12 @@ export default function Inspector({
     if (params.coord) patch.coord = params.coord;
     if (selectedNode.subType.includes('color') && res.color) {
       patch.target_color = res.color;
+    }
+    if (selectedNode.subType === 'color_detect' && xKey === 'x') {
+      patch.sample_mode = 'point';
+      patch.region = null;
+      patch.region_norm = undefined;
+      patch.points = [];
     }
     onUpdateNodeConfig(selectedNode.id, patch);
   };
@@ -1005,7 +1046,20 @@ export default function Inspector({
             <Field key={input.name} label={label} stacked={stacked}>
               {input.type === 'select' ? (
                 <Select
-                  value={String(value ?? input.default ?? '')}
+                  value={
+                    input.name === 'sample_mode'
+                      ? (() => {
+                          const raw = String(value ?? input.default ?? 'point');
+                          if (raw === 'single') {
+                            const hasRegion =
+                              Array.isArray(selectedNode.config?.region) &&
+                              selectedNode.config.region.length === 4;
+                            return hasRegion ? 'region' : 'point';
+                          }
+                          return raw;
+                        })()
+                      : String(value ?? input.default ?? '')
+                  }
                   onValueChange={(v) => handleFieldChange(input.name, v)}
                 >
                   <SelectTrigger className="h-8 w-full">

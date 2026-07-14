@@ -16,30 +16,36 @@ SCHEMA = {
             "name": "sample_mode",
             "type": "select",
             "label": "模式",
-            "options": ["single", "multi"],
-            "default": "single",
-            "option_labels": {"single": "单点", "multi": "多点"},
+            "options": ["point", "region", "multi"],
+            "default": "point",
+            "option_labels": {
+                "point": "单点",
+                "region": "区域",
+                "multi": "多点",
+                # legacy
+                "single": "单点",
+            },
         },
         {
             "name": "x",
             "type": "number",
             "label": "X",
             "default": 0,
-            "show_when": {"sample_mode": "single"},
+            "show_when": {"sample_mode": ["point", "single"]},
         },
         {
             "name": "y",
             "type": "number",
             "label": "Y",
             "default": 0,
-            "show_when": {"sample_mode": "single"},
+            "show_when": {"sample_mode": ["point", "single"]},
         },
         {
             "name": "region",
             "type": "rect",
             "label": "区域",
             "default": None,
-            "show_when": {"sample_mode": "single"},
+            "show_when": {"sample_mode": "region"},
         },
         {
             "name": "points",
@@ -67,16 +73,31 @@ def _as_int(value, default: int = 0) -> int:
         return default
 
 
-def handler(params, context, **kwargs):
-    mode = str(params.get("sample_mode") or "single").strip() or "single"
+def _normalize_mode(params: dict) -> str:
+    mode = str(params.get("sample_mode") or "point").strip() or "point"
+    # Legacy "single": prefer region when configured, else point.
+    if mode == "single":
+        if resolve_region_from_params(params):
+            return "region"
+        return "point"
+    if mode not in ("point", "region", "multi"):
+        return "point"
+    return mode
 
-    if mode != "multi":
+
+def handler(params, context, **kwargs):
+    mode = _normalize_mode(params)
+
+    if mode == "region":
         region = resolve_region_from_params(params)
-        if region:
-            color = region_dominant_color(region)
-        else:
-            x, y = resolve_point(params)
-            color = pixel_color(x, y)
+        if not region:
+            raise ValueError("区域模式请先框选取色区域")
+        color = region_dominant_color(region)
+        return {"color": color, "colors": [color], "count": 1}
+
+    if mode == "point":
+        x, y = resolve_point(params)
+        color = pixel_color(x, y)
         return {"color": color, "colors": [color], "count": 1}
 
     raw_points = params.get("points") or []
@@ -87,8 +108,13 @@ def handler(params, context, **kwargs):
     for pt in raw_points:
         if not isinstance(pt, dict):
             continue
-        x = _as_int(pt.get("x"), 0)
-        y = _as_int(pt.get("y"), 0)
+        one = {
+            "x": pt.get("x", 0),
+            "y": pt.get("y", 0),
+            "point_norm": pt.get("point_norm"),
+            "coord_space": pt.get("coord_space") or params.get("coord_space"),
+        }
+        x, y = resolve_point(one)
         colors.append(pixel_color(x, y))
 
     if not colors:
