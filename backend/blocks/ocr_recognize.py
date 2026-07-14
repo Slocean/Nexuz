@@ -21,34 +21,51 @@ SCHEMA = {
     "category": "识别类",
     "inputs": [
         {
+            "name": "region_mode",
+            "type": "select",
+            "label": "区域方式",
+            "options": ["rect", "xy", "anchor"],
+            "default": "rect",
+            "option_labels": {
+                "rect": "框选区域",
+                "xy": "起点+宽高",
+                "anchor": "锚点模板",
+            },
+        },
+        {
             "name": "region",
             "type": "rect",
             "label": "识别区域",
             "default": None,
+            "show_when": {"region_mode": "rect"},
         },
         {
             "name": "x",
             "type": "number",
             "label": "起点 X",
             "default": 0,
+            "show_when": {"region_mode": "xy"},
         },
         {
             "name": "y",
             "type": "number",
             "label": "起点 Y",
             "default": 0,
+            "show_when": {"region_mode": "xy"},
         },
         {
             "name": "width",
             "type": "number",
             "label": "宽度",
             "default": 320,
+            "show_when": {"region_mode": "xy"},
         },
         {
             "name": "height",
             "type": "number",
             "label": "高度",
             "default": 80,
+            "show_when": {"region_mode": "xy"},
         },
         {
             "name": "anchor_template",
@@ -56,6 +73,7 @@ SCHEMA = {
             "label": "锚点模板",
             "default": "",
             "placeholder": "模板图片路径",
+            "show_when": {"region_mode": "anchor"},
         },
         {
             "name": "anchor_threshold",
@@ -63,18 +81,21 @@ SCHEMA = {
             "label": "锚点阈值",
             "default": 0.8,
             "placeholder": "0~1",
+            "show_when": {"region_mode": "anchor"},
         },
         {
             "name": "anchor_offset_x",
             "type": "number",
             "label": "锚点偏移 X",
             "default": 0,
+            "show_when": {"region_mode": "anchor"},
         },
         {
             "name": "anchor_offset_y",
             "type": "number",
             "label": "锚点偏移 Y",
             "default": 0,
+            "show_when": {"region_mode": "anchor"},
         },
         {
             "name": "anchor_ocr_width",
@@ -82,6 +103,7 @@ SCHEMA = {
             "label": "识别宽度",
             "default": 0,
             "placeholder": "0 = 模板宽",
+            "show_when": {"region_mode": "anchor"},
         },
         {
             "name": "anchor_ocr_height",
@@ -89,6 +111,7 @@ SCHEMA = {
             "label": "识别高度",
             "default": 0,
             "placeholder": "0 = 模板高",
+            "show_when": {"region_mode": "anchor"},
         },
         {
             "name": "lang",
@@ -96,6 +119,7 @@ SCHEMA = {
             "label": "语言",
             "options": ["auto", "ch", "en"],
             "default": "auto",
+            "option_labels": {"auto": "自动", "ch": "中文", "en": "英文"},
         },
         {
             "name": "min_confidence",
@@ -181,11 +205,16 @@ def _get_ocr():
 def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | None]:
     """
     Resolve OCR box.
-    Priority: anchor_template → region/region_norm → x,y,width,height.
+    Honors region_mode when set: rect | xy | anchor.
+    Legacy (no mode): anchor_template → region → x,y,width,height.
     Returns ((x1,y1,x2,y2), anchor_info_or_none).
     """
-    anchor_tpl = str(params.get("anchor_template") or "").strip()
-    if anchor_tpl:
+    mode = str(params.get("region_mode") or "").strip().lower()
+
+    def _from_anchor() -> tuple[tuple[int, int, int, int], dict | None]:
+        anchor_tpl = str(params.get("anchor_template") or "").strip()
+        if not anchor_tpl:
+            raise ValueError("请设置锚点模板（可点「截模板」）")
         search = resolve_region_from_params(params, "search_region", "search_region_norm")
         match = match_template_on_screen(
             anchor_tpl,
@@ -213,21 +242,35 @@ def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | 
         region = validate_region([x1, y1, x1 + ow, y1 + oh])
         return region, match
 
+    def _from_xy() -> tuple[tuple[int, int, int, int], dict | None]:
+        x = int(params.get("x") or 0)
+        y = int(params.get("y") or 0)
+        if params.get("point_norm"):
+            from backend.blocks._helpers import resolve_point
+
+            x, y = resolve_point(params)
+        w = max(8, int(params.get("width") or 320))
+        h = max(8, int(params.get("height") or 80))
+        x, y = validate_point(x, y)
+        return validate_region([x, y, x + w, y + h]), None
+
+    if mode == "anchor":
+        return _from_anchor()
+    if mode == "xy":
+        return _from_xy()
+    if mode == "rect":
+        resolved = resolve_region_from_params(params)
+        if not resolved:
+            raise ValueError("请框选识别区域")
+        return resolved, None
+
+    # Legacy priority
+    if str(params.get("anchor_template") or "").strip():
+        return _from_anchor()
     resolved = resolve_region_from_params(params)
     if resolved:
         return resolved, None
-
-    x = int(params.get("x") or 0)
-    y = int(params.get("y") or 0)
-    # Prefer point_norm for origin if present
-    if params.get("point_norm"):
-        from backend.blocks._helpers import resolve_point
-
-        x, y = resolve_point(params)
-    w = max(8, int(params.get("width") or 320))
-    h = max(8, int(params.get("height") or 80))
-    x, y = validate_point(x, y)
-    return validate_region([x, y, x + w, y + h]), None
+    return _from_xy()
 
 
 def _compact_box(box) -> list:

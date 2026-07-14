@@ -19,11 +19,28 @@ SCHEMA = {
             "option_labels": {"single": "单点", "multi": "多点"},
         },
         {
+            "name": "button",
+            "type": "select",
+            "label": "按键",
+            "options": ["left", "right", "middle"],
+            "default": "left",
+            "option_labels": {"left": "左键", "right": "右键", "middle": "中键"},
+        },
+        {
+            "name": "click_type",
+            "type": "select",
+            "label": "点击类型",
+            "options": ["single", "double"],
+            "default": "single",
+            "option_labels": {"single": "单击", "double": "双击"},
+        },
+        {
             "name": "capture_mode",
             "type": "select",
             "label": "录入模式",
             "options": ["coord", "frida_ui"],
             "default": "coord",
+            "option_labels": {"coord": "坐标", "frida_ui": "Frida UI"},
         },
         {
             "name": "x",
@@ -56,20 +73,6 @@ SCHEMA = {
             "placeholder": "相邻两点间隔",
         },
         {
-            "name": "button",
-            "type": "select",
-            "label": "按键",
-            "options": ["left", "right", "middle"],
-            "default": "left",
-        },
-        {
-            "name": "click_type",
-            "type": "select",
-            "label": "点击类型",
-            "options": ["single", "double"],
-            "default": "single",
-        },
-        {
             "name": "move_duration",
             "type": "number",
             "label": "移动耗时毫秒",
@@ -95,6 +98,15 @@ SCHEMA = {
 
 
 def _click_once(params: dict, context: dict) -> dict:
+    mode = str(params.get("capture_mode") or "coord").strip() or "coord"
+    if mode == "frida_ui":
+        frida = params.get("frida_ui")
+        if not isinstance(frida, dict) or not frida.get("hierarchy_path"):
+            raise ValueError("请先录入 Frida UI 目标")
+    else:
+        from backend.blocks._helpers import require_configured_point
+
+        require_configured_point(params, label="点击坐标")
     target = normalize_click_params(params)
     registry = get_provider_registry()
     provider_or_err = registry.require_playback(target.capture_mode)

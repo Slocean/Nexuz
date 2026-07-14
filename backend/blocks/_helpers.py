@@ -132,6 +132,37 @@ def _space_origin_size(space: dict) -> tuple[int, int, int, int, bool]:
     return ox, oy, sw, sh, has_origin
 
 
+def _as_coord_int(value, default: int = 0) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def point_looks_unconfigured(params: dict, x_key: str = "x", y_key: str = "y") -> bool:
+    """True when coords are still the (0,0) default with no norm / frida target."""
+    if isinstance(params.get("point_norm"), (list, tuple)) and len(params.get("point_norm") or []) == 2:
+        return False
+    frida = params.get("frida_ui")
+    if isinstance(frida, dict) and frida.get("hierarchy_path"):
+        return False
+    return _as_coord_int(params.get(x_key), 0) == 0 and _as_coord_int(params.get(y_key), 0) == 0
+
+
+def require_configured_point(
+    params: dict,
+    *,
+    x_key: str = "x",
+    y_key: str = "y",
+    label: str = "坐标",
+) -> None:
+    """Raise if the point was never picked (avoids silently hitting screen top-left)."""
+    if point_looks_unconfigured(params, x_key, y_key):
+        raise ValueError(f"请先取点：{label}仍为 (0,0)，疑似未配置")
+
+
 def resolve_point(params: dict, x_key: str = "x", y_key: str = "y") -> tuple[int, int]:
     """
     Resolve a point from absolute coords, optional *_norm, or scale via coord_space.

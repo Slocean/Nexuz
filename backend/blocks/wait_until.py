@@ -4,8 +4,6 @@ import time
 
 from backend.blocks._helpers import interruptible_sleep
 
-from backend.blocks._helpers import interruptible_sleep
-
 SCHEMA = {
     "type": "wait_until",
     "label": "条件等待",
@@ -24,6 +22,15 @@ SCHEMA = {
             },
         },
         {
+            "name": "color_sample",
+            "type": "select",
+            "label": "颜色取样",
+            "options": ["region", "point"],
+            "default": "region",
+            "option_labels": {"region": "区域", "point": "单点"},
+            "show_when": {"wait_type": "color"},
+        },
+        {
             "name": "region",
             "type": "rect",
             "label": "检测区域",
@@ -35,14 +42,14 @@ SCHEMA = {
             "type": "number",
             "label": "单点 X",
             "default": 0,
-            "show_when": {"wait_type": "color"},
+            "show_when": {"wait_type": "color", "color_sample": "point"},
         },
         {
             "name": "y",
             "type": "number",
             "label": "单点 Y",
             "default": 0,
-            "show_when": {"wait_type": "color"},
+            "show_when": {"wait_type": "color", "color_sample": "point"},
         },
         {
             "name": "target_color",
@@ -72,6 +79,11 @@ SCHEMA = {
             "label": "匹配模式",
             "options": ["contains", "exact", "regex"],
             "default": "contains",
+            "option_labels": {
+                "contains": "包含",
+                "exact": "完全相等",
+                "regex": "正则",
+            },
             "show_when": {"wait_type": "text"},
         },
         {
@@ -140,8 +152,27 @@ def _check(params: dict, context: dict) -> tuple[bool, str, dict]:
 
         target = str(params.get("target_color") or "#FF0000")
         tol = float(params.get("tolerance") if params.get("tolerance") is not None else 20)
-        region = resolve_region_from_params(params)
-        if region:
+        sample = str(params.get("color_sample") or "region").strip().lower() or "region"
+        region = resolve_region_from_params(params) if sample != "point" else None
+        if sample == "point":
+            from backend.blocks._helpers import require_configured_point
+
+            require_configured_point(params, label="等待颜色单点")
+            x, y = resolve_point(params)
+            actual = pixel_color(x, y)
+            coords = {
+                "found": True,
+                "x": x,
+                "y": y,
+                "left": x,
+                "top": y,
+                "width": 0,
+                "height": 0,
+                "matched_text": "",
+            }
+        else:
+            if not region:
+                raise ValueError("请框选颜色检测区域")
             actual = region_dominant_color(region)
             cx = (region[0] + region[2]) // 2
             cy = (region[1] + region[3]) // 2
@@ -153,19 +184,6 @@ def _check(params: dict, context: dict) -> tuple[bool, str, dict]:
                 "top": region[1],
                 "width": region[2] - region[0],
                 "height": region[3] - region[1],
-                "matched_text": "",
-            }
-        else:
-            x, y = resolve_point(params)
-            actual = pixel_color(x, y)
-            coords = {
-                "found": True,
-                "x": x,
-                "y": y,
-                "left": x,
-                "top": y,
-                "width": 0,
-                "height": 0,
                 "matched_text": "",
             }
         matched = color_distance(actual, target) <= tol

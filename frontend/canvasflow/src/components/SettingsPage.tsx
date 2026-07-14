@@ -466,7 +466,7 @@ export default function SettingsPage({
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
                   Ctrl+X+F10
                 </kbd>
-                。运行中可全局{' '}
+                （支持点击/按键/延迟/滚轮，不含拖拽/悬停/打字）。运行中可全局{' '}
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
                   Ctrl+X+F5
                 </kbd>{' '}

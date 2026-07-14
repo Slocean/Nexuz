@@ -12,7 +12,8 @@ SCHEMA = {
             "type": "string",
             "label": "数组",
             "default": "",
-            "placeholder": "$items 或 {{node.list}}",
+            "placeholder": "选择变量或绑定 {{节点.字段}}",
+            "ui": "collection",
         },
         {
             "name": "item_var",

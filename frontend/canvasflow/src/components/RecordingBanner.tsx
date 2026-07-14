@@ -36,7 +36,7 @@ export default function RecordingBanner({
             <p className="text-xs leading-relaxed mt-0.5 text-[var(--muted-foreground)]">
               {isFrida
                 ? '请在游戏内点击 UI 控件（Button/Toggle/Dropdown）。左右键会自动记录。'
-                : '正在记录鼠标与键盘操作，左右键会自动写入节点。'}{' '}
+                : '正在记录：点击、按键、延迟、滚轮。不含拖拽 / 悬停 / 文本输入（请手动加节点）。'}{' '}
               点下方停止，或顶栏「停止录制」，或按{' '}
               <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
                 Ctrl+X+F10

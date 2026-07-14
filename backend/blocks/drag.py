@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pyautogui
 
-from backend.blocks._helpers import resolve_point
+from backend.blocks._helpers import resolve_point, require_configured_point
 
 SCHEMA = {
     "type": "drag",
@@ -25,6 +25,22 @@ SCHEMA = {
 
 
 def handler(params, context, **kwargs):
+    require_configured_point(
+        {
+            "x": params.get("from_x"),
+            "y": params.get("from_y"),
+            "point_norm": params.get("from_point_norm"),
+        },
+        label="拖拽起点",
+    )
+    require_configured_point(
+        {
+            "x": params.get("to_x"),
+            "y": params.get("to_y"),
+            "point_norm": params.get("to_point_norm"),
+        },
+        label="拖拽终点",
+    )
     fx, fy = resolve_point(
         {
             "x": params.get("from_x"),

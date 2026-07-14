@@ -12,7 +12,8 @@ SCHEMA = {
             "type": "string",
             "label": "子流程路径",
             "default": "",
-            "placeholder": "xxx.flow.json",
+            "placeholder": "选择或填写 .flow.json",
+            "ui": "flow_path",
         },
         {
             "name": "inherit_variables",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pyautogui
 
-from backend.blocks._helpers import resolve_point
+from backend.blocks._helpers import require_configured_point, resolve_point
 
 SCHEMA = {
     "type": "mouse_scroll",
@@ -73,6 +73,7 @@ def handler(params, context, **kwargs):
     move_first = str(params.get("move_first", "false")).lower() == "true"
     x = y = 0
     if move_first:
+        require_configured_point(params, label="滚轮焦点")
         x, y = resolve_point(params)
         pyautogui.moveTo(x, y)
 

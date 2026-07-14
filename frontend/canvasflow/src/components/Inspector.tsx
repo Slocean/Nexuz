@@ -31,7 +31,6 @@ interface InspectorProps {
   selectedNode: WorkflowNode | null;
   onUpdateNodeConfig: (nodeId: string, updatedConfig: any) => void;
   onUpdateNodeName?: (nodeId: string, name: string) => void;
-  onRunSingleNode: (nodeId: string) => void;
   onDeselect: () => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
@@ -800,6 +799,75 @@ function Field({
   );
 }
 
+function RectField({
+  value,
+  onChange,
+  onPickRegion,
+  applyRegionPick,
+  fieldName,
+}: {
+  value: any;
+  onChange: (v: any) => void;
+  onPickRegion?: () => Promise<any>;
+  applyRegionPick: (name: string, res: any) => void;
+  fieldName: string;
+}) {
+  const [draft, setDraft] = React.useState(() => (value ? JSON.stringify(value) : ''));
+  const [err, setErr] = React.useState('');
+
+  React.useEffect(() => {
+    setDraft(value ? JSON.stringify(value) : '');
+    setErr('');
+  }, [value]);
+
+  return (
+    <div className="flex-1 min-w-0 space-y-1">
+      <div className="flex items-center gap-1.5">
+        <Input
+          className="h-8 flex-1 min-w-0 font-mono text-xs"
+          value={draft}
+          placeholder="[x1,y1,x2,y2]"
+          onChange={(e) => {
+            const text = e.target.value;
+            setDraft(text);
+            if (!text.trim()) {
+              setErr('');
+              onChange(null);
+              return;
+            }
+            try {
+              const parsed = JSON.parse(text);
+              if (!Array.isArray(parsed) || parsed.length !== 4) {
+                setErr('需要 [x1,y1,x2,y2] 四个数字');
+                return;
+              }
+              setErr('');
+              onChange(parsed);
+            } catch {
+              setErr('JSON 无效');
+            }
+          }}
+        />
+        {onPickRegion && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 px-2"
+            onClick={async () => {
+              const res = await onPickRegion();
+              applyRegionPick(fieldName, res);
+            }}
+          >
+            框选
+          </Button>
+        )}
+      </div>
+      {err ? <p className="text-[10px] text-rose-500">{err}</p> : null}
+    </div>
+  );
+}
+
 /** Schema show_when: { field: value | value[] } — all keys must match current config */
 function inputVisible(input: any, config: Record<string, any> | undefined): boolean {
   const when = input?.show_when;
@@ -816,6 +884,10 @@ function inputVisible(input: any, config: Record<string, any> | undefined): bool
       else if (key === 'key_mode') cur = 'single';
       else if (key === 'sample_mode') cur = 'point';
       else if (key === 'hover_mode') cur = 'single';
+      else if (key === 'trigger_type') cur = 'interval';
+      else if (key === 'region_mode') cur = 'rect';
+      else if (key === 'capture_shape') cur = 'point';
+      else if (key === 'color_sample') cur = 'region';
       else return false;
     }
     // Legacy color_detect: sample_mode "single" → region if configured, else point
@@ -830,6 +902,14 @@ function inputVisible(input: any, config: Record<string, any> | undefined): bool
       return false;
     }
   }
+  // wait_until: color + 单点时不显示 region
+  if (
+    input?.name === 'region' &&
+    String(cfg.wait_type || 'text') === 'color' &&
+    String(cfg.color_sample || 'region') === 'point'
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -837,7 +917,6 @@ export default function Inspector({
   selectedNode,
   onUpdateNodeConfig,
   onUpdateNodeName,
-  onRunSingleNode,
   onDeselect,
   themeName,
   themeMode,
@@ -1430,6 +1509,59 @@ export default function Inspector({
                   currentNodeId={selectedNode.id}
                   schemaMap={schemaMap}
                 />
+              ) : input.ui === 'flow_path' || input.name === 'subflow_path' ? (
+                <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                  <BindableInput
+                    value={value ?? ''}
+                    inputType="string"
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={(v) => handleFieldChange(input.name, v)}
+                    placeholder={input.placeholder || '子流程 .flow.json 路径'}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 px-2"
+                    onClick={async () => {
+                      const picked = await bridge.pickFlowFile?.();
+                      if (picked?.ok && picked.path) {
+                        handleFieldChange(input.name, picked.path);
+                        return;
+                      }
+                      if (picked?.cancelled) return;
+                      await alert({
+                        title: '选择失败',
+                        description: picked?.error || '无法打开文件对话框，请手动填写路径',
+                      });
+                    }}
+                  >
+                    浏览
+                  </Button>
+                </div>
+              ) : input.ui === 'collection' ||
+                (selectedNode.subType === 'loop_foreach' && input.name === 'collection') ? (
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <BindableInput
+                    value={value ?? ''}
+                    inputType="string"
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={(v) => handleFieldChange(input.name, v)}
+                    placeholder={input.placeholder || '$items 或 {{节点.字段}}'}
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] opacity-50 shrink-0">变量</span>
+                    <VariableSelect
+                      value={value ?? ''}
+                      onChange={(v) => handleFieldChange(input.name, v)}
+                      allowPath
+                      placeholder="选择数组变量"
+                      triggerClassName="h-7 text-xs flex-1"
+                    />
+                  </div>
+                </div>
               ) : input.type === 'keymap' ||
                 input.ui === 'input_map' ||
                 input.ui === 'output_map' ? (
@@ -1447,34 +1579,13 @@ export default function Inspector({
                   schemaMap={schemaMap}
                 />
               ) : input.type === 'rect' ? (
-                <>
-                  <Input
-                    className="h-8 flex-1 min-w-0 font-mono text-xs"
-                    value={value ? JSON.stringify(value) : ''}
-                    placeholder="[x1,y1,x2,y2]"
-                    onChange={(e) => {
-                      try {
-                        handleFieldChange(input.name, JSON.parse(e.target.value));
-                      } catch {
-                        /* ignore */
-                      }
-                    }}
-                  />
-                  {onPickRegion && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 shrink-0 px-2"
-                      onClick={async () => {
-                        const res = await onPickRegion();
-                        applyRegionPick(input.name, res);
-                      }}
-                    >
-                      框选
-                    </Button>
-                  )}
-                </>
+                <RectField
+                  value={value}
+                  onChange={(v) => handleFieldChange(input.name, v)}
+                  onPickRegion={onPickRegion}
+                  applyRegionPick={applyRegionPick}
+                  fieldName={input.name}
+                />
               ) : input.ui === 'expression' ||
                 input.name === 'expression' ||
                 input.name === 'exit_condition' ? (
@@ -1484,7 +1595,7 @@ export default function Inspector({
                   currentNodeId={selectedNode.id}
                   schemaMap={schemaMap}
                 />
-              ) : input.name === 'template_image' ? (
+              ) : input.name === 'template_image' || input.name === 'anchor_template' ? (
                 <>
                   <BindableInput
                     value={value}
@@ -1820,6 +1931,12 @@ export default function Inspector({
               />
             </div>
           </div>
+
+          {schemaMap[selectedNode.subType]?.description ? (
+            <p className="text-[11px] leading-relaxed opacity-60 px-0.5">
+              {schemaMap[selectedNode.subType].description}
+            </p>
+          ) : null}
 
           <div className="space-y-3">
             <h4 className="font-medium text-sm opacity-70">

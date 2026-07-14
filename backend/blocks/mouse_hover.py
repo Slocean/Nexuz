@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pyautogui
 
-from backend.blocks._helpers import interruptible_sleep, resolve_point
+from backend.blocks._helpers import interruptible_sleep, require_configured_point, resolve_point
 
 SCHEMA = {
     "type": "mouse_hover",
@@ -87,6 +87,7 @@ def _hover_at(
     should_stop=None,
     cooperate=None,
 ) -> tuple[int, int]:
+    require_configured_point(params, label="悬停坐标")
     x, y = resolve_point(params)
     pyautogui.moveTo(x, y, duration=max(0.0, move_duration))
     if hold_ms > 0:

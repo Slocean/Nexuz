@@ -686,6 +686,21 @@ class Api:
             return {"ok": False, "error": err, "path": str(path)}
         return {"ok": True, "flow": data, "path": str(path)}
 
+    def pick_flow_file(self) -> dict:
+        """Pick a .flow.json path without loading it into the editor."""
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        result = self._window.create_file_dialog(
+            webview.OPEN_DIALOG,
+            directory=str(self._flows_dir()),
+            allow_multiple=False,
+            file_types=("Flow JSON (*.flow.json;*.json)",),
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+        filepath = result[0] if isinstance(result, (list, tuple)) else result
+        return {"ok": True, "path": str(filepath)}
+
     def validate_flow(self, flow_json: str) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
         err = self._validate_flow(flow)

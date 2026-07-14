@@ -774,8 +774,9 @@ export const MOCK_SCHEMAS = [
   },
   {
     type: 'schedule_trigger',
-    label: '定时触发',
+    label: '注册定时任务',
     category: '控制类',
+    description: '仅注册/更新定时任务，不会在此节点等待到点再继续。',
     inputs: [
       {
         name: 'trigger_type',
@@ -783,14 +784,22 @@ export const MOCK_SCHEMAS = [
         label: '触发类型',
         options: ['interval', 'once', 'cron'],
         default: 'interval',
+        option_labels: { interval: '周期', once: '单次', cron: 'Cron' },
       },
-      { name: 'interval_seconds', type: 'number', label: '周期秒数', default: 60 },
+      {
+        name: 'interval_seconds',
+        type: 'number',
+        label: '周期秒数',
+        default: 60,
+        show_when: { trigger_type: 'interval' },
+      },
       {
         name: 'run_at',
         type: 'string',
         label: '单次时间',
         placeholder: '2026-07-12 10:00:00',
         default: '',
+        show_when: { trigger_type: 'once' },
       },
       {
         name: 'cron_expression',
@@ -798,8 +807,16 @@ export const MOCK_SCHEMAS = [
         label: 'Cron',
         default: '0 * * * *',
         placeholder: '分 时 日 月 周',
+        show_when: { trigger_type: 'cron' },
       },
-      { name: 'enabled', type: 'select', label: '启用', options: ['true', 'false'], default: 'true' },
+      {
+        name: 'enabled',
+        type: 'select',
+        label: '启用',
+        options: ['true', 'false'],
+        default: 'true',
+        option_labels: { true: '启用', false: '禁用' },
+      },
     ],
     outputs: [
       { name: 'registered', type: 'boolean' },
@@ -816,7 +833,8 @@ export const MOCK_SCHEMAS = [
         type: 'string',
         label: '子流程路径',
         default: '',
-        placeholder: 'xxx.flow.json',
+        placeholder: '选择或填写 .flow.json',
+        ui: 'flow_path',
       },
       {
         name: 'inherit_variables',
@@ -896,6 +914,8 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: true, jobs: [] });
     case 'list_flows':
       return Promise.resolve({ ok: true, flows: [], dir: '' });
+    case 'pick_flow_file':
+      return Promise.resolve({ ok: false, cancelled: true, error: '浏览器预览请手动填写路径' });
     case 'list_flow_templates': {
       try {
         const raw = localStorage.getItem('nexuz.flowTemplates');
@@ -1079,6 +1099,7 @@ export const bridge = {
   listScheduleJobs: () => call('list_schedule_jobs'),
   removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),
+  pickFlowFile: () => call('pick_flow_file'),
   deleteFlow: (filepath) => call('delete_flow', filepath),
   saveFlow: (flow, filepath = null, name = null) =>
     call('save_flow', JSON.stringify(flow), filepath, name),

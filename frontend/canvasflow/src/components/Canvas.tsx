@@ -8,6 +8,7 @@ import {
   AlertCircle,
   Loader2,
   Pause,
+  Play,
   Waypoints,
 } from "lucide-react";
 import {
@@ -41,7 +42,7 @@ interface CanvasProps {
   onRemoveNodes?: (nodeIds: string[]) => void;
   onDuplicateNodes?: (nodeIds: string[]) => void;
   onDropBlock?: (blockType: string, x: number, y: number) => void;
-  onRunSingleNode: (nodeId: string) => void;
+  onRunSingleNode?: (nodeId: string) => void;
   onToggleBreakpoint?: (nodeId: string) => void;
   onUpdateNodeName?: (nodeId: string, name: string) => void;
   themeName: ThemeName;
@@ -1456,26 +1457,27 @@ function Canvas({
                   </div>
 
                   <div className="flex items-center shrink-0 pointer-events-auto">
-                    <button
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRunSingleNode(node.id);
-                      }}
-                      style={{ color: colors.secondaryText }}
-                      className="p-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-emerald-500 cursor-pointer"
-                      title={isNodePaused ? "已暂停" : "Run node solo"}
-                    >
-                      {isNodePaused ? (
-                        <Pause className="w-3 h-3 text-amber-500 fill-amber-500/30" />
-                      ) : (
-                        <Loader2
-                          className={`w-3 h-3 ${
-                            isNodeLive ? "animate-spin text-emerald-500" : ""
-                          }`}
-                        />
-                      )}
-                    </button>
+                    {onRunSingleNode ? (
+                      <button
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRunSingleNode(node.id);
+                        }}
+                        disabled={_isExecuting}
+                        style={{ color: colors.secondaryText }}
+                        className="p-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 hover:text-emerald-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={isNodePaused || isAtBreakpoint ? "节点暂停中" : "仅运行此节点"}
+                      >
+                        {isNodeLive ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-emerald-500" />
+                        ) : isNodePaused || isAtBreakpoint ? (
+                          <Pause className="w-3 h-3 text-amber-500 fill-amber-500/30" />
+                        ) : (
+                          <Play className="w-3 h-3 fill-current" />
+                        )}
+                      </button>
+                    ) : null}
                     <button
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
@@ -1486,7 +1488,7 @@ function Canvas({
                       }}
                       style={{ color: colors.danger }}
                       className="p-0.5 rounded hover:bg-red-500/15 cursor-pointer"
-                      title="Delete node"
+                      title="删除节点"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>

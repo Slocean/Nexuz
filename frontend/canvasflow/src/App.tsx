@@ -316,6 +316,14 @@ function AppShell() {
       return;
     }
     clearLogs();
+    const errN = bindIssues.filter((i) => i.level === 'error').length;
+    if (errN > 0) {
+      appendLog({
+        level: 'error',
+        message: `无法运行：有 ${errN} 个配置错误（如未取点、绑定失效），请先在画布/检查器中修复`,
+      });
+      return;
+    }
     const bps = Array.isArray(flow.breakpoints) ? flow.breakpoints : [];
     const useDebug = !!debugMode;
     appendLog({
@@ -397,6 +405,14 @@ function AppShell() {
 
     // idle → start debug run, break before first node
     if (!debugMode) useFlowStore.setState({ debugMode: true });
+    const errN = bindIssues.filter((i) => i.level === 'error').length;
+    if (errN > 0) {
+      appendLog({
+        level: 'error',
+        message: `无法调试：有 ${errN} 个配置错误，请先修复`,
+      });
+      return;
+    }
     clearLogs();
     appendLog({ level: 'info', message: '调试单步启动：将在首个节点暂停…' });
     const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
@@ -555,8 +571,8 @@ function AppShell() {
               ? `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。主窗口将隐藏，用外部浮窗或 Ctrl+X+F10 停止。\n需先在设置页连接 Frida。`
               : `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。右上角会出现停止浮层，也可按 Ctrl+X+F10。\n需先在设置页连接 Frida。`
             : hide
-              ? `模式：${modeLabel}\n\n录制会把鼠标/键盘操作转成流程节点。\n\n已开启「操作时隐藏主窗口」：请用屏幕右上角外部浮窗或 Ctrl+X+F10 停止。`
-              : `模式：${modeLabel}\n\n录制会把鼠标/键盘操作转成流程节点。右上角会出现停止浮层；也可按 Ctrl+X+F10。`,
+              ? `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n\n已开启隐藏窗口：用右上角浮窗或 Ctrl+X+F10 停止。`
+              : `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n右上角浮层或 Ctrl+X+F10 停止。`,
         confirmText: '开始录制',
       });
       if (!ok) return;
@@ -834,12 +850,69 @@ function AppShell() {
     [updateNodeName],
   );
 
-  const handleRunSingleNode = useCallback(async (_nodeId: string) => {
-    appendLog({
-      level: 'warn',
-      message: '单节点运行未单独暴露；请使用顶栏 Run Pipeline 执行整条流程',
-    });
-  }, [appendLog]);
+  const handleRunSingleNode = useCallback(
+    async (nodeId: string) => {
+      if (isExecuting) {
+        appendLog({
+          level: 'warn',
+          message: '已有流程在执行，请先停止后再单节点运行',
+        });
+        return;
+      }
+      const src = flow.nodes?.[nodeId];
+      if (!src) {
+        appendLog({ level: 'error', message: `节点不存在: ${nodeId}` });
+        return;
+      }
+      // Solo flow: same variables, only this node, no outgoing links
+      const soloNode = JSON.parse(JSON.stringify(src));
+      delete soloNode.next;
+      delete soloNode.then;
+      delete soloNode.else;
+      delete soloNode.body;
+      delete soloNode.default;
+      if (soloNode.params && typeof soloNode.params === 'object') {
+        // switch cases keep values for display but clear jump targets so we don't leave solo graph
+        if (Array.isArray(soloNode.params.cases)) {
+          soloNode.params = {
+            ...soloNode.params,
+            cases: soloNode.params.cases.map((c: any) =>
+              c && typeof c === 'object' ? { ...c, node_id: '' } : c,
+            ),
+            default: '',
+          };
+        }
+      }
+      const soloFlow = {
+        ...flow,
+        entry: nodeId,
+        nodes: { [nodeId]: soloNode },
+        breakpoints: [],
+      };
+      clearLogs();
+      appendLog({
+        level: 'info',
+        message: `单节点运行 [${nodeId}] ${src.type || ''}…`,
+      });
+      const prepared = applyDefaultCaptureMode(soloFlow, defaultCaptureMode);
+      const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
+      const hide = hideWindowOnRecord && !debugMode;
+      const res = await bridge.runFlow(payload, false, hide, false, []);
+      if (!res?.ok) {
+        appendLog({ level: 'error', message: res?.error || '单节点启动失败' });
+      }
+    },
+    [
+      isExecuting,
+      flow,
+      appendLog,
+      clearLogs,
+      defaultCaptureMode,
+      filePath,
+      hideWindowOnRecord,
+      debugMode,
+    ],
+  );
 
   return (
     <div
@@ -936,7 +1009,6 @@ function AppShell() {
           selectedNode={selectedNode}
           onUpdateNodeConfig={handleUpdateNodeConfig}
           onUpdateNodeName={handleUpdateNodeName}
-          onRunSingleNode={handleRunSingleNode}
           onDeselect={() => selectNode(null)}
           themeName={themeName as any}
           themeMode={themeMode as any}

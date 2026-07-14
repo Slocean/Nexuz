@@ -3,6 +3,7 @@
  */
 import {
   detectBindKind,
+  isRefValue,
   parseNodeRef,
   parseVarRef,
   rootFieldName,
@@ -422,9 +423,144 @@ export function collectFlowBindIssues(
         }
       }
     }
+
+    // Point / drag defaults still at (0,0) → not configured
+    for (const iss of inspectPointConfig(nodeId, node, params)) {
+      issues.push(iss);
+    }
+
+    // switch empty case values never match
+    if (node?.type === 'switch') {
+      const cases = params.cases;
+      if (Array.isArray(cases)) {
+        cases.forEach((c: any, i: number) => {
+          const v = c?.value;
+          if (v == null || String(v).trim() === '') {
+            issues.push({
+              level: 'error',
+              nodeId,
+              paramName: `cases[${i}].value`,
+              message: `分支 #${i + 1}：空匹配值永不命中，请填写判断值`,
+            });
+          }
+        });
+      }
+    }
+
+    if (node?.type === 'loop_foreach') {
+      const col = params.collection;
+      if (col == null || String(col).trim() === '') {
+        issues.push({
+          level: 'warn',
+          nodeId,
+          paramName: 'collection',
+          message: '数组为空：请选择变量或绑定上游列表',
+        });
+      }
+    }
   }
 
   return issues;
+}
+
+function _numOrZero(v: unknown): number {
+  if (v == null || v === '') return 0;
+  if (isRefValue(v)) return NaN; // bound — treat as configured
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function _pointUnconfigured(x: unknown, y: unknown, extra?: { frida?: any; norm?: any }): boolean {
+  if (extra?.norm && Array.isArray(extra.norm) && extra.norm.length === 2) return false;
+  if (extra?.frida && typeof extra.frida === 'object' && extra.frida.hierarchy_path) return false;
+  if (isRefValue(x) || isRefValue(y)) return false;
+  return _numOrZero(x) === 0 && _numOrZero(y) === 0;
+}
+
+function inspectPointConfig(nodeId: string, node: any, params: any): BindIssue[] {
+  const out: BindIssue[] = [];
+  const t = node?.type;
+  if (t === 'click') {
+    const mode = String(params.click_mode || 'single');
+    if (mode === 'multi') {
+      if (!Array.isArray(params.points) || params.points.length === 0) {
+        out.push({
+          level: 'error',
+          nodeId,
+          paramName: 'points',
+          message: '多点模式请至少添加一个点击点',
+        });
+      }
+    } else {
+      const cap = String(params.capture_mode || 'coord');
+      if (cap === 'frida_ui') {
+        if (!params.frida_ui?.hierarchy_path) {
+          out.push({
+            level: 'error',
+            nodeId,
+            paramName: 'frida_ui',
+            message: '请先录入 Frida UI 目标',
+          });
+        }
+      } else if (_pointUnconfigured(params.x, params.y, { frida: params.frida_ui, norm: params.point_norm })) {
+        out.push({
+          level: 'error',
+          nodeId,
+          paramName: 'x',
+          message: '请先取点（当前为 0,0，疑似未配置）',
+        });
+      }
+    }
+  } else if (t === 'mouse_hover') {
+    const mode = String(params.hover_mode || 'single');
+    if (mode === 'multi') {
+      if (!Array.isArray(params.points) || params.points.length === 0) {
+        out.push({
+          level: 'error',
+          nodeId,
+          paramName: 'points',
+          message: '多点模式请至少添加一个悬停点',
+        });
+      }
+    } else if (_pointUnconfigured(params.x, params.y, { norm: params.point_norm })) {
+      out.push({
+        level: 'error',
+        nodeId,
+        paramName: 'x',
+        message: '请先取点（当前为 0,0，疑似未配置）',
+      });
+    }
+  } else if (t === 'drag') {
+    if (
+      _pointUnconfigured(params.from_x, params.from_y, { norm: params.from_point_norm })
+    ) {
+      out.push({
+        level: 'error',
+        nodeId,
+        paramName: 'from_x',
+        message: '请先取拖拽起点（当前为 0,0）',
+      });
+    }
+    if (_pointUnconfigured(params.to_x, params.to_y, { norm: params.to_point_norm })) {
+      out.push({
+        level: 'error',
+        nodeId,
+        paramName: 'to_x',
+        message: '请先取拖拽终点（当前为 0,0）',
+      });
+    }
+  } else if (t === 'mouse_scroll') {
+    const moveFirst = String(params.move_first ?? 'false').toLowerCase() === 'true';
+    if (moveFirst && _pointUnconfigured(params.x, params.y, { norm: params.point_norm })) {
+      out.push({
+        level: 'error',
+        nodeId,
+        paramName: 'x',
+        message: '已开启「先移到焦点」但坐标仍为 0,0，请取点或关闭该项',
+      });
+    }
+  }
+  return out;
 }
 
 /** Issues for one data connection edge */

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 SCHEMA = {
     "type": "schedule_trigger",
-    "label": "定时触发",
+    "label": "注册定时任务",
     "category": "控制类",
+    "description": "仅注册/更新定时任务，不会在此节点等待到点再继续。实际执行由调度器触发整条流程。",
     "inputs": [
         {
             "name": "trigger_type",
@@ -11,12 +12,18 @@ SCHEMA = {
             "label": "触发类型",
             "options": ["interval", "once", "cron"],
             "default": "interval",
+            "option_labels": {
+                "interval": "周期",
+                "once": "单次",
+                "cron": "Cron",
+            },
         },
         {
             "name": "interval_seconds",
             "type": "number",
             "label": "周期秒数",
             "default": 60,
+            "show_when": {"trigger_type": "interval"},
         },
         {
             "name": "run_at",
@@ -24,6 +31,7 @@ SCHEMA = {
             "label": "单次时间",
             "placeholder": "2026-07-12 10:00:00",
             "default": "",
+            "show_when": {"trigger_type": "once"},
         },
         {
             "name": "cron_expression",
@@ -31,6 +39,7 @@ SCHEMA = {
             "label": "Cron",
             "default": "0 * * * *",
             "placeholder": "分 时 日 月 周",
+            "show_when": {"trigger_type": "cron"},
         },
         {
             "name": "enabled",
@@ -38,6 +47,7 @@ SCHEMA = {
             "label": "启用",
             "options": ["true", "false"],
             "default": "true",
+            "option_labels": {"true": "启用", "false": "禁用"},
         },
     ],
     "outputs": [
