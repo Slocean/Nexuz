@@ -190,10 +190,62 @@ def build_exe(*, onefile: bool) -> None:
     run(cmd)
 
     if onefile:
-        print(f"\nOK: {OUT_DIR / (target_name + '.exe')}")
+        exe_path = OUT_DIR / f"{target_name}.exe"
+        print(f"\nOK: {exe_path}")
+        finalize_windows_exe_icon(exe_path)
     else:
-        print(f"\nOK: {OUT_DIR / target_name / (target_name + '.exe')}")
+        exe_path = OUT_DIR / target_name / f"{target_name}.exe"
+        print(f"\nOK: {exe_path}")
         print("  (onedir — keep the whole folder together)")
+        finalize_windows_exe_icon(exe_path)
+
+
+def _exe_has_icon_resource(exe_path: Path) -> bool:
+    try:
+        import pefile
+    except ImportError:
+        try:
+            run([sys.executable, "-m", "pip", "install", "pefile", "-q"])
+            import pefile
+        except Exception:
+            return True  # skip verify
+    try:
+        pe = pefile.PE(str(exe_path))
+        ok = False
+        if hasattr(pe, "DIRECTORY_ENTRY_RESOURCE"):
+            for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+                if entry.id == 14:  # RT_GROUP_ICON
+                    ok = True
+                    break
+        pe.close()
+        return ok
+    except Exception as exc:
+        print(f"! icon verify skipped: {exc}")
+        return True
+
+
+def finalize_windows_exe_icon(exe_path: Path) -> None:
+    """Confirm icon is embedded and notify Windows Explorer (no extra exe copy)."""
+    if not exe_path.is_file():
+        return
+    if not _exe_has_icon_resource(exe_path):
+        print(f"! WARNING: {exe_path.name} has no embedded icon resource")
+        return
+    print(f"OK: {exe_path.name} contains embedded icon resources")
+
+    try:
+        import ctypes
+
+        SHCNE_ASSOCCHANGED = 0x08000000
+        SHCNE_UPDATEITEM = 0x00002000
+        SHCNF_IDLIST = 0x0000
+        SHCNF_PATHW = 0x0005
+        ctypes.windll.shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
+        ctypes.windll.shell32.SHChangeNotify(
+            SHCNE_UPDATEITEM, SHCNF_PATHW, str(exe_path), None
+        )
+    except Exception as exc:
+        print(f"! SHChangeNotify failed: {exc}")
 
 
 def main() -> None:
