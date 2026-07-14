@@ -11,6 +11,7 @@ import CodeEditor from './components/CodeEditor';
 import AIAssistant from './components/AIAssistant';
 import SaveNameDialog from './components/SaveNameDialog';
 import RecordingBanner from './components/RecordingBanner';
+import RunningBanner from './components/RunningBanner';
 import SettingsPage from './components/SettingsPage';
 import DebugBar from './components/DebugBar';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
@@ -551,11 +552,11 @@ function AppShell() {
         description:
           mode === 'frida_ui'
             ? hide
-              ? `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。主窗口将隐藏，用外部浮窗或 Ctrl+Shift+F10 停止。\n需先在设置页连接 Frida。`
-              : `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。右上角会出现停止浮层，也可按 Ctrl+Shift+F10。\n需先在设置页连接 Frida。`
+              ? `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。主窗口将隐藏，用外部浮窗或 Ctrl+X+F10 停止。\n需先在设置页连接 Frida。`
+              : `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。右上角会出现停止浮层，也可按 Ctrl+X+F10。\n需先在设置页连接 Frida。`
             : hide
-              ? `模式：${modeLabel}\n\n录制会把鼠标/键盘操作转成流程节点。\n\n已开启「操作时隐藏主窗口」：请用屏幕右上角外部浮窗或 Ctrl+Shift+F10 停止。`
-              : `模式：${modeLabel}\n\n录制会把鼠标/键盘操作转成流程节点。右上角会出现停止浮层；也可按 Ctrl+Shift+F10。`,
+              ? `模式：${modeLabel}\n\n录制会把鼠标/键盘操作转成流程节点。\n\n已开启「操作时隐藏主窗口」：请用屏幕右上角外部浮窗或 Ctrl+X+F10 停止。`
+              : `模式：${modeLabel}\n\n录制会把鼠标/键盘操作转成流程节点。右上角会出现停止浮层；也可按 Ctrl+X+F10。`,
         confirmText: '开始录制',
       });
       if (!ok) return;
@@ -567,8 +568,8 @@ function AppShell() {
         appendLog({
           level: 'info',
           message: hide
-            ? `开始录制 [${modeLabel}]（窗口已隐藏）。停止：外部浮窗 或 Ctrl+Shift+F10`
-            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 Ctrl+Shift+F10`,
+            ? `开始录制 [${modeLabel}]（窗口已隐藏）。停止：外部浮窗 或 Ctrl+X+F10`
+            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 Ctrl+X+F10`,
         });
       } else {
         appendLog({
@@ -967,6 +968,17 @@ function AppShell() {
         mode={recordingMode}
         onStop={() => {
           void stopRecordingNow();
+        }}
+      />
+
+      <RunningBanner
+        open={isExecuting && !recording}
+        execStatus={execStatus}
+        onPause={() => {
+          void handlePause();
+        }}
+        onStop={() => {
+          void handleStop();
         }}
       />
 

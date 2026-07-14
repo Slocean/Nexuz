@@ -141,8 +141,19 @@ class Recorder:
                 return "alt"
             if key == keyboard.Key.f10:
                 return "f10"
-            if isinstance(key, keyboard.KeyCode) and key.char:
-                return key.char
+            if isinstance(key, keyboard.KeyCode):
+                ch = key.char
+                # With Ctrl held, char is often a control code / None — prefer vk for letters.
+                if ch and len(ch) == 1 and ch.isalpha():
+                    return ch.lower()
+                vk = getattr(key, "vk", None)
+                if isinstance(vk, int):
+                    if 65 <= vk <= 90:  # A-Z
+                        return chr(vk).lower()
+                    if 97 <= vk <= 122:
+                        return chr(vk).lower()
+                if ch and len(ch) == 1 and 32 <= ord(ch) < 127:
+                    return ch.lower()
             name = str(key).replace("Key.", "")
             mapping = {
                 "ctrl_l": "ctrl",
@@ -167,7 +178,8 @@ class Recorder:
             return None
 
     def _is_stop_hotkey(self, name: str) -> bool:
-        return name == "f10" and self._mods.get("ctrl") and self._mods.get("shift")
+        # Ctrl+X+F10（与运行热键 Ctrl+X+F4/F5 统一前缀）
+        return name == "f10" and self._mods.get("ctrl") and "x" in self._pressed_keys
 
     def _on_press(self, key):
         if not self._recording:
@@ -178,8 +190,10 @@ class Recorder:
         if name in ("ctrl", "shift", "alt"):
             self._mods[name] = True
             return
-        # Ctrl+Shift+F10 → stop recording, do not record this key
+        # Ctrl+X+F10 → stop recording, do not record this key
         if self._is_stop_hotkey(name):
+            with self._lock:
+                self._pressed_keys.discard("x")
             cb = self._on_stop_hotkey
             if cb:
                 threading.Thread(target=cb, daemon=True).start()

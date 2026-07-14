@@ -39,7 +39,7 @@ export default function RecordingBanner({
                 : '正在记录鼠标与键盘操作，左右键会自动写入节点。'}{' '}
               点下方停止，或顶栏「停止录制」，或按{' '}
               <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                Ctrl+Shift+F10
+                Ctrl+X+F10
               </kbd>
             </p>
           </div>

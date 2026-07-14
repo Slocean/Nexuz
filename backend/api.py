@@ -16,6 +16,8 @@ from backend.core.input.session import get_recording_session
 from backend.core.interpreter import get_interpreter
 from backend.core.recorder import get_recorder
 from backend.core.registry import get_schemas, register_all_blocks
+from backend.core.run_hotkeys import PAUSE_LABEL, STOP_LABEL, get_run_hotkeys
+from backend.core.run_overlay import hide_run_overlay, show_run_overlay
 from backend.paths import exe_dir, project_root
 
 try:
@@ -64,6 +66,37 @@ class Api:
         result = self.stop_recording()
         self._emit("recording_stopped", result)
 
+    def _on_run_hotkey_stop(self) -> None:
+        interp = get_interpreter()
+        if not interp.running:
+            return
+        self._emit("log", {"level": "warn", "message": f"快捷键结束流程（{STOP_LABEL}）"})
+        self.stop_flow()
+
+    def _on_run_hotkey_pause(self) -> None:
+        interp = get_interpreter()
+        if not interp.running:
+            return
+        if getattr(interp, "paused", False):
+            return
+        self._emit("log", {"level": "warn", "message": f"快捷键暂停流程（{PAUSE_LABEL}）"})
+        self.pause_flow()
+
+    def _start_run_controls(self, *, show_overlay: bool) -> None:
+        get_run_hotkeys().start(
+            on_stop=self._on_run_hotkey_stop,
+            on_pause=self._on_run_hotkey_pause,
+        )
+        if show_overlay:
+            show_run_overlay(
+                on_stop=self._on_run_hotkey_stop,
+                on_pause=self._on_run_hotkey_pause,
+            )
+
+    def _stop_run_controls(self) -> None:
+        get_run_hotkeys().stop()
+        hide_run_overlay()
+
     def _emit(self, event: str, payload: dict) -> None:
         if not self._window:
             return
@@ -73,9 +106,11 @@ class Api:
         except Exception:
             pass
         # After run ends, show window again (was hidden so OS clicks wouldn't hit Nexuz UI)
-        if event in ("flow_finished", "flow_stopped") and self._run_hidden:
-            self._set_window_visible(True)
-            self._run_hidden = False
+        if event in ("flow_finished", "flow_stopped"):
+            self._stop_run_controls()
+            if self._run_hidden:
+                self._set_window_visible(True)
+                self._run_hidden = False
 
     def _log(self, level: str, message: str, **detail) -> None:
         payload: dict[str, Any] = {"level": level, "message": message}
@@ -338,14 +373,26 @@ class Api:
                 debug_mode=in_debug,
                 breakpoints=bps,
             )
+            started = bool((result or {}).get("started", True))
+            resumed = bool((result or {}).get("resumed"))
+            if started and not resumed:
+                self._start_run_controls(show_overlay=do_hide)
+                self._emit(
+                    "log",
+                    {
+                        "level": "info",
+                        "message": f"运行热键：暂停 {PAUSE_LABEL} · 结束 {STOP_LABEL}",
+                    },
+                )
             return {
                 "ok": True,
-                "started": bool((result or {}).get("started", True)),
-                "resumed": bool((result or {}).get("resumed")),
+                "started": started,
+                "resumed": resumed,
                 "hide_window": do_hide,
                 "debug_mode": in_debug,
             }
         except Exception as exc:
+            self._stop_run_controls()
             if do_hide:
                 self._set_window_visible(True)
                 self._run_hidden = False
@@ -360,6 +407,7 @@ class Api:
         if self._run_hidden:
             self._set_window_visible(True)
             self._run_hidden = False
+            hide_run_overlay()
         return {"ok": True, "paused": True}
 
     def resume_flow(self) -> dict:
@@ -377,6 +425,7 @@ class Api:
         get_interpreter().stop()
         self._set_window_visible(True)
         self._run_hidden = False
+        hide_run_overlay()
         return {"ok": True, "stopping": True}
 
     def step_flow(self) -> dict:

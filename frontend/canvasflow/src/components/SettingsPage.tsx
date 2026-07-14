@@ -462,11 +462,19 @@ export default function SettingsPage({
               <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
                 开启后，录制、运行、取点、框选时会暂时隐藏 Nexuz，避免点到本程序。
                 <br />
-                录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。快捷键均为{' '}
+                录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。录制快捷键{' '}
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                  Ctrl+Shift+F10
+                  Ctrl+X+F10
                 </kbd>
-                。
+                。运行中可全局{' '}
+                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
+                  Ctrl+X+F5
+                </kbd>{' '}
+                暂停、
+                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
+                  Ctrl+X+F4
+                </kbd>{' '}
+                结束。
               </p>
             </div>
           </div>
