@@ -40,7 +40,10 @@ class Recorder:
             self._pressed_keys.clear()
             self._mods = {"ctrl": False, "shift": False, "alt": False}
 
-            self._mouse_listener = mouse.Listener(on_click=self._on_click)
+            self._mouse_listener = mouse.Listener(
+                on_click=self._on_click,
+                on_scroll=self._on_scroll,
+            )
             self._key_listener = keyboard.Listener(
                 on_press=self._on_press,
                 on_release=self._on_release,
@@ -109,6 +112,22 @@ class Recorder:
                     "y": int(y),
                     "button": btn,
                     "click_type": "single",
+                }
+            )
+
+    def _on_scroll(self, x, y, dx, dy):
+        if not self._recording:
+            return
+        if dx == 0 and dy == 0:
+            return
+        with self._lock:
+            self._append(
+                {
+                    "kind": "scroll",
+                    "x": int(x),
+                    "y": int(y),
+                    "dx": int(dx),
+                    "dy": int(dy),
                 }
             )
 
@@ -231,6 +250,28 @@ class Recorder:
                         "id": nid,
                         "type": "key_press",
                         "params": {"keys": ev["keys"]},
+                    }
+                )
+            elif kind == "scroll":
+                dx = int(ev.get("dx") or 0)
+                dy = int(ev.get("dy") or 0)
+                if abs(dy) >= abs(dx):
+                    direction = "up" if dy > 0 else "down"
+                    clicks = max(1, abs(dy))
+                else:
+                    direction = "right" if dx > 0 else "left"
+                    clicks = max(1, abs(dx))
+                nodes.append(
+                    {
+                        "id": nid,
+                        "type": "mouse_scroll",
+                        "params": {
+                            "x": ev["x"],
+                            "y": ev["y"],
+                            "move_first": "true",
+                            "direction": direction,
+                            "clicks": clicks,
+                        },
                     }
                 )
         for i, n in enumerate(nodes):

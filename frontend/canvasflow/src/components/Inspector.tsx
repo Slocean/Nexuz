@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Settings, Terminal, X, Copy, Check, Download, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Settings, Terminal, X, Copy, Check, Download, Trash2, Keyboard } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
@@ -373,6 +373,127 @@ function PointListEditor({
   );
 }
 
+function eventToPyKey(e: KeyboardEvent): string | null {
+  const k = e.key;
+  if (k === 'Control') return 'ctrl';
+  if (k === 'Shift') return 'shift';
+  if (k === 'Alt') return 'alt';
+  if (k === 'Meta') return 'win';
+  if (k === 'Enter') return 'enter';
+  if (k === 'Escape') return 'esc';
+  if (k === ' ') return 'space';
+  if (k === 'Tab') return 'tab';
+  if (k === 'Backspace') return 'backspace';
+  if (k === 'Delete') return 'delete';
+  if (k === 'ArrowUp') return 'up';
+  if (k === 'ArrowDown') return 'down';
+  if (k === 'ArrowLeft') return 'left';
+  if (k === 'ArrowRight') return 'right';
+  if (k === 'Home') return 'home';
+  if (k === 'End') return 'end';
+  if (k === 'PageUp') return 'pageup';
+  if (k === 'PageDown') return 'pagedown';
+  if (k === 'Insert') return 'insert';
+  if (/^F\d{1,2}$/i.test(k)) return k.toLowerCase();
+  if (k.length === 1) return k.toLowerCase();
+  // Digits on numpad etc.
+  if (e.code?.startsWith('Digit')) return e.code.slice(5).toLowerCase();
+  if (e.code?.startsWith('Key')) return e.code.slice(3).toLowerCase();
+  return null;
+}
+
+/** Click to capture a key / hotkey combo (maps to pyautogui names). */
+function KeyCaptureInput({
+  value,
+  onChange,
+}: {
+  value: string[] | string;
+  onChange: (keys: string[]) => void;
+}) {
+  const [listening, setListening] = React.useState(false);
+  const heldRef = React.useRef<string[]>([]);
+
+  const keysArr = Array.isArray(value)
+    ? value.map(String)
+    : String(value || '')
+        .split('+')
+        .map((s) => s.trim())
+        .filter(Boolean);
+  const display = keysArr.length ? keysArr.join(' + ') : '';
+
+  React.useEffect(() => {
+    if (!listening) return;
+    heldRef.current = [];
+
+    const onDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const name = eventToPyKey(e);
+      if (!name) return;
+      if (!heldRef.current.includes(name)) {
+        heldRef.current = [...heldRef.current, name];
+      }
+    };
+    const onUp = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (heldRef.current.length) {
+        // Order: modifiers first
+        const mods = ['ctrl', 'alt', 'shift', 'win'];
+        const ordered = [
+          ...mods.filter((m) => heldRef.current.includes(m)),
+          ...heldRef.current.filter((k) => !mods.includes(k)),
+        ];
+        onChange(ordered);
+      }
+      setListening(false);
+    };
+    window.addEventListener('keydown', onDown, true);
+    window.addEventListener('keyup', onUp, true);
+    return () => {
+      window.removeEventListener('keydown', onDown, true);
+      window.removeEventListener('keyup', onUp, true);
+    };
+  }, [listening, onChange]);
+
+  return (
+    <div className="flex items-center gap-1.5 w-full">
+      <div className="flex-1 min-w-0 h-8 px-2 rounded-md border border-black/10 dark:border-white/10 flex items-center font-mono text-xs truncate bg-black/5 dark:bg-white/5">
+        {listening ? (
+          <span className="text-amber-500 animate-pulse">按下组合键…</span>
+        ) : display ? (
+          <span title={display}>{display}</span>
+        ) : (
+          <span className="opacity-40">未录制</span>
+        )}
+      </div>
+      <Button
+        type="button"
+        variant={listening ? 'default' : 'outline'}
+        size="sm"
+        className="h-8 shrink-0 px-2"
+        onClick={() => setListening((v) => !v)}
+        title="点击后按下键盘按键进行录制"
+      >
+        <Keyboard className="w-3.5 h-3.5" />
+        {listening ? '取消' : '录制'}
+      </Button>
+      {keysArr.length > 0 && !listening ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-rose-400"
+          onClick={() => onChange([])}
+          title="清除"
+        >
+          <X className="w-3.5 h-3.5" />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function KeyStepsEditor({
   value,
   onChange,
@@ -464,11 +585,9 @@ function KeyStepsEditor({
                 <X className="w-3.5 h-3.5" />
               </Button>
             </div>
-            <Input
-              className="h-7 text-xs font-mono w-full"
-              placeholder="ctrl+c"
+            <KeyCaptureInput
               value={keysStr}
-              onChange={(e) => update(idx, { keys: e.target.value })}
+              onChange={(keys) => update(idx, { keys: keys.join('+') })}
             />
             <Input
               className="h-7 text-xs font-mono w-full"
@@ -500,7 +619,7 @@ function KeyStepsEditor({
                 ? { delay_ms: Number(s.delay_ms) }
                 : {}),
             })),
-            { keys: 'enter' },
+            { keys: '' },
           ] as any)
         }
       >
@@ -1277,19 +1396,9 @@ export default function Inspector({
                   />
                 </>
               ) : input.type === 'keys' ? (
-                <Input
-                  className="h-8 w-full"
-                  value={Array.isArray(value) ? value.join('+') : value || ''}
-                  placeholder="ctrl+c"
-                  onChange={(e) =>
-                    handleFieldChange(
-                      input.name,
-                      e.target.value
-                        .split('+')
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    )
-                  }
+                <KeyCaptureInput
+                  value={Array.isArray(value) ? value : value || []}
+                  onChange={(keys) => handleFieldChange(input.name, keys)}
                 />
               ) : input.type === 'cases' ? (
                 <CasesEditor

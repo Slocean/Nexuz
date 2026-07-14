@@ -22,7 +22,7 @@ SCHEMA = {
             "type": "keys",
             "label": "按键",
             "default": ["enter"],
-            "placeholder": "ctrl+c",
+            "placeholder": "点击录制",
             "show_when": {"key_mode": "single"},
         },
         {

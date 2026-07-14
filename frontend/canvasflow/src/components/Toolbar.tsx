@@ -154,14 +154,18 @@ export default function Toolbar({
           <Button
             size="sm"
             onClick={onRunWorkflow}
-            disabled={isExecuting && execStatus !== 'paused'}
+            disabled={isExecuting && execStatus !== 'paused' && execStatus !== 'stepping'}
             style={{
               backgroundColor:
-                isExecuting && execStatus !== 'paused' ? colors.secondaryText + '20' : colors.primary,
+                isExecuting && execStatus !== 'paused' && execStatus !== 'stepping'
+                  ? colors.secondaryText + '20'
+                  : colors.primary,
               color: '#FFFFFF'
             }}>
             {execStatus === 'running' || execStatus === 'stopping' ? (
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : execStatus === 'stepping' ? (
+              <StepForward className="w-3.5 h-3.5" />
             ) : (
               <Play className="w-3.5 h-3.5 fill-current" />
             )}
@@ -172,11 +176,13 @@ export default function Toolbar({
                   ? '运行中'
                   : execStatus === 'paused'
                     ? '继续'
-                    : '运行'}
+                    : execStatus === 'stepping'
+                      ? '下一步'
+                      : '运行'}
             </span>
           </Button>
 
-          {execStatus === 'paused' ? null : (
+          {execStatus === 'paused' || execStatus === 'stepping' ? null : (
             <Button variant="ghost" size="sm" onClick={onPause} disabled={execStatus !== 'running'} title="暂停">
               <Pause className="w-3.5 h-3.5" />
               <span>暂停</span>
@@ -189,9 +195,15 @@ export default function Toolbar({
           </Button>
 
           {onStep && (
-            <Button variant="ghost" size="sm" onClick={onStep} title="单步">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onStep}
+              disabled={execStatus === 'stopping'}
+              title={execStatus === 'stepping' ? '下一步' : '进入单步调试'}
+            >
               <StepForward className="w-3.5 h-3.5" />
-              <span>单步</span>
+              <span>{execStatus === 'stepping' ? '下一步' : '单步'}</span>
             </Button>
           )}
 

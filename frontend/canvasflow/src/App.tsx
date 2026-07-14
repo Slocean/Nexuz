@@ -147,8 +147,12 @@ function AppShell() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
 
   const colors = getThemeColors(themeName as any, themeMode as any);
-  // paused / stopping still own the interpreter — must not start a second run
-  const isBusy = execStatus === 'running' || execStatus === 'paused' || execStatus === 'stopping';
+  // paused / stopping / stepping still own the interpreter — must not start a second run
+  const isBusy =
+    execStatus === 'running' ||
+    execStatus === 'paused' ||
+    execStatus === 'stopping' ||
+    execStatus === 'stepping';
   const isExecuting = isBusy;
 
   useEffect(() => {
@@ -287,6 +291,14 @@ function AppShell() {
   }, [logs]);
 
   const handleRunWorkflow = async () => {
+    // Step-debug: primary button advances one node
+    if (execStatus === 'stepping') {
+      const res = await bridge.stepFlow();
+      if (res?.ok === false) {
+        appendLog({ level: 'error', message: res?.error || '下一步失败' });
+      }
+      return;
+    }
     // Paused → resume (same as 继续). Avoid "已有流程正在执行" deadlock.
     if (execStatus === 'paused') {
       appendLog({ level: 'info', message: '继续运行流程…' });
@@ -351,31 +363,45 @@ function AppShell() {
   };
 
   const handleStep = async () => {
-    if (execStatus === 'paused') {
-      const res = await bridge.resumeFlow();
+    if (execStatus === 'stepping') {
+      const res = await bridge.stepFlow();
       if (res?.ok === false) {
-        appendLog({ level: 'error', message: res?.error || '继续失败' });
+        appendLog({ level: 'error', message: res?.error || '下一步失败' });
       }
-      // After resume in step mode intent — also pulse step
-      await bridge.stepFlow();
+      return;
+    }
+    if (execStatus === 'paused') {
+      useFlowStore.setState({ execStatus: 'stepping' });
+      const res = await bridge.stepFlow();
+      if (res?.ok === false) {
+        appendLog({ level: 'error', message: res?.error || '单步失败' });
+      }
       return;
     }
     if (execStatus === 'stopping') {
       appendLog({ level: 'warn', message: '正在停止中，请稍候…' });
       return;
     }
-    if (execStatus === 'idle') {
-      clearLogs();
-      appendLog({ level: 'info', message: '单步模式启动…' });
-      const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
-      const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
-      const res = await bridge.runFlow(payload, true);
-      if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
+    if (execStatus === 'running') {
+      useFlowStore.setState({ execStatus: 'stepping' });
+      const res = await bridge.stepFlow();
+      if (res?.ok === false) {
+        appendLog({ level: 'error', message: res?.error || '切入单步失败' });
+      } else {
+        appendLog({ level: 'info', message: '已切入单步调试，点「下一步」继续' });
+      }
       return;
     }
-    const res = await bridge.stepFlow();
-    if (res && res.ok === false) {
-      appendLog({ level: 'error', message: res.error || '单步失败' });
+    // idle → start step-debug (keep window visible)
+    clearLogs();
+    appendLog({ level: 'info', message: '单步调试已启动，点「下一步」执行第一个节点…' });
+    useFlowStore.setState({ execStatus: 'stepping' });
+    const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
+    const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
+    const res = await bridge.runFlow(payload, true, false);
+    if (!res?.ok) {
+      useFlowStore.setState({ execStatus: 'idle' });
+      appendLog({ level: 'error', message: res?.error || '启动单步失败' });
     }
   };
 

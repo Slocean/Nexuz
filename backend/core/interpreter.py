@@ -70,6 +70,10 @@ class FlowInterpreter:
             self._step_mode = step_mode
             self._step_event.clear()
 
+        if step_mode:
+            # UI enters stepping before first node; primary button becomes「下一步」
+            self._emit("flow_stepping", {})
+
         def worker():
             try:
                 try:
@@ -121,6 +125,7 @@ class FlowInterpreter:
         self._step_mode = True
         self._step_event.set()
         self._pause_event.set()
+        self._emit("flow_stepping", {})
 
     def wait_until_idle(self, timeout: float | None = None) -> None:
         if self._thread:

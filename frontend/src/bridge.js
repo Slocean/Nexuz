@@ -105,7 +105,7 @@ export const MOCK_SCHEMAS = [
         type: 'keys',
         label: '按键',
         default: ['enter'],
-        placeholder: 'ctrl+c',
+        placeholder: '点击录制',
         show_when: { key_mode: 'single' },
       },
       {
@@ -128,6 +128,38 @@ export const MOCK_SCHEMAS = [
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'count', type: 'number' },
+    ],
+  },
+  {
+    type: 'mouse_scroll',
+    label: '鼠标滚轮',
+    category: '动作类',
+    inputs: [
+      { name: 'x', type: 'number', label: '焦点X（可选）', default: 0 },
+      { name: 'y', type: 'number', label: '焦点Y（可选）', default: 0 },
+      {
+        name: 'move_first',
+        type: 'select',
+        label: '先移到焦点',
+        options: ['true', 'false'],
+        default: 'false',
+        option_labels: { true: '是', false: '否（当前位置滚）' },
+      },
+      {
+        name: 'direction',
+        type: 'select',
+        label: '方向',
+        options: ['up', 'down', 'left', 'right'],
+        default: 'down',
+        option_labels: { up: '向上', down: '向下', left: '向左', right: '向右' },
+      },
+      { name: 'clicks', type: 'number', label: '滚动量', default: 3 },
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'x', type: 'number' },
+      { name: 'y', type: 'number' },
+      { name: 'amount', type: 'number' },
     ],
   },
   {

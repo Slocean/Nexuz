@@ -160,7 +160,7 @@ export const useFlowStore = create((set, get) => ({
   runHistory: [],
 
   // execution
-  execStatus: 'idle', // idle | running | paused | stopping
+  execStatus: 'idle', // idle | running | paused | stopping | stepping
   execNodeId: null,
   execNodeStates: {}, // id -> running|done|error
   logs: [],
@@ -693,7 +693,9 @@ export const useFlowStore = create((set, get) => ({
       set((state) => ({
         // Don't clobber pause/stopping if a late event races the control channel.
         execStatus:
-          state.execStatus === 'paused' || state.execStatus === 'stopping'
+          state.execStatus === 'paused' ||
+          state.execStatus === 'stopping' ||
+          state.execStatus === 'stepping'
             ? state.execStatus
             : 'running',
         execNodeId: payload.node_id,
@@ -752,11 +754,18 @@ export const useFlowStore = create((set, get) => ({
         message: msg,
         detail: payload.ok ? result : summarizeDetail(payload.error),
       });
+    } else if (event === 'flow_stepping') {
+      set({ execStatus: 'stepping' });
+      if (get().logs.slice(-1)[0]?.message !== '单步调试中…') {
+        appendLog({ level: 'info', message: '单步调试中…' });
+      }
     } else if (event === 'flow_paused') {
       set({ execStatus: 'paused' });
       appendLog({ level: 'warn', message: '流程已暂停' });
     } else if (event === 'flow_resumed') {
-      set({ execStatus: 'running' });
+      set((state) => ({
+        execStatus: state.execStatus === 'stepping' ? 'stepping' : 'running',
+      }));
       appendLog({ level: 'info', message: '流程已继续' });
     } else if (event === 'flow_stopping') {
       set({ execStatus: 'stopping' });
