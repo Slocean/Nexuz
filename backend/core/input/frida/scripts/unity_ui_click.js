@@ -17,6 +17,7 @@ var state = {
   il2cppReady: false,
   // TBH-style: never call Button.Press from Frida RPC thread — queue for EventSystem.Update
   pressJobs: [],
+  resolveJobs: [],
   mainThreadHooked: false,
 };
 
@@ -30,6 +31,8 @@ var il2cpp = {
   object_get_class: null,
   class_get_name: null,
   class_get_namespace: null,
+  class_get_type: null,
+  type_get_object: null,
 };
 
 var get_transform = null;
@@ -139,6 +142,8 @@ function bindIl2Cpp() {
   il2cpp.object_get_class = nf('il2cpp_object_get_class', 'pointer', ['pointer']);
   il2cpp.class_get_name = nf('il2cpp_class_get_name', 'pointer', ['pointer']);
   il2cpp.class_get_namespace = nf('il2cpp_class_get_namespace', 'pointer', ['pointer']);
+  il2cpp.class_get_type = nf('il2cpp_class_get_type', 'pointer', ['pointer']);
+  il2cpp.type_get_object = nf('il2cpp_type_get_object', 'pointer', ['pointer']);
   // Hooks need method lookup; playback uses NativeFunction(Press) and may not need runtime_invoke
   state.il2cppReady = !!(
     il2cpp.domain_get &&
@@ -263,6 +268,276 @@ function invoke0(methodInfo, obj) {
     throw new Error('il2cpp_runtime_invoke 抛出托管异常');
   }
   return ret;
+}
+
+function invoke1ptr(methodInfo, obj, arg0) {
+  if (!methodInfo || methodInfo.isNull()) {
+    throw new Error('MethodInfo 为空，无法 invoke');
+  }
+  if (!il2cpp.runtime_invoke) {
+    throw new Error('il2cpp_runtime_invoke 未绑定');
+  }
+  var args = Memory.alloc(Process.pointerSize);
+  args.writePointer(arg0 || NULL);
+  var exc = Memory.alloc(Process.pointerSize);
+  exc.writePointer(NULL);
+  var ret = il2cpp.runtime_invoke(methodInfo, obj || NULL, args, exc);
+  var ex = exc.readPointer();
+  if (ex && !ex.isNull()) {
+    throw new Error('il2cpp_runtime_invoke 抛出托管异常');
+  }
+  return ret;
+}
+
+function findClass(imageNs, className) {
+  if (!state.il2cppReady && !bindIl2Cpp()) return NULL;
+  if (!il2cpp.domain_get || !il2cpp.class_from_name) return NULL;
+  try {
+    var domain = il2cpp.domain_get();
+    var sizeBuf = Memory.alloc(Process.pointerSize);
+    sizeBuf.writeU32(0);
+    var assemblies = il2cpp.domain_get_assemblies(domain, sizeBuf);
+    var count = sizeBuf.readU32();
+    var ns = Memory.allocUtf8String(imageNs);
+    var cn = Memory.allocUtf8String(className);
+    for (var i = 0; i < count; i++) {
+      var asm = assemblies.add(i * Process.pointerSize).readPointer();
+      var image = il2cpp.assembly_get_image(asm);
+      var klass = il2cpp.class_from_name(image, ns, cn);
+      if (klass && !klass.isNull()) return klass;
+    }
+  } catch (e) {
+    state.lastError = 'findClass: ' + e;
+  }
+  return NULL;
+}
+
+function typeObjectOfClass(klass) {
+  if (!klass || klass.isNull()) return NULL;
+  if (!il2cpp.class_get_type || !il2cpp.type_get_object) {
+    // Rebind exports if attach happened before these were wired
+    try {
+      bindIl2Cpp();
+    } catch (e0) {}
+  }
+  if (!il2cpp.class_get_type || !il2cpp.type_get_object) return NULL;
+  try {
+    var t = il2cpp.class_get_type(klass);
+    if (!t || t.isNull()) return NULL;
+    var obj = il2cpp.type_get_object(t);
+    if (!obj || obj.isNull()) return NULL;
+    return obj;
+  } catch (e) {
+    return NULL;
+  }
+}
+
+function parseComponentType(componentType) {
+  var raw = String(componentType || 'UnityEngine.UI.Button');
+  var lastDot = raw.lastIndexOf('.');
+  if (lastDot <= 0) return { ns: 'UnityEngine.UI', name: raw || 'Button' };
+  return { ns: raw.slice(0, lastDot), name: raw.slice(lastDot + 1) };
+}
+
+/** Read Il2CppArray<Object> length/items (common 64-bit layout). */
+function il2cppArrayLength(arr) {
+  try {
+    if (!arr || arr.isNull()) return 0;
+    return arr.add(0x18).readS32();
+  } catch (e) {
+    return 0;
+  }
+}
+
+function il2cppArrayGet(arr, index) {
+  try {
+    if (!arr || arr.isNull()) return NULL;
+    return arr.add(0x20 + index * Process.pointerSize).readPointer();
+  } catch (e) {
+    return NULL;
+  }
+}
+
+function findObjectsOfTypeAll(klass) {
+  var typeObj = typeObjectOfClass(klass);
+  if (!typeObj) return [];
+  var method =
+    findMethodInfo('UnityEngine', 'Resources', 'FindObjectsOfTypeAll', 1) ||
+    findMethodInfo('UnityEngine', 'Object', 'FindObjectsOfType', 1);
+  if (!method || method.isNull()) {
+    state.lastError = '未找到 FindObjectsOfTypeAll / FindObjectsOfType';
+    return [];
+  }
+  var arr = invoke1ptr(method, NULL, typeObj);
+  var n = il2cppArrayLength(arr);
+  var out = [];
+  var max = Math.min(n, 512);
+  for (var i = 0; i < max; i++) {
+    var p = il2cppArrayGet(arr, i);
+    if (p && !p.isNull() && isAliveObject(p)) out.push(p);
+  }
+  return out;
+}
+
+function invoke1(methodInfo, obj, arg0) {
+  if (!methodInfo || methodInfo.isNull()) {
+    throw new Error('MethodInfo 为空，无法 invoke');
+  }
+  if (!il2cpp.runtime_invoke) {
+    throw new Error('il2cpp_runtime_invoke 未绑定');
+  }
+  if (!methodPointerOrNull(methodInfo)) {
+    throw new Error('方法指针为 0，无法 invoke');
+  }
+  var args = Memory.alloc(Process.pointerSize);
+  args.writePointer(arg0 || NULL);
+  var exc = Memory.alloc(Process.pointerSize);
+  exc.writePointer(NULL);
+  var ret = il2cpp.runtime_invoke(methodInfo, obj || NULL, args, exc);
+  var ex = exc.readPointer();
+  if (ex && !ex.isNull()) {
+    throw new Error('il2cpp_runtime_invoke 抛出托管异常');
+  }
+  return ret;
+}
+
+function findClass(imageNs, className) {
+  if (!state.il2cppReady && !bindIl2Cpp()) return NULL;
+  if (!il2cpp.domain_get || !il2cpp.class_from_name) return NULL;
+  try {
+    var domain = il2cpp.domain_get();
+    var sizeBuf = Memory.alloc(Process.pointerSize);
+    sizeBuf.writeU32(0);
+    var assemblies = il2cpp.domain_get_assemblies(domain, sizeBuf);
+    var count = sizeBuf.readU32();
+    var ns = Memory.allocUtf8String(imageNs);
+    var cn = Memory.allocUtf8String(className);
+    for (var i = 0; i < count; i++) {
+      var asm = assemblies.add(i * Process.pointerSize).readPointer();
+      var image = il2cpp.assembly_get_image(asm);
+      var klass = il2cpp.class_from_name(image, ns, cn);
+      if (klass && !klass.isNull()) return klass;
+    }
+  } catch (e) {
+    state.lastError = 'findClass: ' + e;
+  }
+  return NULL;
+}
+
+function typeObjectOfClass(klass) {
+  if (!klass || klass.isNull()) return NULL;
+  if (!il2cpp.class_get_type || !il2cpp.type_get_object) return NULL;
+  try {
+    var t = il2cpp.class_get_type(klass);
+    if (!t || t.isNull()) return NULL;
+    var obj = il2cpp.type_get_object(t);
+    if (!obj || obj.isNull()) return NULL;
+    return obj;
+  } catch (e) {
+    return NULL;
+  }
+}
+
+function parseTypeName(full) {
+  var s = String(full || '');
+  var dot = s.lastIndexOf('.');
+  if (dot < 0) return { ns: '', name: s };
+  return { ns: s.slice(0, dot), name: s.slice(dot + 1) };
+}
+
+/** Read Il2CppArray length / element (common 64-bit layout). */
+function il2cppArrayLength(arr) {
+  if (!arr || arr.isNull()) return 0;
+  try {
+    return arr.add(0x18).readInt();
+  } catch (e) {
+    return 0;
+  }
+}
+
+function il2cppArrayGet(arr, index) {
+  if (!arr || arr.isNull()) return NULL;
+  try {
+    return arr.add(0x20 + index * Process.pointerSize).readPointer();
+  } catch (e) {
+    return NULL;
+  }
+}
+
+/**
+ * Find all instances of a UnityEngine.Object subclass via Resources.FindObjectsOfTypeAll.
+ * Must run on Unity main thread.
+ */
+function findObjectsOfTypeAll(fullTypeName) {
+  var parsed = parseTypeName(fullTypeName);
+  var klass = findClass(parsed.ns, parsed.name);
+  if (!klass || klass.isNull()) return [];
+  var typeObj = typeObjectOfClass(klass);
+  if (!typeObj || typeObj.isNull()) return [];
+  var method =
+    findMethodInfo('UnityEngine', 'Resources', 'FindObjectsOfTypeAll', 1) ||
+    findMethodInfo('UnityEngine', 'Object', 'FindObjectsOfType', 1);
+  if (!method || method.isNull()) return [];
+  var arr = null;
+  try {
+    arr = invoke1(method, NULL, typeObj);
+  } catch (e) {
+    state.lastError = 'FindObjectsOfTypeAll: ' + e;
+    return [];
+  }
+  var n = il2cppArrayLength(arr);
+  var out = [];
+  for (var i = 0; i < n && i < 4000; i++) {
+    var p = il2cppArrayGet(arr, i);
+    if (p && !p.isNull() && isAliveObject(p)) out.push(p);
+  }
+  return out;
+}
+
+/** Candidate UI component types to scan when resolving a hierarchy path. */
+function resolveCandidateTypes(componentType) {
+  var preferred = String(componentType || '').trim();
+  var list = [];
+  if (preferred) list.push(preferred);
+  var fallbacks = [
+    'UnityEngine.UI.Button',
+    'UnityEngine.UI.Toggle',
+    'UnityEngine.UI.Dropdown',
+    'TMPro.TMP_Dropdown',
+    'UnityEngine.UI.Selectable',
+  ];
+  for (var i = 0; i < fallbacks.length; i++) {
+    if (list.indexOf(fallbacks[i]) < 0) list.push(fallbacks[i]);
+  }
+  return list;
+}
+
+/**
+ * Live scene search by hierarchy_path. Main-thread only.
+ * Returns NativePointer or NULL.
+ */
+function findByPathLive(hierarchyPath, componentType, siblingIndex) {
+  var path = String(hierarchyPath || '');
+  if (!path || path === 'Unknown') return NULL;
+  var types = resolveCandidateTypes(componentType);
+  var wantSibling = siblingIndex == null ? null : Number(siblingIndex);
+  var fallback = NULL;
+  for (var t = 0; t < types.length; t++) {
+    var objs = findObjectsOfTypeAll(types[t]);
+    for (var i = 0; i < objs.length; i++) {
+      var comp = objs[i];
+      try {
+        var hier = buildHierarchy(comp);
+        if (!hier || hier.hierarchy_path !== path) continue;
+        if (wantSibling != null && Number(hier.sibling_index) === wantSibling) {
+          return comp;
+        }
+        if (!fallback) fallback = comp;
+        if (wantSibling == null) return comp;
+      } catch (eWalk) {}
+    }
+  }
+  return fallback || NULL;
 }
 
 function classNameOf(obj) {
@@ -506,6 +781,7 @@ function setupReplayNatives() {
     try {
       Interceptor.attach(esUpdatePtr, {
         onEnter: function () {
+          drainResolveJobs();
           drainPressJobs();
         },
       });
@@ -564,8 +840,69 @@ function findByPath(hierarchyPath, componentType, siblingIndex) {
       delete state.ptrByKey[key];
     } catch (e) {}
   }
-  // Do NOT walk unrelated cached ptrs with buildHierarchy — that can AV on stale objects.
+
+  // Cross-session: re-scan live UI tree by hierarchy_path (on Unity main thread).
+  var found = NULL;
+  if (state.mainThreadHooked) {
+    found = queueResolveOnMainThread(hierarchyPath, componentType, siblingIndex, 4000);
+  } else {
+    try {
+      found = findByPathLive(hierarchyPath, componentType, siblingIndex);
+    } catch (eLive) {
+      state.lastError = '路径重解析失败: ' + eLive;
+      found = NULL;
+    }
+  }
+  if (found && !found.isNull() && isAliveObject(found)) {
+    try {
+      state.ptrByKey[key] = found;
+    } catch (eCache) {}
+    return found;
+  }
   return NULL;
+}
+
+function queueResolveOnMainThread(hierarchyPath, componentType, siblingIndex, timeoutMs) {
+  var job = {
+    hierarchyPath: hierarchyPath,
+    componentType: componentType,
+    siblingIndex: siblingIndex,
+    done: false,
+    result: NULL,
+    error: null,
+  };
+  state.resolveJobs.push(job);
+  var deadline = Date.now() + (timeoutMs || 4000);
+  while (!job.done && Date.now() < deadline) {
+    Thread.sleep(0.01);
+  }
+  if (!job.done) {
+    try {
+      var idx = state.resolveJobs.indexOf(job);
+      if (idx >= 0) state.resolveJobs.splice(idx, 1);
+    } catch (e0) {}
+    state.lastError = '路径重解析超时（请保持游戏前台运行）';
+    return NULL;
+  }
+  if (job.error) {
+    state.lastError = job.error;
+    return NULL;
+  }
+  return job.result || NULL;
+}
+
+function drainResolveJobs() {
+  if (!state.resolveJobs.length) return;
+  var job = state.resolveJobs.shift();
+  if (!job) return;
+  try {
+    job.result = findByPathLive(job.hierarchyPath, job.componentType, job.siblingIndex);
+    job.done = true;
+  } catch (e) {
+    job.error = String(e);
+    job.result = NULL;
+    job.done = true;
+  }
 }
 
 function resolve(stableId) {
@@ -578,10 +915,10 @@ function resolve(stableId) {
       return fail(
         '无法解析 UI 路径: ' +
           path +
-          '（请保持游戏停在录入时的界面；断开后重新连接并重新录入该节点）'
+          '（请确认 Frida 已连接、游戏停在录入时的界面，且控件层级未改动）'
       );
     }
-    return ok({ ptr: p.toString() });
+    return ok({ ptr: p.toString(), resolved: true });
   } catch (e) {
     return fail(String(e));
   }
@@ -744,6 +1081,7 @@ rpc.exports = {
       il2cppReady: state.il2cppReady,
       mainThreadHooked: state.mainThreadHooked,
       pressJobs: state.pressJobs.length,
+      resolveJobs: state.resolveJobs.length,
       cachedPtrs: Object.keys(state.ptrByKey).length,
     });
   },

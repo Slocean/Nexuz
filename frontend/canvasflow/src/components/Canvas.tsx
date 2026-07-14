@@ -290,6 +290,14 @@ function Canvas({
     if (socketId === "else") return { label: "否", color: "#FF5E57" };
     if (socketId === "body") return { label: "循环体", color: "#AF52DE" };
     if (socketId === "next") return { label: "下一步", color: "#4F8CFF" };
+    if (socketId === "default") return { label: "默认", color: "#FF9F0A" };
+    if (String(socketId || "").startsWith("case:")) {
+      const idx = Number(String(socketId).slice(5));
+      return {
+        label: Number.isFinite(idx) ? `分支${idx + 1}` : "分支",
+        color: "#30B0C7",
+      };
+    }
     return { label: socketId, color: colors.primary };
   };
 
@@ -1290,6 +1298,8 @@ function Canvas({
                     const isThen = out.id === 'then';
                     const isElse = out.id === 'else';
                     const isBody = out.id === 'body';
+                    const isDefault = out.id === 'default';
+                    const isCase = String(out.id || '').startsWith('case:');
                     const socketColor = isDataOut
                       ? DATA_SOCKET_COLOR
                       : isThen
@@ -1298,7 +1308,11 @@ function Canvas({
                           ? '#FF5E57'
                           : isBody
                             ? '#AF52DE'
-                            : nodeAccentColor;
+                            : isDefault
+                              ? '#FF9F0A'
+                              : isCase
+                                ? '#30B0C7'
+                                : nodeAccentColor;
                     return (
                       <div
                         key={out.id}
@@ -1314,7 +1328,11 @@ function Canvas({
                                   ? 'text-rose-500'
                                   : isBody
                                     ? 'text-purple-400'
-                                    : 'opacity-80 font-medium'
+                                    : isDefault
+                                      ? 'text-amber-500'
+                                      : isCase
+                                        ? 'text-cyan-600'
+                                        : 'opacity-80 font-medium'
                           }`}
                         >
                           {out.name}

@@ -584,7 +584,7 @@ function CasesEditor({
                     onValueChange={(v) => update(idx, { node_id: v })}
                   >
                     <SelectTrigger className="h-8 text-xs flex-1 min-w-0">
-                      <SelectValue placeholder="跳转节点" />
+                      <SelectValue placeholder="跳转 / 画布连线" />
                     </SelectTrigger>
                     <SelectContent>
                       {nodeIds.map((id) => (
@@ -595,6 +595,7 @@ function CasesEditor({
                     </SelectContent>
                   </Select>
                 </div>
+                <p className="text-[10px] opacity-50 pl-[4.5rem]">也可从节点右侧「分支」口拖线</p>
               </>
             )}
           </div>
@@ -912,6 +913,10 @@ export default function Inspector({
   const renderNexuzSchemaForm = () => {
     const schema = schemaMap[selectedNode.subType];
     if (!schema) return null;
+    const switchNodeIds =
+      selectedNode.subType === 'switch'
+        ? Object.keys(useFlowStore.getState().flow.nodes || {})
+        : [];
     const isClick = selectedNode.subType === 'click';
     const clickMode = String(selectedNode.config?.click_mode || 'single');
     const isOcr =
@@ -1242,6 +1247,25 @@ export default function Inspector({
                   placeholder={input.placeholder || placeholder || ''}
                   onChange={(e) => handleFieldChange(input.name, e.target.value)}
                 />
+              ) : selectedNode.subType === 'switch' && input.name === 'default' ? (
+                <div className="flex-1 min-w-0 space-y-1">
+                  <Select
+                    value={value || undefined}
+                    onValueChange={(v) => handleFieldChange('default', v)}
+                  >
+                    <SelectTrigger className="h-8 text-xs w-full">
+                      <SelectValue placeholder="默认分支目标 / 画布「默认」口" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {switchNodeIds.map((id) => (
+                        <SelectItem key={id} value={id}>
+                          {id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] opacity-50">也可从节点右侧「默认」口拖线</p>
+                </div>
               ) : isBindableInput(input) ? (
                 <BindableInput
                   value={value ?? input.default ?? (input.type === 'number' ? 0 : '')}

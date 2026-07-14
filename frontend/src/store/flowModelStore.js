@@ -379,12 +379,18 @@ export const useFlowStore = create((set, get) => ({
     set((state) => {
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
+      const nextParams = { ...node.params, ...params };
+      const patch = { ...node, params: nextParams };
+      // Keep switch default ↔ next in sync for legacy interpreter fallback
+      if (node.type === 'switch' && Object.prototype.hasOwnProperty.call(params, 'default')) {
+        patch.next = params.default || null;
+      }
       return {
         flow: {
           ...state.flow,
           nodes: {
             ...state.flow.nodes,
-            [nodeId]: { ...node, params: { ...node.params, ...params } },
+            [nodeId]: patch,
           },
         },
       };
@@ -441,6 +447,45 @@ export const useFlowStore = create((set, get) => ({
       const node = state.flow.nodes[sourceId];
       if (!node) return state;
       const field = handle || 'next';
+
+      // switch case:/default → write params (canvas ↔ inspector dual binding)
+      if (node.type === 'switch' && String(field).startsWith('case:')) {
+        const idx = Number(String(field).slice(5));
+        if (!Number.isFinite(idx) || idx < 0) return state;
+        const cases = Array.isArray(node.params?.cases)
+          ? node.params.cases.map((c) => ({ ...c }))
+          : [];
+        while (cases.length <= idx) cases.push({ value: '', node_id: '' });
+        cases[idx] = { ...cases[idx], value: cases[idx].value || '', node_id: targetId };
+        return {
+          flow: {
+            ...state.flow,
+            nodes: {
+              ...state.flow.nodes,
+              [sourceId]: {
+                ...node,
+                params: { ...(node.params || {}), cases },
+              },
+            },
+          },
+        };
+      }
+      if (node.type === 'switch' && field === 'default') {
+        return {
+          flow: {
+            ...state.flow,
+            nodes: {
+              ...state.flow.nodes,
+              [sourceId]: {
+                ...node,
+                next: targetId,
+                params: { ...(node.params || {}), default: targetId },
+              },
+            },
+          },
+        };
+      }
+
       return {
         flow: {
           ...state.flow,
@@ -457,6 +502,43 @@ export const useFlowStore = create((set, get) => ({
       const node = state.flow.nodes[sourceId];
       if (!node) return state;
       const field = handle || 'next';
+
+      if (node.type === 'switch' && String(field).startsWith('case:')) {
+        const idx = Number(String(field).slice(5));
+        if (!Number.isFinite(idx) || idx < 0) return state;
+        const cases = Array.isArray(node.params?.cases)
+          ? node.params.cases.map((c) => ({ ...c }))
+          : [];
+        if (cases[idx]) cases[idx] = { ...cases[idx], node_id: '' };
+        return {
+          flow: {
+            ...state.flow,
+            nodes: {
+              ...state.flow.nodes,
+              [sourceId]: {
+                ...node,
+                params: { ...(node.params || {}), cases },
+              },
+            },
+          },
+        };
+      }
+      if (node.type === 'switch' && field === 'default') {
+        return {
+          flow: {
+            ...state.flow,
+            nodes: {
+              ...state.flow.nodes,
+              [sourceId]: {
+                ...node,
+                next: null,
+                params: { ...(node.params || {}), default: '' },
+              },
+            },
+          },
+        };
+      }
+
       return {
         flow: {
           ...state.flow,
@@ -476,6 +558,17 @@ export const useFlowStore = create((set, get) => ({
       for (const n of Object.values(nodes)) {
         for (const key of ['next', 'then', 'else', 'body']) {
           if (n[key] && idSet.has(n[key])) n[key] = null;
+        }
+        // Clear switch case / default refs pointing at deleted nodes
+        if (n.type === 'switch' && n.params) {
+          const params = { ...n.params };
+          if (Array.isArray(params.cases)) {
+            params.cases = params.cases.map((c) =>
+              c?.node_id && idSet.has(c.node_id) ? { ...c, node_id: '' } : c,
+            );
+          }
+          if (params.default && idSet.has(params.default)) params.default = '';
+          n.params = params;
         }
       }
       let entry = state.flow.entry;
@@ -514,6 +607,19 @@ export const useFlowStore = create((set, get) => ({
         };
         for (const key of ['next', 'then', 'else', 'body']) {
           if (copy[key]) copy[key] = idMap[copy[key]] || null;
+        }
+        if (copy.type === 'switch' && copy.params) {
+          const params = { ...copy.params };
+          if (Array.isArray(params.cases)) {
+            params.cases = params.cases.map((c) => ({
+              ...c,
+              node_id: c?.node_id && idMap[c.node_id] ? idMap[c.node_id] : c?.node_id || '',
+            }));
+          }
+          if (params.default && idMap[params.default]) {
+            params.default = idMap[params.default];
+          }
+          copy.params = params;
         }
         nodes[newId] = copy;
       }

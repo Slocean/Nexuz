@@ -33,6 +33,7 @@ At run time the frontend injects `defaultCaptureMode` into click nodes that omit
 - Session: `frida/session_manager.py`
 - Stable id: `hierarchy_path` + `component_type` + `sibling_index`
 - Connect via Settings → Frida 连接 (process picker), or API `frida_attach` / `frida_list_processes`
+- Playback resolves live UI via `Resources.FindObjectsOfTypeAll` + hierarchy path match (cross-session; keep game on the same screen)
 
 ## Error codes
 

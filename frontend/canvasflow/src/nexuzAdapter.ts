@@ -8,6 +8,21 @@ const VAR_REF = /\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\s*\
 
 export const DATA_OUT_PREFIX = 'data:';
 export const PARAM_IN_PREFIX = 'param:';
+export const CASE_OUT_PREFIX = 'case:';
+export const DEFAULT_OUT = 'default';
+
+export function isCaseOutSocket(id: string): boolean {
+  return String(id || '').startsWith(CASE_OUT_PREFIX);
+}
+
+export function caseOutIndex(id: string): number {
+  const n = Number(String(id || '').slice(CASE_OUT_PREFIX.length));
+  return Number.isFinite(n) ? n : -1;
+}
+
+export function isDefaultOutSocket(id: string): boolean {
+  return String(id || '') === DEFAULT_OUT;
+}
 
 /** Prefer these param names when auto-binding from a data drop onto flow Input */
 const BIND_PRIORITY = [
@@ -91,7 +106,7 @@ function mapDataType(t?: string): NodeSocket['dataType'] {
   return 'any';
 }
 
-function flowOutputsFor(blockType: string): NodeSocket[] {
+function flowOutputsFor(blockType: string, params?: Record<string, any>): NodeSocket[] {
   if (['if_condition', 'if_color_match', 'if_text_contains', 'if_logic'].includes(blockType)) {
     return [
       { id: 'then', name: '是', type: 'output', dataType: 'any', kind: 'flow' },
@@ -103,6 +118,27 @@ function flowOutputsFor(blockType: string): NodeSocket[] {
       { id: 'body', name: '循环体', type: 'output', dataType: 'any', kind: 'flow' },
       { id: 'next', name: '结束', type: 'output', dataType: 'any', kind: 'flow' },
     ];
+  }
+  if (blockType === 'switch') {
+    const cases = Array.isArray(params?.cases) ? params.cases : [];
+    const outs: NodeSocket[] = cases.map((c: any, i: number) => {
+      const label = String(c?.value ?? '').trim();
+      return {
+        id: `${CASE_OUT_PREFIX}${i}`,
+        name: label ? `分支:${label}` : `分支${i + 1}`,
+        type: 'output' as const,
+        dataType: 'any' as const,
+        kind: 'flow' as const,
+      };
+    });
+    outs.push({
+      id: DEFAULT_OUT,
+      name: '默认',
+      type: 'output',
+      dataType: 'any',
+      kind: 'flow',
+    });
+    return outs;
   }
   return [{ id: 'next', name: '下一步', type: 'output', dataType: 'any', kind: 'flow' }];
 }
@@ -162,7 +198,7 @@ export function socketsForBlockType(
     });
   }
 
-  const outputs: NodeSocket[] = [...flowOutputsFor(blockType)];
+  const outputs: NodeSocket[] = [...flowOutputsFor(blockType, params)];
   const schemaOuts: any[] = Array.isArray(schema?.outputs) ? schema.outputs : [];
   for (const out of schemaOuts) {
     if (!isCanvasDataOut(out)) continue;
@@ -338,16 +374,45 @@ export function flowToCanvas(
       ['else', node.else],
       ['body', node.body],
     ];
-    for (const [handle, target] of links) {
-      if (target) {
+    // switch: per-case + default edges (single source of truth in params)
+    if (node.type === 'switch') {
+      const cases = Array.isArray(node.params?.cases) ? node.params.cases : [];
+      cases.forEach((c: any, i: number) => {
+        const target = c?.node_id;
+        if (target && nodeIdSet.has(String(target))) {
+          connections.push({
+            id: `${id}-${CASE_OUT_PREFIX}${i}-${target}`,
+            sourceNodeId: id,
+            sourceSocketId: `${CASE_OUT_PREFIX}${i}`,
+            targetNodeId: String(target),
+            targetSocketId: 'in',
+            kind: 'flow',
+          });
+        }
+      });
+      const defTarget = node.params?.default || node.default || node.next;
+      if (defTarget && nodeIdSet.has(String(defTarget))) {
         connections.push({
-          id: `${id}-${handle}-${target}`,
+          id: `${id}-${DEFAULT_OUT}-${defTarget}`,
           sourceNodeId: id,
-          sourceSocketId: handle,
-          targetNodeId: target,
+          sourceSocketId: DEFAULT_OUT,
+          targetNodeId: String(defTarget),
           targetSocketId: 'in',
           kind: 'flow',
         });
+      }
+    } else {
+      for (const [handle, target] of links) {
+        if (target) {
+          connections.push({
+            id: `${id}-${handle}-${target}`,
+            sourceNodeId: id,
+            sourceSocketId: handle,
+            targetNodeId: target,
+            targetSocketId: 'in',
+            kind: 'flow',
+          });
+        }
       }
     }
 

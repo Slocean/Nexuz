@@ -344,7 +344,7 @@ export const MOCK_SCHEMAS = [
     inputs: [
       { name: 'variable', type: 'string', label: '判断值', default: '' },
       { name: 'cases', type: 'cases', label: '分支', default: [] },
-      { name: 'default', type: 'string', label: '默认节点', default: '', bindable: false, placeholder: '节点 ID' },
+      { name: 'default', type: 'string', label: '默认分支', default: '', bindable: false, placeholder: '未匹配时跳转' },
     ],
     outputs: [{ name: 'value', type: 'string' }],
   },
