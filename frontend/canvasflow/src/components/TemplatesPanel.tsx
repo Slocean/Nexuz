@@ -1,13 +1,15 @@
 /**
  * Flow templates tab — builtin + user-saved templates (add / delete / load).
+ * Card chrome matches CatalogCard; title / description stack as two lines.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { Plus, RefreshCw, Trash2, LayoutTemplate } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { bridge } from '@/bridge';
 import { useFlowStore } from '@/store/flowModelStore';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useAppDialog } from './AppDialogs';
 import SaveNameDialog from './SaveNameDialog';
 
@@ -39,6 +41,82 @@ const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
   },
 ];
 
+function TemplateCard({
+  themeMode,
+  borderColor,
+  accentColor,
+  secondaryText,
+  title,
+  subtitle,
+  onClick,
+  onDelete,
+}: {
+  themeMode: ThemeMode;
+  borderColor: string;
+  accentColor: string;
+  secondaryText: string;
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        onClick={onClick}
+        style={{
+          backgroundColor:
+            themeMode === 'light' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.02)',
+          borderColor,
+          color: 'inherit',
+        }}
+        className={cn(
+          'w-full text-left px-3 py-2 rounded-2xl border transition-all duration-200',
+          'hover:scale-[1.02] active:scale-[0.98] hover:shadow-md hover:border-emerald-400',
+          'cursor-pointer',
+        )}
+        title={`${title} · ${subtitle}`}
+      >
+        <div className="flex items-center gap-2 w-full min-w-0">
+          <div className="flex-1 min-w-0 space-y-0.5">
+            <span className="block font-semibold text-sm group-hover:text-emerald-500 transition-colors truncate">
+              {title}
+            </span>
+            <span className="block text-xs font-normal truncate" style={{ color: secondaryText }}>
+              {subtitle}
+            </span>
+          </div>
+          <div
+            style={{ backgroundColor: accentColor + '1A' }}
+            className={cn(
+              'h-7 w-7 rounded-lg shrink-0 flex items-center justify-center',
+              onDelete && 'group-hover:opacity-0',
+            )}
+          >
+            <Plus className="w-3.5 h-3.5" style={{ color: accentColor }} />
+          </div>
+        </div>
+      </button>
+      {onDelete ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
+          title="删除模板"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function TemplatesPanel({
   themeName,
   themeMode,
@@ -55,10 +133,11 @@ export default function TemplatesPanel({
   const appendLog = useFlowStore((s) => s.appendLog);
 
   const [custom, setCustom] = useState<CustomTemplate[]>([]);
-  const [dir, setDir] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
+  const [builtinOpen, setBuiltinOpen] = useState(true);
+  const [mineOpen, setMineOpen] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -70,7 +149,6 @@ export default function TemplatesPanel({
         setCustom([]);
       } else {
         setCustom(Array.isArray(res?.templates) ? res.templates : []);
-        setDir(res?.dir || '');
       }
     } catch (e: any) {
       setError(String(e?.message || e));
@@ -92,8 +170,7 @@ export default function TemplatesPanel({
       await alert({ title: '无法保存', description: '当前画布没有节点，请先编排流程再保存为模板' });
       return;
     }
-    const description =
-      nodeCount > 0 ? `${nodeCount} 个节点 · 入口 ${flow.entry || '—'}` : '';
+    const description = `${nodeCount} 个节点`;
     const res = await bridge.saveFlowTemplate(
       {
         ...flow,
@@ -148,37 +225,24 @@ export default function TemplatesPanel({
     appendLog({ level: 'info', message: `已加载模板「${item.name}」` });
   };
 
-  const cardStyle = (active = false) => ({
-    borderColor: active ? colors.primary : colors.border,
-    backgroundColor:
-      themeMode === 'light' ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.02)',
-  });
-
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="font-display font-semibold text-sm opacity-80 mb-1">流程模板</h3>
           <p style={{ color: colors.secondaryText }} className="text-xs">
-            选择模板清空画布并填充；可将当前流程存为模板。
+            选择模板清空画布并填充节点。
           </p>
-          {dir ? (
-            <p style={{ color: colors.secondaryText }} className="text-xs mt-1 truncate" title={dir}>
-              {dir}
-            </p>
-          ) : null}
         </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={refresh}
-            title="刷新"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          onClick={refresh}
+          title="刷新"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
 
       <Button
@@ -194,70 +258,81 @@ export default function TemplatesPanel({
       {error && <p className="text-xs text-rose-400">{error}</p>}
 
       <div className="space-y-2">
-        <p className="text-xs font-medium opacity-60">内置</p>
-        {BUILTIN_TEMPLATES.map((tpl) => (
-          <button
-            key={tpl.id}
-            type="button"
-            style={cardStyle()}
-            className="w-full text-left rounded-xl border px-3 py-2.5 hover:opacity-90 transition-opacity"
-            onClick={() => onLoadBuiltin(tpl.id)}
-          >
-            <div className="flex items-center gap-1.5">
-              <LayoutTemplate className="w-3.5 h-3.5 shrink-0 opacity-50" />
-              <span className="text-xs font-semibold truncate">{tpl.name}</span>
-            </div>
-            <p style={{ color: colors.secondaryText }} className="text-xs mt-0.5 pl-5">
-              {tpl.description}
-            </p>
-          </button>
-        ))}
+        <button
+          type="button"
+          className="flex w-full items-center gap-1 text-xs font-medium opacity-60 hover:opacity-100 transition-opacity"
+          onClick={() => setBuiltinOpen((v) => !v)}
+          title={builtinOpen ? '折叠' : '展开'}
+        >
+          {builtinOpen ? (
+            <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+          ) : (
+            <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+          )}
+          <span>内置</span>
+          <span className="opacity-70">({BUILTIN_TEMPLATES.length})</span>
+        </button>
+        {builtinOpen ? (
+          <div className="space-y-3">
+            {BUILTIN_TEMPLATES.map((tpl) => (
+              <TemplateCard
+                key={tpl.id}
+                themeMode={themeMode}
+                borderColor={colors.border}
+                accentColor="#34C759"
+                secondaryText={colors.secondaryText}
+                title={tpl.name}
+                subtitle={tpl.description}
+                onClick={() => onLoadBuiltin(tpl.id)}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs font-medium opacity-60">我的模板</p>
-        {!loading && custom.length === 0 && (
-          <p
-            style={{ color: colors.secondaryText }}
-            className="text-xs text-center py-6 border border-dashed rounded-xl opacity-70"
-          >
-            暂无自定义模板
-            <br />
-            点击上方「新增模板」保存当前流程
-          </p>
-        )}
-        {custom.map((tpl) => (
-          <div
-            key={tpl.path}
-            style={cardStyle()}
-            className="group rounded-xl border px-2.5 py-2 flex items-start gap-1.5"
-          >
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => void loadCustom(tpl)}
-              title="加载此模板"
+        <button
+          type="button"
+          className="flex w-full items-center gap-1 text-xs font-medium opacity-60 hover:opacity-100 transition-opacity"
+          onClick={() => setMineOpen((v) => !v)}
+          title={mineOpen ? '折叠' : '展开'}
+        >
+          {mineOpen ? (
+            <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+          ) : (
+            <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+          )}
+          <span>我的模板</span>
+          <span className="opacity-70">({custom.length})</span>
+        </button>
+        {mineOpen ? (
+          !loading && custom.length === 0 ? (
+            <p
+              style={{ color: colors.secondaryText }}
+              className="text-xs text-center py-6 border border-dashed rounded-xl opacity-70"
             >
-              <div className="flex items-center gap-1.5">
-                <LayoutTemplate className="w-3.5 h-3.5 shrink-0 opacity-50" />
-                <span className="text-xs font-semibold truncate">{tpl.name}</span>
-              </div>
-              <p style={{ color: colors.secondaryText }} className="text-xs mt-0.5 pl-5 truncate">
-                {tpl.description || '自定义流程模板'}
-              </p>
-            </button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0 text-rose-500 opacity-70 hover:opacity-100 hover:text-rose-400"
-              title="删除模板"
-              onClick={() => void remove(tpl)}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-        ))}
+              暂无自定义模板
+              <br />
+              点击上方「新增模板」保存当前流程
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {custom.map((tpl) => (
+                <TemplateCard
+                  key={tpl.path}
+                  themeMode={themeMode}
+                  borderColor={colors.border}
+                  accentColor="#34C759"
+                  secondaryText={colors.secondaryText}
+                  title={tpl.name}
+                  subtitle={tpl.description || '自定义流程模板'}
+                  onClick={() => void loadCustom(tpl)}
+                  onDelete={() => void remove(tpl)}
+                />
+              ))}
+            </div>
+          )
+        ) : null}
       </div>
 
       <SaveNameDialog
