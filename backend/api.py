@@ -285,35 +285,65 @@ class Api:
 
 
     # --- flow execution ---
-    def run_flow(self, flow_json: str, step_mode: bool = False, hide_window: bool = True) -> dict:
+    def run_flow(
+        self,
+        flow_json: str,
+        step_mode: bool = False,
+        hide_window: bool = True,
+        debug_mode: bool = False,
+        breakpoints=None,
+    ) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
         err = self._validate_flow(flow)
         if err:
             return {"ok": False, "error": err}
         interp = get_interpreter(emit=self._emit)
 
-        # If a session is already paused, resume it — do not hide / restart.
+        bps = breakpoints
+        if isinstance(bps, str):
+            try:
+                bps = json.loads(bps)
+            except Exception:
+                bps = None
+        if bps is None:
+            bps = flow.get("breakpoints")
+        if not isinstance(bps, list):
+            bps = []
+
+        # If a session is already paused / at breakpoint, resume it — do not hide / restart.
         if interp.running and getattr(interp, "paused", False):
             try:
-                result = interp.run_flow(flow, step_mode=bool(step_mode))
+                result = interp.run_flow(
+                    flow,
+                    step_mode=bool(step_mode),
+                    debug_mode=bool(debug_mode) or bool(step_mode),
+                    breakpoints=bps,
+                )
                 return {"ok": True, "resumed": True, **(result or {})}
             except Exception as exc:
                 return {"ok": False, "error": str(exc)}
 
-        # Hide during continuous run so pyautogui clicks cannot land on Nexuz sidebar/buttons.
-        # Keep visible in step mode so the user can press Step / Pause.
-        do_hide = bool(hide_window) and not bool(step_mode)
+        # Hide during continuous run so pyautogui clicks cannot land on Nexuz.
+        # Keep visible in debug / step mode so the user can use debug controls.
+        in_debug = bool(debug_mode) or bool(step_mode)
+        do_hide = bool(hide_window) and not in_debug
         self._run_hidden = do_hide
         if do_hide:
             self._set_window_visible(False)
             time.sleep(0.15)
         try:
-            result = interp.run_flow(flow, step_mode=bool(step_mode))
+            result = interp.run_flow(
+                flow,
+                step_mode=bool(step_mode),
+                debug_mode=in_debug,
+                breakpoints=bps,
+            )
             return {
                 "ok": True,
                 "started": bool((result or {}).get("started", True)),
                 "resumed": bool((result or {}).get("resumed")),
                 "hide_window": do_hide,
+                "debug_mode": in_debug,
             }
         except Exception as exc:
             if do_hide:
@@ -329,7 +359,6 @@ class Api:
         interp.pause()
         if self._run_hidden:
             self._set_window_visible(True)
-            # Keep flag so stop/finish still restore cleanly; window stays visible for controls.
             self._run_hidden = False
         return {"ok": True, "paused": True}
 
@@ -340,6 +369,10 @@ class Api:
         interp.resume()
         return {"ok": True, "resumed": True}
 
+    def continue_flow(self) -> dict:
+        """Alias: continue until next breakpoint."""
+        return self.resume_flow()
+
     def stop_flow(self) -> dict:
         get_interpreter().stop()
         self._set_window_visible(True)
@@ -347,14 +380,34 @@ class Api:
         return {"ok": True, "stopping": True}
 
     def step_flow(self) -> dict:
-        get_interpreter().step()
+        interp = get_interpreter()
+        if not interp.running:
+            return {"ok": False, "error": "当前没有运行中的流程"}
+        interp.step()
+        if self._run_hidden:
+            self._set_window_visible(True)
+            self._run_hidden = False
         return {"ok": True}
+
+    def set_breakpoints(self, node_ids=None) -> dict:
+        ids = node_ids
+        if isinstance(ids, str):
+            try:
+                ids = json.loads(ids)
+            except Exception:
+                ids = [ids] if ids.strip() else []
+        if not isinstance(ids, list):
+            ids = []
+        get_interpreter().set_breakpoints(ids)
+        return {"ok": True, "breakpoints": [str(x) for x in ids if str(x).strip()]}
 
     def is_running(self) -> dict:
         interp = get_interpreter()
         return {
             "running": interp.running,
             "paused": bool(getattr(interp, "paused", False)),
+            "at_breakpoint": bool(getattr(interp, "at_breakpoint", False)),
+            "debug_mode": bool(getattr(interp, "debug_mode", False)),
         }
 
     # --- file / flow library ---

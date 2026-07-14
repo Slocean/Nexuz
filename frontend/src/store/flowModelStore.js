@@ -102,6 +102,7 @@ function createEmptyFlow() {
     variable_schemas: {},
     nodes: {},
     entry: null,
+    breakpoints: [],
   };
 }
 
@@ -160,9 +161,10 @@ export const useFlowStore = create((set, get) => ({
   runHistory: [],
 
   // execution
-  execStatus: 'idle', // idle | running | paused | stopping | stepping
+  execStatus: 'idle', // idle | running | paused | stopping | breakpoint
   execNodeId: null,
   execNodeStates: {}, // id -> running|done|error
+  debugMode: false,
   logs: [],
 
   setHideWindowOnRecord: (hideWindowOnRecord) => {
@@ -246,12 +248,41 @@ export const useFlowStore = create((set, get) => ({
   setViewMode: (viewMode) => set({ viewMode }),
   selectNode: (selectedNodeId) => set({ selectedNodeId }),
 
+  setDebugMode: (debugMode) => set({ debugMode: !!debugMode }),
+
+  toggleDebugMode: () =>
+    set((state) => {
+      const next = !state.debugMode;
+      if (!next && (state.execStatus === 'breakpoint' || state.execStatus === 'stepping')) {
+        // Turning off debug while stopped at BP — leave session as-is; user can Stop.
+      }
+      return { debugMode: next };
+    }),
+
+  toggleBreakpoint: (nodeId) => {
+    const id = String(nodeId || '').trim();
+    if (!id) return;
+    set((state) => {
+      const prev = Array.isArray(state.flow.breakpoints) ? state.flow.breakpoints.map(String) : [];
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { flow: { ...state.flow, breakpoints: [...next] } };
+    });
+  },
+
+  setBreakpoints: (nodeIds) => {
+    const breakpoints = [...new Set((nodeIds || []).map(String).filter(Boolean))];
+    set((state) => ({ flow: { ...state.flow, breakpoints } }));
+  },
+
   setFlow: (flow, filePath = undefined) =>
     set((state) => ({
       flow: {
         ...createEmptyFlow(),
         ...flow,
         nodes: flow.nodes || {},
+        breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : [],
       },
       selectedNodeId: null,
       filePath: filePath === undefined ? state.filePath : filePath,
@@ -692,12 +723,7 @@ export const useFlowStore = create((set, get) => ({
     if (event === 'node_start') {
       set((state) => ({
         // Don't clobber pause/stopping if a late event races the control channel.
-        execStatus:
-          state.execStatus === 'paused' ||
-          state.execStatus === 'stopping' ||
-          state.execStatus === 'stepping'
-            ? state.execStatus
-            : 'running',
+        execStatus: state.execStatus === 'stopping' ? 'stopping' : 'running',
         execNodeId: payload.node_id,
         execNodeStates: { ...state.execNodeStates, [payload.node_id]: 'running' },
       }));
@@ -754,18 +780,34 @@ export const useFlowStore = create((set, get) => ({
         message: msg,
         detail: payload.ok ? result : summarizeDetail(payload.error),
       });
+    } else if (event === 'flow_breakpoint') {
+      set({
+        execStatus: 'breakpoint',
+        execNodeId: payload?.node_id || null,
+        debugMode: true,
+      });
+      const reason = payload?.reason === 'step' ? '单步暂停' : '命中断点';
+      appendLog({
+        level: 'warn',
+        nodeId: payload?.node_id,
+        message: `${reason} · 待执行 [${payload?.node_id || '?'}]`,
+      });
+    } else if (event === 'flow_debug') {
+      set({ debugMode: true });
+      const n = (payload?.breakpoints || []).length;
+      appendLog({
+        level: 'info',
+        message: payload?.step_first
+          ? '调试已启动（单步：将在首个节点暂停）'
+          : `调试运行中${n ? `（${n} 个断点）` : '（无断点，可随时单步暂停）'}`,
+      });
     } else if (event === 'flow_stepping') {
-      set({ execStatus: 'stepping' });
-      if (get().logs.slice(-1)[0]?.message !== '单步调试中…') {
-        appendLog({ level: 'info', message: '单步调试中…' });
-      }
+      appendLog({ level: 'info', message: '将在下一节点暂停…' });
     } else if (event === 'flow_paused') {
       set({ execStatus: 'paused' });
       appendLog({ level: 'warn', message: '流程已暂停' });
     } else if (event === 'flow_resumed') {
-      set((state) => ({
-        execStatus: state.execStatus === 'stepping' ? 'stepping' : 'running',
-      }));
+      set({ execStatus: 'running' });
       appendLog({ level: 'info', message: '流程已继续' });
     } else if (event === 'flow_stopping') {
       set({ execStatus: 'stopping' });

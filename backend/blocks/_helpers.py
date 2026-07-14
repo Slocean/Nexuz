@@ -19,7 +19,9 @@ from backend.core.dpi import (
     virtual_screen_size,
 )
 
-pyautogui.FAILSAFE = True
+# RPA needs clicks near screen edges; corner fail-safe fights that.
+# Emergency stop is the app「停止」button, not moving the mouse to a corner.
+pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0.01
 
 

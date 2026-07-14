@@ -13,7 +13,7 @@ import {
   Pause,
   Square,
   Trash2,
-  StepForward,
+  Bug,
   FileCode2,
   Settings2,
   Minus,
@@ -53,7 +53,8 @@ interface ToolbarProps {
   onPause?: () => void;
   onResume?: () => void;
   onStop?: () => void;
-  onStep?: () => void;
+  onToggleDebug?: () => void;
+  debugMode?: boolean;
   execStatus?: string;
   viewMode?: 'canvas' | 'code' | 'settings';
   onViewModeChange?: (mode: 'canvas' | 'code' | 'settings') => void;
@@ -77,7 +78,8 @@ export default function Toolbar({
   onPause,
   onResume,
   onStop,
-  onStep,
+  onToggleDebug,
+  debugMode = false,
   execStatus = 'idle',
   viewMode = 'canvas',
   onViewModeChange
@@ -154,18 +156,22 @@ export default function Toolbar({
           <Button
             size="sm"
             onClick={onRunWorkflow}
-            disabled={isExecuting && execStatus !== 'paused' && execStatus !== 'stepping'}
+            disabled={
+              isExecuting &&
+              execStatus !== 'paused' &&
+              execStatus !== 'breakpoint'
+            }
             style={{
               backgroundColor:
-                isExecuting && execStatus !== 'paused' && execStatus !== 'stepping'
+                isExecuting &&
+                execStatus !== 'paused' &&
+                execStatus !== 'breakpoint'
                   ? colors.secondaryText + '20'
                   : colors.primary,
               color: '#FFFFFF'
             }}>
             {execStatus === 'running' || execStatus === 'stopping' ? (
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : execStatus === 'stepping' ? (
-              <StepForward className="w-3.5 h-3.5" />
             ) : (
               <Play className="w-3.5 h-3.5 fill-current" />
             )}
@@ -174,15 +180,13 @@ export default function Toolbar({
                 ? '停止中'
                 : execStatus === 'running'
                   ? '运行中'
-                  : execStatus === 'paused'
+                  : execStatus === 'paused' || execStatus === 'breakpoint'
                     ? '继续'
-                    : execStatus === 'stepping'
-                      ? '下一步'
-                      : '运行'}
+                    : '运行'}
             </span>
           </Button>
 
-          {execStatus === 'paused' || execStatus === 'stepping' ? null : (
+          {execStatus === 'paused' || execStatus === 'breakpoint' || debugMode ? null : (
             <Button variant="ghost" size="sm" onClick={onPause} disabled={execStatus !== 'running'} title="暂停">
               <Pause className="w-3.5 h-3.5" />
               <span>暂停</span>
@@ -194,16 +198,21 @@ export default function Toolbar({
             <span>{execStatus === 'stopping' ? '停止中' : '停止'}</span>
           </Button>
 
-          {onStep && (
+          {onToggleDebug && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={onStep}
+              onClick={onToggleDebug}
               disabled={execStatus === 'stopping'}
-              title={execStatus === 'stepping' ? '下一步' : '进入单步调试'}
+              title={debugMode ? '关闭调试模式' : '开启调试模式（断点 / 单步）'}
+              style={
+                debugMode
+                  ? { color: '#d97706', backgroundColor: 'rgba(245, 158, 11, 0.12)' }
+                  : undefined
+              }
             >
-              <StepForward className="w-3.5 h-3.5" />
-              <span>{execStatus === 'stepping' ? '下一步' : '单步'}</span>
+              <Bug className="w-3.5 h-3.5" />
+              <span>{debugMode ? '调试中' : '调试'}</span>
             </Button>
           )}
 

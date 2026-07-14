@@ -1006,8 +1006,10 @@ function mockCall(method, ...args) {
     case 'frida_list_processes':
     case 'pause_flow':
     case 'resume_flow':
+    case 'continue_flow':
     case 'stop_flow':
     case 'step_flow':
+    case 'set_breakpoints':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持此操作' });
     case 'validate_flow':
       try {
@@ -1032,12 +1034,21 @@ export const bridge = {
   ping: () => call('ping'),
   getBlockRegistry: () => call('get_block_registry'),
   getScreenInfo: () => call('get_screen_info'),
-  runFlow: (flow, stepMode = false, hideWindow = true) =>
-    call('run_flow', JSON.stringify(flow), stepMode, hideWindow),
+  runFlow: (flow, stepMode = false, hideWindow = true, debugMode = false, breakpoints = null) =>
+    call(
+      'run_flow',
+      JSON.stringify(flow),
+      stepMode,
+      hideWindow,
+      debugMode,
+      breakpoints ?? flow?.breakpoints ?? [],
+    ),
   pauseFlow: () => call('pause_flow'),
   resumeFlow: () => call('resume_flow'),
+  continueFlow: () => call('continue_flow'),
   stopFlow: () => call('stop_flow'),
   stepFlow: () => call('step_flow'),
+  setBreakpoints: (nodeIds) => call('set_breakpoints', nodeIds || []),
   isRunning: () => call('is_running'),
   validateFlow: (flow) => call('validate_flow', JSON.stringify(flow)),
   startRecording: (minIntervalMs = 50, hideWindow = false, mode = 'coord') =>

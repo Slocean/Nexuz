@@ -1,4 +1,4 @@
-"""Flow interpreter with pause / stop / step support."""
+"""Flow interpreter with pause / stop / debug breakpoints / step."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import threading
 import time
 import traceback
 from typing import Any, Callable
+
 
 from .expression import evaluate_expression
 from .registry import get_handler
@@ -20,10 +21,15 @@ class FlowInterpreter:
         self._pause_event = threading.Event()
         self._pause_event.set()
         self._stop_flag = threading.Event()
-        self._step_mode = False
         self._step_event = threading.Event()
         self._running = False
         self._lock = threading.Lock()
+        # Debug: honor breakpoints / step-over
+        self._debug_mode = False
+        self._breakpoints: set[str] = set()
+        self._break_next = False  # stop before the next node (step / step-into start)
+        self._at_breakpoint = False
+        self._paused_node_id: str | None = None
         # Optional parent controls when nested (call_subflow).
         self._parent_should_stop: Callable[[], bool] | None = None
         self._parent_cooperate: Callable[[], None] | None = None
@@ -50,29 +56,60 @@ class FlowInterpreter:
 
     @property
     def paused(self) -> bool:
-        return self._running and not self._pause_event.is_set()
+        return self._running and (not self._pause_event.is_set() or self._at_breakpoint)
 
-    def run_flow(self, flow: dict[str, Any], step_mode: bool = False) -> dict[str, Any]:
+    @property
+    def at_breakpoint(self) -> bool:
+        return self._at_breakpoint
+
+    @property
+    def debug_mode(self) -> bool:
+        return self._debug_mode
+
+    def set_breakpoints(self, node_ids: list[str] | None) -> None:
+        with self._lock:
+            self._breakpoints = {str(x) for x in (node_ids or []) if str(x).strip()}
+
+    def run_flow(
+        self,
+        flow: dict[str, Any],
+        step_mode: bool = False,
+        debug_mode: bool = False,
+        breakpoints: list[str] | None = None,
+    ) -> dict[str, Any]:
         with self._lock:
             if self._running:
-                # Paused session: treat as resume instead of starting a second run.
-                if not self._pause_event.is_set() and not self._stop_flag.is_set():
+                # Paused / breakpoint: treat as continue instead of starting a second run.
+                if self.paused and not self._stop_flag.is_set():
+                    self._break_next = bool(step_mode)
+                    self._step_event.set()
                     self._pause_event.set()
-                    self._step_mode = bool(step_mode)
-                    if step_mode:
-                        self._step_event.set()
                     self._emit("flow_resumed", {"via": "run"})
                     return {"started": False, "resumed": True}
                 raise RuntimeError("已有流程正在执行，请先停止或继续")
             self._running = True
             self._stop_flag.clear()
             self._pause_event.set()
-            self._step_mode = step_mode
             self._step_event.clear()
+            self._at_breakpoint = False
+            self._paused_node_id = None
+            # step_mode alone implies debug (legacy「单步」)
+            self._debug_mode = bool(debug_mode) or bool(step_mode)
+            bps = breakpoints
+            if bps is None:
+                bps = flow.get("breakpoints")
+            self._breakpoints = {str(x) for x in (bps or []) if str(x).strip()}
+            # Break before the first node when starting via「单步」
+            self._break_next = bool(step_mode)
 
-        if step_mode:
-            # UI enters stepping before first node; primary button becomes「下一步」
-            self._emit("flow_stepping", {})
+        if self._debug_mode:
+            self._emit(
+                "flow_debug",
+                {
+                    "breakpoints": sorted(self._breakpoints),
+                    "step_first": bool(step_mode),
+                },
+            )
 
         def worker():
             try:
@@ -94,6 +131,10 @@ class FlowInterpreter:
             finally:
                 with self._lock:
                     self._running = False
+                    self._at_breakpoint = False
+                    self._paused_node_id = None
+                    self._debug_mode = False
+                    self._break_next = False
 
         self._thread = threading.Thread(target=worker, daemon=True)
         self._thread.start()
@@ -106,10 +147,13 @@ class FlowInterpreter:
         self._emit("flow_paused", {})
 
     def resume(self) -> None:
+        """Continue until next breakpoint (or end)."""
         if not self._running:
             return
+        self._break_next = False
+        self._step_event.set()
         self._pause_event.set()
-        self._emit("flow_resumed", {})
+        self._emit("flow_resumed", {"via": "continue"})
 
     def stop(self) -> None:
         if not self._running and not self._thread:
@@ -118,11 +162,14 @@ class FlowInterpreter:
         self._stop_flag.set()
         self._pause_event.set()
         self._step_event.set()
-        # UI enters "stopping"; idle only after worker emits flow_finished.
         self._emit("flow_stopping", {})
 
     def step(self) -> None:
-        self._step_mode = True
+        """Execute the current / next node, then pause before the following one."""
+        if not self._running:
+            return
+        self._debug_mode = True
+        self._break_next = True
         self._step_event.set()
         self._pause_event.set()
         self._emit("flow_stepping", {})
@@ -131,7 +178,7 @@ class FlowInterpreter:
         if self._thread:
             self._thread.join(timeout=timeout)
 
-    def _wait_controls(self) -> None:
+    def _wait_controls(self, node_id: str | None = None) -> None:
         if self._is_stop_requested():
             raise InterruptedError("流程已停止")
         if self._parent_cooperate is not None:
@@ -140,11 +187,33 @@ class FlowInterpreter:
             self._pause_event.wait()
         if self._is_stop_requested():
             raise InterruptedError("流程已停止")
-        if self._step_mode:
-            self._step_event.wait()
-            self._step_event.clear()
-            if self._is_stop_requested():
-                raise InterruptedError("流程已停止")
+
+        if not self._debug_mode:
+            return
+
+        reason = None
+        if self._break_next:
+            reason = "step"
+        elif node_id and node_id in self._breakpoints:
+            reason = "breakpoint"
+
+        if not reason:
+            return
+
+        self._break_next = False
+        self._at_breakpoint = True
+        self._paused_node_id = node_id
+        self._emit(
+            "flow_breakpoint",
+            {"node_id": node_id, "reason": reason},
+        )
+        self._step_event.clear()
+        self._step_event.wait()
+        self._step_event.clear()
+        self._at_breakpoint = False
+        self._paused_node_id = None
+        if self._is_stop_requested():
+            raise InterruptedError("流程已停止")
 
     def _cooperate_wait(self) -> None:
         """Honor pause/stop inside a long-running block (delay, wait, etc.).
@@ -159,7 +228,6 @@ class FlowInterpreter:
             if self._is_stop_requested():
                 raise InterruptedError("流程已停止")
             return
-        # stop() sets pause_event so a paused wait wakes and then sees stop.
         while not self._pause_event.wait(timeout=0.05):
             if self._is_stop_requested():
                 raise InterruptedError("流程已停止")
@@ -183,7 +251,7 @@ class FlowInterpreter:
         node_id: str | None = entry
 
         while node_id:
-            self._wait_controls()
+            self._wait_controls(node_id)
             node = nodes.get(node_id)
             if not node:
                 raise ValueError(f"节点不存在: {node_id}")
@@ -199,7 +267,6 @@ class FlowInterpreter:
                 {
                     "node_id": node_id,
                     "type": block_type,
-                    # Slim IPC payload — full params stay local for the handler only.
                     "params": summarize_params(params),
                 },
             )
@@ -287,7 +354,6 @@ class FlowInterpreter:
             params = node.get("params") or {}
             variable = params.get("variable")
             current = resolve_value(variable, context) if variable else None
-            # Missing refs resolve to ""; treat None the same for matching.
             current_s = "" if current is None else str(current)
 
             matched_target: str | None = None
@@ -295,7 +361,6 @@ class FlowInterpreter:
                 if not isinstance(case, dict):
                     continue
                 raw = case.get("value")
-                # Empty match value never wins — those fall through to default.
                 if raw is None or str(raw).strip() == "":
                     continue
                 if str(raw) != current_s:
@@ -358,7 +423,6 @@ class FlowInterpreter:
             from backend.blocks.loop_foreach import _as_list, inject_item_var, _normalize_item_var
 
             params = node.get("params") or {}
-            # Params may still be raw refs here — resolve against live context.
             collection = resolve_value(params.get("collection"), context)
             items = _as_list(collection)
             counter_key = f"__loop_{node_id}__counter"
@@ -433,7 +497,6 @@ class FlowInterpreter:
         nxt = node.get("next")
         if nxt:
             return nxt, loop_stack
-        # end of body → return to enclosing loop
         if loop_stack:
             return loop_stack[-1], loop_stack
         return None, loop_stack

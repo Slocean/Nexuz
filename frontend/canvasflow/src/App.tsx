@@ -12,6 +12,7 @@ import AIAssistant from './components/AIAssistant';
 import SaveNameDialog from './components/SaveNameDialog';
 import RecordingBanner from './components/RecordingBanner';
 import SettingsPage from './components/SettingsPage';
+import DebugBar from './components/DebugBar';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
 import { getThemeColors } from './theme';
 import {
@@ -115,6 +116,9 @@ function AppShell() {
   const execStatus = useFlowStore((s) => s.execStatus);
   const execNodeId = useFlowStore((s) => s.execNodeId);
   const execNodeStates = useFlowStore((s) => s.execNodeStates);
+  const debugMode = useFlowStore((s) => s.debugMode);
+  const toggleDebugMode = useFlowStore((s) => s.toggleDebugMode);
+  const toggleBreakpoint = useFlowStore((s) => s.toggleBreakpoint);
   const nodeOutputs = useFlowStore((s) => s.nodeOutputs);
   const logs = useFlowStore((s) => s.logs);
   const runHistory = useFlowStore((s) => s.runHistory);
@@ -152,7 +156,7 @@ function AppShell() {
     execStatus === 'running' ||
     execStatus === 'paused' ||
     execStatus === 'stopping' ||
-    execStatus === 'stepping';
+    execStatus === 'breakpoint';
   const isExecuting = isBusy;
 
   useEffect(() => {
@@ -291,18 +295,10 @@ function AppShell() {
   }, [logs]);
 
   const handleRunWorkflow = async () => {
-    // Step-debug: primary button advances one node
-    if (execStatus === 'stepping') {
-      const res = await bridge.stepFlow();
-      if (res?.ok === false) {
-        appendLog({ level: 'error', message: res?.error || '下一步失败' });
-      }
-      return;
-    }
-    // Paused → resume (same as 继续). Avoid "已有流程正在执行" deadlock.
-    if (execStatus === 'paused') {
-      appendLog({ level: 'info', message: '继续运行流程…' });
-      const res = await bridge.resumeFlow();
+    // At breakpoint / pause → continue (not a second run)
+    if (execStatus === 'breakpoint' || execStatus === 'paused') {
+      appendLog({ level: 'info', message: '继续运行…' });
+      const res = await bridge.continueFlow();
       if (res?.ok === false) {
         appendLog({ level: 'error', message: res?.error || '继续失败' });
       }
@@ -314,20 +310,25 @@ function AppShell() {
         message:
           execStatus === 'stopping'
             ? '正在停止中，请稍候…'
-            : '流程正在运行，请先暂停/停止，或使用「继续」',
+            : '流程正在运行，请先暂停/停止，或使用调试栏「单步」',
       });
       return;
     }
     clearLogs();
+    const bps = Array.isArray(flow.breakpoints) ? flow.breakpoints : [];
+    const useDebug = !!debugMode;
     appendLog({
       level: 'info',
-      message: hideWindowOnRecord
-        ? '开始运行流程（已隐藏窗口，避免点击落到本程序上）…'
-        : '开始运行流程…',
+      message: useDebug
+        ? `调试运行…${bps.length ? `（${bps.length} 个断点）` : '（无断点）'}`
+        : hideWindowOnRecord
+          ? '开始运行流程（已隐藏窗口，避免点击落到本程序上）…'
+          : '开始运行流程…',
     });
     const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
     const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
-    const res = await bridge.runFlow(payload, false, hideWindowOnRecord);
+    const hide = hideWindowOnRecord && !useDebug;
+    const res = await bridge.runFlow(payload, false, hide, useDebug, bps);
     if (res?.resumed) {
       appendLog({ level: 'info', message: '已继续暂停中的流程' });
       return;
@@ -342,7 +343,6 @@ function AppShell() {
     const res = await bridge.stopFlow();
     if (res?.ok === false) {
       appendLog({ level: 'error', message: res?.error || '停止失败' });
-      // Recover UI if backend already idle
       const st = await bridge.isRunning();
       if (!st?.running) useFlowStore.setState({ execStatus: 'idle' });
     }
@@ -356,54 +356,78 @@ function AppShell() {
   };
 
   const handleResume = async () => {
-    const res = await bridge.resumeFlow();
+    const res = await bridge.continueFlow();
     if (res?.ok === false) {
       appendLog({ level: 'error', message: res?.error || '继续失败' });
     }
   };
 
-  const handleStep = async () => {
-    if (execStatus === 'stepping') {
-      const res = await bridge.stepFlow();
-      if (res?.ok === false) {
-        appendLog({ level: 'error', message: res?.error || '下一步失败' });
-      }
+  const handleToggleDebug = () => {
+    const next = !debugMode;
+    toggleDebugMode();
+    appendLog({
+      level: 'info',
+      message: next
+        ? '已开启调试：可在节点左侧设断点，使用画布上方调试栏'
+        : '已关闭调试模式',
+    });
+  };
+
+  const handleDebugStep = async () => {
+    if (execStatus === 'stopping') {
+      appendLog({ level: 'warn', message: '正在停止中，请稍候…' });
       return;
     }
-    if (execStatus === 'paused') {
-      useFlowStore.setState({ execStatus: 'stepping' });
+    const bps = Array.isArray(flow.breakpoints) ? flow.breakpoints : [];
+
+    // Already running / at BP → step one node
+    if (
+      execStatus === 'breakpoint' ||
+      execStatus === 'paused' ||
+      execStatus === 'running'
+    ) {
+      if (!debugMode) useFlowStore.setState({ debugMode: true });
       const res = await bridge.stepFlow();
       if (res?.ok === false) {
         appendLog({ level: 'error', message: res?.error || '单步失败' });
       }
       return;
     }
-    if (execStatus === 'stopping') {
-      appendLog({ level: 'warn', message: '正在停止中，请稍候…' });
-      return;
-    }
-    if (execStatus === 'running') {
-      useFlowStore.setState({ execStatus: 'stepping' });
-      const res = await bridge.stepFlow();
-      if (res?.ok === false) {
-        appendLog({ level: 'error', message: res?.error || '切入单步失败' });
-      } else {
-        appendLog({ level: 'info', message: '已切入单步调试，点「下一步」继续' });
-      }
-      return;
-    }
-    // idle → start step-debug (keep window visible)
+
+    // idle → start debug run, break before first node
+    if (!debugMode) useFlowStore.setState({ debugMode: true });
     clearLogs();
-    appendLog({ level: 'info', message: '单步调试已启动，点「下一步」执行第一个节点…' });
-    useFlowStore.setState({ execStatus: 'stepping' });
+    appendLog({ level: 'info', message: '调试单步启动：将在首个节点暂停…' });
     const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
     const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
-    const res = await bridge.runFlow(payload, true, false);
+    const res = await bridge.runFlow(payload, true, false, true, bps);
     if (!res?.ok) {
       useFlowStore.setState({ execStatus: 'idle' });
       appendLog({ level: 'error', message: res?.error || '启动单步失败' });
     }
   };
+
+  const handleToggleBreakpoint = useCallback(
+    (nodeId: string) => {
+      const before = new Set(
+        (useFlowStore.getState().flow.breakpoints || []).map(String),
+      );
+      const adding = !before.has(nodeId);
+      toggleBreakpoint(nodeId);
+      queueMicrotask(() => {
+        const bps = useFlowStore.getState().flow.breakpoints || [];
+        const st = useFlowStore.getState().execStatus;
+        if (st !== 'idle') {
+          bridge.setBreakpoints(bps);
+        }
+        appendLog({
+          level: 'info',
+          message: adding ? `已设置断点: ${nodeId}` : `已取消断点: ${nodeId}`,
+        });
+      });
+    },
+    [toggleBreakpoint, appendLog],
+  );
 
   const handleSave = async () => {
     // Already saved once → overwrite in place
@@ -838,7 +862,8 @@ function AppShell() {
         onPause={handlePause}
         onResume={handleResume}
         onStop={handleStop}
-        onStep={handleStep}
+        onToggleDebug={handleToggleDebug}
+        debugMode={debugMode}
         execStatus={execStatus}
         viewMode={viewMode as 'canvas' | 'code' | 'settings'}
         onViewModeChange={(m) => setViewMode(m)}
@@ -866,27 +891,44 @@ function AppShell() {
         ) : viewMode === 'code' ? (
           <CodeEditor themeName={themeName as any} themeMode={themeMode as any} />
         ) : (
-          <Canvas
-            nodes={nodes}
-            connections={connections}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={selectNode}
-            onUpdateNodePosition={handleUpdateNodePosition}
-            onUpdateNodePositions={handleUpdateNodePositions}
-            onAddConnection={handleAddConnection}
-            onRemoveConnection={handleRemoveConnection}
-            onRemoveNode={handleRemoveNode}
-            onRemoveNodes={handleRemoveNodes}
-            onDuplicateNodes={handleDuplicateNodes}
-            onDropBlock={handleDropBlock}
-            onRunSingleNode={handleRunSingleNode}
-            onUpdateNodeName={handleUpdateNodeName}
-            themeName={themeName as any}
-            themeMode={themeMode as any}
-            isExecuting={isExecuting}
-            execStatus={execStatus}
-            executingNodeId={execNodeId}
-          />
+          <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
+            {debugMode ? (
+              <DebugBar
+                themeName={themeName as any}
+                themeMode={themeMode as any}
+                execStatus={execStatus}
+                breakpointCount={(flow.breakpoints || []).length}
+                onContinue={handleResume}
+                onStep={handleDebugStep}
+                onStop={handleStop}
+                onPause={handlePause}
+              />
+            ) : null}
+            <Canvas
+              nodes={nodes}
+              connections={connections}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={selectNode}
+              onUpdateNodePosition={handleUpdateNodePosition}
+              onUpdateNodePositions={handleUpdateNodePositions}
+              onAddConnection={handleAddConnection}
+              onRemoveConnection={handleRemoveConnection}
+              onRemoveNode={handleRemoveNode}
+              onRemoveNodes={handleRemoveNodes}
+              onDuplicateNodes={handleDuplicateNodes}
+              onDropBlock={handleDropBlock}
+              onRunSingleNode={handleRunSingleNode}
+              onToggleBreakpoint={handleToggleBreakpoint}
+              onUpdateNodeName={handleUpdateNodeName}
+              themeName={themeName as any}
+              themeMode={themeMode as any}
+              isExecuting={isExecuting}
+              execStatus={execStatus}
+              executingNodeId={execNodeId}
+              debugMode={debugMode}
+              breakpoints={flow.breakpoints || []}
+            />
+          </div>
         )}
 
         <Inspector

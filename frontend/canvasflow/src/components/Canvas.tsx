@@ -42,13 +42,16 @@ interface CanvasProps {
   onDuplicateNodes?: (nodeIds: string[]) => void;
   onDropBlock?: (blockType: string, x: number, y: number) => void;
   onRunSingleNode: (nodeId: string) => void;
+  onToggleBreakpoint?: (nodeId: string) => void;
   onUpdateNodeName?: (nodeId: string, name: string) => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
   isExecuting: boolean;
-  /** idle | running | paused | stopping — drives running vs paused node visuals */
+  /** idle | running | paused | stopping | breakpoint */
   execStatus?: string;
-  executingNodeId: string | null;
+  executingNodeId?: string | null;
+  debugMode?: boolean;
+  breakpoints?: string[];
 }
 
 const NODE_WIDTH = 176;
@@ -194,12 +197,15 @@ function Canvas({
   onDuplicateNodes,
   onDropBlock,
   onRunSingleNode,
+  onToggleBreakpoint,
   onUpdateNodeName,
   themeName,
   themeMode,
   isExecuting: _isExecuting,
   execStatus = "idle",
   executingNodeId,
+  debugMode = false,
+  breakpoints = [],
 }: CanvasProps) {
   const { confirm, alert } = useAppDialog();
   const [panX, setPanX] = useState(0);
@@ -1300,8 +1306,13 @@ function Canvas({
             const isForever = node.subType === "loop_forever";
             const isNodeRunning =
               executingNodeId === node.id || node.status === "running";
-            const isNodePaused = isNodeRunning && execStatus === "paused";
+            const isAtBreakpoint =
+              execStatus === "breakpoint" && executingNodeId === node.id;
+            const isNodePaused =
+              isAtBreakpoint || (isNodeRunning && execStatus === "paused");
             const isNodeLive = isNodeRunning && execStatus === "running";
+            const hasBreakpoint =
+              debugMode && (breakpoints || []).includes(node.id);
             const nodeAccentColor = isForever ? "#FF5E57" : getNodeColor(node.type);
             const xy = getNodeXY(node);
             const thisDragging =
@@ -1361,6 +1372,30 @@ function Canvas({
               >
                 {isNodeLive ? <NodeRunningOrbit /> : null}
                 {isNodePaused ? <NodePausedRing /> : null}
+                {debugMode ? (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleBreakpoint?.(node.id);
+                    }}
+                    className="absolute -left-3 top-3 z-10 w-3.5 h-3.5 rounded-full border-2 pointer-events-auto cursor-pointer transition-colors"
+                    style={{
+                      borderColor: hasBreakpoint || isAtBreakpoint ? "#ef4444" : "rgba(148,163,184,0.7)",
+                      backgroundColor:
+                        hasBreakpoint || isAtBreakpoint
+                          ? "#ef4444"
+                          : themeMode === "light"
+                            ? "rgba(255,255,255,0.9)"
+                            : "rgba(30,35,50,0.95)",
+                      boxShadow: isAtBreakpoint
+                        ? "0 0 0 3px rgba(239,68,68,0.35)"
+                        : undefined,
+                    }}
+                    title={hasBreakpoint ? "取消断点" : "设置断点"}
+                  />
+                ) : null}
                 {isForever && (
                   <div className="absolute -top-2 left-2 px-1 py-0.5 rounded bg-rose-500 text-white text-xs font-bold tracking-wide uppercase">
                     FOREVER
@@ -1573,7 +1608,8 @@ function Canvas({
                     {node.status === "running" && execStatus === "running" && (
                       <Loader2 className="w-2.5 h-2.5 text-blue-500 animate-spin shrink-0" />
                     )}
-                    {node.status === "running" && execStatus === "paused" && (
+                    {(isNodePaused ||
+                      (node.status === "running" && execStatus === "paused")) && (
                       <Pause className="w-2.5 h-2.5 text-amber-500 fill-amber-500/30 shrink-0" />
                     )}
                     <span className="truncate" title={node.id}>
