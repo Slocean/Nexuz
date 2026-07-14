@@ -291,6 +291,15 @@ class Api:
         if err:
             return {"ok": False, "error": err}
         interp = get_interpreter(emit=self._emit)
+
+        # If a session is already paused, resume it — do not hide / restart.
+        if interp.running and getattr(interp, "paused", False):
+            try:
+                result = interp.run_flow(flow, step_mode=bool(step_mode))
+                return {"ok": True, "resumed": True, **(result or {})}
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+
         # Hide during continuous run so pyautogui clicks cannot land on Nexuz sidebar/buttons.
         # Keep visible in step mode so the user can press Step / Pause.
         do_hide = bool(hide_window) and not bool(step_mode)
@@ -299,8 +308,13 @@ class Api:
             self._set_window_visible(False)
             time.sleep(0.15)
         try:
-            interp.run_flow(flow, step_mode=bool(step_mode))
-            return {"ok": True, "started": True, "hide_window": do_hide}
+            result = interp.run_flow(flow, step_mode=bool(step_mode))
+            return {
+                "ok": True,
+                "started": bool((result or {}).get("started", True)),
+                "resumed": bool((result or {}).get("resumed")),
+                "hide_window": do_hide,
+            }
         except Exception as exc:
             if do_hide:
                 self._set_window_visible(True)
@@ -308,26 +322,40 @@ class Api:
             return {"ok": False, "error": str(exc)}
 
     def pause_flow(self) -> dict:
-        get_interpreter().pause()
-        return {"ok": True}
+        """Pause execution and show window so user can Continue / Stop."""
+        interp = get_interpreter()
+        if not interp.running:
+            return {"ok": False, "error": "当前没有运行中的流程"}
+        interp.pause()
+        if self._run_hidden:
+            self._set_window_visible(True)
+            # Keep flag so stop/finish still restore cleanly; window stays visible for controls.
+            self._run_hidden = False
+        return {"ok": True, "paused": True}
 
     def resume_flow(self) -> dict:
-        get_interpreter().resume()
-        return {"ok": True}
+        interp = get_interpreter()
+        if not interp.running:
+            return {"ok": False, "error": "当前没有运行中的流程"}
+        interp.resume()
+        return {"ok": True, "resumed": True}
 
     def stop_flow(self) -> dict:
         get_interpreter().stop()
-        if self._run_hidden:
-            self._set_window_visible(True)
-            self._run_hidden = False
-        return {"ok": True}
+        self._set_window_visible(True)
+        self._run_hidden = False
+        return {"ok": True, "stopping": True}
 
     def step_flow(self) -> dict:
         get_interpreter().step()
         return {"ok": True}
 
     def is_running(self) -> dict:
-        return {"running": get_interpreter().running}
+        interp = get_interpreter()
+        return {
+            "running": interp.running,
+            "paused": bool(getattr(interp, "paused", False)),
+        }
 
     # --- file / flow library ---
     def _flows_dir(self) -> Path:

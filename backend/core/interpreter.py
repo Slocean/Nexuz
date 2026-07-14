@@ -29,10 +29,22 @@ class FlowInterpreter:
     def running(self) -> bool:
         return self._running
 
+    @property
+    def paused(self) -> bool:
+        return self._running and not self._pause_event.is_set()
+
     def run_flow(self, flow: dict[str, Any], step_mode: bool = False) -> dict[str, Any]:
         with self._lock:
             if self._running:
-                raise RuntimeError("已有流程正在执行")
+                # Paused session: treat as resume instead of starting a second run.
+                if not self._pause_event.is_set() and not self._stop_flag.is_set():
+                    self._pause_event.set()
+                    self._step_mode = bool(step_mode)
+                    if step_mode:
+                        self._step_event.set()
+                    self._emit("flow_resumed", {"via": "run"})
+                    return {"started": False, "resumed": True}
+                raise RuntimeError("已有流程正在执行，请先停止或继续")
             self._running = True
             self._stop_flag.clear()
             self._pause_event.set()
@@ -65,18 +77,26 @@ class FlowInterpreter:
         return {"started": True}
 
     def pause(self) -> None:
+        if not self._running:
+            return
         self._pause_event.clear()
         self._emit("flow_paused", {})
 
     def resume(self) -> None:
+        if not self._running:
+            return
         self._pause_event.set()
         self._emit("flow_resumed", {})
 
     def stop(self) -> None:
+        if not self._running and not self._thread:
+            self._emit("flow_finished", {"ok": False, "error": "当前没有运行中的流程", "stopped": True})
+            return
         self._stop_flag.set()
         self._pause_event.set()
         self._step_event.set()
-        self._emit("flow_stopped", {})
+        # UI enters "stopping"; idle only after worker emits flow_finished.
+        self._emit("flow_stopping", {})
 
     def step(self) -> None:
         self._step_mode = True

@@ -159,7 +159,7 @@ export const useFlowStore = create((set, get) => ({
   runHistory: [],
 
   // execution
-  execStatus: 'idle', // idle | running | paused
+  execStatus: 'idle', // idle | running | paused | stopping
   execNodeId: null,
   execNodeStates: {}, // id -> running|done|error
   logs: [],
@@ -723,21 +723,18 @@ export const useFlowStore = create((set, get) => ({
     } else if (event === 'flow_resumed') {
       set({ execStatus: 'running' });
       appendLog({ level: 'info', message: '流程已继续' });
+    } else if (event === 'flow_stopping') {
+      set({ execStatus: 'stopping' });
+      appendLog({ level: 'warn', message: '正在停止流程…' });
     } else if (event === 'flow_stopped') {
-      set((state) => {
-        const keepId = state.selectedNodeId;
-        const slim =
-          keepId && state.nodeOutputs[keepId]
-            ? { [keepId]: state.nodeOutputs[keepId] }
-            : {};
-        return {
-          execStatus: 'idle',
-          execNodeId: null,
-          execNodeStates: {},
-          nodeOutputs: slim,
-        };
-      });
-      appendLog({ level: 'warn', message: '流程已停止' });
+      // Backend still finishing the worker thread — keep Stop/busy until flow_finished.
+      set((state) => ({
+        execStatus: state.execStatus === 'idle' ? 'idle' : 'stopping',
+      }));
+      // Avoid duplicate log if flow_stopping already arrived
+      if (get().logs.slice(-1)[0]?.message !== '正在停止流程…') {
+        appendLog({ level: 'warn', message: '正在停止流程…' });
+      }
     } else if (event === 'flow_finished') {
       // Keep only the selected node's output for Inspector; drop the rest.
       set((state) => {
@@ -758,12 +755,14 @@ export const useFlowStore = create((set, get) => ({
           nodeOutputs: slim,
         };
       });
-      // flow_stopped already logged when user clicked stop; avoid duplicate.
+      // flow_stopped/stopping already logged when user clicked stop; avoid duplicate.
       if (!payload.stopped) {
         appendLog({
           level: payload.ok ? 'ok' : 'error',
           message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`,
         });
+      } else {
+        appendLog({ level: 'warn', message: '流程已停止' });
       }
       get().pushRunHistory({
         id: Math.random().toString(36).slice(2, 9),

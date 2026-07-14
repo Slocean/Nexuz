@@ -147,7 +147,9 @@ function AppShell() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
 
   const colors = getThemeColors(themeName as any, themeMode as any);
-  const isExecuting = execStatus === 'running';
+  // paused / stopping still own the interpreter — must not start a second run
+  const isBusy = execStatus === 'running' || execStatus === 'paused' || execStatus === 'stopping';
+  const isExecuting = isBusy;
 
   useEffect(() => {
     applyCssVars(colors, themeMode);
@@ -285,6 +287,25 @@ function AppShell() {
   }, [logs]);
 
   const handleRunWorkflow = async () => {
+    // Paused → resume (same as 继续). Avoid "已有流程正在执行" deadlock.
+    if (execStatus === 'paused') {
+      appendLog({ level: 'info', message: '继续运行流程…' });
+      const res = await bridge.resumeFlow();
+      if (res?.ok === false) {
+        appendLog({ level: 'error', message: res?.error || '继续失败' });
+      }
+      return;
+    }
+    if (execStatus === 'running' || execStatus === 'stopping') {
+      appendLog({
+        level: 'warn',
+        message:
+          execStatus === 'stopping'
+            ? '正在停止中，请稍候…'
+            : '流程正在运行，请先暂停/停止，或使用「继续」',
+      });
+      return;
+    }
     clearLogs();
     appendLog({
       level: 'info',
@@ -295,10 +316,54 @@ function AppShell() {
     const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
     const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
     const res = await bridge.runFlow(payload, false, hideWindowOnRecord);
+    if (res?.resumed) {
+      appendLog({ level: 'info', message: '已继续暂停中的流程' });
+      return;
+    }
     if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
   };
 
+  const handleStop = async () => {
+    if (execStatus === 'idle') return;
+    useFlowStore.setState({ execStatus: 'stopping' });
+    appendLog({ level: 'warn', message: '正在停止流程…' });
+    const res = await bridge.stopFlow();
+    if (res?.ok === false) {
+      appendLog({ level: 'error', message: res?.error || '停止失败' });
+      // Recover UI if backend already idle
+      const st = await bridge.isRunning();
+      if (!st?.running) useFlowStore.setState({ execStatus: 'idle' });
+    }
+  };
+
+  const handlePause = async () => {
+    const res = await bridge.pauseFlow();
+    if (res?.ok === false) {
+      appendLog({ level: 'error', message: res?.error || '暂停失败' });
+    }
+  };
+
+  const handleResume = async () => {
+    const res = await bridge.resumeFlow();
+    if (res?.ok === false) {
+      appendLog({ level: 'error', message: res?.error || '继续失败' });
+    }
+  };
+
   const handleStep = async () => {
+    if (execStatus === 'paused') {
+      const res = await bridge.resumeFlow();
+      if (res?.ok === false) {
+        appendLog({ level: 'error', message: res?.error || '继续失败' });
+      }
+      // After resume in step mode intent — also pulse step
+      await bridge.stepFlow();
+      return;
+    }
+    if (execStatus === 'stopping') {
+      appendLog({ level: 'warn', message: '正在停止中，请稍候…' });
+      return;
+    }
     if (execStatus === 'idle') {
       clearLogs();
       appendLog({ level: 'info', message: '单步模式启动…' });
@@ -744,9 +809,9 @@ function AppShell() {
         onOpen={handleOpen}
         onToggleRecord={handleToggleRecord}
         recording={recording}
-        onPause={() => bridge.pauseFlow()}
-        onResume={() => bridge.resumeFlow()}
-        onStop={() => bridge.stopFlow()}
+        onPause={handlePause}
+        onResume={handleResume}
+        onStop={handleStop}
         onStep={handleStep}
         execStatus={execStatus}
         viewMode={viewMode as 'canvas' | 'code' | 'settings'}

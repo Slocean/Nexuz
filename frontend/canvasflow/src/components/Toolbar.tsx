@@ -155,31 +155,37 @@ export default function Toolbar({
           <Button
             size="sm"
             onClick={onRunWorkflow}
-            disabled={isExecuting}
+            disabled={isExecuting && execStatus !== 'paused'}
             style={{
-              backgroundColor: isExecuting ? colors.secondaryText + '20' : colors.primary,
+              backgroundColor:
+                isExecuting && execStatus !== 'paused'
+                  ? colors.secondaryText + '20'
+                  : colors.primary,
               color: '#FFFFFF',
             }}
           >
-            {isExecuting ? (
+            {execStatus === 'running' || execStatus === 'stopping' ? (
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Play className="w-3.5 h-3.5 fill-current" />
             )}
-            <span>{isExecuting ? '运行中' : '运行'}</span>
+            <span>
+              {execStatus === 'stopping'
+                ? '停止中'
+                : execStatus === 'running'
+                  ? '运行中'
+                  : execStatus === 'paused'
+                    ? '继续'
+                    : '运行'}
+            </span>
           </Button>
 
-          {execStatus === 'paused' ? (
-            <Button variant="ghost" size="sm" onClick={onResume} title="继续">
-              <Play className="w-3.5 h-3.5" />
-              <span>继续</span>
-            </Button>
-          ) : (
+          {execStatus === 'paused' ? null : (
             <Button
               variant="ghost"
               size="sm"
               onClick={onPause}
-              disabled={!isExecuting}
+              disabled={execStatus !== 'running'}
               title="暂停"
             >
               <Pause className="w-3.5 h-3.5" />
@@ -195,7 +201,7 @@ export default function Toolbar({
             title="停止"
           >
             <Square className="w-3 h-3" />
-            <span>停止</span>
+            <span>{execStatus === 'stopping' ? '停止中' : '停止'}</span>
           </Button>
 
           {onStep && (
