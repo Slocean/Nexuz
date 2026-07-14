@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Link2, Hash } from 'lucide-react';
 import { useFlowStore } from '@/store/flowModelStore';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,26 @@ interface BindableInputProps {
   className?: string;
 }
 
+function Row({
+  title,
+  children,
+  trailing,
+}: {
+  title: string;
+  children: React.ReactNode;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1 min-w-0 w-full">
+      <span className="text-[11px] font-medium opacity-60 leading-none">{title}</span>
+      <div className="flex items-center gap-1.5 min-w-0 w-full">
+        <div className="flex-1 min-w-0">{children}</div>
+        {trailing}
+      </div>
+    </div>
+  );
+}
+
 export default function BindableInput({
   value,
   inputType = 'string',
@@ -71,10 +91,19 @@ export default function BindableInput({
       .filter((n) => n.outputs.length > 0);
   }, [flowNodes, schemaMap, currentNodeId]);
 
+  const hasUpstream = nodeOptions.length > 0;
   const varOptions = useMemo(() => listFlowVariableNames(variables), [variables]);
 
   const selectedNode = nodeOptions.find((n) => n.id === nodeRef?.nodeId);
   const fields = selectedNode?.outputs || [];
+
+  useEffect(() => {
+    if (!hasUpstream && kind === 'node') {
+      onChange(inputType === 'number' ? 0 : '');
+    }
+    // only react when upstream availability flips while kind is node
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUpstream]);
 
   const setKind = (next: BindKind) => {
     if (next === 'literal') {
@@ -86,7 +115,7 @@ export default function BindableInput({
       onChange(first ? formatVarRef(first) : '');
       return;
     }
-    // node
+    if (!hasUpstream) return;
     const first = nodeOptions[0];
     const field = first?.outputs?.[0]?.name;
     if (first && field) onChange(formatNodeRef(first.id, field));
@@ -94,110 +123,119 @@ export default function BindableInput({
   };
 
   return (
-    <div className={`flex flex-col gap-0.5 min-w-0 flex-1 ${className || ''}`}>
+    <div className={`flex flex-col gap-2 min-w-0 flex-1 w-full ${className || ''}`}>
       <div
-        className={`flex items-center gap-1 min-w-0 ${
+        className={`flex flex-col gap-2 min-w-0 w-full ${
           status.broken
-            ? 'rounded-md ring-1 ring-rose-500/60'
+            ? 'rounded-md ring-1 ring-rose-500/60 p-1.5'
             : status.typeWarn
-              ? 'rounded-md ring-1 ring-amber-500/50'
+              ? 'rounded-md ring-1 ring-amber-500/50 p-1.5'
               : ''
         }`}
         title={status.message || undefined}
       >
-      <Select value={kind} onValueChange={(v) => setKind(v as BindKind)}>
-        <SelectTrigger className="h-8 w-[4.5rem] shrink-0 px-1.5 text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="literal">常量</SelectItem>
-          <SelectItem value="node">上游</SelectItem>
-          <SelectItem value="variable" disabled={varOptions.length === 0}>
-            变量{varOptions.length === 0 ? '（未创建）' : ''}
-          </SelectItem>
-        </SelectContent>
-      </Select>
-
-      {kind === 'literal' ? (
-        <Input
-          type="text"
-          inputMode={inputType === 'number' ? 'decimal' : undefined}
-          className="h-8 flex-1 min-w-0"
-          value={literalToDisplay(value, inputType)}
-          placeholder={placeholder || (inputType === 'number' ? '数值' : '文本')}
-          onChange={(e) => onChange(coerceLiteral(e.target.value, inputType))}
-        />
-      ) : kind === 'variable' ? (
-        <VariableSelect
-          value={value}
-          onChange={onChange}
-          placeholder={varOptions.length ? '选择已创建变量' : '暂无变量'}
-        />
-      ) : (
-        <>
+        <Row title="类型">
           <Select
-            value={nodeRef?.nodeId || undefined}
-            onValueChange={(nid) => {
-              const n = nodeOptions.find((x) => x.id === nid);
-              const field = n?.outputs?.[0]?.name || 'value';
-              onChange(formatNodeRef(nid, field));
-            }}
+            value={kind === 'node' && !hasUpstream ? 'literal' : kind}
+            onValueChange={(v) => setKind(v as BindKind)}
           >
-            <SelectTrigger className="h-8 flex-1 min-w-0 max-w-[7rem]">
-              <SelectValue placeholder={nodeOptions.length ? '节点' : '无上游输出'} />
+            <SelectTrigger className="h-8 w-full text-xs">
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {nodeOptions.length === 0 ? (
-                <SelectItem value="__none" disabled>
-                  无带输出的节点
-                </SelectItem>
-              ) : (
-                nodeOptions.map((n) => (
-                  <SelectItem key={n.id} value={n.id}>
-                    {n.label}
-                  </SelectItem>
-                ))
-              )}
+              <SelectItem value="literal">常量</SelectItem>
+              <SelectItem value="node" disabled={!hasUpstream}>
+                上游{!hasUpstream ? '（无可用节点）' : ''}
+              </SelectItem>
+              <SelectItem value="variable" disabled={varOptions.length === 0}>
+                变量{varOptions.length === 0 ? '（未创建）' : ''}
+              </SelectItem>
             </SelectContent>
           </Select>
-          <Select
-            value={nodeRef?.field || undefined}
-            onValueChange={(field) => {
-              const nid = nodeRef?.nodeId || nodeOptions[0]?.id;
-              if (!nid) return;
-              onChange(formatNodeRef(nid, field));
-            }}
-          >
-            <SelectTrigger className="h-8 w-[5.5rem] shrink-0">
-              <SelectValue placeholder="字段" />
-            </SelectTrigger>
-            <SelectContent>
-              {fields.length === 0 ? (
-                <SelectItem value="__none" disabled>
-                  —
-                </SelectItem>
-              ) : (
-                fields.map((f) => (
-                  <SelectItem key={f.name} value={f.name}>
-                    {f.name}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-        </>
-      )}
+        </Row>
 
-      {kind !== 'literal' && (
-        <span
-          className="hidden xl:inline text-[10px] font-mono opacity-50 truncate max-w-[4.5rem]"
-          title={typeof value === 'string' ? value : ''}
-        >
-          {typeof value === 'string' && isRefValue(value) ? value : ''}
-        </span>
-      )}
-
-      {trailing}
+        {kind === 'literal' || (kind === 'node' && !hasUpstream) ? (
+          <Row title="值" trailing={trailing}>
+            <Input
+              type="text"
+              inputMode={inputType === 'number' ? 'decimal' : undefined}
+              className="h-8 w-full"
+              value={literalToDisplay(value, inputType)}
+              placeholder={placeholder || (inputType === 'number' ? '数值' : '文本')}
+              onChange={(e) => onChange(coerceLiteral(e.target.value, inputType))}
+            />
+          </Row>
+        ) : kind === 'variable' ? (
+          <Row title="变量" trailing={trailing}>
+            <VariableSelect
+              value={value}
+              onChange={onChange}
+              placeholder={varOptions.length ? '选择已创建变量' : '暂无变量'}
+            />
+          </Row>
+        ) : (
+          <>
+            <Row title="上游节点">
+              <Select
+                value={nodeRef?.nodeId || undefined}
+                onValueChange={(nid) => {
+                  const n = nodeOptions.find((x) => x.id === nid);
+                  const field = n?.outputs?.[0]?.name || 'value';
+                  onChange(formatNodeRef(nid, field));
+                }}
+              >
+                <SelectTrigger className="h-8 w-full text-xs">
+                  <SelectValue placeholder={hasUpstream ? '选择节点' : '无上游输出'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {nodeOptions.length === 0 ? (
+                    <SelectItem value="__none" disabled>
+                      无带输出的节点
+                    </SelectItem>
+                  ) : (
+                    nodeOptions.map((n) => (
+                      <SelectItem key={n.id} value={n.id}>
+                        {n.label}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </Row>
+            <Row title="输出字段" trailing={trailing}>
+              <Select
+                value={nodeRef?.field || undefined}
+                onValueChange={(field) => {
+                  const nid = nodeRef?.nodeId || nodeOptions[0]?.id;
+                  if (!nid) return;
+                  onChange(formatNodeRef(nid, field));
+                }}
+              >
+                <SelectTrigger className="h-8 w-full text-xs">
+                  <SelectValue placeholder="选择字段" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fields.length === 0 ? (
+                    <SelectItem value="__none" disabled>
+                      —
+                    </SelectItem>
+                  ) : (
+                    fields.map((f) => (
+                      <SelectItem key={f.name} value={f.name}>
+                        {f.name}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </Row>
+            {typeof value === 'string' && isRefValue(value) && (
+              <p className="text-[10px] font-mono opacity-45 truncate" title={value}>
+                {value}
+              </p>
+            )}
+          </>
+        )}
       </div>
       {status.message && (status.broken || status.typeWarn) && (
         <p

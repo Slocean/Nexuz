@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useFlowStore } from '@/store/flowModelStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,18 +31,16 @@ function Labeled({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 min-w-0 w-full">
-      <span className="text-[11px] font-medium opacity-60 shrink-0 w-[4.5rem] leading-8">
-        {title}
-      </span>
-      <div className="flex-1 min-w-0">{children}</div>
+    <div className="flex flex-col gap-1 min-w-0 w-full">
+      <span className="text-[11px] font-medium opacity-60 leading-none">{title}</span>
+      <div className="w-full min-w-0">{children}</div>
     </div>
   );
 }
 
 /**
  * Lightweight expression builder → writes expression string for evaluate_expression.
- * Quick-fill card: each row is title + control on one line.
+ * Quick-fill: each field is title on its own row + control below.
  */
 export default function ExpressionField({
   value,
@@ -81,10 +79,15 @@ export default function ExpressionField({
       .filter((n) => n.outputs.length > 0);
   }, [flowNodes, schemaMap, currentNodeId]);
 
+  const hasUpstream = nodeOptions.length > 0;
   const varOptions = useMemo(() => listFlowVariableNames(variables), [variables]);
 
   const leftFields = nodeOptions.find((n) => n.id === leftNode)?.outputs || [];
   const rightFields = nodeOptions.find((n) => n.id === rightNode)?.outputs || [];
+
+  useEffect(() => {
+    if (!hasUpstream && rightKind === 'node') setRightKind('literal');
+  }, [hasUpstream, rightKind]);
 
   const exprIssues = useMemo(
     () =>
@@ -111,19 +114,28 @@ export default function ExpressionField({
 
   return (
     <div className="flex flex-col gap-2 w-full min-w-0">
-      <Input
-        className="h-8 font-mono text-xs w-full"
-        value={String(value ?? '')}
-        placeholder='例如 {{ocr1.text}} contains "成功"'
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <Labeled title="表达式">
+        <Input
+          className="h-8 font-mono text-xs w-full"
+          value={String(value ?? '')}
+          placeholder='例如 {{ocr1.text}} contains "成功"'
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </Labeled>
 
-      <div className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2.5">
+      <div className="rounded-lg border border-black/10 dark:border-white/10 p-2.5 space-y-3">
         <p className="text-[11px] opacity-50 leading-none">快速填入</p>
+
+        {!hasUpstream && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
+            当前没有可用的上游输出节点，请先连接识别/取色等带输出的节点。
+          </p>
+        )}
 
         <Labeled title="左值节点">
           <Select
             value={leftNode || undefined}
+            disabled={!hasUpstream}
             onValueChange={(v) => {
               setLeftNode(v);
               const n = nodeOptions.find((x) => x.id === v);
@@ -131,7 +143,7 @@ export default function ExpressionField({
             }}
           >
             <SelectTrigger className="h-8 w-full text-xs">
-              <SelectValue placeholder="选择节点" />
+              <SelectValue placeholder={hasUpstream ? '选择节点' : '无上游节点'} />
             </SelectTrigger>
             <SelectContent>
               {nodeOptions.map((n) => (
@@ -144,7 +156,11 @@ export default function ExpressionField({
         </Labeled>
 
         <Labeled title="左值字段">
-          <Select value={leftField || undefined} onValueChange={setLeftField}>
+          <Select
+            value={leftField || undefined}
+            disabled={!hasUpstream || !leftNode}
+            onValueChange={setLeftField}
+          >
             <SelectTrigger className="h-8 w-full text-xs">
               <SelectValue placeholder="选择字段" />
             </SelectTrigger>
@@ -178,6 +194,7 @@ export default function ExpressionField({
             value={rightKind}
             onValueChange={(v) => {
               const next = v as 'literal' | 'node' | 'variable';
+              if (next === 'node' && !hasUpstream) return;
               setRightKind(next);
               if (next === 'variable' && !rightVar && varOptions[0]) {
                 setRightVar(varOptions[0]);
@@ -189,7 +206,9 @@ export default function ExpressionField({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="literal">常量</SelectItem>
-              <SelectItem value="node">上游</SelectItem>
+              <SelectItem value="node" disabled={!hasUpstream}>
+                上游{!hasUpstream ? '（无可用节点）' : ''}
+              </SelectItem>
               <SelectItem value="variable" disabled={varOptions.length === 0}>
                 变量{varOptions.length === 0 ? '（未创建）' : ''}
               </SelectItem>
@@ -221,6 +240,7 @@ export default function ExpressionField({
             <Labeled title="右值节点">
               <Select
                 value={rightNode || undefined}
+                disabled={!hasUpstream}
                 onValueChange={(v) => {
                   setRightNode(v);
                   const n = nodeOptions.find((x) => x.id === v);
@@ -240,7 +260,11 @@ export default function ExpressionField({
               </Select>
             </Labeled>
             <Labeled title="右值字段">
-              <Select value={rightField || undefined} onValueChange={setRightField}>
+              <Select
+                value={rightField || undefined}
+                disabled={!rightNode}
+                onValueChange={setRightField}
+              >
                 <SelectTrigger className="h-8 w-full text-xs">
                   <SelectValue placeholder="选择字段" />
                 </SelectTrigger>
@@ -256,7 +280,13 @@ export default function ExpressionField({
           </>
         )}
 
-        <Button type="button" size="sm" className="h-8 w-full text-xs" onClick={apply}>
+        <Button
+          type="button"
+          size="sm"
+          className="h-8 w-full text-xs"
+          disabled={!hasUpstream}
+          onClick={apply}
+        >
           填入表达式
         </Button>
       </div>
