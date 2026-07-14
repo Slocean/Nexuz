@@ -413,6 +413,49 @@ class Api:
         path.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"ok": True, "path": str(path), "name": flow.get("name")}
 
+    def clipboard_write(self, text: str) -> dict:
+        """Copy text to system clipboard (pywebview often blocks navigator.clipboard)."""
+        raw = "" if text is None else str(text)
+        try:
+            import tkinter as tk
+
+            root = tk.Tk()
+            root.withdraw()
+            root.clipboard_clear()
+            root.clipboard_append(raw)
+            root.update()
+            root.destroy()
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def export_text(self, text: str, filename: str | None = None) -> dict:
+        """Save plain text via Save dialog (for logs export)."""
+        raw = "" if text is None else str(text)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        suggested = (filename or f"nexuz-logs-{stamp}.txt").strip() or f"nexuz-logs-{stamp}.txt"
+        if not suggested.lower().endswith(".txt"):
+            suggested += ".txt"
+        if not self._window:
+            # Headless fallback: write next to exe/project
+            out = exe_dir() / "logs" / Path(suggested).name
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(raw, encoding="utf-8")
+            return {"ok": True, "path": str(out)}
+        result = self._window.create_file_dialog(
+            webview.SAVE_DIALOG,
+            directory=str(exe_dir()),
+            save_filename=Path(suggested).name,
+            file_types=("Text (*.txt)",),
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+        filepath = result if isinstance(result, str) else result[0]
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(raw, encoding="utf-8")
+        return {"ok": True, "path": str(path)}
+
     def load_flow(self, filepath: str | None = None) -> dict:
         if not filepath:
             result = (

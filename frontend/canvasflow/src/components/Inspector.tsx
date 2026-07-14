@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Settings, Terminal, X, Copy, Check, Download } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Settings, Terminal, X, Copy, Check, Download, Trash2 } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
@@ -11,6 +11,7 @@ import VariableSelect from './VariableSelect';
 import ExpressionField from './ExpressionField';
 import LogicTreeEditor, { normalizeLogicValue } from './LogicTreeEditor';
 import { listFlowVariableNames } from '../bindValue';
+import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -733,30 +734,125 @@ export default function Inspector({
 }: InspectorProps) {
   const { alert } = useAppDialog();
   const [copied, setCopied] = React.useState(false);
+  const [outputCopied, setOutputCopied] = React.useState(false);
+  const [logCopyHint, setLogCopyHint] = React.useState<string | null>(null);
+  const logCopyHintTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logSelectionRef = React.useRef('');
+  const clearLogs = useFlowStore((s) => s.clearLogs);
   const colors = getThemeColors(themeName, themeMode);
+
+  const showLogCopyHint = (msg: string) => {
+    if (logCopyHintTimer.current) clearTimeout(logCopyHintTimer.current);
+    setLogCopyHint(msg);
+    setCopied(true);
+    logCopyHintTimer.current = setTimeout(() => {
+      setLogCopyHint(null);
+      setCopied(false);
+      logCopyHintTimer.current = null;
+    }, 1600);
+  };
 
   const nodeIssues = React.useMemo(
     () => (selectedNode ? bindIssues.filter((i) => i.nodeId === selectedNode.id) : []),
     [bindIssues, selectedNode],
   );
 
+  const copyText = async (text: string, mark: 'copied' | 'output' | 'silent' = 'copied') => {
+    const raw = String(text ?? '');
+    if (!raw) {
+      if (mark !== 'silent') {
+        await alert({ title: '复制', description: '没有可复制的内容' });
+      }
+      return false;
+    }
+    const markOk = () => {
+      if (mark === 'silent') return;
+      if (mark === 'output') {
+        setOutputCopied(true);
+        setTimeout(() => setOutputCopied(false), 2000);
+      } else {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    };
+    try {
+      const res = await bridge.clipboardWrite(raw);
+      if (res?.ok) {
+        markOk();
+        return true;
+      }
+    } catch {
+      /* fall through */
+    }
+    try {
+      await navigator.clipboard.writeText(raw);
+      markOk();
+      return true;
+    } catch {
+      if (mark !== 'silent') {
+        await alert({ title: '复制失败', description: '无法写入剪贴板，请手动选中后 Ctrl+C' });
+      }
+      return false;
+    }
+  };
+
+  const logsAsText = () => {
+    if (rawLogs.length) {
+      return logsToText(
+        rawLogs.map((l: any) => ({
+          ts: l.ts,
+          level: l.level,
+          message: l.message,
+          detail: l.detail,
+        })),
+      );
+    }
+    return logsToText(
+      logs.map((l) => ({
+        ts: Date.now(),
+        level: l.type,
+        message: l.message,
+      })),
+    );
+  };
+
   const exportLogs = async () => {
-    const text = logsToText(rawLogs.length ? rawLogs : logs.map((l) => ({
-      ts: Date.now(),
-      level: l.type,
-      message: l.message,
-    })));
+    const text = logsAsText();
     if (!text.trim()) {
       await alert({ title: '导出日志', description: '暂无日志可导出' });
       return;
     }
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `nexuz-logs-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const res = await bridge.exportText(text, `nexuz-logs-${stamp}.txt`);
+    if (res?.cancelled) return;
+    if (!res?.ok) {
+      await alert({ title: '导出失败', description: res?.error || '无法保存日志文件' });
+      return;
+    }
+    await alert({ title: '已导出', description: res.path ? `已保存到\n${res.path}` : '日志已导出' });
+  };
+
+  const captureLogSelection = () => {
+    try {
+      logSelectionRef.current = window.getSelection?.()?.toString?.() || '';
+    } catch {
+      logSelectionRef.current = '';
+    }
+  };
+
+  const copySelectedOrAllLogs = async () => {
+    const selected = (logSelectionRef.current || window.getSelection?.()?.toString?.() || '').trim();
+    const text = selected || logsAsText();
+    if (!text.trim()) {
+      showLogCopyHint('暂无内容');
+      return;
+    }
+    const ok = await copyText(text, 'silent');
+    showLogCopyHint(ok ? (selected ? '已复制选中' : '已复制全部') : '复制失败');
+  };
+
+  const handleClearLogs = () => {
+    clearLogs();
   };
 
   const logsPanel = (
@@ -765,15 +861,47 @@ export default function Inspector({
         <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5">
           <Terminal className="w-3.5 h-3.5" /> 运行日志
         </h4>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
-          onClick={exportLogs}
-          title="导出日志为 .txt"
-        >
-          <Download className="w-3 h-3" /> 导出
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+            onMouseDown={(e) => {
+              captureLogSelection();
+              // 避免按钮抢焦点清空选区
+              e.preventDefault();
+            }}
+            onClick={copySelectedOrAllLogs}
+            title="复制选中；无选中则复制全部"
+          >
+            {copied || logCopyHint ? (
+              <Check className="w-3 h-3 text-emerald-500" />
+            ) : (
+              <Copy className="w-3 h-3" />
+            )}{' '}
+            <span className={logCopyHint ? 'text-emerald-500' : undefined}>
+              {logCopyHint || '复制选中'}
+            </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+            onClick={handleClearLogs}
+            title="清空运行日志"
+          >
+            <Trash2 className="w-3 h-3" /> 清空
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+            onClick={exportLogs}
+            title="导出日志为 .txt"
+          >
+            <Download className="w-3 h-3" /> 导出
+          </Button>
+        </div>
       </div>
       <ScrollArea className="h-36">
         <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed">
@@ -782,7 +910,7 @@ export default function Inspector({
               尚无日志
             </p>
           )}
-          {logs.slice(0, 40).map((log) => (
+          {logs.slice(0, 80).map((log) => (
             <div
               key={log.id}
               className={`select-text break-words whitespace-pre-wrap py-0.5 ${
@@ -801,6 +929,9 @@ export default function Inspector({
               }
             >
               <span className="opacity-50 mr-2">{log.timestamp}</span>
+              {log.nodeId ? (
+                <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span>
+              ) : null}
               {log.message}
             </div>
           ))}
@@ -934,12 +1065,6 @@ export default function Inspector({
     return defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const renderNexuzSchemaForm = () => {
     const schema = schemaMap[selectedNode.subType];
     if (!schema) return null;
@@ -1002,13 +1127,15 @@ export default function Inspector({
               )}
             </Field>
             {clickMode === 'single' &&
-            (selectedNode.config?.capture_mode === 'frida_ui' ||
-              (!selectedNode.config?.capture_mode && defaultCaptureMode === 'frida_ui') ||
-              selectedNode.config?.frida_ui?.hierarchy_path) ? (
+            (selectedNode.config?.x != null ||
+              selectedNode.config?.frida_ui?.hierarchy_path ||
+              selectedNode.config?.button) ? (
               <p className="text-xs font-mono opacity-70 break-all">
                 {selectedNode.config?.frida_ui?.display_name ||
                   selectedNode.config?.frida_ui?.hierarchy_path ||
-                  '尚未录入 Frida UI 目标'}
+                  (selectedNode.config?.x != null
+                    ? `(${selectedNode.config.x}, ${selectedNode.config.y})`
+                    : '尚未录入目标')}
                 {selectedNode.config?.button ? ` · ${selectedNode.config.button}` : ''}
               </p>
             ) : null}
@@ -1617,14 +1744,15 @@ export default function Inspector({
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <h4 className="font-medium text-sm opacity-70">输出</h4>
-              {outputText && (
+              {outputText ? (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-xs text-blue-500"
-                  onClick={() => copyToClipboard(outputText)}
+                  className="h-7 text-xs text-blue-500 gap-1"
+                  onClick={() => copyText(outputText, 'output')}
+                  title="复制全部输出"
                 >
-                  {copied ? (
+                  {outputCopied ? (
                     <>
                       <Check className="w-3 h-3 text-emerald-500" />
                       已复制
@@ -1632,11 +1760,11 @@ export default function Inspector({
                   ) : (
                     <>
                       <Copy className="w-3 h-3" />
-                      复制 JSON
+                      复制
                     </>
                   )}
                 </Button>
-              )}
+              ) : null}
             </div>
 
             {(() => {
@@ -1682,36 +1810,69 @@ export default function Inspector({
                   backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
                   borderColor: colors.border,
                 }}
-                className="rounded-xl p-2 border font-mono text-xs max-h-28 overflow-y-auto whitespace-pre-wrap break-all"
+                className="rounded-xl p-2 border font-mono text-xs max-h-40 overflow-y-auto whitespace-pre-wrap break-all select-text cursor-text"
+                tabIndex={0}
+                title="可选中后 Ctrl+C 复制"
               >
                 {outputText}
               </pre>
-            ) : null}
+            ) : (
+              <p className="text-xs opacity-50 py-1">运行后将显示此节点输出</p>
+            )}
           </div>
 
-          {nodeLogs.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="font-medium text-sm opacity-70">
-                日志
-              </h4>
-              <div className="space-y-0.5 max-h-32 overflow-y-auto font-mono text-sm leading-relaxed">
-                {nodeLogs.map((log) => (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="font-medium text-sm opacity-70">节点运行日志</h4>
+              {nodeLogs.length > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+                  onClick={() =>
+                    copyText(
+                      nodeLogs
+                        .map((l) => `${l.timestamp || ''} ${l.message}`)
+                        .join('\n'),
+                    )
+                  }
+                  title="复制此节点日志"
+                >
+                  <Copy className="w-3 h-3" /> 复制
+                </Button>
+              ) : null}
+            </div>
+            <div className="space-y-0.5 max-h-36 overflow-y-auto font-mono text-sm leading-relaxed select-text cursor-text rounded-lg border border-black/5 dark:border-white/5 px-2 py-1.5">
+              {nodeLogs.length === 0 ? (
+                <p className="text-xs opacity-50 py-2">此节点尚无运行日志</p>
+              ) : (
+                nodeLogs.map((log) => (
                   <div
                     key={log.id}
-                    className={`break-words whitespace-pre-wrap py-0.5 ${
+                    className={`break-words whitespace-pre-wrap py-0.5 select-text ${
                       log.type === 'error'
                         ? 'text-rose-500'
                         : log.type === 'warning'
                           ? 'text-amber-500'
-                          : 'text-emerald-500'
+                          : log.type === 'success'
+                            ? 'text-emerald-500'
+                            : ''
                     }`}
+                    style={
+                      log.type === 'error' ||
+                      log.type === 'warning' ||
+                      log.type === 'success'
+                        ? undefined
+                        : { color: colors.secondaryText }
+                    }
                   >
+                    <span className="opacity-50 mr-2">{log.timestamp}</span>
                     {log.message}
                   </div>
-                ))}
-              </div>
+                ))
+              )}
             </div>
-          )}
+          </div>
         </div>
       </ScrollArea>
       {logsPanel}

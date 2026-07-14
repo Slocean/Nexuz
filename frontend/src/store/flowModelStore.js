@@ -644,8 +644,7 @@ export const useFlowStore = create((set, get) => ({
 
   // execution UI
   nodeOutputs: {}, // nodeId -> last summarized result (UI only)
-  clearLogs: () =>
-    set({ logs: [], execNodeStates: {}, execNodeId: null, execStatus: 'idle', nodeOutputs: {} }),
+  clearLogs: () => set({ logs: [] }),
   appendLog: (entry) =>
     set((state) => ({
       logs: [
@@ -776,9 +775,21 @@ export const useFlowStore = create((set, get) => ({
       if (payload?.ok && payload.nodes?.length) {
         get().appendRecordedNodes(payload.nodes);
       }
+      const nodes = payload?.nodes || [];
+      const clicks = nodes.filter((n) => n?.type === 'click');
+      const btnCount = { left: 0, right: 0, middle: 0 };
+      for (const n of clicks) {
+        const b = String(n?.params?.button || 'left');
+        if (b in btnCount) btnCount[b] += 1;
+        else btnCount.left += 1;
+      }
+      const btnHint =
+        clicks.length > 0
+          ? `（点击 ${clicks.length}：左${btnCount.left}/右${btnCount.right}/中${btnCount.middle}）`
+          : '';
       appendLog({
         level: 'ok',
-        message: `快捷键停止录制，追加 ${payload?.nodes?.length || 0} 个节点`,
+        message: `快捷键停止录制，追加 ${nodes.length || 0} 个节点${btnHint}`,
       });
     } else if (event === 'log') {
       appendLog({

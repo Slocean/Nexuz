@@ -648,15 +648,19 @@ function buildHierarchy(component) {
 }
 
 function pointerButtonName(eventData) {
+  // UnityEngine.EventSystems.PointerEventData.InputButton: Left=0, Right=1, Middle=2
+  // 先前一遇到 0 就返回 left，会把结构体里其它零字段误判为左键，导致右键录成 left。
   try {
     if (!eventData || eventData.isNull()) return 'left';
-    var candidates = [0x2c, 0x30, 0x34, 0x38, 0x40, 0x48];
+    var candidates = [0x2c, 0x30, 0x34, 0x38, 0x40, 0x48, 0x4c, 0x50];
+    var sawLeft = false;
     for (var i = 0; i < candidates.length; i++) {
       var v = eventData.add(candidates[i]).readInt();
-      if (v === 0) return 'left';
       if (v === 1) return 'right';
       if (v === 2) return 'middle';
+      if (v === 0) sawLeft = true;
     }
+    if (sawLeft) return 'left';
   } catch (e) {}
   return 'left';
 }

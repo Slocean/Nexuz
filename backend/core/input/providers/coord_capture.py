@@ -18,10 +18,29 @@ from backend.core.input.types import (
 
 
 def _button_name(button) -> str:
-    if button == mouse.Button.right:
-        return "right"
-    if button == mouse.Button.middle:
-        return "middle"
+    """Normalize pynput mouse button → left|right|middle."""
+    try:
+        name = str(getattr(button, "name", None) or button or "").lower()
+        name = name.replace("button.", "").strip()
+        if name == "right" or name.endswith(".right"):
+            return "right"
+        if name == "middle" or name.endswith(".middle"):
+            return "middle"
+        if name == "left" or name.endswith(".left"):
+            return "left"
+        if "right" in name:
+            return "right"
+        if "middle" in name:
+            return "middle"
+    except Exception:
+        pass
+    try:
+        if button == mouse.Button.right:
+            return "right"
+        if button == mouse.Button.middle:
+            return "middle"
+    except Exception:
+        pass
     return "left"
 
 

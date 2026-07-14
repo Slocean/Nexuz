@@ -851,6 +851,32 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: false, error: '请在桌面客户端中运行流程（python backend/main.py --dev）' });
     case 'save_flow':
     case 'load_flow':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持文件操作' });
+    case 'clipboard_write':
+      try {
+        const t = args[0] ?? '';
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          return navigator.clipboard.writeText(String(t)).then(() => ({ ok: true }));
+        }
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
+      return Promise.resolve({ ok: false, error: '剪贴板不可用' });
+    case 'export_text':
+      try {
+        const text = String(args[0] ?? '');
+        const name = String(args[1] || `nexuz-logs-${Date.now()}.txt`);
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(url);
+        return Promise.resolve({ ok: true, path: name });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
     case 'start_recording':
     case 'stop_recording':
     case 'pick_point':
@@ -930,6 +956,8 @@ export const bridge = {
   saveFlow: (flow, filepath = null, name = null) =>
     call('save_flow', JSON.stringify(flow), filepath, name),
   loadFlow: (filepath = null) => call('load_flow', filepath),
+  clipboardWrite: (text) => call('clipboard_write', text),
+  exportText: (text, filename = null) => call('export_text', text, filename),
   windowMinimize: () => call('window_minimize'),
   windowToggleMaximize: () => call('window_toggle_maximize'),
   windowClose: () => call('window_close'),

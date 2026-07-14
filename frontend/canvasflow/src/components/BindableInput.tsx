@@ -22,6 +22,7 @@ import {
 } from '../bindValue';
 import { inspectBindValue } from '../bindValidate';
 import VariableSelect from './VariableSelect';
+import { bridge } from '@/bridge';
 
 type SchemaMap = Record<string, { label?: string; outputs?: { name: string; type?: string }[] }>;
 
@@ -264,6 +265,15 @@ export function OutputRefChip({
 }) {
   const ref = formatNodeRef(nodeId, field);
   const copy = async () => {
+    try {
+      const res = await bridge.clipboardWrite(ref);
+      if (res?.ok) {
+        onCopied?.();
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
     try {
       await navigator.clipboard.writeText(ref);
       onCopied?.();

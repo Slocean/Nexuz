@@ -229,12 +229,12 @@ function AppShell() {
       logs
         .slice(-80)
         .reverse()
-        .map((l) => ({
-          id: String(l.ts) + l.message,
-          timestamp: new Date(l.ts).toLocaleTimeString(),
+        .map((l, i) => ({
+          id: `${l.ts || 0}-${i}-${String(l.message || '').slice(0, 24)}`,
+          timestamp: new Date(l.ts || Date.now()).toLocaleTimeString(),
           type: mapLogLevel(l.level),
           message: l.message,
-          nodeId: undefined,
+          nodeId: l.nodeId || undefined,
           nodeName: undefined,
         })),
     [logs],
@@ -404,8 +404,23 @@ function AppShell() {
     const res = await bridge.stopRecording();
     setRecording(false);
     if (res?.ok) {
-      appendRecordedNodes(res.nodes || []);
-      appendLog({ level: 'ok', message: `录制结束，追加 ${res.nodes?.length || 0} 个节点` });
+      const nodes = res.nodes || [];
+      appendRecordedNodes(nodes);
+      const clicks = nodes.filter((n: any) => n?.type === 'click');
+      const btnCount = { left: 0, right: 0, middle: 0 };
+      for (const n of clicks) {
+        const b = String(n?.params?.button || 'left');
+        if (b in btnCount) (btnCount as any)[b] += 1;
+        else btnCount.left += 1;
+      }
+      const btnHint =
+        clicks.length > 0
+          ? `（点击 ${clicks.length}：左${btnCount.left}/右${btnCount.right}/中${btnCount.middle}）`
+          : '';
+      appendLog({
+        level: 'ok',
+        message: `录制结束，追加 ${nodes.length || 0} 个节点${btnHint}`,
+      });
     }
   };
 

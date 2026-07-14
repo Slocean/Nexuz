@@ -70,14 +70,37 @@ class Recorder:
         self._last_ts = now
         self._events.append(event)
 
+    @staticmethod
+    def _button_name(button) -> str:
+        """Normalize pynput mouse button → left|right|middle."""
+        try:
+            name = str(getattr(button, "name", None) or button or "").lower()
+            name = name.replace("button.", "").strip()
+            if name == "right" or name.endswith(".right"):
+                return "right"
+            if name == "middle" or name.endswith(".middle"):
+                return "middle"
+            if name == "left" or name.endswith(".left"):
+                return "left"
+            if "right" in name:
+                return "right"
+            if "middle" in name:
+                return "middle"
+        except Exception:
+            pass
+        try:
+            if button == mouse.Button.right:
+                return "right"
+            if button == mouse.Button.middle:
+                return "middle"
+        except Exception:
+            pass
+        return "left"
+
     def _on_click(self, x, y, button, pressed):
         if not self._recording or not pressed:
             return
-        btn = "left"
-        if button == mouse.Button.right:
-            btn = "right"
-        elif button == mouse.Button.middle:
-            btn = "middle"
+        btn = self._button_name(button)
         with self._lock:
             self._append(
                 {
