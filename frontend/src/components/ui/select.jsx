@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
-import { Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function Select(props) {
@@ -10,6 +10,7 @@ function Select(props) {
 function SelectGroup(props) {
   return <SelectPrimitive.Group {...props} />;
 }
+SelectGroup.displayName = 'SelectGroup';
 
 function SelectValue(props) {
   return <SelectPrimitive.Value {...props} />;
@@ -32,7 +33,65 @@ function SelectTrigger({ className, children, ...props }) {
   );
 }
 
-function SelectContent({ className, children, position = 'popper', ...props }) {
+function collectText(node) {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(collectText).join(' ');
+  if (React.isValidElement(node)) return collectText(node.props?.children);
+  return '';
+}
+
+function elementName(el) {
+  if (!React.isValidElement(el)) return '';
+  return el.type?.displayName || el.type?.name || '';
+}
+
+function filterSelectChildren(children, query) {
+  const q = String(query || '')
+    .trim()
+    .toLowerCase();
+  if (!q) return children;
+
+  return React.Children.map(children, (child) => {
+    if (!React.isValidElement(child)) return child;
+    const name = elementName(child);
+
+    if (child.type === SelectItem || name === 'SelectItem') {
+      const hay = `${collectText(child.props.children)} ${child.props.value ?? ''}`.toLowerCase();
+      return hay.includes(q) ? child : null;
+    }
+
+    if (child.type === SelectGroup || name === 'SelectGroup') {
+      const filtered = filterSelectChildren(child.props.children, query);
+      const kept = React.Children.toArray(filtered).filter(Boolean);
+      if (!kept.length) return null;
+      return React.cloneElement(child, child.props, filtered);
+    }
+
+    // Keep labels/separators; they may look odd if all items filtered — groups handle that.
+    if (child.type === SelectLabel || name === 'SelectLabel') return child;
+    if (child.type === SelectSeparator || name === 'SelectSeparator') return child;
+    return child;
+  });
+}
+
+function SelectContent({
+  className,
+  children,
+  position = 'popper',
+  searchable = true,
+  searchPlaceholder = '输入搜索…',
+  ...props
+}) {
+  const [query, setQuery] = React.useState('');
+  const inputRef = React.useRef(null);
+
+  const filtered = React.useMemo(
+    () => (searchable ? filterSelectChildren(children, query) : children),
+    [children, query, searchable],
+  );
+  const visibleCount = React.Children.toArray(filtered).filter(Boolean).length;
+
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -45,6 +104,35 @@ function SelectContent({ className, children, position = 'popper', ...props }) {
         position={position}
         {...props}
       >
+        {searchable ? (
+          <div
+            className="sticky top-0 z-10 flex items-center gap-1.5 border-b border-[var(--border)] bg-[var(--card)] px-2 py-1.5"
+            // Keep focus / keys inside the search field
+            onKeyDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <Search className="size-3.5 shrink-0 opacity-50" />
+            <input
+              ref={inputRef}
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchPlaceholder}
+              className="h-7 w-full bg-transparent text-sm outline-none placeholder:opacity-40"
+              onKeyDown={(e) => {
+                // Prevent Radix typeahead from stealing keystrokes
+                e.stopPropagation();
+                if (e.key === 'Escape') {
+                  if (query) {
+                    e.preventDefault();
+                    setQuery('');
+                  }
+                }
+              }}
+            />
+          </div>
+        ) : null}
+
         <SelectPrimitive.ScrollUpButton className="flex cursor-default items-center justify-center py-1">
           <ChevronUp className="size-4" />
         </SelectPrimitive.ScrollUpButton>
@@ -52,10 +140,14 @@ function SelectContent({ className, children, position = 'popper', ...props }) {
           className={cn(
             'p-1',
             position === 'popper' &&
-              'h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]',
+              'w-full min-w-[var(--radix-select-trigger-width)]',
           )}
         >
-          {children}
+          {searchable && visibleCount === 0 ? (
+            <div className="px-2 py-3 text-center text-xs opacity-50">无匹配项</div>
+          ) : (
+            filtered
+          )}
         </SelectPrimitive.Viewport>
         <SelectPrimitive.ScrollDownButton className="flex cursor-default items-center justify-center py-1">
           <ChevronDown className="size-4" />
@@ -64,6 +156,7 @@ function SelectContent({ className, children, position = 'popper', ...props }) {
     </SelectPrimitive.Portal>
   );
 }
+SelectContent.displayName = 'SelectContent';
 
 function SelectLabel({ className, ...props }) {
   return (
@@ -73,6 +166,7 @@ function SelectLabel({ className, ...props }) {
     />
   );
 }
+SelectLabel.displayName = 'SelectLabel';
 
 function SelectItem({ className, children, ...props }) {
   return (
@@ -92,6 +186,7 @@ function SelectItem({ className, children, ...props }) {
     </SelectPrimitive.Item>
   );
 }
+SelectItem.displayName = 'SelectItem';
 
 function SelectSeparator({ className, ...props }) {
   return (
@@ -101,6 +196,7 @@ function SelectSeparator({ className, ...props }) {
     />
   );
 }
+SelectSeparator.displayName = 'SelectSeparator';
 
 export {
   Select,
