@@ -51,7 +51,7 @@ def show_stop_overlay(on_stop: Callable[[], None]) -> None:
 
         desc = tk.Label(
             frame,
-            text="记录：点击 / 按键 / 延迟 / 滚轮。\n不含拖拽、悬停、打字。\n停止：按钮 或 Ctrl+X+F10",
+            text="记录：点击 / 按键 / 延迟 / 滚轮。\n不含拖拽、悬停、打字。\n停止：按钮 或 X+F10",
             fg="#94A3B8",
             bg="#121623",
             font=("Segoe UI", 9),

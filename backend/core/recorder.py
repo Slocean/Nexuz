@@ -178,8 +178,8 @@ class Recorder:
             return None
 
     def _is_stop_hotkey(self, name: str) -> bool:
-        # Ctrl+X+F10（与运行热键 Ctrl+X+F4/F5 统一前缀）
-        return name == "f10" and self._mods.get("ctrl") and "x" in self._pressed_keys
+        # X+F10（与运行热键 X+F4/F5 统一前缀）
+        return name == "f10" and "x" in self._pressed_keys
 
     def _on_press(self, key):
         if not self._recording:
@@ -190,7 +190,7 @@ class Recorder:
         if name in ("ctrl", "shift", "alt"):
             self._mods[name] = True
             return
-        # Ctrl+X+F10 → stop recording, do not record this key
+        # X+F10 → stop recording, do not record this key
         if self._is_stop_hotkey(name):
             with self._lock:
                 self._pressed_keys.discard("x")

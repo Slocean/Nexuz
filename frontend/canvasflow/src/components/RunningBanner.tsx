@@ -43,13 +43,13 @@ export default function RunningBanner({
               <span className="block">
                 暂停{' '}
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-[11px]">
-                  Ctrl+X+F5
+                  X+F5
                 </kbd>
               </span>
               <span className="block">
                 结束{' '}
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-[11px]">
-                  Ctrl+X+F4
+                  X+F4
                 </kbd>
               </span>
             </p>

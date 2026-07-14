@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, FolderSync, Search, Workflow, Boxes } from 'lucide-react';
-import { NodeType, ThemeName, ThemeMode, WorkflowNode } from '../types';
+import { ThemeName, ThemeMode, WorkflowNode } from '../types';
 import { getThemeColors } from '../theme';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,7 +15,7 @@ import TemplatesPanel from './TemplatesPanel';
 interface SidebarProps {
   themeName: ThemeName;
   themeMode: ThemeMode;
-  onAddNode: (subType: string, customProps?: Partial<WorkflowNode>) => void;
+  onAddNode?: (subType: string, customProps?: Partial<WorkflowNode>) => void;
   onAddNexuzNode?: (blockType: string) => void;
   nexuzSchemas?: { type: string; label: string; category?: string }[];
   onLoadTemplate: (templateId: string) => void;
@@ -27,87 +27,6 @@ interface SidebarProps {
   onNewFlow?: () => void;
   onOpenFromDisk?: () => void;
 }
-
-const componentsList = [
-  {
-    category: 'AI Engines',
-    color: '#4F8CFF',
-    items: [
-      {
-        name: 'ChatGPT Agent',
-        subType: 'chatgpt',
-        type: 'AI' as NodeType,
-        description: 'Generates natural language using server-side Gemini.',
-      },
-      {
-        name: 'AI Translator',
-        subType: 'translator',
-        type: 'AI' as NodeType,
-        description: 'Translates inputs into targeted languages.',
-      },
-      {
-        name: 'AI Summarizer',
-        subType: 'summarizer',
-        type: 'AI' as NodeType,
-        description: 'Condenses bulk inputs into brief summaries.',
-      },
-    ],
-  },
-  {
-    category: 'Data Integrations',
-    color: '#34C759',
-    items: [
-      {
-        name: 'Key-Value Store',
-        subType: 'kv-store',
-        type: 'Database' as NodeType,
-        description: 'Read or write key-value records.',
-      },
-    ],
-  },
-  {
-    category: 'Connectivity',
-    color: '#AF52DE',
-    items: [
-      {
-        name: 'HTTP API Webhook',
-        subType: 'api-request',
-        type: 'HTTP' as NodeType,
-        description: 'Fetches JSON from an API endpoint.',
-      },
-    ],
-  },
-  {
-    category: 'Logic & Routing',
-    color: '#FF9500',
-    items: [
-      {
-        name: 'If-Else Switch',
-        subType: 'if-else',
-        type: 'Condition' as NodeType,
-        description: 'Branches execution on conditions.',
-      },
-      {
-        name: 'User Text Input',
-        subType: 'user-input',
-        type: 'Logic' as NodeType,
-        description: 'Hardcoded text source node.',
-      },
-    ],
-  },
-  {
-    category: 'Publishing',
-    color: '#FF5E57',
-    items: [
-      {
-        name: 'Log Terminal',
-        subType: 'log-viewer',
-        type: 'End' as NodeType,
-        description: 'Renders execution output.',
-      },
-    ],
-  },
-];
 
 const nexuzCatColor: Record<string, string> = {
   动作类: '#FF9500',
@@ -198,7 +117,6 @@ function CatalogCard({
 export default function Sidebar({
   themeName,
   themeMode,
-  onAddNode,
   onAddNexuzNode,
   nexuzSchemas = [],
   onLoadTemplate,
@@ -240,22 +158,6 @@ export default function Sidebar({
     }
     return sorted;
   }, [nexuzSchemas, q]);
-
-  const filteredComponents = useMemo(() => {
-    if (!q) return componentsList;
-    return componentsList
-      .map((cat) => ({
-        ...cat,
-        items: cat.items.filter(
-          (item) =>
-            item.name.toLowerCase().includes(q) ||
-            item.subType.toLowerCase().includes(q) ||
-            item.description.toLowerCase().includes(q) ||
-            cat.category.toLowerCase().includes(q),
-        ),
-      }))
-      .filter((cat) => cat.items.length > 0);
-  }, [q]);
 
   return (
     <aside
@@ -347,10 +249,10 @@ export default function Sidebar({
           <TabsContent value="components" className="p-4 space-y-5 m-0 data-[state=inactive]:hidden">
             <div>
               <h3 className="font-display font-semibold text-sm opacity-80 mb-1">
-                Library Catalogue
+                积木节点
               </h3>
               <p style={{ color: colors.secondaryText }} className="text-xs mb-3">
-                点击添加，或拖到画布；下方设计稿节点保留未接入。
+                点击添加，或拖到画布。
               </p>
               <div className="relative">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 opacity-40" />
@@ -395,33 +297,6 @@ export default function Sidebar({
               </div>
             ))}
 
-            {filteredComponents.map((cat) => (
-              <div key={cat.category} className="space-y-2">
-                <div className="flex items-center gap-2 px-1">
-                  <span style={{ backgroundColor: cat.color }} className="w-2 h-2 rounded-full shadow-sm" />
-                  <span
-                    style={{ color: colors.secondaryText }}
-                    className="text-xs font-bold uppercase tracking-wider"
-                  >
-                    {cat.category}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {cat.items.map((item) => (
-                    <CatalogCard
-                      key={item.subType}
-                      themeMode={themeMode}
-                      borderColor={colors.border}
-                      accentColor={cat.color}
-                      secondaryText={colors.secondaryText}
-                      title={item.name}
-                      subtitle={item.subType}
-                      onClick={() => onAddNode(item.subType)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
           </TabsContent>
 
           <TabsContent value="variables" className="m-0 data-[state=inactive]:hidden overflow-y-auto">

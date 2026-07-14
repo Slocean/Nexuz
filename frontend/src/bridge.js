@@ -135,15 +135,15 @@ export const MOCK_SCHEMAS = [
     label: '鼠标滚轮',
     category: '动作类',
     inputs: [
-      { name: 'x', type: 'number', label: '焦点X（可选）', default: 0 },
-      { name: 'y', type: 'number', label: '焦点Y（可选）', default: 0 },
+      { name: 'x', type: 'number', label: '焦点X', default: 0 },
+      { name: 'y', type: 'number', label: '焦点Y', default: 0 },
       {
         name: 'move_first',
         type: 'select',
         label: '先移到焦点',
         options: ['true', 'false'],
-        default: 'false',
-        option_labels: { true: '是', false: '否（当前位置滚）' },
+        default: 'true',
+        option_labels: { true: '是（推荐）', false: '否（当前位置滚）' },
       },
       {
         name: 'direction',

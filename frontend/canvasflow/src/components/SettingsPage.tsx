@@ -464,15 +464,15 @@ export default function SettingsPage({
                 <br />
                 录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。录制快捷键{' '}
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                  Ctrl+X+F10
+                  X+F10
                 </kbd>
                 （支持点击/按键/延迟/滚轮，不含拖拽/悬停/打字）。运行中可全局{' '}
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                  Ctrl+X+F5
+                  X+F5
                 </kbd>{' '}
                 暂停、
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                  Ctrl+X+F4
+                  X+F4
                 </kbd>{' '}
                 结束。
               </p>

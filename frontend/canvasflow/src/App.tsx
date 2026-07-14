@@ -568,11 +568,11 @@ function AppShell() {
         description:
           mode === 'frida_ui'
             ? hide
-              ? `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。主窗口将隐藏，用外部浮窗或 Ctrl+X+F10 停止。\n需先在设置页连接 Frida。`
-              : `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。右上角会出现停止浮层，也可按 Ctrl+X+F10。\n需先在设置页连接 Frida。`
+              ? `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。主窗口将隐藏，用外部浮窗或 X+F10 停止。\n需先在设置页连接 Frida。`
+              : `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。右上角会出现停止浮层，也可按 X+F10。\n需先在设置页连接 Frida。`
             : hide
-              ? `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n\n已开启隐藏窗口：用右上角浮窗或 Ctrl+X+F10 停止。`
-              : `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n右上角浮层或 Ctrl+X+F10 停止。`,
+              ? `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n\n已开启隐藏窗口：用右上角浮窗或 X+F10 停止。`
+              : `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n右上角浮层或 X+F10 停止。`,
         confirmText: '开始录制',
       });
       if (!ok) return;
@@ -584,8 +584,8 @@ function AppShell() {
         appendLog({
           level: 'info',
           message: hide
-            ? `开始录制 [${modeLabel}]（窗口已隐藏）。停止：外部浮窗 或 Ctrl+X+F10`
-            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 Ctrl+X+F10`,
+            ? `开始录制 [${modeLabel}]（窗口已隐藏）。停止：外部浮窗 或 X+F10`
+            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 X+F10`,
         });
       } else {
         appendLog({

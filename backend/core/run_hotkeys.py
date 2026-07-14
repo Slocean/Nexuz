@@ -7,11 +7,11 @@ import time
 from typing import Callable
 
 
-# Ctrl+X+F4 → stop, Ctrl+X+F5 → pause (same Ctrl+X prefix as recording stop Ctrl+X+F10).
-STOP_HOTKEY = "<ctrl>+x+<f4>"
-PAUSE_HOTKEY = "<ctrl>+x+<f5>"
-STOP_LABEL = "Ctrl+X+F4"
-PAUSE_LABEL = "Ctrl+X+F5"
+# X+F4 → stop, X+F5 → pause (same X prefix as recording stop X+F10).
+STOP_HOTKEY = "x+<f4>"
+PAUSE_HOTKEY = "x+<f5>"
+STOP_LABEL = "X+F4"
+PAUSE_LABEL = "X+F5"
 
 
 class RunHotkeyWatcher:

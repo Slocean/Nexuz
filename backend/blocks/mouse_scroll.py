@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import time
+
 import pyautogui
 
-from backend.blocks._helpers import require_configured_point, resolve_point
+from backend.blocks._helpers import point_looks_unconfigured, require_configured_point, resolve_point
 
 SCHEMA = {
     "type": "mouse_scroll",
@@ -12,14 +14,14 @@ SCHEMA = {
         {
             "name": "x",
             "type": "number",
-            "label": "焦点X（可选）",
+            "label": "焦点X",
             "default": 0,
-            "placeholder": "滚动前移到此坐标",
+            "placeholder": "取点后滚动会在此坐标执行",
         },
         {
             "name": "y",
             "type": "number",
-            "label": "焦点Y（可选）",
+            "label": "焦点Y",
             "default": 0,
         },
         {
@@ -27,8 +29,8 @@ SCHEMA = {
             "type": "select",
             "label": "先移到焦点",
             "options": ["true", "false"],
-            "default": "false",
-            "option_labels": {"true": "是", "false": "否（当前位置滚）"},
+            "default": "true",
+            "option_labels": {"true": "是（推荐）", "false": "否（当前位置滚）"},
         },
         {
             "name": "direction",
@@ -69,25 +71,40 @@ def handler(params, context, **kwargs):
     if clicks <= 0:
         clicks = 1
 
-    # Default: scroll at current cursor — avoid silently jumping to (0,0).
-    move_first = str(params.get("move_first", "false")).lower() == "true"
+    # 已取点则始终滚到该点（避免默认 false 时在 Nexuz 窗口上空滚）。
+    move_first = str(params.get("move_first", "true")).lower() == "true"
+    configured = not point_looks_unconfigured(params)
     x = y = 0
-    if move_first:
-        require_configured_point(params, label="滚轮焦点")
+    if configured or move_first:
+        if not configured:
+            require_configured_point(params, label="滚轮焦点")
         x, y = resolve_point(params)
         pyautogui.moveTo(x, y)
+        time.sleep(0.05)
+
+    def _vscroll(amount: int) -> None:
+        if configured or move_first:
+            pyautogui.scroll(amount, x=x, y=y)
+        else:
+            pyautogui.scroll(amount)
+
+    def _hscroll(amount: int) -> None:
+        if configured or move_first:
+            pyautogui.hscroll(amount, x=x, y=y)
+        else:
+            pyautogui.hscroll(amount)
 
     if direction == "up":
-        pyautogui.scroll(clicks)
+        _vscroll(clicks)
         amount = clicks
     elif direction == "down":
-        pyautogui.scroll(-clicks)
+        _vscroll(-clicks)
         amount = -clicks
     elif direction == "left":
-        pyautogui.hscroll(-clicks)
+        _hscroll(-clicks)
         amount = -clicks
     elif direction == "right":
-        pyautogui.hscroll(clicks)
+        _hscroll(clicks)
         amount = clicks
     else:
         raise ValueError(f"未知滚动方向: {direction}")

@@ -89,7 +89,7 @@ class RecordingSession:
             return api_ok(
                 mode=mode,
                 hide_window=self._hidden,
-                stop_hotkey="Ctrl+X+F10",
+                stop_hotkey="X+F10",
             )
 
     def stop(self) -> dict[str, Any]:

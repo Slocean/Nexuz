@@ -192,7 +192,7 @@ export default function Toolbar({
               size="sm"
               onClick={onPause}
               disabled={execStatus !== 'running'}
-              title="暂停（Ctrl+X+F5）"
+              title="暂停（X+F5）"
             >
               <Pause className="w-3.5 h-3.5" />
               <span>暂停</span>
@@ -204,7 +204,7 @@ export default function Toolbar({
             size="sm"
             onClick={onStop}
             disabled={execStatus === 'idle'}
-            title="停止（Ctrl+X+F4）"
+            title="停止（X+F4）"
           >
             <Square className="w-3 h-3" />
             <span>{execStatus === 'stopping' ? '停止中' : '停止'}</span>
