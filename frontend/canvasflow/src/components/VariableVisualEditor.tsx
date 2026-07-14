@@ -30,10 +30,12 @@ function ScalarCell({
   value,
   fieldType,
   onChange,
+  className = '',
 }: {
   value: unknown;
   fieldType: FieldType;
   onChange: (v: string | number | boolean) => void;
+  className?: string;
 }) {
   if (fieldType === 'boolean') {
     return (
@@ -41,7 +43,7 @@ function ScalarCell({
         value={value ? 'true' : 'false'}
         onValueChange={(v) => onChange(v === 'true')}
       >
-        <SelectTrigger className="h-7 text-xs min-w-[4.5rem]">
+        <SelectTrigger className={`h-8 text-xs w-full ${className}`}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -53,11 +55,36 @@ function ScalarCell({
   }
   return (
     <Input
-      className="h-7 text-xs font-mono"
+      className={`h-8 text-xs font-mono w-full ${className}`}
       type={fieldType === 'number' ? 'number' : 'text'}
       value={value == null ? '' : String(value)}
       onChange={(e) => onChange(coerceScalar(e.target.value, fieldType))}
     />
+  );
+}
+
+function TypeSelect({
+  value,
+  onChange,
+  className = '',
+}: {
+  value: FieldType;
+  onChange: (t: FieldType) => void;
+  className?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as FieldType)}>
+      <SelectTrigger className={`h-8 text-xs ${className}`}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
+          <SelectItem key={t} value={t}>
+            {FIELD_TYPE_LABELS[t]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -132,80 +159,78 @@ export function ObjectVisualEditor({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {keys.length === 0 ? (
         <p style={{ color: secondaryText }} className="text-[11px] opacity-70">
           暂无字段，在下方添加
         </p>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {keys.map((key) => {
             const ft = (fields[key] || 'string') as FieldType;
             return (
-              <div key={key} className="flex items-center gap-1.5">
-                <code className="text-[11px] font-mono w-[30%] truncate shrink-0" title={key}>
-                  {key}
-                </code>
-                {onSchemaChange ? (
-                  <Select value={ft} onValueChange={(v) => setFieldType(key, v as FieldType)}>
-                    <SelectTrigger className="h-7 text-[10px] w-[4.75rem] shrink-0">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {FIELD_TYPE_LABELS[t]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
-                <div className="flex-1 min-w-0">
+              <div
+                key={key}
+                className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-1.5"
+              >
+                <div className="flex items-center gap-1.5">
+                  <code
+                    className="text-xs font-mono font-semibold truncate flex-1 min-w-0"
+                    title={key}
+                  >
+                    {key}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-rose-400 shrink-0"
+                    onClick={() => removeField(key)}
+                    title="删除字段"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-1.5 items-center">
+                  {onSchemaChange ? (
+                    <TypeSelect value={ft} onChange={(t) => setFieldType(key, t)} className="w-full" />
+                  ) : (
+                    <span className="text-[11px] opacity-60">{FIELD_TYPE_LABELS[ft]}</span>
+                  )}
                   <ScalarCell
                     value={value[key]}
                     fieldType={ft}
                     onChange={(v) => setField(key, v)}
                   />
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-rose-400 shrink-0"
-                  onClick={() => removeField(key)}
-                >
-                  <Trash2 className="w-3 h-3" />
-                </Button>
               </div>
             );
           })}
         </div>
       )}
-      <div className="flex items-center gap-1.5 pt-0.5">
+      <div className="rounded-lg border border-dashed border-black/15 dark:border-white/15 p-2 space-y-1.5">
         <Input
-          className="h-7 text-xs flex-1"
-          placeholder="新字段名"
+          className="h-8 text-xs w-full"
+          placeholder="新字段名，如 name"
           value={newKey}
           onChange={(e) => setNewKey(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') addField();
           }}
         />
-        <Select value={newFieldType} onValueChange={(v) => setNewFieldType(v as FieldType)}>
-          <SelectTrigger className="h-7 text-[10px] w-[4.75rem] shrink-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
-              <SelectItem key={t} value={t}>
-                {FIELD_TYPE_LABELS[t]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="button" size="sm" className="h-7 px-2" onClick={addField} disabled={!newKey.trim()}>
-          <Plus className="w-3 h-3" />
-        </Button>
+        <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-1.5">
+          <TypeSelect value={newFieldType} onChange={setNewFieldType} className="w-full" />
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 w-full"
+            onClick={addField}
+            disabled={!newKey.trim()}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            添加字段
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -243,24 +268,13 @@ export function ArrayVisualEditor({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {onItemTypeChange ? (
         <div className="flex items-center gap-2">
-          <span style={{ color: secondaryText }} className="text-[11px]">
+          <span style={{ color: secondaryText }} className="text-[11px] shrink-0">
             元素类型
           </span>
-          <Select value={itemType} onValueChange={(v) => onItemTypeChange(v as FieldType)}>
-            <SelectTrigger className="h-7 text-xs w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
-                <SelectItem key={t} value={t}>
-                  {FIELD_TYPE_LABELS[t]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <TypeSelect value={itemType} onChange={onItemTypeChange} className="w-28" />
         </div>
       ) : null}
       {rows.length === 0 ? (
@@ -283,17 +297,17 @@ export function ArrayVisualEditor({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-rose-400 shrink-0"
+                className="h-8 w-8 text-rose-400 shrink-0"
                 onClick={() => removeAt(i)}
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className="w-3.5 h-3.5" />
               </Button>
             </div>
           ))}
         </div>
       )}
-      <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={add}>
-        <Plus className="w-3 h-3" />
+      <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs w-full" onClick={add}>
+        <Plus className="w-3.5 h-3.5" />
         添加元素
       </Button>
     </div>
@@ -401,117 +415,137 @@ export function ObjectArrayVisualEditor({
   };
 
   return (
-    <div className="space-y-2">
-      {columns.length > 0 ? (
-        <div className="overflow-x-auto -mx-0.5 px-0.5">
-          <table className="w-full text-xs border-collapse min-w-[12rem]">
-            <thead>
-              <tr>
-                <th className="text-left font-normal opacity-50 pr-1 py-1 w-6">#</th>
-                {columns.map((col) => (
-                  <th key={col} className="text-left font-normal py-1 pr-1 align-bottom">
-                    <div className="flex flex-col gap-0.5 min-w-[4.5rem]">
-                      <div className="flex items-center gap-0.5">
-                        <code className="font-mono text-[10px] truncate" title={col}>
-                          {col}
-                        </code>
-                        <button
-                          type="button"
-                          className="text-rose-400/80 hover:text-rose-400 p-0.5"
-                          title="删除列"
-                          onClick={() => removeColumn(col)}
-                        >
-                          <Trash2 className="w-2.5 h-2.5" />
-                        </button>
-                      </div>
-                      {onSchemaChange ? (
-                        <Select
-                          value={(fields[col] || 'string') as FieldType}
-                          onValueChange={(v) => setColType(col, v as FieldType)}
-                        >
-                          <SelectTrigger className="h-6 text-[10px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
-                              <SelectItem key={t} value={t}>
-                                {FIELD_TYPE_LABELS[t]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : null}
-                    </div>
-                  </th>
-                ))}
-                <th className="w-7" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={i}>
-                  <td className="opacity-40 font-mono text-[10px] pr-1 align-middle">{i}</td>
-                  {columns.map((col) => (
-                    <td key={col} className="pr-1 py-0.5 align-middle">
+    <div className="space-y-2.5">
+      {/* Column schema management */}
+      <div className="space-y-1.5">
+        <p style={{ color: secondaryText }} className="text-[11px] font-medium opacity-80">
+          列定义
+        </p>
+        {columns.length === 0 ? (
+          <p style={{ color: secondaryText }} className="text-[11px] opacity-70">
+            先添加列，再添加行
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {columns.map((col) => {
+              const ft = (fields[col] || 'string') as FieldType;
+              return (
+                <div
+                  key={col}
+                  className="flex items-center gap-1.5 rounded-md border border-black/8 dark:border-white/8 px-2 py-1.5"
+                >
+                  <code className="text-xs font-mono flex-1 min-w-0 truncate" title={col}>
+                    {col}
+                  </code>
+                  {onSchemaChange ? (
+                    <TypeSelect
+                      value={ft}
+                      onChange={(t) => setColType(col, t)}
+                      className="w-[6.5rem] shrink-0"
+                    />
+                  ) : (
+                    <span className="text-[11px] opacity-60 shrink-0">{FIELD_TYPE_LABELS[ft]}</span>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-rose-400 shrink-0"
+                    title="删除列"
+                    onClick={() => removeColumn(col)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="rounded-lg border border-dashed border-black/15 dark:border-white/15 p-2 space-y-1.5">
+          <Input
+            className="h-8 text-xs w-full"
+            placeholder="新列名，如 name"
+            value={newCol}
+            onChange={(e) => setNewCol(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addColumn();
+            }}
+          />
+          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-1.5">
+            <TypeSelect value={newColType} onChange={setNewColType} className="w-full" />
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 w-full"
+              onClick={addColumn}
+              disabled={!newCol.trim()}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              添加列
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Rows as stacked cards — each field gets full width */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <p style={{ color: secondaryText }} className="text-[11px] font-medium opacity-80">
+            数据行（{rows.length}）
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={addRow}
+            disabled={columns.length === 0}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            添加行
+          </Button>
+        </div>
+        {rows.length === 0 ? (
+          <p style={{ color: secondaryText }} className="text-[11px] opacity-70">
+            {columns.length === 0 ? '先添加列' : '暂无数据，点「添加行」'}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((row, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-mono opacity-50">#{i}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-rose-400"
+                    onClick={() => removeRow(i)}
+                    title="删除行"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                {columns.map((col) => {
+                  const ft = (fields[col] || 'string') as FieldType;
+                  return (
+                    <div key={col} className="space-y-0.5">
+                      <label className="text-[10px] font-mono opacity-60">{col}</label>
                       <ScalarCell
                         value={row[col]}
-                        fieldType={(fields[col] || 'string') as FieldType}
+                        fieldType={ft}
                         onChange={(v) => setCell(i, col, v)}
                       />
-                    </td>
-                  ))}
-                  <td className="align-middle">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-rose-400"
-                      onClick={() => removeRow(i)}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p style={{ color: secondaryText }} className="text-[11px] opacity-70">
-          先添加列，再添加行
-        </p>
-      )}
-
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <Input
-          className="h-7 text-xs flex-1 min-w-[5rem]"
-          placeholder="新列名"
-          value={newCol}
-          onChange={(e) => setNewCol(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') addColumn();
-          }}
-        />
-        <Select value={newColType} onValueChange={(v) => setNewColType(v as FieldType)}>
-          <SelectTrigger className="h-7 text-[10px] w-[4.75rem] shrink-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => (
-              <SelectItem key={t} value={t}>
-                {FIELD_TYPE_LABELS[t]}
-              </SelectItem>
+                    </div>
+                  );
+                })}
+              </div>
             ))}
-          </SelectContent>
-        </Select>
-        <Button type="button" size="sm" className="h-7 px-2" onClick={addColumn} disabled={!newCol.trim()}>
-          <Plus className="w-3 h-3" />
-          列
-        </Button>
-        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={addRow}>
-          <Plus className="w-3 h-3" />
-          行
-        </Button>
+          </div>
+        )}
       </div>
     </div>
   );
