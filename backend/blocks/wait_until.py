@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import time
 
+from backend.blocks._helpers import interruptible_sleep
+
+from backend.blocks._helpers import interruptible_sleep
+
 SCHEMA = {
     "type": "wait_until",
     "label": "条件等待",
@@ -211,7 +215,7 @@ def _check(params: dict, context: dict) -> tuple[bool, str, dict]:
     return matched, f"text={actual[:80]}", coords
 
 
-def handler(params, context, **kwargs):
+def handler(params, context, should_stop=None, **kwargs):
     timeout_ms = int(params.get("timeout_ms") if params.get("timeout_ms") is not None else 30000)
     poll = max(50, int(params.get("poll_interval_ms") if params.get("poll_interval_ms") is not None else 300))
     t0 = time.perf_counter()
@@ -220,6 +224,8 @@ def handler(params, context, **kwargs):
     coords = _empty_coords()
 
     while True:
+        if should_stop and should_stop():
+            raise InterruptedError("流程已停止")
         matched, detail, coords = _check(params, context)
         if matched:
             elapsed = (time.perf_counter() - t0) * 1000
@@ -232,5 +238,4 @@ def handler(params, context, **kwargs):
         if deadline is not None and time.perf_counter() >= deadline:
             elapsed = (time.perf_counter() - t0) * 1000
             raise TimeoutError(f"条件等待超时({timeout_ms}ms): {detail}")
-        # allow stop via small sleeps
-        time.sleep(poll / 1000.0)
+        interruptible_sleep(poll / 1000.0, should_stop)

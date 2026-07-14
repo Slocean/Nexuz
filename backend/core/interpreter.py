@@ -146,6 +146,7 @@ class FlowInterpreter:
                         node_id=node_id,
                         flow=flow,
                         emit=self._emit,
+                        should_stop=lambda: self._stop_flag.is_set(),
                     )
                     or {}
                 )
@@ -164,6 +165,18 @@ class FlowInterpreter:
                     },
                 )
             except InterruptedError:
+                elapsed_ms = (time.perf_counter() - t0) * 1000
+                self._emit(
+                    "node_end",
+                    {
+                        "node_id": node_id,
+                        "type": block_type,
+                        "error": "已停止",
+                        "elapsed_ms": round(elapsed_ms, 2),
+                        "ok": False,
+                        "stopped": True,
+                    },
+                )
                 raise
             except Exception as exc:
                 elapsed_ms = (time.perf_counter() - t0) * 1000

@@ -560,18 +560,28 @@ export const useFlowStore = create((set, get) => ({
       });
     } else if (event === 'node_end') {
       const result = summarizeDetail(payload.result || {}) || {};
-      set((state) => ({
-        execNodeStates: {
-          ...state.execNodeStates,
-          [payload.node_id]: payload.ok ? 'done' : 'error',
-        },
-        nodeOutputs: payload.ok
-          ? { ...state.nodeOutputs, [payload.node_id]: result }
-          : state.nodeOutputs,
-      }));
+      set((state) => {
+        // Interrupted mid-node: leave idle — flow_stopped/finished clears UI; don't paint error.
+        if (payload.stopped) {
+          const next = { ...state.execNodeStates };
+          delete next[payload.node_id];
+          return { execNodeStates: next };
+        }
+        return {
+          execNodeStates: {
+            ...state.execNodeStates,
+            [payload.node_id]: payload.ok ? 'done' : 'error',
+          },
+          nodeOutputs: payload.ok
+            ? { ...state.nodeOutputs, [payload.node_id]: result }
+            : state.nodeOutputs,
+        };
+      });
       let msg = payload.ok
         ? `✓ ${payload.node_id} ${payload.elapsed_ms}ms`
-        : `✗ ${payload.node_id}: ${payload.error}`;
+        : payload.stopped
+          ? `■ ${payload.node_id} 已停止`
+          : `✗ ${payload.node_id}: ${payload.error}`;
       if (payload.ok && payload.type === 'ocr_recognize') {
         const t = result.text;
         msg =
@@ -586,7 +596,7 @@ export const useFlowStore = create((set, get) => ({
         msg = `✓ 取色: ${result.color}`;
       }
       appendLog({
-        level: payload.ok ? 'ok' : 'error',
+        level: payload.ok ? 'ok' : payload.stopped ? 'warn' : 'error',
         message: msg,
         detail: payload.ok ? result : summarizeDetail(payload.error),
       });
@@ -603,7 +613,12 @@ export const useFlowStore = create((set, get) => ({
           keepId && state.nodeOutputs[keepId]
             ? { [keepId]: state.nodeOutputs[keepId] }
             : {};
-        return { execStatus: 'idle', execNodeId: null, nodeOutputs: slim };
+        return {
+          execStatus: 'idle',
+          execNodeId: null,
+          execNodeStates: {},
+          nodeOutputs: slim,
+        };
       });
       appendLog({ level: 'warn', message: '流程已停止' });
     } else if (event === 'flow_finished') {
@@ -614,16 +629,29 @@ export const useFlowStore = create((set, get) => ({
           keepId && state.nodeOutputs[keepId]
             ? { [keepId]: state.nodeOutputs[keepId] }
             : {};
-        return { execStatus: 'idle', execNodeId: null, nodeOutputs: slim };
+        // Drop in-flight "running" marks so nodes don't keep spinning after stop/finish.
+        const nextStates = { ...state.execNodeStates };
+        for (const [id, st] of Object.entries(nextStates)) {
+          if (st === 'running') delete nextStates[id];
+        }
+        return {
+          execStatus: 'idle',
+          execNodeId: null,
+          execNodeStates: payload.stopped ? {} : nextStates,
+          nodeOutputs: slim,
+        };
       });
-      appendLog({
-        level: payload.ok ? 'ok' : 'error',
-        message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`,
-      });
+      // flow_stopped already logged when user clicked stop; avoid duplicate.
+      if (!payload.stopped) {
+        appendLog({
+          level: payload.ok ? 'ok' : 'error',
+          message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`,
+        });
+      }
       get().pushRunHistory({
         id: Math.random().toString(36).slice(2, 9),
         timestamp: new Date().toLocaleTimeString(),
-        status: payload.ok ? 'completed' : 'failed',
+        status: payload.ok ? 'completed' : payload.stopped ? 'stopped' : 'failed',
         workflowName: get().flow.name || '未命名流程',
       });
     } else if (event === 'recording_stopped') {

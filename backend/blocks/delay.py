@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import time
+from backend.blocks._helpers import interruptible_sleep
 
 SCHEMA = {
     "type": "delay",
@@ -13,9 +13,9 @@ SCHEMA = {
 }
 
 
-def handler(params, context, **kwargs):
+def handler(params, context, should_stop=None, **kwargs):
     ms = int(params.get("ms", 0) or 0)
     if ms < 0:
         raise ValueError("延时不能为负数")
-    time.sleep(ms / 1000.0)
+    interruptible_sleep(ms / 1000.0, should_stop)
     return {}

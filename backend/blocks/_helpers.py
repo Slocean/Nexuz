@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,23 @@ from backend.core.dpi import (
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.01
+
+
+def interruptible_sleep(
+    seconds: float,
+    should_stop: Callable[[], bool] | None = None,
+    *,
+    chunk: float = 0.05,
+) -> None:
+    """Sleep in small chunks so flow stop can interrupt mid-wait."""
+    if seconds <= 0:
+        return
+    check = should_stop or (lambda: False)
+    end = time.time() + float(seconds)
+    while time.time() < end:
+        if check():
+            raise InterruptedError("流程已停止")
+        time.sleep(min(chunk, max(0.0, end - time.time())))
 
 
 def validate_point(x: int, y: int) -> tuple[int, int]:

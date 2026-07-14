@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import time
-
+from backend.blocks._helpers import interruptible_sleep
 from backend.core.input.provider_registry import get_provider_registry
 from backend.core.input.resolve import normalize_click_params
 from backend.core.input.types import ERROR_INVALID_MODE
@@ -147,7 +146,7 @@ def _point_to_click_params(pt: dict, base: dict) -> dict:
     }
 
 
-def handler(params, context, **kwargs):
+def handler(params, context, should_stop=None, **kwargs):
     ctx = context if isinstance(context, dict) else {}
     mode = str(params.get("click_mode") or "single").strip() or "single"
 
@@ -172,7 +171,7 @@ def handler(params, context, **kwargs):
             delay = pt.get("delay_ms")
             wait = _as_int(delay, interval) if delay is not None and delay != "" else interval
             if wait > 0:
-                time.sleep(wait / 1000.0)
+                interruptible_sleep(wait / 1000.0, should_stop)
         one = _point_to_click_params(pt, params)
         # Prefer node-level capture_mode when point has no frida target
         node_cap = str(params.get("capture_mode") or "coord")

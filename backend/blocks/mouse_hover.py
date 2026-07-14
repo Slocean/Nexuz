@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import time
-
 import pyautogui
 
-from backend.blocks._helpers import resolve_point
+from backend.blocks._helpers import interruptible_sleep, resolve_point
 
 SCHEMA = {
     "type": "mouse_hover",
@@ -81,21 +79,32 @@ def _as_int(value, default: int = 0) -> int:
         return default
 
 
-def _hover_at(params: dict, *, hold_ms: int, move_duration: float) -> tuple[int, int]:
+def _hover_at(
+    params: dict,
+    *,
+    hold_ms: int,
+    move_duration: float,
+    should_stop=None,
+) -> tuple[int, int]:
     x, y = resolve_point(params)
     pyautogui.moveTo(x, y, duration=max(0.0, move_duration))
     if hold_ms > 0:
-        time.sleep(hold_ms / 1000.0)
+        interruptible_sleep(hold_ms / 1000.0, should_stop)
     return x, y
 
 
-def handler(params, context, **kwargs):
+def handler(params, context, should_stop=None, **kwargs):
     mode = str(params.get("hover_mode") or "single").strip() or "single"
     move_duration = float(params.get("move_duration") or 0) / 1000.0
     hold_default = max(0, _as_int(params.get("hold_ms"), 300))
 
     if mode != "multi":
-        x, y = _hover_at(params, hold_ms=hold_default, move_duration=move_duration)
+        x, y = _hover_at(
+            params,
+            hold_ms=hold_default,
+            move_duration=move_duration,
+            should_stop=should_stop,
+        )
         return {"ok": True, "x": x, "y": y, "count": 1}
 
     raw_points = params.get("points") or []
@@ -113,7 +122,7 @@ def handler(params, context, **kwargs):
             delay = pt.get("delay_ms")
             wait = _as_int(delay, interval) if delay is not None and delay != "" else interval
             if wait > 0:
-                time.sleep(wait / 1000.0)
+                interruptible_sleep(wait / 1000.0, should_stop)
         hold = pt.get("hold_ms")
         hold_ms = (
             _as_int(hold, hold_default)
@@ -126,7 +135,12 @@ def handler(params, context, **kwargs):
             "point_norm": pt.get("point_norm"),
             "coord_space": pt.get("coord_space") or params.get("coord_space"),
         }
-        last_x, last_y = _hover_at(one, hold_ms=hold_ms, move_duration=move_duration)
+        last_x, last_y = _hover_at(
+            one,
+            hold_ms=hold_ms,
+            move_duration=move_duration,
+            should_stop=should_stop,
+        )
         done += 1
 
     if done <= 0:

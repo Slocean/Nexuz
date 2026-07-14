@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import time
-
 import pyautogui
+
+from backend.blocks._helpers import interruptible_sleep
 
 SCHEMA = {
     "type": "key_press",
@@ -75,7 +75,7 @@ def _as_int(value, default: int = 0) -> int:
         return default
 
 
-def handler(params, context, **kwargs):
+def handler(params, context, should_stop=None, **kwargs):
     mode = str(params.get("key_mode") or "single").strip() or "single"
 
     if mode != "sequence":
@@ -101,7 +101,7 @@ def handler(params, context, **kwargs):
             else:
                 wait = interval
             if wait > 0:
-                time.sleep(wait / 1000.0)
+                interruptible_sleep(wait / 1000.0, should_stop)
         keys = _parse_keys(step.get("keys") if isinstance(step, dict) else step)
         _press(keys)
         done += 1
