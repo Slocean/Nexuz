@@ -122,10 +122,12 @@ function flowOutputsFor(blockType: string, params?: Record<string, any>): NodeSo
   if (blockType === 'switch') {
     const cases = Array.isArray(params?.cases) ? params.cases : [];
     const outs: NodeSocket[] = cases.map((c: any, i: number) => {
-      const label = String(c?.value ?? '').trim();
+      const custom = String(c?.name ?? '').trim();
+      const matchVal = String(c?.value ?? '').trim();
+      const name = custom || (matchVal ? matchVal : `分支${i + 1}`);
       return {
         id: `${CASE_OUT_PREFIX}${i}`,
-        name: label ? `分支:${label}` : `分支${i + 1}`,
+        name,
         type: 'output' as const,
         dataType: 'any' as const,
         kind: 'flow' as const,

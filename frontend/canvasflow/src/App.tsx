@@ -603,6 +603,13 @@ function AppShell() {
 
       const handle = sourceSocketId || 'next';
       if (isDataOutSocket(handle)) return;
+      if (sourceNodeId === targetNodeId) {
+        appendLog({
+          level: 'warn',
+          message: '不能连回自身（容易死循环）；重试请用循环节点',
+        });
+        return;
+      }
       setNodeLink(sourceNodeId, handle, targetNodeId);
       appendLog({ level: 'info', message: `已连接 ${sourceNodeId}.${handle} → ${targetNodeId}` });
     },

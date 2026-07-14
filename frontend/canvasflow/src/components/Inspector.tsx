@@ -511,27 +511,39 @@ function KeyStepsEditor({
 function CasesEditor({
   value,
   onChange,
+  currentNodeId,
 }: {
-  value: { value?: string; node_id?: string }[];
-  onChange: (cases: { value: string; node_id: string }[]) => void;
+  value: { name?: string; value?: string; node_id?: string }[];
+  onChange: (cases: { name: string; value: string; node_id: string }[]) => void;
+  currentNodeId?: string;
 }) {
   const nodes = useFlowStore((s) => s.flow.nodes || {});
-  const nodeIds = Object.keys(nodes);
+  // 禁止连回自己：自环容易死循环，重试请用循环节点
+  const nodeIds = Object.keys(nodes).filter((id) => id !== currentNodeId);
   const cases = Array.isArray(value) ? value : [];
   const [collapsed, setCollapsed] = React.useState<Record<number, boolean>>({});
 
-  const update = (idx: number, patch: Partial<{ value: string; node_id: string }>) => {
-    const next = cases.map((c, i) =>
-      i === idx ? { value: c.value || '', node_id: c.node_id || '', ...patch } : { ...c },
-    );
-    onChange(next as { value: string; node_id: string }[]);
+  const normalize = (c: any, patch?: Partial<{ name: string; value: string; node_id: string }>) => ({
+    name: typeof c?.name === 'string' ? c.name : '',
+    value: typeof c?.value === 'string' ? c.value : '',
+    node_id: typeof c?.node_id === 'string' ? c.node_id : '',
+    ...patch,
+  });
+
+  const update = (
+    idx: number,
+    patch: Partial<{ name: string; value: string; node_id: string }>,
+  ) => {
+    const next = cases.map((c, i) => (i === idx ? normalize(c, patch) : normalize(c)));
+    onChange(next);
   };
 
   return (
     <div className="space-y-2">
       {cases.map((c, idx) => {
         const closed = !!collapsed[idx];
-        const summary = `${c.value || '（空匹配值）'} → ${c.node_id || '未选节点'}`;
+        const title = (c.name || '').trim() || `分支${idx + 1}`;
+        const summary = `${title} · ${c.value || '（空匹配值）'} → ${c.node_id || '未选节点'}`;
         return (
           <div
             key={idx}
@@ -550,7 +562,9 @@ function CasesEditor({
                   <ChevronDown className="w-3.5 h-3.5 opacity-70" />
                 )}
               </button>
-              <span className="text-[11px] opacity-60 font-medium shrink-0">分支 {idx + 1}</span>
+              <span className="text-[11px] opacity-60 font-medium shrink-0 truncate max-w-[7rem]">
+                {title}
+              </span>
               {closed && (
                 <span className="text-[11px] opacity-50 truncate flex-1 min-w-0 font-mono">
                   {summary}
@@ -561,13 +575,22 @@ function CasesEditor({
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 text-rose-400 shrink-0 ml-auto"
-                onClick={() => onChange(cases.filter((_, i) => i !== idx) as any)}
+                onClick={() => onChange(cases.filter((_, i) => i !== idx).map((x) => normalize(x)))}
               >
                 <X className="w-3.5 h-3.5" />
               </Button>
             </div>
             {!closed && (
               <>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">名称</span>
+                  <Input
+                    className="h-8 text-xs flex-1 min-w-0"
+                    placeholder={`分支${idx + 1}`}
+                    value={c.name ?? ''}
+                    onChange={(e) => update(idx, { name: e.target.value })}
+                  />
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">匹配值</span>
                   <Input
@@ -580,7 +603,7 @@ function CasesEditor({
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">跳转节点</span>
                   <Select
-                    value={c.node_id || undefined}
+                    value={c.node_id && c.node_id !== currentNodeId ? c.node_id : undefined}
                     onValueChange={(v) => update(idx, { node_id: v })}
                   >
                     <SelectTrigger className="h-8 text-xs flex-1 min-w-0">
@@ -595,7 +618,7 @@ function CasesEditor({
                     </SelectContent>
                   </Select>
                 </div>
-                <p className="text-[10px] opacity-50 pl-[4.5rem]">也可从节点右侧「分支」口拖线</p>
+                <p className="text-[10px] opacity-50 pl-[4.5rem]">也可从节点右侧出口拖线（不可连自己）</p>
               </>
             )}
           </div>
@@ -607,7 +630,14 @@ function CasesEditor({
         size="sm"
         className="w-full"
         onClick={() =>
-          onChange([...(cases as any), { value: '', node_id: nodeIds[0] || '' }])
+          onChange([
+            ...cases.map((c) => normalize(c)),
+            {
+              name: `分支${cases.length + 1}`,
+              value: '',
+              node_id: '',
+            },
+          ])
         }
       >
         添加分支
@@ -1134,6 +1164,7 @@ export default function Inspector({
               ) : input.type === 'cases' ? (
                 <CasesEditor
                   value={Array.isArray(value) ? value : []}
+                  currentNodeId={selectedNode.id}
                   onChange={(cases) => handleFieldChange(input.name, cases)}
                 />
               ) : input.type === 'logic_tree' || input.type === 'condition_list' ? (
@@ -1250,21 +1281,25 @@ export default function Inspector({
               ) : selectedNode.subType === 'switch' && input.name === 'default' ? (
                 <div className="flex-1 min-w-0 space-y-1">
                   <Select
-                    value={value || undefined}
+                    value={
+                      value && value !== selectedNode.id ? String(value) : undefined
+                    }
                     onValueChange={(v) => handleFieldChange('default', v)}
                   >
                     <SelectTrigger className="h-8 text-xs w-full">
                       <SelectValue placeholder="默认分支目标 / 画布「默认」口" />
                     </SelectTrigger>
                     <SelectContent>
-                      {switchNodeIds.map((id) => (
+                      {switchNodeIds
+                        .filter((id) => id !== selectedNode.id)
+                        .map((id) => (
                         <SelectItem key={id} value={id}>
                           {id}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-[10px] opacity-50">也可从节点右侧「默认」口拖线</p>
+                  <p className="text-[10px] opacity-50">也可从节点右侧「默认」口拖线（不可连自己）</p>
                 </div>
               ) : isBindableInput(input) ? (
                 <BindableInput

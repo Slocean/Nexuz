@@ -285,13 +285,15 @@ function Canvas({
     return { x: xy.x + NODE_WIDTH, y };
   };
 
-  const flowHandleMeta = (socketId: string) => {
+  const flowHandleMeta = (socketId: string, sourceNode?: WorkflowNode) => {
     if (socketId === "then") return { label: "是", color: "#34C759" };
     if (socketId === "else") return { label: "否", color: "#FF5E57" };
     if (socketId === "body") return { label: "循环体", color: "#AF52DE" };
     if (socketId === "next") return { label: "下一步", color: "#4F8CFF" };
     if (socketId === "default") return { label: "默认", color: "#FF9F0A" };
     if (String(socketId || "").startsWith("case:")) {
+      const out = sourceNode?.outputs?.find((s) => s.id === socketId);
+      if (out?.name) return { label: out.name, color: "#30B0C7" };
       const idx = Number(String(socketId).slice(5));
       return {
         label: Number.isFinite(idx) ? `分支${idx + 1}` : "分支",
@@ -934,7 +936,7 @@ function Canvas({
                 sourceNode.status === "running" ||
                 targetNode.status === "running");
 
-            const handleMeta = !isData ? flowHandleMeta(conn.sourceSocketId) : null;
+            const handleMeta = !isData ? flowHandleMeta(conn.sourceSocketId, sourceNode) : null;
             const stroke = isData
               ? conn.bindIssue === "broken"
                 ? themeMode === "light"

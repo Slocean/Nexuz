@@ -446,6 +446,7 @@ export const useFlowStore = create((set, get) => ({
     set((state) => {
       const node = state.flow.nodes[sourceId];
       if (!node) return state;
+      if (sourceId === targetId) return state; // 禁止自环
       const field = handle || 'next';
 
       // switch case:/default → write params (canvas ↔ inspector dual binding)
@@ -455,8 +456,13 @@ export const useFlowStore = create((set, get) => ({
         const cases = Array.isArray(node.params?.cases)
           ? node.params.cases.map((c) => ({ ...c }))
           : [];
-        while (cases.length <= idx) cases.push({ value: '', node_id: '' });
-        cases[idx] = { ...cases[idx], value: cases[idx].value || '', node_id: targetId };
+        while (cases.length <= idx) cases.push({ name: '', value: '', node_id: '' });
+        cases[idx] = {
+          ...cases[idx],
+          name: cases[idx].name || '',
+          value: cases[idx].value || '',
+          node_id: targetId,
+        };
         return {
           flow: {
             ...state.flow,
