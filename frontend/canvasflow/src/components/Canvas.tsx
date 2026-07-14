@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Waypoints,
 } from "lucide-react";
 import {
   WorkflowNode,
@@ -19,6 +20,7 @@ import { getThemeColors } from "../theme";
 import MiniMap from "./MiniMap";
 import { Button } from "@/components/ui/button";
 import { useAppDialog } from "./AppDialogs";
+import { computeAutoLayout } from "../autoLayout";
 
 interface CanvasProps {
   nodes: WorkflowNode[];
@@ -588,6 +590,44 @@ function Canvas({
     setPanY(h / 2 - cy * nextZoom);
   };
 
+  const handleAutoLayout = () => {
+    if (!nodes.length) return;
+    const updates = computeAutoLayout(nodes, connections);
+    if (!updates.length) return;
+    if (onUpdateNodePositions) {
+      onUpdateNodePositions(updates);
+    } else {
+      for (const u of updates) onUpdateNodePosition(u.id, u.x, u.y);
+    }
+    // Fit after React applies positions on next frame
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // Use laid-out coords directly (props may not have flushed yet)
+        if (!canvasRef.current || !updates.length) return;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const u of updates) {
+          minX = Math.min(minX, u.x);
+          minY = Math.min(minY, u.y);
+          maxX = Math.max(maxX, u.x + NODE_WIDTH);
+          maxY = Math.max(maxY, u.y + NODE_HEIGHT_EST);
+        }
+        const pad = 80;
+        const worldW = maxX - minX + pad * 2;
+        const worldH = maxY - minY + pad * 2;
+        const { w, h } = canvasSize;
+        const nextZoom = Math.min(1.2, Math.max(0.35, Math.min(w / worldW, h / worldH)));
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        setZoom(nextZoom);
+        setPanX(w / 2 - cx * nextZoom);
+        setPanY(h / 2 - cy * nextZoom);
+      });
+    });
+  };
+
   const handleNodeDragStart = (e: React.MouseEvent, node: WorkflowNode) => {
     e.stopPropagation();
     e.preventDefault();
@@ -743,15 +783,46 @@ function Canvas({
         themeMode === "light" ? "bg-grid-light" : "bg-grid-dark"
       }`}
     >
-      <div
-        style={{ color: colors.secondaryText }}
-        className="absolute bottom-5 left-5 text-xs font-mono font-bold uppercase tracking-wider bg-black/5 dark:bg-white/5 backdrop-blur-md px-2.5 py-1 rounded-lg border border-black/10 dark:border-white/10 z-20 flex items-center space-x-1.5"
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span>Scale: {Math.round(zoom * 100)}%</span>
-        {selectedIds.length > 1 && (
-          <span className="opacity-70">· {selectedIds.length} selected</span>
-        )}
+      <div className="absolute bottom-5 left-5 z-20 flex flex-col gap-2 items-start">
+        <MiniMap
+          nodes={displayNodes}
+          panX={panX}
+          panY={panY}
+          zoom={zoom}
+          canvasWidth={canvasSize.w}
+          canvasHeight={canvasSize.h}
+          themeMode={themeMode}
+          getNodeColor={getNodeColor}
+          onNavigate={(nx, ny) => {
+            setPan(nx, ny);
+          }}
+        />
+        <div
+          style={{ color: colors.secondaryText }}
+          className="text-xs font-mono font-bold uppercase tracking-wider bg-black/5 dark:bg-white/5 backdrop-blur-md px-2.5 py-1 rounded-lg border border-black/10 dark:border-white/10 flex items-center space-x-1.5"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span>Scale: {Math.round(zoom * 100)}%</span>
+          {selectedIds.length > 1 && (
+            <span className="opacity-70">· {selectedIds.length} selected</span>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleAutoLayout}
+          disabled={!nodes.length}
+          style={{
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            color: colors.text,
+          }}
+          className="h-8 text-xs shadow-lg gap-1.5"
+          title="按流程连接自动排布节点，减少连线交叉"
+        >
+          <Waypoints className="w-3.5 h-3.5 opacity-80" />
+          整理布局
+        </Button>
       </div>
 
       <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
@@ -776,20 +847,6 @@ function Canvas({
           Shift框选 · Ctrl多选 · Ctrl+C/V · Del
         </span>
       </div>
-
-      <MiniMap
-        nodes={displayNodes}
-        panX={panX}
-        panY={panY}
-        zoom={zoom}
-        canvasWidth={canvasSize.w}
-        canvasHeight={canvasSize.h}
-        themeMode={themeMode}
-        getNodeColor={getNodeColor}
-        onNavigate={(nx, ny) => {
-          setPan(nx, ny);
-        }}
-      />
 
       <div className="absolute bottom-5 right-5 z-20 flex flex-col gap-2">
         <Button

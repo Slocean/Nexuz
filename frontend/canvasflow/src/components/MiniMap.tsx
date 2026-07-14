@@ -92,7 +92,7 @@ export default function MiniMap({
 
   return (
     <div
-      className="absolute bottom-14 left-5 z-20 rounded-xl border overflow-hidden shadow-lg backdrop-blur-md cursor-crosshair select-none"
+      className="rounded-xl border overflow-hidden shadow-lg backdrop-blur-md cursor-crosshair select-none relative"
       style={{
         width: MAP_W,
         height: MAP_H,
