@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo } from "react";
 import {
   ZoomIn,
   ZoomOut,
@@ -57,6 +57,78 @@ const SOCKET_ROW_GAP = 4;
 const SOCKET_DOT_OFFSET = 9; // vertical center within the row
 const NODE_HEIGHT_EST = 96;
 const DATA_SOCKET_COLOR = '#AF52DE';
+/** Match Tailwind `rounded-xl` (12px) + slight outward offset for the orbit stroke. */
+const NODE_ORBIT_RADIUS = 12;
+const NODE_ORBIT_PAD = 2;
+
+/** Light spot that travels exactly along the node border. */
+function NodeRunningOrbit() {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [size, setSize] = useState({ w: NODE_WIDTH, h: NODE_HEIGHT_EST });
+
+  useLayoutEffect(() => {
+    const parent = svgRef.current?.parentElement;
+    if (!parent) return;
+    const update = () => {
+      // Use layout size (not getBoundingClientRect) so canvas zoom doesn't skew the path.
+      const width = parent.offsetWidth;
+      const height = parent.offsetHeight;
+      if (width > 0 && height > 0) {
+        setSize({ w: width, h: height });
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, []);
+
+  const w = size.w + NODE_ORBIT_PAD * 2;
+  const h = size.h + NODE_ORBIT_PAD * 2;
+  const r = NODE_ORBIT_RADIUS + NODE_ORBIT_PAD;
+
+  return (
+    <svg
+      ref={svgRef}
+      className="node-running-orbit"
+      aria-hidden
+      width={w}
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+    >
+      <rect
+        className="node-running-orbit-track"
+        x={1}
+        y={1}
+        width={w - 2}
+        height={h - 2}
+        rx={r}
+        ry={r}
+        pathLength={100}
+      />
+      <rect
+        className="node-running-orbit-tail"
+        x={1}
+        y={1}
+        width={w - 2}
+        height={h - 2}
+        rx={r}
+        ry={r}
+        pathLength={100}
+      />
+      <rect
+        className="node-running-orbit-beam"
+        x={1}
+        y={1}
+        width={w - 2}
+        height={h - 2}
+        rx={r}
+        ry={r}
+        pathLength={100}
+      />
+    </svg>
+  );
+}
 
 function Canvas({
   nodes,
@@ -1219,13 +1291,17 @@ function Canvas({
                       ? `0 0 0 2px ${colors.primary}33`
                       : "0 8px 24px rgba(0,0,0,0.12)",
                   color: colors.text,
+                  ["--node-halo" as string]: isNodeRunning
+                    ? colors.primary || "#34d399"
+                    : undefined,
                   transition: thisDragging ? "none" : undefined,
                   willChange: thisDragging ? "left, top" : undefined,
                 }}
-                className={`absolute rounded-xl border px-2.5 py-2 pointer-events-auto flex flex-col gap-1.5 cursor-grab active:cursor-grabbing ${
+                className={`absolute rounded-xl border px-2.5 py-2 pointer-events-auto flex flex-col gap-1.5 cursor-grab active:cursor-grabbing overflow-visible ${
                   thisDragging ? "" : "hover:shadow-lg"
-                }`}
+                } ${isNodeRunning ? "node-running-halo" : ""}`}
               >
+                {isNodeRunning ? <NodeRunningOrbit /> : null}
                 {isForever && (
                   <div className="absolute -top-2 left-2 px-1 py-0.5 rounded bg-rose-500 text-white text-xs font-bold tracking-wide uppercase">
                     FOREVER

@@ -112,3 +112,65 @@ body {
     inset 0 1px 1px rgba(255, 255, 255, 0.05),
     0 1px 3px rgba(0, 0, 0, 0.2);
 }
+
+/* Running node — light spot traveling along the border (SVG stroke-dash) */
+@keyframes nexuz-orbit-dash {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+.node-running-halo {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+.node-running-orbit {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.node-running-orbit-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--node-halo, #34d399) 28%, transparent);
+  stroke-width: 1.5;
+}
+
+.node-running-orbit-beam {
+  fill: none;
+  stroke: var(--node-halo, #34d399);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  /* pathLength=100 → short dash = 光点 */
+  stroke-dasharray: 3 97;
+  animation: nexuz-orbit-dash 1.15s linear infinite;
+  filter: drop-shadow(0 0 4px var(--node-halo, #34d399))
+    drop-shadow(0 0 8px color-mix(in srgb, var(--node-halo, #34d399) 70%, transparent));
+}
+
+.node-running-orbit-tail {
+  fill: none;
+  stroke: var(--node-halo, #34d399);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 10 90;
+  stroke-opacity: 0.32;
+  animation: nexuz-orbit-dash 1.15s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node-running-orbit-beam,
+  .node-running-orbit-tail {
+    animation: none;
+    stroke-dasharray: none;
+    stroke-opacity: 0.75;
+  }
+  .node-running-orbit-tail {
+    display: none;
+  }
+}
