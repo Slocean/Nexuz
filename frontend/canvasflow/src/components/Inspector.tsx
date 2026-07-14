@@ -154,6 +154,7 @@ function KeyMapEditor({
               schemaMap={schemaMap}
               onChange={(nv) => setEntry(idx, k, nv)}
               placeholder="值"
+              allowJson={keyMode === 'variable'}
             />
           ) : (
             <Input

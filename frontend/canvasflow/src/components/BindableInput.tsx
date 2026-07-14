@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link2, Hash } from 'lucide-react';
 import { useFlowStore } from '@/store/flowModelStore';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -32,10 +33,12 @@ interface BindableInputProps {
   placeholder?: string;
   currentNodeId: string;
   schemaMap: SchemaMap;
-  onChange: (value: string | number) => void;
+  onChange: (value: unknown) => void;
   /** Extra trailing controls (e.g. 取点) */
   trailing?: React.ReactNode;
   className?: string;
+  /** Allow JSON object/array as literal (赋值节点等) */
+  allowJson?: boolean;
 }
 
 function Row({
@@ -67,12 +70,26 @@ export default function BindableInput({
   onChange,
   trailing,
   className,
+  allowJson = false,
 }: BindableInputProps) {
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
   const variables = useFlowStore((s) => s.flow.variables || {});
 
   const kind = detectBindKind(value);
   const nodeRef = kind === 'node' && typeof value === 'string' ? parseNodeRef(value) : null;
+  const isJsonLiteral =
+    allowJson &&
+    kind === 'literal' &&
+    (Array.isArray(value) || (!!value && typeof value === 'object'));
+
+  const [jsonDraft, setJsonDraft] = useState(() => literalToDisplay(value, inputType));
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  useEffect(() => {
+    if (isJsonLiteral || (allowJson && kind === 'literal')) {
+      setJsonDraft(literalToDisplay(value, inputType));
+      setJsonError(null);
+    }
+  }, [value, isJsonLiteral, allowJson, kind, inputType]);
 
   const status = useMemo(
     () =>
@@ -108,7 +125,7 @@ export default function BindableInput({
 
   const setKind = (next: BindKind) => {
     if (next === 'literal') {
-      onChange(inputType === 'number' ? 0 : '');
+      onChange(allowJson ? '' : inputType === 'number' ? 0 : '');
       return;
     }
     if (next === 'variable') {
@@ -121,6 +138,32 @@ export default function BindableInput({
     const field = first?.outputs?.[0]?.name;
     if (first && field) onChange(formatNodeRef(first.id, field));
     else onChange('{{node.field}}');
+  };
+
+  const commitJson = () => {
+    const t = jsonDraft.trim();
+    if (!t) {
+      onChange('');
+      setJsonError(null);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(t);
+      onChange(parsed);
+      setJsonError(null);
+    } catch (e: any) {
+      // still try coerceLiteral for refs / plain text
+      const coerced = coerceLiteral(jsonDraft, inputType, true);
+      if (typeof coerced === 'object') {
+        onChange(coerced);
+        setJsonError(null);
+      } else if (isRefValue(jsonDraft)) {
+        onChange(String(jsonDraft).trim());
+        setJsonError(null);
+      } else {
+        setJsonError(e?.message || 'JSON 无效');
+      }
+    }
   };
 
   return (
@@ -156,21 +199,38 @@ export default function BindableInput({
         </Row>
 
         {kind === 'literal' || (kind === 'node' && !hasUpstream) ? (
-          <Row title="值" trailing={trailing}>
-            <Input
-              type="text"
-              inputMode={inputType === 'number' ? 'decimal' : undefined}
-              className="h-8 w-full"
-              value={literalToDisplay(value, inputType)}
-              placeholder={placeholder || (inputType === 'number' ? '数值' : '文本')}
-              onChange={(e) => onChange(coerceLiteral(e.target.value, inputType))}
-            />
+          <Row title={allowJson ? '值（支持 JSON）' : '值'} trailing={trailing}>
+            {allowJson ? (
+              <div className="space-y-1 w-full">
+                <Textarea
+                  className="text-xs font-mono min-h-[4.5rem] resize-y w-full"
+                  value={jsonDraft}
+                  placeholder={placeholder || '文本，或 {"a":1} / [1,2]'}
+                  onChange={(e) => {
+                    setJsonDraft(e.target.value);
+                    setJsonError(null);
+                  }}
+                  onBlur={commitJson}
+                />
+                {jsonError ? <p className="text-[11px] text-rose-500">{jsonError}</p> : null}
+              </div>
+            ) : (
+              <Input
+                type="text"
+                inputMode={inputType === 'number' ? 'decimal' : undefined}
+                className="h-8 w-full"
+                value={literalToDisplay(value, inputType)}
+                placeholder={placeholder || (inputType === 'number' ? '数值' : '文本')}
+                onChange={(e) => onChange(coerceLiteral(e.target.value, inputType))}
+              />
+            )}
           </Row>
         ) : kind === 'variable' ? (
           <Row title="变量" trailing={trailing}>
             <VariableSelect
               value={value}
               onChange={onChange}
+              allowPath
               placeholder={varOptions.length ? '选择已创建变量' : '暂无变量'}
             />
           </Row>

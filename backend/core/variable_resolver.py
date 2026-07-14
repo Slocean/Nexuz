@@ -6,7 +6,8 @@ import re
 from typing import Any
 
 VAR_PATTERN = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
-DOLLAR_PATTERN = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+# $name or $name.0.field (path segments: word or digits)
+DOLLAR_PATTERN = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)")
 
 
 def resolve_value(value: Any, context: dict[str, Any]) -> Any:
@@ -103,6 +104,7 @@ def _resolve_string(text: str, context: dict[str, Any]) -> Any:
         val = _lookup(m.group(1), context)
         return "" if val is None else val
 
+    # Exact $name or $name.0.field → typed value (not stringified)
     m = DOLLAR_PATTERN.fullmatch(text.strip())
     if m:
         val = _lookup(m.group(1), context)

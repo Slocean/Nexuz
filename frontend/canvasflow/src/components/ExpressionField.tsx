@@ -229,9 +229,9 @@ export default function ExpressionField({
           <Labeled title="右值变量">
             <VariableSelect
               value={rightVar ? `$${rightVar}` : ''}
-              bare
-              onChange={(name) => setRightVar(name)}
-              placeholder="$变量"
+              onChange={(ref) => setRightVar(String(ref || '').replace(/^\$/, ''))}
+              allowPath
+              placeholder="$变量或路径"
               triggerClassName="h-8 w-full text-xs"
             />
           </Labeled>

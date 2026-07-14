@@ -22,7 +22,7 @@ export type BindIssue = {
 };
 
 const EMBEDDED_NODE_REF = /\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
-const EMBEDDED_VAR_REF = /\$([A-Za-z_][A-Za-z0-9_]*)/g;
+const EMBEDDED_VAR_REF = /\$([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)/g;
 
 /** Normalize schema/output types for compatibility checks */
 export function normalizeType(t?: string): string {
@@ -95,12 +95,13 @@ export function validateVarRef(
   variables: Record<string, any> | undefined,
 ): boolean {
   if (!name) return false;
+  const root = String(name).replace(/^\$/, '').split('.')[0];
+  if (!root) return false;
   const vars = variables || {};
-  if (name in vars) return true;
-  if (`$${name}` in vars) return true;
-  // bare key without $
+  if (root in vars) return true;
+  if (`$${root}` in vars) return true;
   for (const k of Object.keys(vars)) {
-    if (String(k).replace(/^\$/, '') === name) return true;
+    if (String(k).replace(/^\$/, '') === root) return true;
   }
   return false;
 }
