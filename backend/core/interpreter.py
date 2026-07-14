@@ -349,6 +349,30 @@ class FlowInterpreter:
                 loop_stack = loop_stack[:-1]
             return self._resolve_fallthrough(node.get("next"), loop_stack), loop_stack
 
+        if block_type == "loop_foreach":
+            from backend.blocks.loop_foreach import _as_list, inject_item_var, _normalize_item_var
+
+            params = node.get("params") or {}
+            # Params may still be raw refs here — resolve against live context.
+            collection = resolve_value(params.get("collection"), context)
+            items = _as_list(collection)
+            counter_key = f"__loop_{node_id}__counter"
+            count = int(context.get(counter_key, 0))
+            if count < len(items):
+                item = items[count]
+                context[counter_key] = count + 1
+                inject_item_var(context, _normalize_item_var(params.get("item_var")), item)
+                body = node.get("body")
+                if not body:
+                    raise ValueError(f"loop_foreach 节点 {node_id} 缺少 body")
+                if not loop_stack or loop_stack[-1] != node_id:
+                    loop_stack = loop_stack + [node_id]
+                return body, loop_stack
+            context[counter_key] = 0
+            if loop_stack and loop_stack[-1] == node_id:
+                loop_stack = loop_stack[:-1]
+            return self._resolve_fallthrough(node.get("next"), loop_stack), loop_stack
+
         if block_type == "loop_while":
             params = node.get("params") or {}
             max_times = int(params.get("max_times") or 10000)

@@ -12,6 +12,31 @@
       "type": "object",
       "additionalProperties": true
     },
+    "variable_schemas": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["string", "number", "boolean", "object", "array", "object_array"]
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": ["string", "number", "boolean"]
+            }
+          },
+          "itemType": {
+            "type": "string",
+            "enum": ["string", "number", "boolean"]
+          }
+        },
+        "required": ["type"],
+        "additionalProperties": true
+      }
+    },
     "entry": {
       "type": ["string", "null"]
     },

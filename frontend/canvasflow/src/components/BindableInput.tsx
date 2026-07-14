@@ -74,6 +74,7 @@ export default function BindableInput({
 }: BindableInputProps) {
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
   const variables = useFlowStore((s) => s.flow.variables || {});
+  const variableSchemas = useFlowStore((s) => s.flow.variable_schemas || {});
 
   const kind = detectBindKind(value);
   const nodeRef = kind === 'node' && typeof value === 'string' ? parseNodeRef(value) : null;
@@ -93,8 +94,16 @@ export default function BindableInput({
 
   const status = useMemo(
     () =>
-      inspectBindValue(value, inputType, currentNodeId, flowNodes, schemaMap, variables),
-    [value, inputType, currentNodeId, flowNodes, schemaMap, variables],
+      inspectBindValue(
+        value,
+        inputType,
+        currentNodeId,
+        flowNodes,
+        schemaMap,
+        variables,
+        variableSchemas,
+      ),
+    [value, inputType, currentNodeId, flowNodes, schemaMap, variables, variableSchemas],
   );
 
   const nodeOptions = useMemo(() => {

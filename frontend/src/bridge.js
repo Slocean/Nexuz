@@ -356,6 +356,33 @@ export const MOCK_SCHEMAS = [
     outputs: [{ name: 'index', type: 'number' }],
   },
   {
+    type: 'loop_foreach',
+    label: '按数组循环',
+    category: '控制类',
+    inputs: [
+      {
+        name: 'collection',
+        type: 'string',
+        label: '数组',
+        default: '',
+        placeholder: '$items 或 {{node.list}}',
+      },
+      {
+        name: 'item_var',
+        type: 'string',
+        label: '当前项变量名',
+        default: '$item',
+        bindable: false,
+        placeholder: '$item',
+      },
+    ],
+    outputs: [
+      { name: 'index', type: 'number' },
+      { name: 'item', type: 'any' },
+      { name: 'length', type: 'number' },
+    ],
+  },
+  {
     type: 'loop_while',
     label: '条件循环',
     category: '控制类',

@@ -99,6 +99,7 @@ function createEmptyFlow() {
     name: '未命名流程',
     version: 1,
     variables: {},
+    variable_schemas: {},
     nodes: {},
     entry: null,
   };
@@ -263,21 +264,46 @@ export const useFlowStore = create((set, get) => ({
       flow: { ...state.flow, ...patch },
     })),
 
-  setVariable: (name, value) =>
+  setVariable: (name, value, schema) =>
     set((state) => {
       const key = String(name || '').trim();
       if (!key) return state;
       const variables = { ...(state.flow.variables || {}), [key]: value };
-      return { flow: { ...state.flow, variables } };
+      let variable_schemas = { ...(state.flow.variable_schemas || {}) };
+      if (schema && typeof schema === 'object') {
+        variable_schemas[key] = schema;
+      }
+      return { flow: { ...state.flow, variables, variable_schemas } };
+    }),
+
+  setVariableSchema: (name, schema) =>
+    set((state) => {
+      const key = String(name || '').trim();
+      if (!key) return state;
+      const variable_schemas = { ...(state.flow.variable_schemas || {}) };
+      if (!schema) {
+        delete variable_schemas[key];
+        delete variable_schemas[String(key).replace(/^\$/, '')];
+        delete variable_schemas[`$${String(key).replace(/^\$/, '')}`];
+      } else {
+        variable_schemas[key] = schema;
+      }
+      return { flow: { ...state.flow, variable_schemas } };
     }),
 
   deleteVariable: (name) =>
     set((state) => {
       const variables = { ...(state.flow.variables || {}) };
+      const variable_schemas = { ...(state.flow.variable_schemas || {}) };
+      const bare = String(name).replace(/^\$/, '');
+      const dollar = `$${bare}`;
       delete variables[name];
-      delete variables[String(name).replace(/^\$/, '')];
-      delete variables[`$${String(name).replace(/^\$/, '')}`];
-      return { flow: { ...state.flow, variables } };
+      delete variables[bare];
+      delete variables[dollar];
+      delete variable_schemas[name];
+      delete variable_schemas[bare];
+      delete variable_schemas[dollar];
+      return { flow: { ...state.flow, variables, variable_schemas } };
     }),
 
   renameVariable: (oldName, newName) =>
@@ -286,10 +312,15 @@ export const useFlowStore = create((set, get) => ({
       const to = String(newName || '').trim();
       if (!from || !to || from === to) return state;
       const variables = { ...(state.flow.variables || {}) };
+      const variable_schemas = { ...(state.flow.variable_schemas || {}) };
       if (!(from in variables)) return state;
       variables[to] = variables[from];
       delete variables[from];
-      return { flow: { ...state.flow, variables } };
+      if (from in variable_schemas) {
+        variable_schemas[to] = variable_schemas[from];
+        delete variable_schemas[from];
+      }
+      return { flow: { ...state.flow, variables, variable_schemas } };
     }),
 
   addNodeFromSchema: (type, position = { x: 120, y: 120 }) => {
@@ -312,7 +343,7 @@ export const useFlowStore = create((set, get) => ({
       node.else = null;
       delete node.next;
     }
-    if (['loop_n', 'loop_while', 'loop_forever'].includes(type)) {
+    if (['loop_n', 'loop_while', 'loop_forever', 'loop_foreach'].includes(type)) {
       node.body = null;
       node.next = null;
     }

@@ -113,7 +113,7 @@ function flowOutputsFor(blockType: string, params?: Record<string, any>): NodeSo
       { id: 'else', name: '否', type: 'output', dataType: 'any', kind: 'flow' },
     ];
   }
-  if (['loop_n', 'loop_while', 'loop_forever'].includes(blockType)) {
+  if (['loop_n', 'loop_while', 'loop_forever', 'loop_foreach'].includes(blockType)) {
     return [
       { id: 'body', name: '循环体', type: 'output', dataType: 'any', kind: 'flow' },
       { id: 'next', name: '结束', type: 'output', dataType: 'any', kind: 'flow' },

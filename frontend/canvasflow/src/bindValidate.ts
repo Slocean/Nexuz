@@ -8,6 +8,11 @@ import {
   rootFieldName,
 } from './bindValue';
 import { collectParamRefs } from './nexuzAdapter';
+import {
+  resolveVarPath,
+  resolveVarPathType,
+  VariableSchema,
+} from './varTypes';
 
 export type BindIssueLevel = 'error' | 'warn';
 
@@ -31,6 +36,7 @@ export function normalizeType(t?: string): string {
   if (s === 'bool') return 'boolean';
   if (s === 'color') return 'string';
   if (s === 'text' || s === 'str') return 'string';
+  if (s === 'object_array') return 'array';
   return s || 'any';
 }
 
@@ -49,6 +55,7 @@ export function typesCompatible(sourceType?: string, targetType?: string): boole
   if ((s === 'number' && t === 'boolean') || (s === 'boolean' && t === 'number')) return false;
   // boolean → string already handled; number → string handled
   if (s === 'string' && (t === 'number' || t === 'boolean')) return false;
+  if ((s === 'object' || s === 'array') && s !== t) return false;
   return s === t;
 }
 
@@ -93,6 +100,7 @@ export function validateNodeRef(
 export function validateVarRef(
   name: string,
   variables: Record<string, any> | undefined,
+  flowNodes?: Record<string, any>,
 ): boolean {
   if (!name) return false;
   const root = String(name).replace(/^\$/, '').split('.')[0];
@@ -103,7 +111,34 @@ export function validateVarRef(
   for (const k of Object.keys(vars)) {
     if (String(k).replace(/^\$/, '') === root) return true;
   }
+  // Runtime loop item vars declared on loop_foreach nodes
+  if (flowNodes) {
+    for (const node of Object.values(flowNodes)) {
+      if (!node || (node as any).type !== 'loop_foreach') continue;
+      const raw = String((node as any)?.params?.item_var || '$item').replace(/^\$/, '');
+      if (raw && raw === root) return true;
+    }
+  }
   return false;
+}
+
+/** Root exists AND dotted path can be resolved on current value (when path has segments). */
+export function validateVarPath(
+  name: string,
+  variables: Record<string, any> | undefined,
+  flowNodes?: Record<string, any>,
+): { ok: true } | { ok: false; reason: 'missing_var' | 'missing_path' } {
+  if (!name) return { ok: false, reason: 'missing_var' };
+  if (!validateVarRef(name, variables, flowNodes)) return { ok: false, reason: 'missing_var' };
+  const parts = String(name).replace(/^\$/, '').split('.').filter(Boolean);
+  if (parts.length <= 1) return { ok: true };
+  // Runtime item vars: only validate root; nested fields appear at runtime.
+  if (flowNodes && !validateVarRef(parts[0], variables) && validateVarRef(parts[0], {}, flowNodes)) {
+    return { ok: true };
+  }
+  const resolved = resolveVarPath(name, variables);
+  if (!resolved.found) return { ok: false, reason: 'missing_path' };
+  return { ok: true };
 }
 
 export type SingleBindStatus = {
@@ -120,6 +155,7 @@ export function inspectBindValue(
   flowNodes: Record<string, any>,
   schemaMap: Record<string, any>,
   variables: Record<string, any> | undefined,
+  variableSchemas?: Record<string, VariableSchema>,
 ): SingleBindStatus {
   const kind = detectBindKind(value);
   if (kind === 'literal' || typeof value !== 'string') {
@@ -129,8 +165,26 @@ export function inspectBindValue(
   if (kind === 'variable') {
     const name = parseVarRef(value);
     if (!name) return { broken: true, typeWarn: false, message: '变量引用格式无效' };
-    if (!validateVarRef(name, variables)) {
-      return { broken: true, typeWarn: false, message: `变量 $${name} 未定义` };
+    const vr = validateVarPath(name, variables, flowNodes);
+    if (!vr.ok) {
+      return {
+        broken: true,
+        typeWarn: false,
+        message:
+          vr.reason === 'missing_var'
+            ? `变量 $${name.split('.')[0]} 未定义`
+            : `变量路径 $${name} 不存在`,
+      };
+    }
+    if (inputType) {
+      const srcType = resolveVarPathType(name, variables, variableSchemas);
+      if (srcType && !typesCompatible(srcType, inputType)) {
+        return {
+          broken: false,
+          typeWarn: true,
+          message: `类型可能不匹配：${srcType} → ${inputType}`,
+        };
+      }
     }
     return { broken: false, typeWarn: false };
   }
@@ -140,13 +194,13 @@ export function inspectBindValue(
   if (ref.nodeId === currentNodeId) {
     return { broken: true, typeWarn: false, message: '不能引用自身输出' };
   }
-  const vr = validateNodeRef(ref.nodeId, ref.field, flowNodes, schemaMap);
-  if (!vr.ok) {
+  const nr = validateNodeRef(ref.nodeId, ref.field, flowNodes, schemaMap);
+  if (!nr.ok) {
     return {
       broken: true,
       typeWarn: false,
       message:
-        vr.reason === 'missing_node'
+        nr.reason === 'missing_node'
           ? `节点 ${ref.nodeId} 不存在`
           : `节点无输出字段 ${ref.field}`,
     };
@@ -207,12 +261,18 @@ export function inspectEmbeddedRefs(
   const varRe = new RegExp(EMBEDDED_VAR_REF.source, 'g');
   while ((m = varRe.exec(text))) {
     const name = m[1];
-    if (variables && !validateVarRef(name, variables)) {
-      issues.push({
-        level: 'error',
-        nodeId: currentNodeId,
-        message: `变量 $${name} 未定义`,
-      });
+    if (variables) {
+      const vr = validateVarPath(name, variables, flowNodes);
+      if (!vr.ok) {
+        issues.push({
+          level: 'error',
+          nodeId: currentNodeId,
+          message:
+            vr.reason === 'missing_var'
+              ? `变量 $${name.split('.')[0]} 未定义`
+              : `变量路径 $${name} 不存在`,
+        });
+      }
     }
   }
   return issues;
@@ -226,6 +286,7 @@ export function collectFlowBindIssues(
   const issues: BindIssue[] = [];
   const nodes = flow?.nodes || {};
   const variables = flow?.variables || {};
+  const variableSchemas = flow?.variable_schemas || {};
   const nodeIdSet = new Set(Object.keys(nodes));
 
   for (const [nodeId, node] of Object.entries(nodes) as [string, any][]) {
@@ -288,6 +349,7 @@ export function collectFlowBindIssues(
         nodes,
         schemaMap,
         variables,
+        variableSchemas,
       );
       if (status.broken) {
         const ref = typeof val === 'string' ? parseNodeRef(val) : null;
@@ -347,6 +409,7 @@ export function collectFlowBindIssues(
             nodes,
             schemaMap,
             variables,
+            variableSchemas,
           );
           if (status.broken) {
             issues.push({
