@@ -54,9 +54,22 @@ def resolve_ui_url() -> str:
     return dev_url
 
 
+def resolve_app_icon() -> str | None:
+    """Path to .ico for Windows taskbar / window icon (pywebview.start)."""
+    candidates = [
+        ROOT / "logo.ico",
+        ROOT / "logo.png",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return str(path)
+    return None
+
+
 def main() -> None:
     api = Api()
     url = resolve_ui_url()
+    icon = resolve_app_icon()
     # Frameless: no OS title bar; app Toolbar provides drag + min/max/close
     window_kwargs = dict(
         title="Nexuz",
@@ -75,7 +88,14 @@ def main() -> None:
     except TypeError:
         window = webview.create_window(**window_kwargs)
     api.set_window(window)
-    webview.start(debug="--dev" in sys.argv)
+    start_kwargs: dict = {"debug": "--dev" in sys.argv}
+    if icon:
+        start_kwargs["icon"] = icon
+    try:
+        webview.start(**start_kwargs)
+    except TypeError:
+        # Older pywebview without icon= support
+        webview.start(debug="--dev" in sys.argv)
 
 
 if __name__ == "__main__":

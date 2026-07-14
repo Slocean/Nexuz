@@ -253,7 +253,7 @@ export default function Toolbar({
             )}
             <div className="h-14 w-14 shrink-0 flex items-center justify-center">
               <img
-                src="/logo.png"
+                src={`${import.meta.env.BASE_URL}logo.png`}
                 alt="Nexuz"
                 title="Nexuz"
                 className="max-h-full max-w-full object-contain select-none"

@@ -48,41 +48,48 @@ def ensure_pillow() -> None:
         run([sys.executable, "-m", "pip", "install", "Pillow>=10.0"])
 
 
-def ensure_app_icon() -> Path:
-    """Build Windows .ico from logo_exe.png / logo.png for the exe file icon."""
-    src = ROOT / "logo_exe.png"
+def ensure_app_icon(*, force: bool = False) -> Path:
+    """Build Windows .ico from logo.png for the exe + taskbar icon."""
+    src = ROOT / "logo.png"
     if not src.exists():
-        src = ROOT / "logo.png"
-    if not src.exists():
-        raise SystemExit("missing logo_exe.png / logo.png — cannot set exe icon")
+        raise SystemExit("missing logo.png — cannot set exe icon")
 
-    # Rebuild when source is newer than ico (or ico missing)
-    if ICON_ICO.exists() and ICON_ICO.stat().st_mtime >= src.stat().st_mtime:
+    if (
+        not force
+        and ICON_ICO.exists()
+        and ICON_ICO.stat().st_mtime >= src.stat().st_mtime
+    ):
         return ICON_ICO
 
     ensure_pillow()
     from PIL import Image
 
     img = Image.open(src).convert("RGBA")
-    # Trim near-transparent padding so the mark fills the icon better
     bbox = img.getbbox()
     if bbox:
         img = img.crop(bbox)
 
+    # Fit onto a square canvas so Windows icon sizes stay consistent
+    side = max(img.size)
+    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    square.paste(img, ((side - img.width) // 2, (side - img.height) // 2), img)
+
     sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-    # ICO: save master with sizes= list; Pillow embeds each size
-    img.save(
-        ICON_ICO,
-        format="ICO",
-        sizes=sizes,
-    )
-    print(f"OK: wrote {ICON_ICO} from {src.name}")
+    square.save(ICON_ICO, format="ICO", sizes=sizes)
+    print(f"OK: wrote {ICON_ICO} from {src.name} ({ICON_ICO.stat().st_size} bytes)")
     return ICON_ICO
 
 
 def build_frontend() -> None:
     if not (FRONTEND / "package.json").exists():
         raise SystemExit(f"missing frontend: {FRONTEND}")
+    # Keep UI logo in sync with repo root logo.png
+    public_logo = FRONTEND / "public" / "logo.png"
+    root_logo = ROOT / "logo.png"
+    if root_logo.exists():
+        public_logo.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(root_logo, public_logo)
+        print(f"OK: synced {public_logo}")
     npm = shutil.which("npm")
     if not npm:
         raise SystemExit("npm not found — install Node.js 18+")
@@ -91,6 +98,9 @@ def build_frontend() -> None:
     run([npm, "run", "build"], cwd=FRONTEND)
     if not DIST_UI.exists():
         raise SystemExit("frontend build failed: frontend/dist/index.html missing")
+    dist_logo = FRONTEND / "dist" / "logo.png"
+    if root_logo.exists() and not dist_logo.exists():
+        shutil.copy2(root_logo, dist_logo)
 
 
 def collect_datas() -> list[tuple[str, str]]:
@@ -106,6 +116,8 @@ def collect_datas() -> list[tuple[str, str]]:
 
     add(FRONTEND / "dist", "frontend/dist")
     add(ROOT / "schemas", "schemas")
+    add(ROOT / "logo.ico", ".")
+    add(ROOT / "logo.png", ".")
     add(
         ROOT / "backend" / "core" / "input" / "frida" / "scripts",
         "backend/core/input/frida/scripts",
@@ -117,7 +129,7 @@ def collect_datas() -> list[tuple[str, str]]:
 
 def build_exe(*, onefile: bool) -> None:
     ensure_pyinstaller()
-    icon = ensure_app_icon()
+    icon = ensure_app_icon(force=True)
     datas = collect_datas()
     if not any(d[1].startswith("frontend/dist") for d in datas):
         raise SystemExit("frontend/dist not found — run without --skip-frontend")
@@ -205,6 +217,15 @@ def main() -> None:
         build_frontend()
     elif not DIST_UI.exists():
         raise SystemExit("frontend/dist missing — remove --skip-frontend")
+    else:
+        # Still refresh UI logo even when skipping full rebuild
+        root_logo = ROOT / "logo.png"
+        dist_logo = FRONTEND / "dist" / "logo.png"
+        if root_logo.exists():
+            shutil.copy2(root_logo, dist_logo)
+            public_logo = FRONTEND / "public" / "logo.png"
+            public_logo.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root_logo, public_logo)
 
     build_exe(onefile=not bool(args.onedir))
 

@@ -956,7 +956,7 @@ export default function Inspector({
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60">
           <div className="w-12 h-12 mx-auto flex items-center justify-center">
             <img
-              src="/logo.png"
+              src={`${import.meta.env.BASE_URL}logo.png`}
               alt="Nexuz"
               className="max-h-full max-w-full object-contain select-none"
               draggable={false}
