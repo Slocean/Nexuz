@@ -501,58 +501,64 @@ function AppShell() {
 
   const handleLoadTemplate = (templateId: string) => {
     if (templateId === 'click-loop') {
-      setFlow({
-        flow_id: `flow_${Date.now()}`,
-        name: '点击循环模板',
-        version: 1,
-        variables: {},
-        entry: 'n1',
-        nodes: {
-          n1: { type: 'delay', params: { ms: 300 }, next: 'n2', position: { x: 100, y: 180 } },
-          n2: {
-            type: 'loop_n',
-            params: { times: 3 },
-            body: 'n3',
-            next: null,
-            position: { x: 360, y: 180 },
-          },
-          n3: {
-            type: 'click',
-            params: { x: 100, y: 100, button: 'left', click_type: 'single', move_duration: 0 },
-            next: null,
-            position: { x: 620, y: 180 },
+      setFlow(
+        {
+          flow_id: `flow_${Date.now()}`,
+          name: '点击循环模板',
+          version: 1,
+          variables: {},
+          entry: 'n1',
+          nodes: {
+            n1: { type: 'delay', params: { ms: 300 }, next: 'n2', position: { x: 100, y: 180 } },
+            n2: {
+              type: 'loop_n',
+              params: { times: 3 },
+              body: 'n3',
+              next: null,
+              position: { x: 360, y: 180 },
+            },
+            n3: {
+              type: 'click',
+              params: { x: 100, y: 100, button: 'left', click_type: 'single', move_duration: 0 },
+              next: null,
+              position: { x: 620, y: 180 },
+            },
           },
         },
-      });
+        null,
+      );
       appendLog({ level: 'info', message: '已加载点击循环模板' });
       return;
     }
     if (templateId === 'color-branch') {
-      setFlow({
-        flow_id: `flow_${Date.now()}`,
-        name: '颜色分支模板',
-        version: 1,
-        variables: {},
-        entry: 'c1',
-        nodes: {
-          c1: {
-            type: 'if_color_match',
-            params: { x: 10, y: 10, target_color: '#FF0000', tolerance: 30 },
-            then: 'c2',
-            else: 'c3',
-            position: { x: 120, y: 180 },
+      setFlow(
+        {
+          flow_id: `flow_${Date.now()}`,
+          name: '颜色分支模板',
+          version: 1,
+          variables: {},
+          entry: 'c1',
+          nodes: {
+            c1: {
+              type: 'if_color_match',
+              params: { x: 10, y: 10, target_color: '#FF0000', tolerance: 30 },
+              then: 'c2',
+              else: 'c3',
+              position: { x: 120, y: 180 },
+            },
+            c2: { type: 'delay', params: { ms: 100 }, next: null, position: { x: 400, y: 80 } },
+            c3: { type: 'delay', params: { ms: 100 }, next: null, position: { x: 400, y: 280 } },
           },
-          c2: { type: 'delay', params: { ms: 100 }, next: null, position: { x: 400, y: 80 } },
-          c3: { type: 'delay', params: { ms: 100 }, next: null, position: { x: 400, y: 280 } },
         },
-      });
+        null,
+      );
       appendLog({ level: 'info', message: '已加载颜色分支模板' });
       return;
     }
-    // Original design templates — leave UI, no backend wiring
+    // Unknown builtin id
     appendLog({
       level: 'warn',
-      message: `设计稿模板「${templateId}」保留未接入，可改用 click-loop / color-branch`,
+      message: `未知模板「${templateId}」`,
     });
   };
 

@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import VariablesPanel from './VariablesPanel';
 import SchedulePanel from './SchedulePanel';
 import FlowLibrary from './FlowLibrary';
+import TemplatesPanel from './TemplatesPanel';
 
 interface SidebarProps {
   themeName: ThemeName;
@@ -105,34 +106,6 @@ const componentsList = [
         description: 'Renders execution output.',
       },
     ],
-  },
-];
-
-const templatesList = [
-  {
-    id: 'click-loop',
-    name: '点击循环模板',
-    description: '延时 → 固定次数循环 → 点击',
-  },
-  {
-    id: 'color-branch',
-    name: '颜色分支模板',
-    description: '颜色匹配条件分支',
-  },
-  {
-    id: 'translator-pipe',
-    name: 'Translation Pipeline',
-    description: 'User text → translate → log',
-  },
-  {
-    id: 'news-summary',
-    name: 'Auto-Summarizer DB Sync',
-    description: 'API fetch → summarize → store',
-  },
-  {
-    id: 'conditional-agent',
-    name: 'Conditional Chat Branching',
-    description: 'Condition → ChatGPT → report',
   },
 ];
 
@@ -456,30 +429,12 @@ export default function Sidebar({
             <SchedulePanel themeName={themeName} themeMode={themeMode} />
           </TabsContent>
 
-          <TabsContent value="templates" className="p-4 space-y-4 m-0 data-[state=inactive]:hidden">
-            <div>
-              <h3 className="font-display font-semibold text-sm opacity-80 mb-1">
-                Pre-built Pipelines
-              </h3>
-              <p style={{ color: colors.secondaryText }} className="text-xs">
-                选择模板清空画布并填充节点。
-              </p>
-            </div>
-            <div className="space-y-3">
-              {templatesList.map((tpl) => (
-                <CatalogCard
-                  key={tpl.id}
-                  themeMode={themeMode}
-                  borderColor={colors.border}
-                  accentColor="#34C759"
-                  secondaryText={colors.secondaryText}
-                  title={tpl.name}
-                  subtitle={tpl.description}
-                  onClick={() => onLoadTemplate(tpl.id)}
-                  hoverBorderClass="hover:border-emerald-400"
-                />
-              ))}
-            </div>
+          <TabsContent value="templates" className="m-0 data-[state=inactive]:hidden overflow-y-auto">
+            <TemplatesPanel
+              themeName={themeName}
+              themeMode={themeMode}
+              onLoadBuiltin={onLoadTemplate}
+            />
           </TabsContent>
 
           <TabsContent value="history" className="p-4 space-y-4 m-0 data-[state=inactive]:hidden">

@@ -837,6 +837,63 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: true, jobs: [] });
     case 'list_flows':
       return Promise.resolve({ ok: true, flows: [], dir: '' });
+    case 'list_flow_templates': {
+      try {
+        const raw = localStorage.getItem('nexuz.flowTemplates');
+        const templates = raw ? JSON.parse(raw) : [];
+        return Promise.resolve({ ok: true, templates: Array.isArray(templates) ? templates : [], dir: 'localStorage' });
+      } catch {
+        return Promise.resolve({ ok: true, templates: [], dir: 'localStorage' });
+      }
+    }
+    case 'save_flow_template': {
+      try {
+        const flow = typeof args[0] === 'string' ? JSON.parse(args[0]) : args[0];
+        const name = String(args[1] || flow?.name || '未命名模板').trim() || '未命名模板';
+        const description = String(args[2] || flow?.description || '').trim();
+        const item = {
+          id: `local_${Date.now()}`,
+          name,
+          description,
+          path: `local:${Date.now()}`,
+          mtime: Date.now(),
+          builtin: false,
+          flow: { ...flow, name, description: description || undefined },
+        };
+        const raw = localStorage.getItem('nexuz.flowTemplates');
+        const list = raw ? JSON.parse(raw) : [];
+        const next = Array.isArray(list) ? list.filter((t) => t.name !== name) : [];
+        next.unshift(item);
+        localStorage.setItem('nexuz.flowTemplates', JSON.stringify(next));
+        return Promise.resolve({ ok: true, path: item.path, name });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
+    }
+    case 'delete_flow_template': {
+      try {
+        const filepath = String(args[0] || '');
+        const raw = localStorage.getItem('nexuz.flowTemplates');
+        const list = raw ? JSON.parse(raw) : [];
+        const next = (Array.isArray(list) ? list : []).filter((t) => t.path !== filepath);
+        localStorage.setItem('nexuz.flowTemplates', JSON.stringify(next));
+        return Promise.resolve({ ok: true });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
+    }
+    case 'load_flow_template': {
+      try {
+        const filepath = String(args[0] || '');
+        const raw = localStorage.getItem('nexuz.flowTemplates');
+        const list = raw ? JSON.parse(raw) : [];
+        const hit = (Array.isArray(list) ? list : []).find((t) => t.path === filepath);
+        if (!hit?.flow) return Promise.resolve({ ok: false, error: '模板不存在' });
+        return Promise.resolve({ ok: true, flow: hit.flow, path: filepath });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
+    }
     case 'delete_flow':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持' });
     case 'window_minimize':
@@ -956,6 +1013,11 @@ export const bridge = {
   saveFlow: (flow, filepath = null, name = null) =>
     call('save_flow', JSON.stringify(flow), filepath, name),
   loadFlow: (filepath = null) => call('load_flow', filepath),
+  listFlowTemplates: () => call('list_flow_templates'),
+  saveFlowTemplate: (flow, name = null, description = null) =>
+    call('save_flow_template', JSON.stringify(flow), name, description),
+  deleteFlowTemplate: (filepath) => call('delete_flow_template', filepath),
+  loadFlowTemplate: (filepath) => call('load_flow_template', filepath),
   clipboardWrite: (text) => call('clipboard_write', text),
   exportText: (text, filename = null) => call('export_text', text, filename),
   windowMinimize: () => call('window_minimize'),

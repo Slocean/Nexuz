@@ -19,11 +19,21 @@ export default function SaveNameDialog({
   initialName,
   onCancel,
   onConfirm,
+  title = '保存流程',
+  description = '输入名称后保存到 flows 目录，可在左侧「流程管理」中打开。',
+  label = '流程名称',
+  confirmText = '保存',
+  placeholder = '例如：登录自动化',
 }: {
   open: boolean;
   initialName?: string;
   onCancel: () => void;
   onConfirm: (name: string) => void;
+  title?: string;
+  description?: string;
+  label?: string;
+  confirmText?: string;
+  placeholder?: string;
 }) {
   const [name, setName] = useState(initialName || '');
 
@@ -46,17 +56,15 @@ export default function SaveNameDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>保存流程</DialogTitle>
-          <DialogDescription>
-            输入名称后保存到 flows 目录，可在左侧「流程管理」中打开。
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">
-          <Label className="text-xs">流程名称</Label>
+          <Label className="text-xs">{label}</Label>
           <Input
             autoFocus
             value={name}
-            placeholder="例如：登录自动化"
+            placeholder={placeholder}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit();
@@ -68,7 +76,7 @@ export default function SaveNameDialog({
             取消
           </Button>
           <Button type="button" onClick={submit} disabled={!name.trim()}>
-            保存
+            {confirmText}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -384,6 +384,82 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    # --- flow templates library (流程模板，不同于截图 templates/) ---
+    def _flow_templates_dir(self) -> Path:
+        d = exe_dir() / "flow_templates"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def list_flow_templates(self) -> dict:
+        """List user-saved flow templates under /flow_templates."""
+        items = []
+        folder = self._flow_templates_dir()
+        for path in sorted(folder.glob("*.flow.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            name = path.stem.replace(".flow", "") if path.name.endswith(".flow.json") else path.stem
+            description = ""
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                name = data.get("name") or name
+                description = str(data.get("description") or data.get("template_description") or "")
+            except Exception:
+                data = None
+            st = path.stat()
+            items.append(
+                {
+                    "id": path.stem,
+                    "name": name,
+                    "description": description,
+                    "path": str(path),
+                    "mtime": int(st.st_mtime * 1000),
+                    "size": st.st_size,
+                    "builtin": False,
+                }
+            )
+        return {"ok": True, "templates": items, "dir": str(folder)}
+
+    def save_flow_template(self, flow_json: str, name: str | None = None, description: str | None = None) -> dict:
+        """Save current flow as a reusable template under flow_templates/."""
+        flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+        if not isinstance(flow, dict):
+            return {"ok": False, "error": "无效的流程对象"}
+        tpl_name = (str(name).strip() if name else "") or str(flow.get("name") or "").strip() or "未命名模板"
+        flow = {**flow, "name": tpl_name}
+        desc = (str(description).strip() if description else "") or str(flow.get("description") or "").strip()
+        if desc:
+            flow["description"] = desc
+        err = self._validate_flow(flow)
+        if err:
+            return {"ok": False, "error": err}
+        path = self._flow_templates_dir() / self._safe_flow_filename(tpl_name)
+        path.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "path": str(path), "name": tpl_name}
+
+    def delete_flow_template(self, filepath: str) -> dict:
+        path = Path(str(filepath))
+        folder = self._flow_templates_dir().resolve()
+        try:
+            resolved = path.resolve()
+            if folder not in resolved.parents and resolved.parent != folder:
+                return {"ok": False, "error": "只能删除 flow_templates 目录内的模板"}
+            if not resolved.is_file():
+                return {"ok": False, "error": "文件不存在"}
+            resolved.unlink()
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def load_flow_template(self, filepath: str) -> dict:
+        """Load a flow template by path (must be under flow_templates/)."""
+        path = Path(str(filepath))
+        folder = self._flow_templates_dir().resolve()
+        try:
+            resolved = path.resolve()
+            if folder not in resolved.parents and resolved.parent != folder:
+                return {"ok": False, "error": "只能加载 flow_templates 目录内的模板"}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return self.load_flow(str(path))
+
     def save_flow(self, flow_json: str, filepath: str | None = None, name: str | None = None) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
         if name and str(name).strip():
