@@ -667,48 +667,54 @@ export const useFlowStore = create((set, get) => ({
       }));
       appendLog({
         level: 'info',
-        message: `▶ ${payload.node_id} (${payload.type})`,
+        nodeId: payload.node_id,
+        message: `▶ [${payload.node_id}] ${payload.type}`,
         detail: summarizeDetail(payload.params),
       });
     } else if (event === 'node_end') {
       const result = summarizeDetail(payload.result || {}) || {};
+      const nid = payload.node_id;
       set((state) => {
         // Interrupted mid-node: leave idle — flow_stopped/finished clears UI; don't paint error.
         if (payload.stopped) {
           const next = { ...state.execNodeStates };
-          delete next[payload.node_id];
+          delete next[nid];
           return { execNodeStates: next };
         }
         return {
           execNodeStates: {
             ...state.execNodeStates,
-            [payload.node_id]: payload.ok ? 'done' : 'error',
+            [nid]: payload.ok ? 'done' : 'error',
           },
           nodeOutputs: payload.ok
-            ? { ...state.nodeOutputs, [payload.node_id]: result }
+            ? { ...state.nodeOutputs, [nid]: result }
             : state.nodeOutputs,
         };
       });
       let msg = payload.ok
-        ? `✓ ${payload.node_id} ${payload.elapsed_ms}ms`
+        ? `✓ [${nid}] ${payload.elapsed_ms}ms`
         : payload.stopped
-          ? `■ ${payload.node_id} 已停止`
-          : `✗ ${payload.node_id}: ${payload.error}`;
+          ? `■ [${nid}] 已停止`
+          : `✗ [${nid}]: ${payload.error}`;
       if (payload.ok && payload.type === 'ocr_recognize') {
         const t = result.text;
         msg =
           t !== undefined && t !== ''
-            ? `✓ OCR 识别到: ${String(t).slice(0, 120)}`
-            : `✓ OCR 完成但未识别到文字（请确认已框选区域且区域内有清晰文字）`;
+            ? `✓ [${nid}] OCR 识别到: ${String(t).slice(0, 120)}`
+            : `✓ [${nid}] OCR 完成但未识别到文字（请确认已框选区域且区域内有清晰文字）`;
       }
       if (payload.ok && payload.type === 'if_text_contains') {
-        msg = `✓ 文字匹配 ${result.matched ? '成立' : '不成立'} · 实际: ${String(result.actual_text || '').slice(0, 80)}`;
+        msg = `✓ [${nid}] 文字匹配 ${result.matched ? '成立' : '不成立'} · 实际: ${String(result.actual_text || '').slice(0, 80)}`;
       }
       if (payload.ok && payload.type === 'color_detect' && result.color) {
-        msg = `✓ 取色: ${result.color}`;
+        msg = `✓ [${nid}] 取色: ${result.color}`;
+      }
+      if (payload.ok && payload.type === 'switch') {
+        msg = `✓ [${nid}] 判断值=${JSON.stringify(result.value)} · ${payload.elapsed_ms}ms`;
       }
       appendLog({
         level: payload.ok ? 'ok' : payload.stopped ? 'warn' : 'error',
+        nodeId: nid,
         message: msg,
         detail: payload.ok ? result : summarizeDetail(payload.error),
       });
@@ -777,7 +783,10 @@ export const useFlowStore = create((set, get) => ({
     } else if (event === 'log') {
       appendLog({
         level: payload?.level || 'info',
-        message: payload?.message || '',
+        nodeId: payload?.node_id || payload?.nodeId || undefined,
+        message: payload?.node_id
+          ? `[${payload.node_id}] ${payload?.message || ''}`
+          : payload?.message || '',
         detail: summarizeDetail(payload?.detail),
       });
     }

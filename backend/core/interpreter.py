@@ -216,15 +216,56 @@ class FlowInterpreter:
             return self._resolve_fallthrough(nxt, loop_stack), loop_stack
 
         if block_type == "switch":
-            variable = (node.get("params") or {}).get("variable")
+            params = node.get("params") or {}
+            variable = params.get("variable")
             current = resolve_value(variable, context) if variable else None
-            for case in (node.get("params") or {}).get("cases") or []:
-                if str(case.get("value")) == str(current):
-                    return self._resolve_fallthrough(case.get("node_id"), loop_stack), loop_stack
+            # Missing refs resolve to ""; treat None the same for matching.
+            current_s = "" if current is None else str(current)
+
+            matched_target: str | None = None
+            for case in params.get("cases") or []:
+                if not isinstance(case, dict):
+                    continue
+                raw = case.get("value")
+                # Empty match value never wins — those fall through to default.
+                if raw is None or str(raw).strip() == "":
+                    continue
+                if str(raw) != current_s:
+                    continue
+                target = str(case.get("node_id") or "").strip()
+                if target:
+                    matched_target = target
+                break
+
+            if matched_target:
+                self._emit(
+                    "log",
+                    {
+                        "level": "info",
+                        "message": f"多分支匹配 → {matched_target}（值={current_s!r}）",
+                        "node_id": node_id,
+                    },
+                )
+                return self._resolve_fallthrough(matched_target, loop_stack), loop_stack
+
             default = (
-                (node.get("params") or {}).get("default")
+                params.get("default")
                 or node.get("default")
                 or node.get("next")
+                or ""
+            )
+            default = str(default).strip() or None
+            self._emit(
+                "log",
+                {
+                    "level": "info",
+                    "message": (
+                        f"多分支默认 → {default}（值={current_s!r}）"
+                        if default
+                        else f"多分支无默认目标（值={current_s!r}），流程结束"
+                    ),
+                    "node_id": node_id,
+                },
             )
             return self._resolve_fallthrough(default, loop_stack), loop_stack
 
