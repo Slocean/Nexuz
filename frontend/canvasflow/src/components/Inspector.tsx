@@ -954,11 +954,13 @@ export default function Inspector({
         className="w-[31.2rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
       >
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60">
-          <div
-            style={{ backgroundColor: colors.primary + '1A' }}
-            className="w-10 h-10 rounded-xl mx-auto flex items-center justify-center"
-          >
-            <Settings style={{ color: colors.primary }} className="w-5 h-5" />
+          <div className="w-12 h-12 mx-auto flex items-center justify-center">
+            <img
+              src="/logo.png"
+              alt="Nexuz"
+              className="max-h-full max-w-full object-contain select-none"
+              draggable={false}
+            />
           </div>
           <h3 className="font-semibold text-sm mt-2">未选中</h3>
           <p
