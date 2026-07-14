@@ -26,6 +26,7 @@ FRONTEND = ROOT / "frontend"
 DIST_UI = FRONTEND / "dist" / "index.html"
 OUT_DIR = ROOT / "dist"
 BUILD_DIR = ROOT / "build"
+ICON_ICO = ROOT / "logo.ico"
 
 
 def run(cmd: list[str], *, cwd: Path | None = None) -> None:
@@ -38,6 +39,45 @@ def ensure_pyinstaller() -> None:
         import PyInstaller  # noqa: F401
     except ImportError:
         run([sys.executable, "-m", "pip", "install", "pyinstaller>=6.0"])
+
+
+def ensure_pillow() -> None:
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        run([sys.executable, "-m", "pip", "install", "Pillow>=10.0"])
+
+
+def ensure_app_icon() -> Path:
+    """Build Windows .ico from logo_exe.png / logo.png for the exe file icon."""
+    src = ROOT / "logo_exe.png"
+    if not src.exists():
+        src = ROOT / "logo.png"
+    if not src.exists():
+        raise SystemExit("missing logo_exe.png / logo.png — cannot set exe icon")
+
+    # Rebuild when source is newer than ico (or ico missing)
+    if ICON_ICO.exists() and ICON_ICO.stat().st_mtime >= src.stat().st_mtime:
+        return ICON_ICO
+
+    ensure_pillow()
+    from PIL import Image
+
+    img = Image.open(src).convert("RGBA")
+    # Trim near-transparent padding so the mark fills the icon better
+    bbox = img.getbbox()
+    if bbox:
+        img = img.crop(bbox)
+
+    sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    # ICO: save master with sizes= list; Pillow embeds each size
+    img.save(
+        ICON_ICO,
+        format="ICO",
+        sizes=sizes,
+    )
+    print(f"OK: wrote {ICON_ICO} from {src.name}")
+    return ICON_ICO
 
 
 def build_frontend() -> None:
@@ -77,6 +117,7 @@ def collect_datas() -> list[tuple[str, str]]:
 
 def build_exe(*, onefile: bool) -> None:
     ensure_pyinstaller()
+    icon = ensure_app_icon()
     datas = collect_datas()
     if not any(d[1].startswith("frontend/dist") for d in datas):
         raise SystemExit("frontend/dist not found — run without --skip-frontend")
@@ -101,6 +142,7 @@ def build_exe(*, onefile: bool) -> None:
         "--name",
         target_name,
         "--windowed",  # no console
+        f"--icon={icon}",
         f"--distpath={OUT_DIR}",
         f"--workpath={BUILD_DIR / 'pyinstaller'}",
         f"--specpath={BUILD_DIR}",
