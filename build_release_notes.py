@@ -1,4 +1,4 @@
-"""Build GitHub Release body markdown from app_update.json history."""
+"""Build GitHub Release body from the CURRENT version entry in app_update.json only."""
 
 from __future__ import annotations
 
@@ -17,72 +17,57 @@ def load_history(path: Path) -> list[dict]:
     hist = data.get("history")
     if isinstance(hist, list) and hist:
         return [x for x in hist if isinstance(x, dict)]
-    # legacy single entry
     ver = str(data.get("version") or "").strip()
     if ver:
         return [
             {
                 "version": ver,
-                "title": str(data.get("title") or f"{ver}"),
+                "title": str(data.get("title") or ver),
                 "body": str(data.get("body") or ""),
             }
         ]
     return []
 
 
-def build_notes(history: list[dict], *, version: str | None = None) -> str:
-    """Full history (newest first). If version is set, put that entry first and keep the rest."""
+def pick_entry(history: list[dict], version: str | None) -> dict | None:
     if not history:
-        return "（无更新说明：请在 app_update.json 的 history 中填写 title / body）\n"
-
+        return None
     ver = (version or "").strip().lstrip("v")
-    lines: list[str] = []
-
-    # Prefer matching entry at top when version given
-    ordered = list(history)
     if ver:
-        match = None
-        rest = []
-        for item in ordered:
+        for item in history:
             item_ver = str(item.get("version") or "").strip().lstrip("v")
-            if match is None and item_ver == ver:
-                match = item
-            else:
-                rest.append(item)
-        if match is not None:
-            ordered = [match, *rest]
+            if item_ver == ver:
+                return item
+    # Fallback: newest (history[0])
+    return history[0]
 
-    for i, item in enumerate(ordered):
-        item_ver = str(item.get("version") or "").strip() or "?"
-        title = str(item.get("title") or "").strip() or f"{item_ver}"
-        body = str(item.get("body") or "").strip()
-        if i == 0:
-            lines.append(f"## {title}")
-        else:
-            lines.append(f"### {title}")
-        lines.append("")
-        if body:
-            lines.append(body)
-        else:
-            lines.append("（本条未填写 body）")
-        lines.append("")
 
-    return "\n".join(lines).rstrip() + "\n"
+def build_notes(history: list[dict], *, version: str | None = None) -> str:
+    """Only the release version's title + body — never dump full history."""
+    item = pick_entry(history, version)
+    if not item:
+        return "（无更新说明：请在 app_update.json 的 history 中填写本版本 title / body）\n"
+
+    item_ver = str(item.get("version") or "").strip() or "?"
+    title = str(item.get("title") or "").strip() or item_ver
+    body = str(item.get("body") or "").strip()
+
+    lines = [f"## {title}", ""]
+    lines.append(body if body else "（本条未填写 body）")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate Release notes from app_update.json")
+    parser = argparse.ArgumentParser(
+        description="Generate Release notes for ONE version from app_update.json"
+    )
     parser.add_argument(
         "--version",
         default="",
-        help="Current release version (optional; used to order matching entry first)",
+        help="Release version (required in CI; defaults to history[0])",
     )
-    parser.add_argument(
-        "-o",
-        "--output",
-        default="",
-        help="Write to file (default: stdout)",
-    )
+    parser.add_argument("-o", "--output", default="", help="Write to file (default: stdout)")
     parser.add_argument(
         "--channel",
         default=str(ROOT / "app_update.json"),

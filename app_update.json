@@ -1,6 +1,12 @@
 {
   "history": [
     {
+      "version": "0.1.7",
+      "title": "0.1.7 Release 只写本版公告",
+      "body": "• GitHub Release 正文只写入当前发版版本的 title / body\n• 不再把历史版本更新记录全部塞进 Release 页面",
+      "notice": "Release 说明已改为只显示本版公告，不会再堆砌旧版本记录。"
+    },
+    {
       "version": "0.1.6",
       "title": "0.1.6 Release 正文写入更新记录",
       "body": "• GitHub Release 不再使用自动 Changelog 跳转链接\n• 发版时从 app_update.json 的 history 完整写入每次 title / body 更新说明\n• 新增 build_release_notes.py，与 Release Action 共用",
