@@ -160,15 +160,28 @@ export default function Toolbar({
   const handleAnnouncement = async () => {
     try {
       const res = await bridge.fetchAnnouncement();
-      const a = res?.announcement;
-      if (!res?.ok || !a?.body) {
-        await alert({ title: '公告', description: res?.error || '暂无公告' });
+      const list = Array.isArray(res?.history) && res.history.length
+        ? res.history
+        : res?.announcement
+          ? [res.announcement]
+          : [];
+      if (!res?.ok || !list.length) {
+        await alert({ title: '更新记录', description: res?.error || '暂无公告' });
         return;
       }
-      await alert({ title: a.title || '更新公告', description: String(a.body) });
-      if (a.id) {
+      const text = list
+        .map((item: any) => {
+          const ver = item.version || item.id || '';
+          const title = item.title || '更新';
+          const body = String(item.body || '').trim();
+          return `[${ver}] ${title}${body ? `\n${body}` : ''}`;
+        })
+        .join('\n\n────────\n\n');
+      await alert({ title: '更新记录', description: text });
+      const latestId = list[0]?.version || list[0]?.id;
+      if (latestId) {
         try {
-          localStorage.setItem('nexuz.announcementReadId', String(a.id));
+          localStorage.setItem('nexuz.announcementReadId', String(latestId));
         } catch {
           /* ignore */
         }

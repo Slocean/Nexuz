@@ -43,7 +43,7 @@ def version_gt(remote: str, local: str) -> bool:
     return _parse_version(remote) > _parse_version(local)
 
 
-def _http_json(url: str, *, timeout: float = 20.0) -> dict[str, Any]:
+def _http_json(url: str, *, timeout: float = 20.0) -> Any:
     req = urllib.request.Request(
         url,
         headers={
@@ -53,10 +53,7 @@ def _http_json(url: str, *, timeout: float = 20.0) -> dict[str, Any]:
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-        raise ValueError("unexpected JSON payload")
-    return data
+    return json.loads(raw)
 
 
 def _http_bytes(url: str, *, timeout: float = 600.0) -> bytes:
@@ -65,29 +62,58 @@ def _http_bytes(url: str, *, timeout: float = 600.0) -> bytes:
         return resp.read()
 
 
+def _normalize_channel(raw: Any) -> dict[str, Any]:
+    """Normalize app_update.json into {history: [{version,title,body}, ...]} (newest first)."""
+    if isinstance(raw, list):
+        entries = raw
+    elif isinstance(raw, dict):
+        if isinstance(raw.get("history"), list):
+            entries = raw["history"]
+        else:
+            # Legacy flat {version, title, body}
+            entries = [raw]
+    else:
+        entries = []
+
+    history: list[dict[str, str]] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        ver = str(item.get("version") or "").lstrip("v").strip()
+        title = str(item.get("title") or "").strip()
+        body = str(item.get("body") or "").strip()
+        if not ver and not title and not body:
+            continue
+        history.append(
+            {
+                "version": ver,
+                "title": title or (f"{ver} 更新" if ver else "更新公告"),
+                "body": body,
+            }
+        )
+    return {"history": history}
+
+
 def _load_local_channel() -> dict[str, Any] | None:
     try:
         path = project_root() / APP_UPDATE_FILE
         if not path.is_file():
             return None
         raw = json.loads(path.read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else None
+        return _normalize_channel(raw)
     except Exception:
         return None
 
 
 def fetch_channel(*, prefer_remote: bool = True) -> dict[str, Any]:
-    """Load app_update.json (remote main, then local fallback)."""
+    """Load app_update.json (remote main, then local fallback). Always normalized."""
     remote_err: str | None = None
     if prefer_remote:
         try:
-            data = _http_json(APP_UPDATE_URL, timeout=15.0)
+            data = _normalize_channel(_http_json(APP_UPDATE_URL, timeout=15.0))
             return {"ok": True, "source": "remote", "channel": data}
         except urllib.error.HTTPError as exc:
             remote_err = f"HTTP {exc.code}"
-            if exc.code not in (404,):
-                # still try local
-                pass
         except Exception as exc:
             remote_err = str(exc)
 
@@ -104,18 +130,45 @@ def fetch_channel(*, prefer_remote: bool = True) -> dict[str, Any]:
     return {"ok": False, "error": f"缺少 {APP_UPDATE_FILE}"}
 
 
+def _latest_entry(channel: dict[str, Any]) -> dict[str, str] | None:
+    history = channel.get("history") or []
+    if not history:
+        return None
+    first = history[0]
+    return first if isinstance(first, dict) else None
+
+
 def _announcement_from_channel(channel: dict[str, Any]) -> dict[str, Any] | None:
-    version = str(channel.get("version") or "").lstrip("v").strip()
-    title = str(channel.get("title") or "").strip()
-    body = str(channel.get("body") or "").strip()
+    entry = _latest_entry(channel)
+    if not entry:
+        return None
+    ver = entry.get("version") or ""
+    title = entry.get("title") or ""
+    body = entry.get("body") or ""
     if not body and not title:
         return None
     return {
-        "id": version or None,
+        "id": ver or None,
+        "version": ver,
         "title": title or "更新公告",
         "body": body,
         "link": RELEASES_PAGE_URL,
     }
+
+
+def _history_list(channel: dict[str, Any]) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in channel.get("history") or []:
+        if not isinstance(item, dict):
+            continue
+        out.append(
+            {
+                "version": str(item.get("version") or ""),
+                "title": str(item.get("title") or ""),
+                "body": str(item.get("body") or ""),
+            }
+        )
+    return out
 
 
 def _default_download_url(version: str) -> str:
@@ -132,7 +185,9 @@ def check_for_update() -> dict[str, Any]:
         return {"ok": False, "error": ch.get("error") or "检查更新失败", "current_version": local}
 
     channel = ch["channel"]
-    latest = str(channel.get("version") or "").lstrip("v").strip() or local
+    history = _history_list(channel)
+    entry = _latest_entry(channel)
+    latest = (entry or {}).get("version") or local
     ann = _announcement_from_channel(channel)
     notes = str(ann.get("body") or "") if ann else ""
     download_url = _default_download_url(latest) if latest else None
@@ -150,6 +205,7 @@ def check_for_update() -> dict[str, Any]:
         "latest_version": latest,
         "release_notes": notes,
         "announcement": ann,
+        "history": history,
         "html_url": html_url,
         "download_url": download_url,
         "asset_name": ASSET_NAME,
@@ -159,15 +215,21 @@ def check_for_update() -> dict[str, Any]:
 
 
 def fetch_announcement() -> dict[str, Any]:
-    """Read announcement from the same app_update.json channel file."""
+    """Latest announcement + full cumulative history from app_update.json."""
     ch = fetch_channel(prefer_remote=True)
     if not ch.get("ok"):
         return {"ok": False, "error": ch.get("error") or "获取公告失败"}
-    ann = _announcement_from_channel(ch["channel"])
-    if not ann:
-        return {"ok": True, "announcement": None, "message": "暂无公告", "source": ch.get("source")}
-    return {"ok": True, "announcement": ann, "source": ch.get("source")}
-
+    channel = ch["channel"]
+    history = _history_list(channel)
+    ann = _announcement_from_channel(channel)
+    if not ann and not history:
+        return {"ok": True, "announcement": None, "history": [], "message": "暂无公告", "source": ch.get("source")}
+    return {
+        "ok": True,
+        "announcement": ann,
+        "history": history,
+        "source": ch.get("source"),
+    }
 
 def download_update(download_url: str | None = None) -> dict[str, Any]:
     """Download latest (or given) exe next to the running binary as Nexuz_update.exe."""

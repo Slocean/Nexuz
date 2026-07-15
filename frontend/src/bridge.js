@@ -928,11 +928,18 @@ function mockCall(method, ...args) {
       return Promise.resolve({
         ok: true,
         announcement: {
-          id: 'browser-mock',
+          id: '0.1.0-dev',
+          version: '0.1.0-dev',
           title: '浏览器预览',
           body: '公告与热更新需在桌面客户端中使用。',
-          priority: 'info',
         },
+        history: [
+          {
+            version: '0.1.0-dev',
+            title: '浏览器预览',
+            body: '公告与热更新需在桌面客户端中使用。',
+          },
+        ],
       });
     case 'download_update':
     case 'apply_update':

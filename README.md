@@ -105,22 +105,31 @@ python trigger_release.py
 
 ### 客户端热更新与公告
 
-- 通道文件：[`app_update.json`](app_update.json)（`version` + `announcement`）
+- 通道文件：[`app_update.json`](app_update.json)（累计 `history`）
 - 客户端从 `main` 分支拉取该文件比对版本、展示公告
 - **检查更新**：顶栏 ↑，或「设置 → 关于与更新」
 - **热更新**：下载 Release 中的 `Nexuz.exe` →「立即更新」替换并重启（仅打包后的 exe）
 
-`app_update.json` 只需手填三项：
+`app_update.json` 是**累计更新记录**（不要覆盖旧条目）。发版时在 `history` **最前面**追加一条：
 
 ```json
 {
-  "version": "0.1.1",
-  "title": "0.1.1 更新公告",
-  "body": "修复了……\n新增了……"
+  "history": [
+    {
+      "version": "0.1.1",
+      "title": "0.1.1 更新",
+      "body": "修复了……\n新增了……"
+    },
+    {
+      "version": "0.1.0",
+      "title": "欢迎使用 Nexuz",
+      "body": "首次发布……"
+    }
+  ]
 }
 ```
 
-下载地址、Releases 链接等写死在代码里。未读公告按 `version` 判断（升版本即视为新公告）。
+最新版本 = `history[0].version`。客户端检查更新读第一条，公告页展示完整历史。
 
 ## 界面
 

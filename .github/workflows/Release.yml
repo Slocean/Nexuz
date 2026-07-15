@@ -44,7 +44,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             RAW="${{ inputs.version }}"
             if [ -z "$RAW" ]; then
-              RAW=$(python -c "import json; print(json.load(open('app_update.json',encoding='utf-8')).get('version',''))")
+              RAW=$(python -c "import json; d=json.load(open('app_update.json',encoding='utf-8')); h=d.get('history') if isinstance(d,dict) else None; print((h[0].get('version','') if isinstance(h,list) and h else d.get('version','')) if isinstance(d,dict) else '')")
             fi
           else
             RAW="${GITHUB_REF_NAME}"
@@ -84,6 +84,8 @@ jobs:
       - name: Build package
         env:
           NEXUZ_VERSION: ${{ steps.ver.outputs.version }}
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
         run: python package.py --version ${{ steps.ver.outputs.version }}
 
       - name: Upload artifact

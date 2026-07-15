@@ -125,6 +125,7 @@ export default function SettingsPage({
   const [updateInfo, setUpdateInfo] = useState<any>(null);
   const [downloadedPath, setDownloadedPath] = useState('');
   const [announcement, setAnnouncement] = useState<any>(null);
+  const [updateHistory, setUpdateHistory] = useState<any[]>([]);
   const [annBusy, setAnnBusy] = useState(false);
 
   const refreshFrida = useCallback(async () => {
@@ -190,13 +191,16 @@ export default function SettingsPage({
     setAnnBusy(true);
     try {
       const res = await withTimeout(bridge.fetchAnnouncement(), 15000, '获取公告');
-      if (res?.ok && res.announcement) {
-        setAnnouncement(res.announcement);
+      if (res?.ok) {
+        setAnnouncement(res.announcement || null);
+        setUpdateHistory(Array.isArray(res.history) ? res.history : []);
       } else {
         setAnnouncement(null);
+        setUpdateHistory([]);
       }
     } catch {
       setAnnouncement(null);
+      setUpdateHistory([]);
     } finally {
       setAnnBusy(false);
     }
@@ -380,17 +384,31 @@ export default function SettingsPage({
   };
 
   const handleShowAnnouncement = async () => {
-    if (!announcement?.body) {
-      await alert({ title: '公告', description: '暂无公告' });
+    const list = updateHistory.length
+      ? updateHistory
+      : announcement
+        ? [announcement]
+        : [];
+    if (!list.length) {
+      await alert({ title: '更新记录', description: '暂无公告' });
       return;
     }
+    const text = list
+      .map((item: any) => {
+        const ver = item.version || item.id || '';
+        const title = item.title || '更新';
+        const body = String(item.body || '').trim();
+        return `[${ver}] ${title}${body ? `\n${body}` : ''}`;
+      })
+      .join('\n\n────────\n\n');
     await alert({
-      title: announcement.title || '公告',
-      description: String(announcement.body),
+      title: '更新记录',
+      description: text,
     });
-    if (announcement.id) {
+    const latestId = list[0]?.version || list[0]?.id || announcement?.id;
+    if (latestId) {
       try {
-        localStorage.setItem(ANN_READ_KEY, String(announcement.id));
+        localStorage.setItem(ANN_READ_KEY, String(latestId));
       } catch {
         /* ignore */
       }
@@ -506,23 +524,32 @@ export default function SettingsPage({
           </div>
           <Separator />
 
-          {announcement?.body ? (
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm font-medium" style={{ color: colors.text }}>
-                  {announcement.title || '公告'}
-                </p>
-                <p
-                  className="text-sm leading-relaxed mt-1 whitespace-pre-wrap"
-                  style={{ color: colors.secondaryText }}
+          {updateHistory.length > 0 || announcement?.body ? (
+            <div className="space-y-4">
+              {(updateHistory.length ? updateHistory : [announcement]).map((item: any, idx: number) => (
+                <div
+                  key={`${item.version || item.id || idx}`}
+                  className={idx > 0 ? 'pt-3 border-t' : ''}
+                  style={idx > 0 ? { borderColor: colors.border } : undefined}
                 >
-                  {String(announcement.body).length > 280
-                    ? `${String(announcement.body).slice(0, 280)}…`
-                    : announcement.body}
-                </p>
-              </div>
+                  <p className="text-sm font-medium" style={{ color: colors.text }}>
+                    <span className="font-mono text-xs opacity-70 mr-2">
+                      v{item.version || item.id || '?'}
+                    </span>
+                    {item.title || '更新'}
+                  </p>
+                  <p
+                    className="text-sm leading-relaxed mt-1 whitespace-pre-wrap"
+                    style={{ color: colors.secondaryText }}
+                  >
+                    {String(item.body || '').length > 200
+                      ? `${String(item.body).slice(0, 200)}…`
+                      : item.body}
+                  </p>
+                </div>
+              ))}
               <Button type="button" size="sm" variant="outline" onClick={() => void handleShowAnnouncement()}>
-                查看全文
+                查看全部
               </Button>
             </div>
           ) : (

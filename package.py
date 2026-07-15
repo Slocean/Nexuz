@@ -55,7 +55,7 @@ def ensure_app_icon(*, force: bool = False) -> Path:
     """Build Windows .ico from logo.png for the exe + taskbar icon."""
     src = ROOT / "logo.png"
     if not src.exists():
-        raise SystemExit("missing logo.png — cannot set exe icon")
+        raise SystemExit("missing logo.png - cannot set exe icon")
 
     if (
         not force
@@ -95,7 +95,7 @@ def build_frontend() -> None:
         print(f"OK: synced {public_logo}")
     npm = shutil.which("npm")
     if not npm:
-        raise SystemExit("npm not found — install Node.js 18+")
+        raise SystemExit("npm not found - install Node.js 18+")
     if not (FRONTEND / "node_modules").exists():
         run([npm, "install"], cwd=FRONTEND)
     run([npm, "run", "build"], cwd=FRONTEND)
@@ -136,7 +136,7 @@ def build_exe(*, onefile: bool) -> None:
     icon = ensure_app_icon(force=True)
     datas = collect_datas()
     if not any(d[1].startswith("frontend/dist") for d in datas):
-        raise SystemExit("frontend/dist not found — run without --skip-frontend")
+        raise SystemExit("frontend/dist not found - run without --skip-frontend")
 
     # Clean previous bundle output (keep other files under dist/)
     target_name = "Nexuz"
@@ -200,7 +200,7 @@ def build_exe(*, onefile: bool) -> None:
     else:
         exe_path = OUT_DIR / target_name / f"{target_name}.exe"
         print(f"\nOK: {exe_path}")
-        print("  (onedir — keep the whole folder together)")
+        print("  (onedir - keep the whole folder together)")
         finalize_windows_exe_icon(exe_path)
 
 
@@ -258,14 +258,23 @@ def read_channel_version() -> str | None:
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        ver = str(data.get("version") or "").strip().lstrip("v")
-        return ver or None
+        if isinstance(data, dict) and isinstance(data.get("history"), list) and data["history"]:
+            first = data["history"][0]
+            if isinstance(first, dict):
+                ver = str(first.get("version") or "").strip().lstrip("v")
+                if ver:
+                    return ver
+        # Legacy flat format
+        if isinstance(data, dict):
+            ver = str(data.get("version") or "").strip().lstrip("v")
+            return ver or None
+        return None
     except Exception:
         return None
 
 
 def inject_version(version: str) -> None:
-    """Bake version into backend/version.py and sync app_update.json."""
+    """Bake version into backend/version.py only (do not rewrite app_update history)."""
     ver = str(version or "").strip().lstrip("v")
     if not ver:
         raise SystemExit("empty --version")
@@ -282,25 +291,7 @@ def inject_version(version: str) -> None:
     if n != 1:
         raise SystemExit(f"failed to patch __version__ in {path}")
     path.write_text(updated, encoding="utf-8")
-    print(f"OK: injected version {ver} → {path}")
-
-    channel_path = ROOT / "app_update.json"
-    if channel_path.is_file():
-        try:
-            data = json.loads(channel_path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                data = {}
-            data["version"] = ver
-            # Preserve title/body; strip obsolete fixed fields if present
-            for dead in ("download_url", "release_url", "notes", "announcement"):
-                data.pop(dead, None)
-            channel_path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            print(f"OK: synced version {ver} → {channel_path}")
-        except Exception as exc:
-            print(f"! failed to sync app_update.json: {exc}")
+    print(f"OK: injected version {ver} -> {path}")
 
 
 def main() -> None:
@@ -334,7 +325,7 @@ def main() -> None:
     if not args.skip_frontend:
         build_frontend()
     elif not DIST_UI.exists():
-        raise SystemExit("frontend/dist missing — remove --skip-frontend")
+        raise SystemExit("frontend/dist missing - remove --skip-frontend")
     else:
         # Still refresh UI logo even when skipping full rebuild
         root_logo = ROOT / "logo.png"
