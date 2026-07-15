@@ -8,7 +8,8 @@ import {
   Palette,
   RefreshCw,
   Check,
-  FolderOpen,
+  Download,
+  Upload,
   CircleDot,
   Pause,
   Square,
@@ -52,7 +53,8 @@ interface ToolbarProps {
   onClearCanvas: () => void;
   onBackToMain?: () => void;
   onSave?: () => Promise<boolean> | boolean | void;
-  onOpen?: () => void;
+  onImport?: () => void;
+  onExport?: () => void;
   onToggleRecord?: () => void;
   recording?: boolean;
   onPause?: () => void;
@@ -78,7 +80,8 @@ export default function Toolbar({
   onClearCanvas,
   onBackToMain,
   onSave,
-  onOpen,
+  onImport,
+  onExport,
   onToggleRecord,
   recording,
   onPause,
@@ -325,10 +328,17 @@ export default function Toolbar({
             <span className={isSaved ? 'text-emerald-500' : undefined}>{isSaved ? '已保存' : '保存'}</span>
           </Button>
 
-          {onOpen && (
-            <Button variant="ghost" size="sm" onClick={onOpen} title="打开">
-              <FolderOpen className="w-3.5 h-3.5 opacity-80" />
-              <span>打开</span>
+          {onImport && (
+            <Button variant="ghost" size="sm" onClick={onImport} title="从文件导入流程">
+              <Upload className="w-3.5 h-3.5 opacity-80" />
+              <span>导入</span>
+            </Button>
+          )}
+
+          {onExport && (
+            <Button variant="ghost" size="sm" onClick={onExport} title="导出流程到文件">
+              <Download className="w-3.5 h-3.5 opacity-80" />
+              <span>导出</span>
             </Button>
           )}
 

@@ -5,6 +5,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   EyeOff,
   ExternalLink,
+  FolderOpen,
+  HardDrive,
   Info,
   Link2,
   Megaphone,
@@ -12,6 +14,7 @@ import {
   MousePointer2,
   RefreshCw,
   Settings2,
+  Trash2,
   Unplug,
   ChevronDown,
   ChevronRight,
@@ -138,6 +141,27 @@ export default function SettingsPage({
   const [annOpenIds, setAnnOpenIds] = useState<Record<string, boolean>>({});
   const [annBusy, setAnnBusy] = useState(false);
 
+  const [dataDirPath, setDataDirPath] = useState('');
+  const [dataDirDefault, setDataDirDefault] = useState('');
+  const [dataDirExists, setDataDirExists] = useState(false);
+  const [dataDirIsDefault, setDataDirIsDefault] = useState(true);
+  const [dataDirBusy, setDataDirBusy] = useState(false);
+  const [dataDirMsg, setDataDirMsg] = useState('');
+
+  const refreshDataDir = useCallback(async () => {
+    try {
+      const info = await bridge.getDataDirInfo();
+      if (info?.ok) {
+        setDataDirPath(String(info.path || ''));
+        setDataDirDefault(String(info.default_path || ''));
+        setDataDirExists(!!info.exists);
+        setDataDirIsDefault(info.is_default !== false);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const refreshFrida = useCallback(async () => {
     try {
       const st = await bridge.fridaStatus();
@@ -239,7 +263,96 @@ export default function SettingsPage({
   useEffect(() => {
     void loadAbout();
     void loadAnnouncement();
-  }, [loadAbout, loadAnnouncement]);
+    void refreshDataDir();
+  }, [loadAbout, loadAnnouncement, refreshDataDir]);
+
+  const handleOpenDataDir = async () => {
+    setDataDirBusy(true);
+    setDataDirMsg('');
+    try {
+      const res = await bridge.openDataDir();
+      if (!res?.ok) setDataDirMsg(res?.error || '无法打开数据目录');
+    } catch (e: any) {
+      setDataDirMsg(String(e?.message || e));
+    } finally {
+      setDataDirBusy(false);
+    }
+  };
+
+  const handlePickDataDir = async () => {
+    setDataDirBusy(true);
+    setDataDirMsg('');
+    try {
+      const res = await bridge.pickDataDir();
+      if (res?.cancelled) return;
+      if (!res?.ok) {
+        setDataDirMsg(res?.error || '更改失败');
+        return;
+      }
+      setDataDirMsg(`已更改存储位置：${res.path}`);
+      await refreshDataDir();
+    } catch (e: any) {
+      setDataDirMsg(String(e?.message || e));
+    } finally {
+      setDataDirBusy(false);
+    }
+  };
+
+  const handleResetDataDir = async () => {
+    const ok = await confirm({
+      title: '恢复默认存储位置',
+      description: `将改回默认路径：\n${dataDirDefault || '%LOCALAPPDATA%\\Nexuz'}\n不会自动搬移已有文件。`,
+      confirmText: '恢复默认',
+    });
+    if (!ok) return;
+    setDataDirBusy(true);
+    setDataDirMsg('');
+    try {
+      const res = await bridge.setDataDirPath(null);
+      if (!res?.ok) {
+        setDataDirMsg(res?.error || '恢复失败');
+        return;
+      }
+      setDataDirMsg(`已恢复默认：${res.path}`);
+      await refreshDataDir();
+    } catch (e: any) {
+      setDataDirMsg(String(e?.message || e));
+    } finally {
+      setDataDirBusy(false);
+    }
+  };
+
+  const handleClearDataDir = async () => {
+    const ok = await confirm({
+      title: '清空数据目录',
+      description: `将永久删除整个数据文件夹及其内容（流程、模板、截图等）：\n${dataDirPath || '（未知）'}\n\n此操作不可恢复。清空后目录会被移除，只有再次保存到此位置时才会新建。`,
+      confirmText: '删除整个文件夹',
+      destructive: true,
+    });
+    if (!ok) return;
+    const ok2 = await confirm({
+      title: '再次确认',
+      description: '确定要删除整个数据目录吗？',
+      confirmText: '确定删除',
+      destructive: true,
+    });
+    if (!ok2) return;
+    setDataDirBusy(true);
+    setDataDirMsg('');
+    try {
+      const res = await bridge.clearDataDir();
+      if (!res?.ok) {
+        setDataDirMsg(res?.error || '清空失败');
+        return;
+      }
+      setDataDirMsg(res.deleted ? '数据目录已删除' : res.message || '目录本就不存在');
+      await refreshDataDir();
+    } catch (e: any) {
+      setDataDirMsg(String(e?.message || e));
+    } finally {
+      setDataDirBusy(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = processFilter.trim().toLowerCase();
@@ -426,6 +539,65 @@ export default function SettingsPage({
               点击「检查更新」可下载并安装新版本；下载进度与「立即更新」都在同一弹窗内完成。
             </p>
           )}
+        </section>
+
+        <section
+          className="rounded-2xl border p-5 space-y-4"
+          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        >
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
+            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
+              数据存储
+            </h2>
+          </div>
+          <Separator />
+
+          <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+            流程、模板、截图等保存在本机数据目录（默认 %LOCALAPPDATA%\Nexuz）。热更新只替换程序，不会动这里。
+          </p>
+
+          <div
+            className="rounded-xl border px-3 py-2.5 font-mono text-xs break-all"
+            style={{ borderColor: colors.border, color: colors.text }}
+          >
+            {dataDirPath || '…'}
+            <span className="block mt-1 opacity-60">
+              {dataDirExists ? '目录存在' : '目录不存在（保存后会自动创建）'}
+              {dataDirIsDefault ? ' · 默认位置' : ' · 自定义位置'}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" disabled={dataDirBusy} onClick={() => void handleOpenDataDir()}>
+              <FolderOpen className="w-3.5 h-3.5" />
+              打开数据目录
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={dataDirBusy} onClick={() => void handlePickDataDir()}>
+              更改位置
+            </Button>
+            {!dataDirIsDefault && (
+              <Button type="button" size="sm" variant="ghost" disabled={dataDirBusy} onClick={() => void handleResetDataDir()}>
+                恢复默认
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={dataDirBusy}
+              className="text-rose-500 border-rose-500/40 hover:bg-rose-500/10"
+              onClick={() => void handleClearDataDir()}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              清空数据目录
+            </Button>
+          </div>
+          {dataDirMsg ? (
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+              {dataDirMsg}
+            </p>
+          ) : null}
         </section>
 
         <section

@@ -1,8 +1,8 @@
 /**
- * Flow library panel — lists flows under project /flows.
+ * Flow library panel — lists flows in the user data directory.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { FolderOpen, Plus, RefreshCw, Trash2, FileJson } from 'lucide-react';
+import { Download, Plus, RefreshCw, Trash2, FileJson, Upload } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { bridge } from '@/bridge';
@@ -22,19 +22,22 @@ export default function FlowLibrary({
   currentPath,
   onOpenFlow,
   onNewFlow,
-  onOpenFromDisk,
+  onImport,
+  onExport,
+  refreshToken = 0,
 }: {
   themeName: ThemeName;
   themeMode: ThemeMode;
   currentPath?: string | null;
   onOpenFlow: (path: string) => void;
   onNewFlow: () => void;
-  onOpenFromDisk?: () => void;
+  onImport?: () => void;
+  onExport?: () => void;
+  refreshToken?: number;
 }) {
   const { confirm } = useAppDialog();
   const colors = getThemeColors(themeName, themeMode);
   const [flows, setFlows] = useState<FlowListItem[]>([]);
-  const [dir, setDir] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +51,6 @@ export default function FlowLibrary({
         setFlows([]);
       } else {
         setFlows(Array.isArray(res?.flows) ? res.flows : []);
-        setDir(res?.dir || '');
       }
     } catch (e: any) {
       setError(String(e?.message || e));
@@ -60,12 +62,12 @@ export default function FlowLibrary({
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, refreshToken]);
 
   const remove = async (item: FlowListItem) => {
     const ok = await confirm({
       title: '删除流程',
-      description: `确定删除流程「${item.name}」？\n${item.path}`,
+      description: `确定删除流程「${item.name}」？此操作不可恢复。`,
       confirmText: '删除',
       destructive: true,
     });
@@ -100,17 +102,17 @@ export default function FlowLibrary({
           <Button size="sm" className="flex-1 h-8 text-xs" onClick={onNewFlow}>
             <Plus className="w-3.5 h-3.5" /> 新建
           </Button>
-          {onOpenFromDisk && (
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onOpenFromDisk} title="从任意位置打开">
-              <FolderOpen className="w-3.5 h-3.5" />
+          {onImport && (
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onImport} title="导入">
+              <Upload className="w-3.5 h-3.5" />
+            </Button>
+          )}
+          {onExport && (
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onExport} title="导出当前流程">
+              <Download className="w-3.5 h-3.5" />
             </Button>
           )}
         </div>
-        {dir && (
-          <p style={{ color: colors.secondaryText }} className="text-xs truncate" title={dir}>
-            目录: {dir}
-          </p>
-        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
@@ -137,7 +139,7 @@ export default function FlowLibrary({
                 type="button"
                 className="min-w-0 flex-1 text-left"
                 onClick={() => onOpenFlow(f.path)}
-                title={f.path}
+                title={f.name}
               >
                 <div className="flex items-center gap-1.5">
                   <FileJson className="w-3.5 h-3.5 shrink-0 opacity-60" />

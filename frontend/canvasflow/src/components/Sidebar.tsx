@@ -25,7 +25,9 @@ interface SidebarProps {
   currentFlowPath?: string | null;
   onOpenFlowPath?: (path: string) => void;
   onNewFlow?: () => void;
-  onOpenFromDisk?: () => void;
+  onImportFlow?: () => void;
+  onExportFlow?: () => void;
+  flowsRefreshToken?: number;
 }
 
 const nexuzCatColor: Record<string, string> = {
@@ -126,7 +128,9 @@ export default function Sidebar({
   currentFlowPath = null,
   onOpenFlowPath,
   onNewFlow,
-  onOpenFromDisk,
+  onImportFlow,
+  onExportFlow,
+  flowsRefreshToken = 0,
 }: SidebarProps) {
   const colors = getThemeColors(themeName, themeMode);
   const [query, setQuery] = useState('');
@@ -223,7 +227,9 @@ export default function Sidebar({
             currentPath={currentFlowPath}
             onOpenFlow={(path) => onOpenFlowPath?.(path)}
             onNewFlow={() => onNewFlow?.()}
-            onOpenFromDisk={onOpenFromDisk}
+            onImport={onImportFlow}
+            onExport={onExportFlow}
+            refreshToken={flowsRefreshToken}
           />
         ) : (
       <Tabs defaultValue="components" className="flex flex-col h-full min-h-0">

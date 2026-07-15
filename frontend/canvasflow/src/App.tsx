@@ -155,6 +155,7 @@ function AppShell() {
   const [recording, setRecording] = useState(false);
   const [recordingMode, setRecordingMode] = useState<'coord' | 'frida_ui'>('coord');
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [flowsRefreshToken, setFlowsRefreshToken] = useState(0);
 
   const colors = getThemeColors(themeName as any, themeMode as any);
   // paused / stopping / stepping still own the interpreter — must not start a second run
@@ -568,19 +569,18 @@ function AppShell() {
   );
 
   const handleSave = async () => {
-    // Already saved once → overwrite in place
     if (filePath) {
       const res = await bridge.saveFlow(flow, filePath, flow.name || null);
       if (res?.ok) {
         useFlowStore.setState({ filePath: res.path });
         if (res.name) updateFlowMeta({ name: res.name });
-        appendLog({ level: 'ok', message: `已保存: ${res.path}` });
+        setFlowsRefreshToken((n) => n + 1);
+        appendLog({ level: 'ok', message: `已保存: ${res.name || flow.name || '流程'}` });
         return true;
       }
       if (!res?.cancelled) appendLog({ level: 'error', message: res?.error || '保存失败' });
       return false;
     }
-    // First save → ask for a name
     setSaveDialogOpen(true);
     return false;
   };
@@ -592,20 +592,31 @@ function AppShell() {
     const res = await bridge.saveFlow(payload, null, name);
     if (res?.ok) {
       useFlowStore.setState({ filePath: res.path });
-      appendLog({ level: 'ok', message: `已保存: ${res.path}` });
+      setFlowsRefreshToken((n) => n + 1);
+      appendLog({ level: 'ok', message: `已保存: ${name}` });
       return true;
     }
     if (!res?.cancelled) appendLog({ level: 'error', message: res?.error || '保存失败' });
     return false;
   };
 
-  const handleOpen = async () => {
-    const res = await bridge.loadFlow();
+  const handleImport = async () => {
+    const res = await bridge.importFlow();
     if (res?.ok && res.flow) {
       setFlow(res.flow, res.path);
-      appendLog({ level: 'ok', message: `已打开: ${res.path}` });
+      setFlowsRefreshToken((n) => n + 1);
+      appendLog({ level: 'ok', message: `已导入: ${res.name || res.flow.name || '流程'}` });
     } else if (!res?.cancelled) {
-      appendLog({ level: 'error', message: res?.error || '打开失败' });
+      appendLog({ level: 'error', message: res?.error || '导入失败' });
+    }
+  };
+
+  const handleExport = async () => {
+    const res = await bridge.exportFlow(flow, flow.name || null);
+    if (res?.ok) {
+      appendLog({ level: 'ok', message: `已导出: ${res.path || flow.name || '流程'}` });
+    } else if (!res?.cancelled) {
+      appendLog({ level: 'error', message: res?.error || '导出失败' });
     }
   };
 
@@ -613,7 +624,7 @@ function AppShell() {
     const res = await bridge.loadFlow(path);
     if (res?.ok && res.flow) {
       setFlow(res.flow, res.path);
-      appendLog({ level: 'ok', message: `已打开: ${res.path}` });
+      appendLog({ level: 'ok', message: `已打开: ${res.flow.name || path}` });
     } else if (!res?.cancelled) {
       appendLog({ level: 'error', message: res?.error || '打开失败' });
     }
@@ -1060,7 +1071,8 @@ function AppShell() {
         isAssistantOpen={isAssistantOpen}
         onClearCanvas={handleClearCanvas}
         onSave={handleSave}
-        onOpen={handleOpen}
+        onImport={handleImport}
+        onExport={handleExport}
         onToggleRecord={handleToggleRecord}
         recording={recording}
         onPause={handlePause}
@@ -1088,7 +1100,9 @@ function AppShell() {
           currentFlowPath={filePath}
           onOpenFlowPath={handleOpenFlowPath}
           onNewFlow={handleNewFlow}
-          onOpenFromDisk={handleOpen}
+          onImportFlow={handleImport}
+          onExportFlow={handleExport}
+          flowsRefreshToken={flowsRefreshToken}
         />
 
         {viewMode === 'settings' ? (

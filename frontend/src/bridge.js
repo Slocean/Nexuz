@@ -971,7 +971,38 @@ function mockCall(method, ...args) {
     case 'list_schedule_jobs':
       return Promise.resolve({ ok: true, jobs: [] });
     case 'list_flows':
-      return Promise.resolve({ ok: true, flows: [], dir: '' });
+      return Promise.resolve({ ok: true, flows: [], dir: '', exists: false });
+    case 'get_data_dir_info':
+      return Promise.resolve({
+        ok: true,
+        path: 'localStorage/nexuz',
+        exists: true,
+        default_path: 'localStorage/nexuz',
+        is_default: true,
+      });
+    case 'pick_data_dir':
+    case 'set_data_dir_path':
+    case 'open_data_dir':
+    case 'clear_data_dir':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持数据目录操作' });
+    case 'export_flow': {
+      try {
+        const flow = typeof args[0] === 'string' ? JSON.parse(args[0]) : args[0];
+        const name = String(args[1] || flow?.name || 'flow').trim() || 'flow';
+        const blob = new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name.endsWith('.flow.json') ? name : `${name}.flow.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        return Promise.resolve({ ok: true, path: a.download, name: flow?.name });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
+    }
+    case 'import_flow':
+      return Promise.resolve({ ok: false, error: '浏览器预览请使用桌面客户端导入' });
     case 'pick_flow_file':
       return Promise.resolve({ ok: false, cancelled: true, error: '浏览器预览请手动填写路径' });
     case 'list_flow_templates': {
@@ -1171,6 +1202,14 @@ export const bridge = {
   saveFlow: (flow, filepath = null, name = null) =>
     call('save_flow', JSON.stringify(flow), filepath, name),
   loadFlow: (filepath = null) => call('load_flow', filepath),
+  exportFlow: (flow, filename = null) =>
+    call('export_flow', JSON.stringify(flow), filename),
+  importFlow: () => call('import_flow'),
+  getDataDirInfo: () => call('get_data_dir_info'),
+  pickDataDir: () => call('pick_data_dir'),
+  setDataDirPath: (path = null) => call('set_data_dir_path', path),
+  openDataDir: () => call('open_data_dir'),
+  clearDataDir: () => call('clear_data_dir'),
   listFlowTemplates: () => call('list_flow_templates'),
   saveFlowTemplate: (flow, name = null, description = null) =>
     call('save_flow_template', JSON.stringify(flow), name, description),

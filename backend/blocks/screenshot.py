@@ -44,9 +44,9 @@ def handler(params, context, **kwargs):
         out = Path(save_path)
         out.parent.mkdir(parents=True, exist_ok=True)
     else:
-        from backend.paths import exe_dir
+        from backend.paths import get_data_dir
 
-        shots = exe_dir() / "screenshots"
+        shots = get_data_dir(create=True) / "screenshots"
         shots.mkdir(parents=True, exist_ok=True)
         out = shots / f"shot_{strftime('%Y%m%d_%H%M%S')}.png"
 

@@ -19,7 +19,14 @@ from backend.core.recorder import get_recorder
 from backend.core.registry import get_schemas, register_all_blocks
 from backend.core.run_hotkeys import PAUSE_LABEL, STOP_LABEL, get_run_hotkeys
 from backend.core.run_overlay import hide_run_overlay, show_run_overlay
-from backend.paths import exe_dir, project_root
+from backend.paths import (
+    default_data_dir,
+    exe_dir,
+    get_data_dir,
+    load_app_config,
+    project_root,
+    set_data_dir,
+)
 
 try:
     from jsonschema import Draft202012Validator
@@ -578,12 +585,155 @@ class Api:
             "debug_mode": bool(getattr(interp, "debug_mode", False)),
         }
 
-    # --- file / flow library ---
-    def _flows_dir(self) -> Path:
-        # Writable next to exe when frozen; project root in dev.
-        d = exe_dir() / "flows"
-        d.mkdir(parents=True, exist_ok=True)
+    # --- user data directory (AppData by default) ---
+    def _data_root(self, *, create: bool = False) -> Path:
+        return get_data_dir(create=create)
+
+    def _flows_dir(self, *, create: bool = False) -> Path:
+        d = self._data_root(create=create) / "flows"
+        if create:
+            d.mkdir(parents=True, exist_ok=True)
         return d
+
+    def _flow_templates_dir(self, *, create: bool = False) -> Path:
+        d = self._data_root(create=create) / "flow_templates"
+        if create:
+            d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _templates_dir(self, *, create: bool = False) -> Path:
+        d = self._data_root(create=create) / "templates"
+        if create:
+            d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _is_under_dir(self, path: Path, folder: Path) -> bool:
+        try:
+            resolved = path.resolve()
+            root = folder.resolve()
+        except Exception:
+            return False
+        return root in resolved.parents or resolved.parent == root
+
+    def _migrate_legacy_user_data(self) -> None:
+        """One-shot: copy exe-side flows/templates into AppData if target is empty."""
+        try:
+            cfg = load_app_config()
+            if cfg.get("migrated_from_exe"):
+                return
+            dest_root = self._data_root(create=False)
+            pairs = [
+                (exe_dir() / "flows", dest_root / "flows"),
+                (exe_dir() / "flow_templates", dest_root / "flow_templates"),
+                (exe_dir() / "templates", dest_root / "templates"),
+            ]
+            migrated_any = False
+            for src, dest in pairs:
+                if not src.is_dir():
+                    continue
+                files = [p for p in src.iterdir() if p.is_file()]
+                if not files:
+                    continue
+                if dest.exists() and any(dest.iterdir()):
+                    continue
+                dest.mkdir(parents=True, exist_ok=True)
+                import shutil
+
+                for f in files:
+                    target = dest / f.name
+                    if not target.exists():
+                        shutil.copy2(f, target)
+                        migrated_any = True
+            cfg = load_app_config()
+            cfg["migrated_from_exe"] = True
+            from backend.paths import save_app_config
+
+            save_app_config(cfg)
+            if migrated_any:
+                pass
+        except Exception:
+            pass
+
+    def get_data_dir_info(self) -> dict:
+        self._migrate_legacy_user_data()
+        root = self._data_root(create=False)
+        default = default_data_dir()
+        cfg = load_app_config()
+        custom = bool(cfg.get("data_dir"))
+        return {
+            "ok": True,
+            "path": str(root),
+            "exists": root.is_dir(),
+            "default_path": str(default),
+            "is_default": not custom,
+        }
+
+    def pick_data_dir(self) -> dict:
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        current = self._data_root(create=False)
+        start = str(current if current.is_dir() else current.parent)
+        result = self._window.create_file_dialog(
+            webview.FOLDER_DIALOG,
+            directory=start,
+            allow_multiple=False,
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+        folder = result[0] if isinstance(result, (list, tuple)) else result
+        path = set_data_dir(folder)
+        return {"ok": True, "path": str(path), "exists": path.is_dir(), "is_default": False}
+
+    def set_data_dir_path(self, path: str | None = None) -> dict:
+        """Set custom data dir, or pass empty/None to reset to default AppData."""
+        try:
+            root = set_data_dir(path)
+            return {
+                "ok": True,
+                "path": str(root),
+                "exists": root.is_dir(),
+                "is_default": not bool(path and str(path).strip()),
+                "default_path": str(default_data_dir()),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def open_data_dir(self) -> dict:
+        root = self._data_root(create=False)
+        if not root.is_dir():
+            return {
+                "ok": False,
+                "error": "数据目录不存在（可能已清空；保存流程后会自动创建）",
+                "path": str(root),
+            }
+        try:
+            os.startfile(str(root))  # type: ignore[attr-defined]
+            return {"ok": True, "path": str(root)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "path": str(root)}
+
+    def clear_data_dir(self) -> dict:
+        """Delete the entire data directory tree. Recreated only on next save."""
+        import shutil
+
+        root = self._data_root(create=False)
+        path_str = str(root)
+        if not root.exists():
+            return {"ok": True, "path": path_str, "deleted": False, "message": "目录本就不存在"}
+        try:
+            # If config lives inside the data root, preserve data_dir preference then wipe.
+            cfg = load_app_config()
+            custom = cfg.get("data_dir")
+            shutil.rmtree(root)
+            # Recreate config-only stub under default AppData when we wiped the default root.
+            if custom:
+                set_data_dir(custom)
+            else:
+                # default root deleted (incl. config) — nothing to restore
+                pass
+            return {"ok": True, "path": path_str, "deleted": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "path": path_str}
 
     @staticmethod
     def _safe_flow_filename(name: str) -> str:
@@ -597,10 +747,26 @@ class Api:
                 safe = f"{safe}.flow.json"
         return safe
 
+    def _unique_flow_path(self, name: str) -> Path:
+        folder = self._flows_dir(create=True)
+        base = self._safe_flow_filename(name)
+        path = folder / base
+        if not path.exists():
+            return path
+        stem = base[: -len(".flow.json")] if base.lower().endswith(".flow.json") else Path(base).stem
+        for i in range(2, 1000):
+            candidate = folder / f"{stem}_{i}.flow.json"
+            if not candidate.exists():
+                return candidate
+        return folder / f"{stem}_{int(time.time())}.flow.json"
+
     def list_flows(self) -> dict:
-        """List flows saved under project /flows directory."""
+        """List flows in the user data library."""
+        self._migrate_legacy_user_data()
         items = []
-        folder = self._flows_dir()
+        folder = self._flows_dir(create=False)
+        if not folder.is_dir():
+            return {"ok": True, "flows": [], "dir": str(folder), "exists": False}
         for path in sorted(folder.glob("*.flow.json"), key=lambda p: p.stat().st_mtime, reverse=True):
             name = path.stem.replace(".flow", "") if path.name.endswith(".flow.json") else path.stem
             try:
@@ -617,15 +783,15 @@ class Api:
                     "size": st.st_size,
                 }
             )
-        return {"ok": True, "flows": items, "dir": str(folder)}
+        return {"ok": True, "flows": items, "dir": str(folder), "exists": True}
 
     def delete_flow(self, filepath: str) -> dict:
         path = Path(str(filepath))
-        flows = self._flows_dir().resolve()
+        flows = self._flows_dir(create=False)
         try:
+            if not flows.is_dir() or not self._is_under_dir(path, flows):
+                return {"ok": False, "error": "只能删除数据目录内的流程"}
             resolved = path.resolve()
-            if flows not in resolved.parents and resolved.parent != flows:
-                return {"ok": False, "error": "只能删除 flows 目录内的流程"}
             if not resolved.is_file():
                 return {"ok": False, "error": "文件不存在"}
             resolved.unlink()
@@ -634,15 +800,13 @@ class Api:
             return {"ok": False, "error": str(exc)}
 
     # --- flow templates library (流程模板，不同于截图 templates/) ---
-    def _flow_templates_dir(self) -> Path:
-        d = exe_dir() / "flow_templates"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
-
     def list_flow_templates(self) -> dict:
-        """List user-saved flow templates under /flow_templates."""
+        """List user-saved flow templates under data_dir/flow_templates."""
+        self._migrate_legacy_user_data()
         items = []
-        folder = self._flow_templates_dir()
+        folder = self._flow_templates_dir(create=False)
+        if not folder.is_dir():
+            return {"ok": True, "templates": [], "dir": str(folder)}
         for path in sorted(folder.glob("*.flow.json"), key=lambda p: p.stat().st_mtime, reverse=True):
             name = path.stem.replace(".flow", "") if path.name.endswith(".flow.json") else path.stem
             description = ""
@@ -679,17 +843,17 @@ class Api:
         err = self._validate_flow(flow)
         if err:
             return {"ok": False, "error": err}
-        path = self._flow_templates_dir() / self._safe_flow_filename(tpl_name)
+        path = self._flow_templates_dir(create=True) / self._safe_flow_filename(tpl_name)
         path.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"ok": True, "path": str(path), "name": tpl_name}
 
     def delete_flow_template(self, filepath: str) -> dict:
         path = Path(str(filepath))
-        folder = self._flow_templates_dir().resolve()
+        folder = self._flow_templates_dir(create=False)
         try:
+            if not folder.is_dir() or not self._is_under_dir(path, folder):
+                return {"ok": False, "error": "只能删除数据目录内的模板"}
             resolved = path.resolve()
-            if folder not in resolved.parents and resolved.parent != folder:
-                return {"ok": False, "error": "只能删除 flow_templates 目录内的模板"}
             if not resolved.is_file():
                 return {"ok": False, "error": "文件不存在"}
             resolved.unlink()
@@ -700,43 +864,106 @@ class Api:
     def load_flow_template(self, filepath: str) -> dict:
         """Load a flow template by path (must be under flow_templates/)."""
         path = Path(str(filepath))
-        folder = self._flow_templates_dir().resolve()
+        folder = self._flow_templates_dir(create=False)
         try:
+            if not folder.is_dir() or not self._is_under_dir(path, folder):
+                return {"ok": False, "error": "只能加载数据目录内的模板"}
             resolved = path.resolve()
-            if folder not in resolved.parents and resolved.parent != folder:
-                return {"ok": False, "error": "只能加载 flow_templates 目录内的模板"}
+            if not resolved.is_file():
+                return {"ok": False, "error": "模板不存在"}
+            data = json.loads(resolved.read_text(encoding="utf-8"))
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
-        return self.load_flow(str(path))
+        err = self._validate_flow(data)
+        if err:
+            return {"ok": False, "error": err, "path": str(path)}
+        return {"ok": True, "flow": data, "path": str(path)}
 
     def save_flow(self, flow_json: str, filepath: str | None = None, name: str | None = None) -> dict:
+        """Save into the user data library (creates data dir if needed)."""
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+        if not isinstance(flow, dict):
+            return {"ok": False, "error": "无效的流程对象"}
         if name and str(name).strip():
             flow = {**flow, "name": str(name).strip()}
 
-        if not filepath:
-            # Prefer library save when a name is provided
-            if name and str(name).strip():
-                filepath = str(self._flows_dir() / self._safe_flow_filename(str(name).strip()))
-            else:
-                result = (
-                    self._window.create_file_dialog(
-                        webview.SAVE_DIALOG,
-                        directory=str(self._flows_dir()),
-                        save_filename=self._safe_flow_filename(flow.get("name") or "flow"),
-                        file_types=("Flow JSON (*.flow.json;*.json)",),
-                    )
-                    if self._window
-                    else None
-                )
-                if not result:
-                    return {"ok": False, "cancelled": True}
-                filepath = result if isinstance(result, str) else result[0]
+        if filepath:
+            path = Path(str(filepath))
+            flows = self._flows_dir(create=True)
+            if not self._is_under_dir(path, flows):
+                # Legacy path outside library → save as new library entry by name
+                flow_name = str(flow.get("name") or name or "").strip() or "未命名流程"
+                path = flows / self._safe_flow_filename(flow_name)
+        else:
+            flow_name = str(flow.get("name") or name or "").strip()
+            if not flow_name:
+                return {"ok": False, "error": "请先为流程命名"}
+            path = self._flows_dir(create=True) / self._safe_flow_filename(flow_name)
 
-        path = Path(filepath)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"ok": True, "path": str(path), "name": flow.get("name")}
+
+    def export_flow(self, flow_json: str, filename: str | None = None) -> dict:
+        """Export flow to a user-chosen external file."""
+        flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
+        if not isinstance(flow, dict):
+            return {"ok": False, "error": "无效的流程对象"}
+        err = self._validate_flow(flow)
+        if err:
+            return {"ok": False, "error": err}
+        suggested = self._safe_flow_filename(
+            (filename or flow.get("name") or "flow").strip() or "flow"
+        )
+        if not self._window:
+            out = exe_dir() / "exports" / suggested
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
+            return {"ok": True, "path": str(out), "name": flow.get("name")}
+        result = self._window.create_file_dialog(
+            webview.SAVE_DIALOG,
+            directory=str(exe_dir()),
+            save_filename=suggested,
+            file_types=("Flow JSON (*.flow.json;*.json)",),
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+        filepath = result if isinstance(result, str) else result[0]
+        path = Path(filepath)
+        if not path.name.lower().endswith(".json"):
+            path = path.with_name(path.name + ".flow.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "path": str(path), "name": flow.get("name")}
+
+    def import_flow(self) -> dict:
+        """Import external .flow.json into the user data library."""
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        result = self._window.create_file_dialog(
+            webview.OPEN_DIALOG,
+            directory=str(exe_dir()),
+            allow_multiple=False,
+            file_types=("Flow JSON (*.flow.json;*.json)",),
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+        src = result[0] if isinstance(result, (list, tuple)) else result
+        src_path = Path(src)
+        if not src_path.exists():
+            return {"ok": False, "error": f"文件不存在: {src}"}
+        try:
+            data = json.loads(src_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return {"ok": False, "error": f"无法解析流程文件: {exc}"}
+        err = self._validate_flow(data)
+        if err:
+            return {"ok": False, "error": err}
+        name = str(data.get("name") or src_path.stem.replace(".flow", "") or "导入的流程").strip()
+        data = {**data, "name": name}
+        dest = self._unique_flow_path(name)
+        dest.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "flow": data, "path": str(dest), "name": name}
 
     def clipboard_write(self, text: str) -> dict:
         """Copy text to system clipboard (pywebview often blocks navigator.clipboard)."""
@@ -782,23 +1009,15 @@ class Api:
         return {"ok": True, "path": str(path)}
 
     def load_flow(self, filepath: str | None = None) -> dict:
+        """Load a flow from the user data library by path."""
         if not filepath:
-            result = (
-                self._window.create_file_dialog(
-                    webview.OPEN_DIALOG,
-                    directory=str(self._flows_dir()),
-                    allow_multiple=False,
-                    file_types=("Flow JSON (*.flow.json;*.json)",),
-                )
-                if self._window
-                else None
-            )
-            if not result:
-                return {"ok": False, "cancelled": True}
-            filepath = result[0] if isinstance(result, (list, tuple)) else result
-        path = Path(filepath)
+            return {"ok": False, "error": "请指定要打开的流程"}
+        path = Path(str(filepath))
+        flows = self._flows_dir(create=False)
+        if not flows.is_dir() or not self._is_under_dir(path, flows):
+            return {"ok": False, "error": "只能打开数据目录中的流程，请使用导入"}
         if not path.exists():
-            return {"ok": False, "error": f"文件不存在: {filepath}"}
+            return {"ok": False, "error": f"流程不存在: {path.name}"}
         data = json.loads(path.read_text(encoding="utf-8"))
         err = self._validate_flow(data)
         if err:
@@ -806,19 +1025,25 @@ class Api:
         return {"ok": True, "flow": data, "path": str(path)}
 
     def pick_flow_file(self) -> dict:
-        """Pick a .flow.json path without loading it into the editor."""
+        """Pick a flow from the user data library (for subflow path etc.)."""
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
+        flows = self._flows_dir(create=False)
+        if not flows.is_dir():
+            return {"ok": False, "error": "数据目录中还没有流程，请先保存或导入"}
         result = self._window.create_file_dialog(
             webview.OPEN_DIALOG,
-            directory=str(self._flows_dir()),
+            directory=str(flows),
             allow_multiple=False,
             file_types=("Flow JSON (*.flow.json;*.json)",),
         )
         if not result:
             return {"ok": False, "cancelled": True}
         filepath = result[0] if isinstance(result, (list, tuple)) else result
-        return {"ok": True, "path": str(filepath)}
+        path = Path(filepath)
+        if not self._is_under_dir(path, flows):
+            return {"ok": False, "error": "请选择数据目录中的流程"}
+        return {"ok": True, "path": str(path)}
 
     def validate_flow(self, flow_json: str) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
@@ -1044,8 +1269,7 @@ class Api:
 
             x1, y1, x2, y2 = validate_region(region)
             img = grab_region(x1, y1, x2, y2)
-            templates_dir = exe_dir() / "templates"
-            templates_dir.mkdir(parents=True, exist_ok=True)
+            templates_dir = self._templates_dir(create=True)
             stamp = time.strftime("%Y%m%d_%H%M%S")
             name = filename.strip() if isinstance(filename, str) and filename.strip() else f"tpl_{stamp}.png"
             if not name.lower().endswith(".png"):
