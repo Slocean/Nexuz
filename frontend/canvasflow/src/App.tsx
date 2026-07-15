@@ -325,13 +325,35 @@ function AppShell() {
         try {
           const upd = await bridge.checkForUpdate();
           if (upd?.ok && upd.update_available) {
+            const notes = String(upd.release_notes || '').trim();
+            const preview = notes
+              ? `\n\n${notes.slice(0, 400)}${notes.length > 400 ? '…' : ''}`
+              : '';
             const go = await confirm({
               title: `发现新版本 ${upd.latest_version}`,
-              description: `当前 ${upd.current_version}，可更新至 ${upd.latest_version}。是否前往设置下载？`,
-              confirmText: '去设置',
+              description: `当前 ${upd.current_version} → ${upd.latest_version}${preview}`,
+              confirmText: '下载更新',
               cancelText: '稍后',
             });
-            if (go) setViewMode('settings');
+            if (go) {
+              const dl = await bridge.downloadUpdate(upd.download_url || null);
+              if (!dl?.ok) {
+                await alert({ title: '下载失败', description: dl?.error || '无法下载' });
+              } else {
+                const apply = await confirm({
+                  title: '下载完成',
+                  description: '是否立即更新并重启？请先保存流程。',
+                  confirmText: '立即更新',
+                  cancelText: '稍后',
+                });
+                if (apply) {
+                  const r = await bridge.applyUpdate();
+                  if (!r?.ok) {
+                    await alert({ title: '无法更新', description: r?.error || '应用失败' });
+                  }
+                }
+              }
+            }
             appendLog({
               level: 'info',
               message: `有可用更新：${upd.current_version} → ${upd.latest_version}`,

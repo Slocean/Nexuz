@@ -62,6 +62,23 @@ def _http_bytes(url: str, *, timeout: float = 600.0) -> bytes:
         return resp.read()
 
 
+def _http_github_json(url: str, *, timeout: float = 20.0) -> dict[str, Any]:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("unexpected GitHub API payload")
+    return data
+
+
 def _normalize_channel(raw: Any) -> dict[str, Any]:
     """Normalize app_update.json into {history: [{version,title,body}, ...]} (newest first)."""
     if isinstance(raw, list):
@@ -70,7 +87,6 @@ def _normalize_channel(raw: Any) -> dict[str, Any]:
         if isinstance(raw.get("history"), list):
             entries = raw["history"]
         else:
-            # Legacy flat {version, title, body}
             entries = [raw]
     else:
         entries = []
@@ -178,6 +194,98 @@ def _default_download_url(version: str) -> str:
     )
 
 
+def _pick_exe_asset(release: dict[str, Any]) -> dict[str, Any] | None:
+    assets = release.get("assets") or []
+    if not isinstance(assets, list):
+        return None
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name") or "")
+        if name.lower() == ASSET_NAME.lower():
+            return asset
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name") or "")
+        if name.lower().endswith(".exe"):
+            return asset
+    return None
+
+
+def resolve_download_url(version: str | None = None) -> dict[str, Any]:
+    """Resolve a real browser_download_url from GitHub Releases (tag -> latest)."""
+    ver = str(version or "").lstrip("v").strip()
+    tried: list[str] = []
+
+    def from_release(release: dict[str, Any]) -> dict[str, Any] | None:
+        asset = _pick_exe_asset(release)
+        if not asset:
+            return None
+        url = str(asset.get("browser_download_url") or "").strip()
+        if not url:
+            return None
+        tag = str(release.get("tag_name") or "").lstrip("v").strip()
+        return {
+            "ok": True,
+            "download_url": url,
+            "asset_name": asset.get("name") or ASSET_NAME,
+            "asset_size": asset.get("size"),
+            "latest_version": tag or ver,
+            "html_url": release.get("html_url") or RELEASES_PAGE_URL,
+        }
+
+    if ver:
+        tag_url = (
+            f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/tags/v{ver}"
+        )
+        tried.append(tag_url)
+        try:
+            hit = from_release(_http_github_json(tag_url))
+            if hit:
+                return hit
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                return {
+                    "ok": False,
+                    "error": f"查询 Release 失败 HTTP {exc.code}",
+                    "tried": tried,
+                    "html_url": RELEASES_PAGE_URL,
+                }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "tried": tried, "html_url": RELEASES_PAGE_URL}
+
+    latest_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+    tried.append(latest_url)
+    try:
+        hit = from_release(_http_github_json(latest_url))
+        if hit:
+            return hit
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return {
+                "ok": False,
+                "error": "GitHub 上还没有可下载的 Release（或尚未上传 Nexuz.exe）",
+                "html_url": RELEASES_PAGE_URL,
+                "tried": tried,
+            }
+        return {
+            "ok": False,
+            "error": f"查询最新 Release 失败 HTTP {exc.code}",
+            "tried": tried,
+            "html_url": RELEASES_PAGE_URL,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "tried": tried, "html_url": RELEASES_PAGE_URL}
+
+    return {
+        "ok": False,
+        "error": "未找到可下载的 Nexuz.exe，请确认 Release 已上传该资源",
+        "html_url": RELEASES_PAGE_URL,
+        "tried": tried,
+    }
+
+
 def check_for_update() -> dict[str, Any]:
     local = current_version()
     ch = fetch_channel(prefer_remote=True)
@@ -190,8 +298,10 @@ def check_for_update() -> dict[str, Any]:
     latest = (entry or {}).get("version") or local
     ann = _announcement_from_channel(channel)
     notes = str(ann.get("body") or "") if ann else ""
-    download_url = _default_download_url(latest) if latest else None
-    html_url = (
+
+    resolved = resolve_download_url(latest)
+    download_url = resolved.get("download_url") if resolved.get("ok") else None
+    html_url = resolved.get("html_url") or (
         f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/tag/v{latest}"
         if latest
         else RELEASES_PAGE_URL
@@ -208,7 +318,10 @@ def check_for_update() -> dict[str, Any]:
         "history": history,
         "html_url": html_url,
         "download_url": download_url,
-        "asset_name": ASSET_NAME,
+        "asset_name": resolved.get("asset_name") or ASSET_NAME,
+        "asset_size": resolved.get("asset_size"),
+        "asset_ready": bool(resolved.get("ok") and download_url),
+        "asset_error": None if resolved.get("ok") else resolved.get("error"),
         "source": ch.get("source"),
         "message": f"发现新版本 {latest}" if available else "已是最新版本",
     }
@@ -223,7 +336,13 @@ def fetch_announcement() -> dict[str, Any]:
     history = _history_list(channel)
     ann = _announcement_from_channel(channel)
     if not ann and not history:
-        return {"ok": True, "announcement": None, "history": [], "message": "暂无公告", "source": ch.get("source")}
+        return {
+            "ok": True,
+            "announcement": None,
+            "history": [],
+            "message": "暂无公告",
+            "source": ch.get("source"),
+        }
     return {
         "ok": True,
         "announcement": ann,
@@ -231,24 +350,42 @@ def fetch_announcement() -> dict[str, Any]:
         "source": ch.get("source"),
     }
 
+
 def download_update(download_url: str | None = None) -> dict[str, Any]:
     """Download latest (or given) exe next to the running binary as Nexuz_update.exe."""
     info = check_for_update()
     if not info.get("ok"):
         return info
-    url = (download_url or info.get("download_url") or "").strip()
-    if not url:
-        return {
-            "ok": False,
-            "error": "未找到可下载地址，请到 GitHub Releases 手动下载",
-            "html_url": info.get("html_url") or RELEASES_PAGE_URL,
-        }
+
     if not info.get("update_available") and not download_url:
         return {
             "ok": False,
             "error": "当前已是最新版本，无需下载",
             "current_version": info.get("current_version"),
             "latest_version": info.get("latest_version"),
+        }
+
+    url = (download_url or "").strip()
+    if not url:
+        resolved = resolve_download_url(info.get("latest_version"))
+        if not resolved.get("ok"):
+            return {
+                "ok": False,
+                "error": resolved.get("error")
+                or "GitHub Release 中没有 Nexuz.exe，请先成功发版或到 Releases 手动下载",
+                "html_url": resolved.get("html_url")
+                or info.get("html_url")
+                or RELEASES_PAGE_URL,
+                "current_version": info.get("current_version"),
+                "latest_version": info.get("latest_version"),
+            }
+        url = str(resolved.get("download_url") or "").strip()
+
+    if not url:
+        return {
+            "ok": False,
+            "error": "未找到可下载地址，请到 GitHub Releases 手动下载",
+            "html_url": info.get("html_url") or RELEASES_PAGE_URL,
         }
 
     dest_dir = exe_dir()
@@ -264,6 +401,24 @@ def download_update(download_url: str | None = None) -> dict[str, Any]:
         if dest.exists():
             dest.unlink()
         partial.rename(dest)
+    except urllib.error.HTTPError as exc:
+        try:
+            if partial.exists():
+                partial.unlink()
+        except OSError:
+            pass
+        hint = info.get("html_url") or RELEASES_PAGE_URL
+        if exc.code == 404:
+            return {
+                "ok": False,
+                "error": (
+                    f"下载失败 HTTP 404：Release 里还没有 Nexuz.exe"
+                    f"（目标版本 {info.get('latest_version')}）。"
+                    f"请确认已成功发版，或打开 Releases 手动下载。\n{hint}"
+                ),
+                "html_url": hint,
+            }
+        return {"ok": False, "error": f"下载失败 HTTP {exc.code}", "html_url": hint}
     except Exception as exc:
         try:
             if partial.exists():
@@ -278,7 +433,7 @@ def download_update(download_url: str | None = None) -> dict[str, Any]:
         "size": dest.stat().st_size,
         "latest_version": info.get("latest_version"),
         "current_version": info.get("current_version"),
-        "message": f"已下载 {info.get('latest_version')}，点击「立即更新」将替换并重启",
+        "message": f"已下载 {info.get('latest_version')}，可立即更新并重启",
     }
 
 

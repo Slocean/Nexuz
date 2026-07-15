@@ -14,6 +14,8 @@ import {
   RefreshCw,
   Settings2,
   Unplug,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -126,6 +128,7 @@ export default function SettingsPage({
   const [downloadedPath, setDownloadedPath] = useState('');
   const [announcement, setAnnouncement] = useState<any>(null);
   const [updateHistory, setUpdateHistory] = useState<any[]>([]);
+  const [annOpenIds, setAnnOpenIds] = useState<Record<string, boolean>>({});
   const [annBusy, setAnnBusy] = useState(false);
 
   const refreshFrida = useCallback(async () => {
@@ -193,7 +196,15 @@ export default function SettingsPage({
       const res = await withTimeout(bridge.fetchAnnouncement(), 15000, '获取公告');
       if (res?.ok) {
         setAnnouncement(res.announcement || null);
-        setUpdateHistory(Array.isArray(res.history) ? res.history : []);
+        const hist = Array.isArray(res.history) ? res.history : [];
+        setUpdateHistory(hist);
+        // Expand only the latest by default
+        const open: Record<string, boolean> = {};
+        hist.forEach((item: any, idx: number) => {
+          const key = String(item.version || item.id || idx);
+          open[key] = idx === 0;
+        });
+        setAnnOpenIds(open);
       } else {
         setAnnouncement(null);
         setUpdateHistory([]);
@@ -315,10 +326,13 @@ export default function SettingsPage({
         const preview = notes
           ? `\n\n更新说明：\n${notes.slice(0, 800)}${notes.length > 800 ? '…' : ''}`
           : '';
-        await alert({
+        const go = await confirm({
           title: `发现新版本 ${res.latest_version}`,
-          description: `当前 ${res.current_version} → ${res.latest_version}${preview}\n\n可点击「下载更新」自动下载，再「立即更新」替换并重启。`,
+          description: `当前 ${res.current_version} → ${res.latest_version}${preview}`,
+          confirmText: '下载更新',
+          cancelText: '稍后',
         });
+        if (go) await handleDownloadUpdate(res.download_url || null);
       } else {
         await alert({
           title: '已是最新版本',
@@ -332,25 +346,31 @@ export default function SettingsPage({
     }
   };
 
-  const handleDownloadUpdate = async () => {
-    if (updateBusy) return;
+  const handleDownloadUpdate = async (downloadUrl: string | null = null) => {
     setUpdateBusy(true);
     setUpdateMsg('正在下载更新包…');
     try {
-      const res = await withTimeout(bridge.downloadUpdate(), 600000, '下载更新');
+      const res = await withTimeout(bridge.downloadUpdate(downloadUrl), 600000, '下载更新');
       if (!res?.ok) {
         setUpdateMsg(res?.error || '下载失败');
-        await alert({ title: '下载失败', description: res?.error || '无法下载更新包' });
+        const open = await confirm({
+          title: '下载失败',
+          description: res?.error || '无法下载更新包',
+          confirmText: '打开 Releases',
+          cancelText: '关闭',
+        });
+        if (open) await bridge.openReleasesPage();
         return;
       }
       setDownloadedPath(res.path || '');
       setUpdateMsg(res.message || '下载完成');
-      await alert({
+      const goApply = await confirm({
         title: '下载完成',
-        description:
-          res.message ||
-          `已保存到\n${res.path || ''}\n\n点击「立即更新」将替换程序并重启。`,
+        description: `${res.message || '更新包已就绪'}\n\n是否立即替换并重启？请先保存流程。`,
+        confirmText: '立即更新',
+        cancelText: '稍后',
       });
+      if (goApply) await handleApplyUpdate();
     } catch (e: any) {
       setUpdateMsg(String(e?.message || e || '下载失败'));
     } finally {
@@ -380,38 +400,6 @@ export default function SettingsPage({
       setUpdateMsg(String(e?.message || e || '应用失败'));
     } finally {
       setUpdateBusy(false);
-    }
-  };
-
-  const handleShowAnnouncement = async () => {
-    const list = updateHistory.length
-      ? updateHistory
-      : announcement
-        ? [announcement]
-        : [];
-    if (!list.length) {
-      await alert({ title: '更新记录', description: '暂无公告' });
-      return;
-    }
-    const text = list
-      .map((item: any) => {
-        const ver = item.version || item.id || '';
-        const title = item.title || '更新';
-        const body = String(item.body || '').trim();
-        return `[${ver}] ${title}${body ? `\n${body}` : ''}`;
-      })
-      .join('\n\n────────\n\n');
-    await alert({
-      title: '更新记录',
-      description: text,
-    });
-    const latestId = list[0]?.version || list[0]?.id || announcement?.id;
-    if (latestId) {
-      try {
-        localStorage.setItem(ANN_READ_KEY, String(latestId));
-      } catch {
-        /* ignore */
-      }
     }
   };
 
@@ -462,7 +450,7 @@ export default function SettingsPage({
               size="sm"
               variant="outline"
               disabled={updateBusy || !updateInfo?.update_available}
-              onClick={() => void handleDownloadUpdate()}
+              onClick={() => void handleDownloadUpdate(null)}
             >
               <Download className="w-3.5 h-3.5" />
               下载更新
@@ -525,32 +513,52 @@ export default function SettingsPage({
           <Separator />
 
           {updateHistory.length > 0 || announcement?.body ? (
-            <div className="space-y-4">
-              {(updateHistory.length ? updateHistory : [announcement]).map((item: any, idx: number) => (
-                <div
-                  key={`${item.version || item.id || idx}`}
-                  className={idx > 0 ? 'pt-3 border-t' : ''}
-                  style={idx > 0 ? { borderColor: colors.border } : undefined}
-                >
-                  <p className="text-sm font-medium" style={{ color: colors.text }}>
-                    <span className="font-mono text-xs opacity-70 mr-2">
-                      v{item.version || item.id || '?'}
-                    </span>
-                    {item.title || '更新'}
-                  </p>
-                  <p
-                    className="text-sm leading-relaxed mt-1 whitespace-pre-wrap"
-                    style={{ color: colors.secondaryText }}
+            <div
+              className="max-h-72 overflow-y-auto pr-1 space-y-1 rounded-xl border"
+              style={{ borderColor: colors.border }}
+            >
+              {(updateHistory.length ? updateHistory : [announcement]).map((item: any, idx: number) => {
+                const key = String(item.version || item.id || idx);
+                const open = !!annOpenIds[key];
+                return (
+                  <div
+                    key={key}
+                    className="border-b last:border-b-0"
+                    style={{ borderColor: colors.border }}
                   >
-                    {String(item.body || '').length > 200
-                      ? `${String(item.body).slice(0, 200)}…`
-                      : item.body}
-                  </p>
-                </div>
-              ))}
-              <Button type="button" size="sm" variant="outline" onClick={() => void handleShowAnnouncement()}>
-                查看全部
-              </Button>
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
+                      onClick={() =>
+                        setAnnOpenIds((prev) => ({ ...prev, [key]: !prev[key] }))
+                      }
+                    >
+                      {open ? (
+                        <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                      ) : (
+                        <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                      )}
+                      <span className="font-mono text-xs opacity-70 shrink-0">
+                        v{item.version || item.id || '?'}
+                      </span>
+                      <span
+                        className="text-sm font-medium truncate flex-1"
+                        style={{ color: colors.text }}
+                      >
+                        {item.title || '更新'}
+                      </span>
+                    </button>
+                    {open ? (
+                      <div
+                        className="px-3 pb-3 pl-9 text-sm leading-relaxed whitespace-pre-wrap"
+                        style={{ color: colors.secondaryText }}
+                      >
+                        {item.body || '（无正文）'}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>

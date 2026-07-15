@@ -138,19 +138,55 @@ export default function Toolbar({
         return;
       }
       setUpdateDot(!!res.update_available);
-      if (res.update_available) {
-        const go = await confirm({
-          title: `发现新版本 ${res.latest_version}`,
-          description: `当前 ${res.current_version} → ${res.latest_version}。前往设置下载并热更新？`,
-          confirmText: '去设置',
-          cancelText: '稍后',
-        });
-        if (go) onViewModeChange?.('settings');
-      } else {
+      if (!res.update_available) {
         await alert({
           title: '已是最新版本',
           description: `当前版本 ${res.current_version}`,
         });
+        return;
+      }
+
+      const notes = String(res.release_notes || '').trim();
+      const preview = notes
+        ? `\n\n更新说明：\n${notes.slice(0, 600)}${notes.length > 600 ? '…' : ''}`
+        : '';
+      const goDownload = await confirm({
+        title: `发现新版本 ${res.latest_version}`,
+        description: `当前 ${res.current_version} → ${res.latest_version}${preview}`,
+        confirmText: '下载更新',
+        cancelText: '稍后',
+      });
+      if (!goDownload) return;
+
+      const dl = await bridge.downloadUpdate(res.download_url || null);
+      if (!dl?.ok) {
+        const open = await confirm({
+          title: '下载失败',
+          description: dl?.error || '无法下载更新包',
+          confirmText: '打开 Releases',
+          cancelText: '关闭',
+        });
+        if (open) await bridge.openReleasesPage();
+        return;
+      }
+
+      const goApply = await confirm({
+        title: '下载完成',
+        description: `${dl.message || '更新包已就绪'}。是否立即替换并重启？请先保存流程。`,
+        confirmText: '立即更新',
+        cancelText: '稍后',
+      });
+      if (!goApply) {
+        await alert({
+          title: '已下载',
+          description: '可稍后在「设置 → 关于与更新」点击「立即更新」。',
+        });
+        return;
+      }
+
+      const applied = await bridge.applyUpdate();
+      if (!applied?.ok) {
+        await alert({ title: '无法更新', description: applied?.error || '应用更新失败' });
       }
     } catch (e: any) {
       await alert({ title: '检查更新失败', description: String(e?.message || e) });
@@ -449,6 +485,22 @@ export default function Toolbar({
           <Button
             variant="ghost"
             size="icon"
+            className="h-8 w-8"
+            onClick={onToggleAssistant}
+            title="Flow AI"
+            style={isAssistantOpen ? { color: colors.primary } : undefined}>
+            <Sparkles className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* Drag filler */}
+        <div className="pywebview-drag-region flex-1 self-stretch min-w-[24px] mx-2" />
+
+        {/* Right: update / announce / theme / window */}
+        <div className="flex items-center gap-1 shrink-0 z-10">
+          <Button
+            variant="ghost"
+            size="icon"
             className="h-8 w-8 relative"
             onClick={() => void handleAnnouncement()}
             title="更新公告">
@@ -470,22 +522,6 @@ export default function Toolbar({
             ) : null}
           </Button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={onToggleAssistant}
-            title="Flow AI"
-            style={isAssistantOpen ? { color: colors.primary } : undefined}>
-            <Sparkles className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Drag filler */}
-        <div className="pywebview-drag-region flex-1 self-stretch min-w-[24px] mx-2" />
-
-        {/* Right: theme / light-dark + window */}
-        <div className="flex items-center gap-1 shrink-0 z-10">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8" title="主题色">
