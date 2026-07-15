@@ -23,6 +23,7 @@ class FlowInterpreter:
         self._stop_flag = threading.Event()
         self._step_event = threading.Event()
         self._running = False
+        self._run_id = 0  # generation token so old workers can't clobber a new run
         self._lock = threading.Lock()
         # Debug: honor breakpoints / step-over
         self._debug_mode = False
@@ -33,6 +34,10 @@ class FlowInterpreter:
         # Optional parent controls when nested (call_subflow).
         self._parent_should_stop: Callable[[], bool] | None = None
         self._parent_cooperate: Callable[[], None] | None = None
+
+    def _thread_alive(self) -> bool:
+        t = self._thread
+        return t is not None and t.is_alive()
 
     def bind_parent_controls(
         self,
@@ -52,11 +57,17 @@ class FlowInterpreter:
 
     @property
     def running(self) -> bool:
-        return self._running
+        if not self._running:
+            return False
+        t = self._thread
+        # Between assigning _running and start(), thread may briefly be None.
+        if t is None:
+            return True
+        return t.is_alive()
 
     @property
     def paused(self) -> bool:
-        return self._running and (not self._pause_event.is_set() or self._at_breakpoint)
+        return self.running and (not self._pause_event.is_set() or self._at_breakpoint)
 
     @property
     def at_breakpoint(self) -> bool:
@@ -78,7 +89,7 @@ class FlowInterpreter:
         breakpoints: list[str] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
-            if self._running:
+            if self._running and self._thread_alive():
                 # Paused / breakpoint: treat as continue instead of starting a second run.
                 if self.paused and not self._stop_flag.is_set():
                     self._break_next = bool(step_mode)
@@ -87,6 +98,20 @@ class FlowInterpreter:
                     self._emit("flow_resumed", {"via": "run"})
                     return {"started": False, "resumed": True}
                 raise RuntimeError("已有流程正在执行，请先停止或继续")
+            prev = self._thread
+
+        # Ensure a previous worker fully exits before we clear flags / start again.
+        if prev is not None and prev.is_alive():
+            self._stop_flag.set()
+            self._pause_event.set()
+            self._step_event.set()
+            prev.join(timeout=3.0)
+
+        with self._lock:
+            if self._running and self._thread_alive():
+                raise RuntimeError("已有流程正在执行，请先停止或继续")
+            self._run_id += 1
+            run_id = self._run_id
             self._running = True
             self._stop_flag.clear()
             self._pause_event.set()
@@ -130,14 +155,19 @@ class FlowInterpreter:
                 )
             finally:
                 with self._lock:
-                    self._running = False
-                    self._at_breakpoint = False
-                    self._paused_node_id = None
-                    self._debug_mode = False
-                    self._break_next = False
+                    # Only the active generation may reset shared state.
+                    if self._run_id == run_id:
+                        self._running = False
+                        self._at_breakpoint = False
+                        self._paused_node_id = None
+                        self._debug_mode = False
+                        self._break_next = False
+                        self._thread = None
 
-        self._thread = threading.Thread(target=worker, daemon=True)
-        self._thread.start()
+        thread = threading.Thread(target=worker, daemon=True)
+        with self._lock:
+            self._thread = thread
+        thread.start()
         return {"started": True}
 
     def pause(self) -> None:
@@ -156,13 +186,31 @@ class FlowInterpreter:
         self._emit("flow_resumed", {"via": "continue"})
 
     def stop(self) -> None:
-        if not self._running and not self._thread:
+        """Request stop. Always ends with flow_finished so the UI cannot stick on「停止中」."""
+        alive = self._thread_alive()
+        running = self._running
+        if not running and not alive:
+            # Stale Thread object used to make `if not self._thread` fail forever —
+            # emit finished so frontend leaves execStatus=stopping.
+            self._thread = None
             self._emit("flow_finished", {"ok": False, "error": "当前没有运行中的流程", "stopped": True})
             return
+
         self._stop_flag.set()
         self._pause_event.set()
         self._step_event.set()
         self._emit("flow_stopping", {})
+
+        # Worker already gone (or never started) but flags were inconsistent.
+        if not alive:
+            with self._lock:
+                self._running = False
+                self._at_breakpoint = False
+                self._paused_node_id = None
+                self._debug_mode = False
+                self._break_next = False
+                self._thread = None
+            self._emit("flow_finished", {"ok": False, "error": "已停止", "stopped": True})
 
     def step(self) -> None:
         """Execute the current / next node, then pause before the following one."""
@@ -175,8 +223,9 @@ class FlowInterpreter:
         self._emit("flow_stepping", {})
 
     def wait_until_idle(self, timeout: float | None = None) -> None:
-        if self._thread:
-            self._thread.join(timeout=timeout)
+        t = self._thread
+        if t is not None:
+            t.join(timeout=timeout)
 
     def _wait_controls(self, node_id: str | None = None) -> None:
         if self._is_stop_requested():

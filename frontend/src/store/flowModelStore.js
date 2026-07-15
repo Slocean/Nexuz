@@ -810,6 +810,11 @@ export const useFlowStore = create((set, get) => ({
       set({ execStatus: 'running' });
       appendLog({ level: 'info', message: '流程已继续' });
     } else if (event === 'flow_stopping') {
+      const prev = get().execStatus;
+      if (prev === 'idle') {
+        // Late/stale stop after session already ended — ignore.
+        return;
+      }
       set({ execStatus: 'stopping' });
       appendLog({ level: 'warn', message: '正在停止流程…' });
     } else if (event === 'flow_stopped') {
@@ -818,7 +823,10 @@ export const useFlowStore = create((set, get) => ({
         execStatus: state.execStatus === 'idle' ? 'idle' : 'stopping',
       }));
       // Avoid duplicate log if flow_stopping already arrived
-      if (get().logs.slice(-1)[0]?.message !== '正在停止流程…') {
+      if (
+        get().execStatus !== 'idle' &&
+        get().logs.slice(-1)[0]?.message !== '正在停止流程…'
+      ) {
         appendLog({ level: 'warn', message: '正在停止流程…' });
       }
     } else if (event === 'flow_finished') {

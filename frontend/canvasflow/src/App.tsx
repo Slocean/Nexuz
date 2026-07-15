@@ -352,9 +352,24 @@ function AppShell() {
     const res = await bridge.stopFlow();
     if (res?.ok === false) {
       appendLog({ level: 'error', message: res?.error || '停止失败' });
-      const st = await bridge.isRunning();
-      if (!st?.running) useFlowStore.setState({ execStatus: 'idle' });
     }
+    // Safety: if worker already gone / race left UI on「停止中」, force idle.
+    const unlockIfIdle = async () => {
+      const st = await bridge.isRunning();
+      if (st?.running) return false;
+      if (useFlowStore.getState().execStatus === 'stopping') {
+        useFlowStore.setState({ execStatus: 'idle', execNodeId: null });
+        const last = useFlowStore.getState().logs.slice(-1)[0]?.message;
+        if (last !== '流程已停止') {
+          appendLog({ level: 'warn', message: '流程已停止' });
+        }
+      }
+      return true;
+    };
+    if (await unlockIfIdle()) return;
+    window.setTimeout(() => {
+      void unlockIfIdle();
+    }, 800);
   };
 
   const handlePause = async () => {
