@@ -1,13 +1,12 @@
 name: Release
 
-# Trigger:
-#   1) Edit app_update.json (version + announcement), commit & push, then:
-#        gh workflow run Release.yml
-#   2) Or override version:
-#        gh workflow run Release.yml -f version=0.1.1
-#   3) Tag push: git tag v0.1.1 && git push origin v0.1.1
+# Trigger (no gh needed):
+#   1) Edit app_update.json, push main, then:  release.bat
+#      → creates tag v* and pushes; this workflow runs on tag push
+#   2) Or manually: git tag v0.1.1 && git push origin v0.1.1
+#   3) Or Actions UI → Run workflow
 #
-# Auth: uses the built-in GITHUB_TOKEN — no personal public/private key needed.
+# Auth for Release upload: built-in GITHUB_TOKEN only.
 
 on:
   workflow_dispatch:

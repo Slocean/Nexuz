@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.github_token
 
 # Node
 frontend/node_modules/

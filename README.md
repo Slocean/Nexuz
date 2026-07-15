@@ -90,19 +90,18 @@ python package.py --version 0.1.1   # 写入版本号再打包（CI 用）
 
 **不需要自备公钥/私钥。** Action 使用仓库内置的 `GITHUB_TOKEN` 创建 Release 并上传 `Nexuz.exe`（HTTPS）。若以后要 Windows 代码签名或更新包验签，再单独配置证书即可，当前热更新不依赖。
 
-发版前编辑仓库根目录 [`app_update.json`](app_update.json)（版本号 + 公告同一文件），提交推送后：
+发版前改好 [`app_update.json`](app_update.json) 并 `git push` 到 `main`，然后本地执行：
 
 ```bash
-gh workflow run Release.yml
+release.bat
+# 或
+python trigger_release.py
 ```
 
-或临时覆盖版本：
+会打 `v版本号` 的 tag 并推送，GitHub Action 自动打包上传 Release。**不需要安装 gh。**
 
-```bash
-gh workflow run Release.yml -f version=0.1.1
-```
-
-也可打 tag：`git tag v0.1.1 && git push origin v0.1.1`。
+进度：https://github.com/Slocean/Nexuz/actions  
+成品：https://github.com/Slocean/Nexuz/releases
 
 ### 客户端热更新与公告
 
