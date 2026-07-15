@@ -212,6 +212,36 @@ class FlowInterpreter:
                 self._thread = None
             self._emit("flow_finished", {"ok": False, "error": "已停止", "stopped": True})
 
+    def force_reset(self) -> dict[str, Any]:
+        """Abandon the current run immediately so the UI can run again.
+
+        Python cannot forcibly kill a blocked worker thread; we orphan it (bump
+        run_id) and mark idle. The old daemon may still finish its current OS
+        action, but it can no longer hold interpreter state.
+        """
+        had_run = bool(self._running or self._thread_alive())
+        self._stop_flag.set()
+        self._pause_event.set()
+        self._step_event.set()
+        with self._lock:
+            self._run_id += 1
+            self._running = False
+            self._at_breakpoint = False
+            self._paused_node_id = None
+            self._debug_mode = False
+            self._break_next = False
+            self._thread = None
+        self._emit(
+            "flow_finished",
+            {
+                "ok": False,
+                "error": "已强制重置",
+                "stopped": True,
+                "forced": True,
+            },
+        )
+        return {"had_run": had_run}
+
     def step(self) -> None:
         """Execute the current / next node, then pause before the following one."""
         if not self._running:

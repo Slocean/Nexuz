@@ -13,6 +13,7 @@ import {
   Pause,
   Square,
   Trash2,
+  RotateCcw,
   Bug,
   FileCode2,
   Settings2,
@@ -53,6 +54,7 @@ interface ToolbarProps {
   onPause?: () => void;
   onResume?: () => void;
   onStop?: () => void;
+  onForceReset?: () => void;
   onToggleDebug?: () => void;
   debugMode?: boolean;
   execStatus?: string;
@@ -78,6 +80,7 @@ export default function Toolbar({
   onPause,
   onResume,
   onStop,
+  onForceReset,
   onToggleDebug,
   debugMode = false,
   execStatus = 'idle',
@@ -203,12 +206,25 @@ export default function Toolbar({
             variant="ghost"
             size="sm"
             onClick={onStop}
-            disabled={execStatus === 'idle'}
+            disabled={execStatus === 'idle' && !recording}
             title="停止（X+F4）"
           >
             <Square className="w-3 h-3" />
             <span>{execStatus === 'stopping' ? '停止中' : '停止'}</span>
           </Button>
+
+          {onForceReset ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onForceReset}
+              title="卡住时点这里：强制清运行/录制状态，回到可运行"
+              style={{ color: colors.danger }}
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>重置</span>
+            </Button>
+          ) : null}
 
           {onToggleDebug && (
             <Button

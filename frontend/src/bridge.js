@@ -1028,6 +1028,7 @@ function mockCall(method, ...args) {
     case 'resume_flow':
     case 'continue_flow':
     case 'stop_flow':
+    case 'force_reset':
     case 'step_flow':
     case 'set_breakpoints':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持此操作' });
@@ -1067,6 +1068,7 @@ export const bridge = {
   resumeFlow: () => call('resume_flow'),
   continueFlow: () => call('continue_flow'),
   stopFlow: () => call('stop_flow'),
+  forceReset: () => call('force_reset'),
   stepFlow: () => call('step_flow'),
   setBreakpoints: (nodeIds) => call('set_breakpoints', nodeIds || []),
   isRunning: () => call('is_running'),

@@ -428,6 +428,62 @@ class Api:
         hide_run_overlay()
         return {"ok": True, "stopping": True}
 
+    def force_reset(self) -> dict:
+        """Universal recovery: clear run / record / overlays so the app is runnable again."""
+        cleared: list[str] = []
+        try:
+            info = get_interpreter(emit=self._emit).force_reset()
+            if info.get("had_run"):
+                cleared.append("flow")
+        except Exception:
+            pass
+
+        try:
+            session = get_recording_session(
+                set_window_visible=self._set_window_visible,
+                emit=self._emit,
+            )
+            if session.active or get_recorder().recording:
+                # Stop without appending nodes to the canvas.
+                if session.active:
+                    session.stop()
+                elif get_recorder().recording:
+                    get_recorder().stop()
+                cleared.append("recording")
+                self._emit(
+                    "recording_stopped",
+                    {"ok": True, "nodes": [], "forced": True, "mode": "coord"},
+                )
+        except Exception:
+            pass
+
+        try:
+            from backend.core.record_overlay import hide_stop_overlay
+
+            hide_stop_overlay()
+        except Exception:
+            pass
+        try:
+            hide_run_overlay()
+        except Exception:
+            pass
+
+        self._stop_run_controls()
+        self._set_window_visible(True)
+        self._run_hidden = False
+        self._recording_hidden = False
+
+        self._emit(
+            "force_reset",
+            {"cleared": cleared},
+        )
+        return {
+            "ok": True,
+            "cleared": cleared,
+            "message": "已强制重置，可以重新运行"
+            + (f"（清理：{'、'.join(cleared)}）" if cleared else "（状态已空闲）"),
+        }
+
     def step_flow(self) -> dict:
         interp = get_interpreter()
         if not interp.running:

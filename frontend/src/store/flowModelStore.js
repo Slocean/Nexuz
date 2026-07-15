@@ -850,7 +850,9 @@ export const useFlowStore = create((set, get) => ({
         };
       });
       // flow_stopped/stopping already logged when user clicked stop; avoid duplicate.
-      if (!payload.stopped) {
+      if (payload.forced) {
+        appendLog({ level: 'warn', message: '流程状态已强制重置' });
+      } else if (!payload.stopped) {
         appendLog({
           level: payload.ok ? 'ok' : 'error',
           message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`,
@@ -858,15 +860,27 @@ export const useFlowStore = create((set, get) => ({
       } else {
         appendLog({ level: 'warn', message: '流程已停止' });
       }
-      get().pushRunHistory({
-        id: Math.random().toString(36).slice(2, 9),
-        timestamp: new Date().toLocaleTimeString(),
-        status: payload.ok ? 'completed' : payload.stopped ? 'stopped' : 'failed',
-        workflowName: get().flow.name || '未命名流程',
+      if (!payload.forced) {
+        get().pushRunHistory({
+          id: Math.random().toString(36).slice(2, 9),
+          timestamp: new Date().toLocaleTimeString(),
+          status: payload.ok ? 'completed' : payload.stopped ? 'stopped' : 'failed',
+          workflowName: get().flow.name || '未命名流程',
+        });
+      }
+    } else if (event === 'force_reset') {
+      set({
+        execStatus: 'idle',
+        execNodeId: null,
+        execNodeStates: {},
       });
     } else if (event === 'recording_stopped') {
-      if (payload?.ok && payload.nodes?.length) {
+      if (payload?.ok && payload.nodes?.length && !payload.forced) {
         get().appendRecordedNodes(payload.nodes);
+      }
+      if (payload?.forced) {
+        appendLog({ level: 'warn', message: '录制已强制结束（未追加节点）' });
+        return;
       }
       const nodes = payload?.nodes || [];
       const clicks = nodes.filter((n) => n?.type === 'click');

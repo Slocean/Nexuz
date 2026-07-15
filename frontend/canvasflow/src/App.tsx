@@ -372,6 +372,41 @@ function AppShell() {
     }, 800);
   };
 
+  const handleForceReset = async () => {
+    // Unlock UI immediately even if the bridge is wedged.
+    setRecording(false);
+    useFlowStore.setState({
+      execStatus: 'idle',
+      execNodeId: null,
+      execNodeStates: {},
+    });
+    appendLog({ level: 'warn', message: '正在强制重置…' });
+    try {
+      const res = await Promise.race([
+        bridge.forceReset(),
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ ok: false, error: 'timeout' }), 4000),
+        ),
+      ]);
+      if (res?.ok === false && res?.error === 'timeout') {
+        appendLog({
+          level: 'warn',
+          message: '后端响应超时，界面已解锁；若仍异常请重启程序',
+        });
+        return;
+      }
+      appendLog({
+        level: 'ok',
+        message: (res as any)?.message || '已强制重置，可以重新运行',
+      });
+    } catch (e: any) {
+      appendLog({
+        level: 'warn',
+        message: `界面已解锁（后端：${e?.message || e || '调用失败'}）`,
+      });
+    }
+  };
+
   const handlePause = async () => {
     const res = await bridge.pauseFlow();
     if (res?.ok === false) {
@@ -951,6 +986,7 @@ function AppShell() {
         onPause={handlePause}
         onResume={handleResume}
         onStop={handleStop}
+        onForceReset={handleForceReset}
         onToggleDebug={handleToggleDebug}
         debugMode={debugMode}
         execStatus={execStatus}
@@ -990,6 +1026,7 @@ function AppShell() {
                 onContinue={handleResume}
                 onStep={handleDebugStep}
                 onStop={handleStop}
+                onForceReset={handleForceReset}
                 onPause={handlePause}
               />
             ) : null}

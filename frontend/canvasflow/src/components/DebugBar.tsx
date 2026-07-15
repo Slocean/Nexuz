@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bug, Play, StepForward, Square, Pause } from 'lucide-react';
+import { Bug, Play, StepForward, Square, Pause, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeName, ThemeMode } from '../types';
 import { getThemeColors } from '../theme';
@@ -12,6 +12,7 @@ interface DebugBarProps {
   onContinue: () => void;
   onStep: () => void;
   onStop: () => void;
+  onForceReset?: () => void;
   onPause?: () => void;
 }
 
@@ -24,6 +25,7 @@ export default function DebugBar({
   onContinue,
   onStep,
   onStop,
+  onForceReset,
   onPause,
 }: DebugBarProps) {
   const colors = getThemeColors(themeName, themeMode);
@@ -126,6 +128,21 @@ export default function DebugBar({
           <Square className="w-3 h-3" />
           <span>停止</span>
         </Button>
+
+        {onForceReset ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 shrink-0"
+            style={{ color: colors.danger }}
+            onClick={onForceReset}
+            title="卡住时强制重置"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>重置</span>
+          </Button>
+        ) : null}
       </div>
       {isIdle ? (
         <p className="pointer-events-none text-[11px] opacity-50 text-center px-2 whitespace-nowrap">
