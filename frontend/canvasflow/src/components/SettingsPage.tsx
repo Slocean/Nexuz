@@ -3,7 +3,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Download,
   EyeOff,
   ExternalLink,
   Info,
@@ -34,6 +33,7 @@ import {
 import { useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
+import { useUpdateDialog } from './UpdateDialog';
 
 type ProcRow = {
   pid: number;
@@ -69,7 +69,8 @@ export default function SettingsPage({
   themeMode: ThemeMode;
 }) {
   const colors = getThemeColors(themeName, themeMode);
-  const { confirm, alert } = useAppDialog();
+  const { confirm } = useAppDialog();
+  const { openUpdate } = useUpdateDialog();
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
@@ -123,7 +124,15 @@ export default function SettingsPage({
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateMsg, setUpdateMsg] = useState('');
   const [updateInfo, setUpdateInfo] = useState<any>(null);
-  const [downloadedPath, setDownloadedPath] = useState('');
+  const [autoCheckUpdate, setAutoCheckUpdate] = useState(() => {
+    try {
+      const v = localStorage.getItem('nexuz.autoCheckUpdate');
+      if (v === null) return true;
+      return v !== '0' && v !== 'false';
+    } catch {
+      return true;
+    }
+  });
   const [announcement, setAnnouncement] = useState<any>(null);
   const [updateHistory, setUpdateHistory] = useState<any[]>([]);
   const [annOpenIds, setAnnOpenIds] = useState<Record<string, boolean>>({});
@@ -319,24 +328,7 @@ export default function SettingsPage({
         return;
       }
       setUpdateMsg(res.message || (res.update_available ? '发现新版本' : '已是最新版本'));
-      if (res.update_available) {
-        const notes = String(res.release_notes || '').trim();
-        const preview = notes
-          ? `\n\n更新说明：\n${notes.slice(0, 800)}${notes.length > 800 ? '…' : ''}`
-          : '';
-        const go = await confirm({
-          title: `发现新版本 ${res.latest_version}`,
-          description: `当前 ${res.current_version} → ${res.latest_version}${preview}`,
-          confirmText: '下载更新',
-          cancelText: '稍后',
-        });
-        if (go) await handleDownloadUpdate(res.download_url || null);
-      } else {
-        await alert({
-          title: '已是最新版本',
-          description: `当前版本 ${res.current_version || appVersion || '?'}`,
-        });
-      }
+      await openUpdate(res);
     } catch (e: any) {
       setUpdateMsg(String(e?.message || e || '检查失败'));
     } finally {
@@ -344,60 +336,12 @@ export default function SettingsPage({
     }
   };
 
-  const handleDownloadUpdate = async (downloadUrl: string | null = null) => {
-    setUpdateBusy(true);
-    setUpdateMsg('正在下载更新包…');
+  const handleAutoCheckChange = (checked: boolean) => {
+    setAutoCheckUpdate(checked);
     try {
-      const res = await withTimeout(bridge.downloadUpdate(downloadUrl), 600000, '下载更新');
-      if (!res?.ok) {
-        setUpdateMsg(res?.error || '下载失败');
-        const open = await confirm({
-          title: '下载失败',
-          description: res?.error || '无法下载更新包',
-          confirmText: '打开 Releases',
-          cancelText: '关闭',
-        });
-        if (open) await bridge.openReleasesPage();
-        return;
-      }
-      setDownloadedPath(res.path || '');
-      setUpdateMsg(res.message || '下载完成');
-      const goApply = await confirm({
-        title: '下载完成',
-        description: `${res.message || '更新包已就绪'}\n\n是否立即替换并重启？请先保存流程。`,
-        confirmText: '立即更新',
-        cancelText: '稍后',
-      });
-      if (goApply) await handleApplyUpdate();
-    } catch (e: any) {
-      setUpdateMsg(String(e?.message || e || '下载失败'));
-    } finally {
-      setUpdateBusy(false);
-    }
-  };
-
-  const handleApplyUpdate = async () => {
-    if (updateBusy) return;
-    const ok = await confirm({
-      title: '立即更新并重启',
-      description: '将退出当前程序并用新版本替换。请先保存流程。是否继续？',
-      confirmText: '立即更新',
-    });
-    if (!ok) return;
-    setUpdateBusy(true);
-    setUpdateMsg('正在应用更新…');
-    try {
-      const res = await bridge.applyUpdate();
-      if (!res?.ok) {
-        setUpdateMsg(res?.error || '应用失败');
-        await alert({ title: '无法更新', description: res?.error || '应用更新失败' });
-        return;
-      }
-      setUpdateMsg(res.message || '即将重启…');
-    } catch (e: any) {
-      setUpdateMsg(String(e?.message || e || '应用失败'));
-    } finally {
-      setUpdateBusy(false);
+      localStorage.setItem('nexuz.autoCheckUpdate', checked ? '1' : '0');
+    } catch {
+      /* ignore */
     }
   };
 
@@ -420,11 +364,25 @@ export default function SettingsPage({
           className="rounded-2xl border p-5 space-y-4"
           style={{ borderColor: colors.border, backgroundColor: colors.surface }}
         >
-          <div className="flex items-center gap-2">
-            <Info className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
-            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
-              关于与更新
-            </h2>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
+              <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
+                关于与更新
+              </h2>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              disabled={updateBusy}
+              onClick={() => void bridge.openReleasesPage()}
+              title="打开 GitHub Releases"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Releases
+            </Button>
           </div>
           <Separator />
 
@@ -438,40 +396,25 @@ export default function SettingsPage({
             ) : null}
           </p>
 
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="auto-check-update"
+              checked={autoCheckUpdate}
+              onCheckedChange={(v) => handleAutoCheckChange(v === true)}
+            />
+            <Label
+              htmlFor="auto-check-update"
+              className="text-sm cursor-pointer"
+              style={{ color: colors.text }}
+            >
+              程序启动时自动检查新版本
+            </Label>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" disabled={updateBusy} onClick={() => void handleCheckUpdate()}>
               <RefreshCw className={`w-3.5 h-3.5 ${updateBusy ? 'animate-spin' : ''}`} />
               检查更新
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={updateBusy || !updateInfo?.update_available}
-              onClick={() => void handleDownloadUpdate(null)}
-            >
-              <Download className="w-3.5 h-3.5" />
-              下载更新
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={updateBusy || (!downloadedPath && !updateInfo?.update_available)}
-              onClick={() => void handleApplyUpdate()}
-              title="需先下载更新包"
-            >
-              立即更新
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={updateBusy}
-              onClick={() => void bridge.openReleasesPage()}
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              Releases
             </Button>
           </div>
           {updateMsg ? (
@@ -480,7 +423,7 @@ export default function SettingsPage({
             </p>
           ) : (
             <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-              从 GitHub Releases 检查新版本；下载后点「立即更新」会自动替换 exe 并重启。
+              点击「检查更新」可下载并安装新版本；下载进度与「立即更新」都在同一弹窗内完成。
             </p>
           )}
         </section>

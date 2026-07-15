@@ -184,17 +184,20 @@ class Api:
     def download_update(self, download_url: str | None = None) -> dict:
         from backend.core.updater import download_update
 
-        return download_update(download_url)
+        def on_progress(payload: dict) -> None:
+            self._emit("update_download_progress", payload)
+
+        return download_update(download_url, on_progress=on_progress)
 
     def apply_update(self) -> dict:
-        """Download already done → swap exe via helper script and quit."""
+        """Download already done → swap exe via hidden PowerShell and quit."""
         from backend.core.updater import apply_update_and_restart
 
         result = apply_update_and_restart()
         if result.get("ok") and result.get("restarting") and self._window:
-            # Give JS time to show the toast, then exit so the bat can replace the exe.
+            # Give JS time to show progress text, then exit so the script can replace the exe.
             def _quit():
-                time.sleep(0.6)
+                time.sleep(0.8)
                 try:
                     self._window.destroy()
                 except Exception:

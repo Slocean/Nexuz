@@ -56,10 +56,34 @@ def _http_json(url: str, *, timeout: float = 20.0) -> Any:
     return json.loads(raw)
 
 
-def _http_bytes(url: str, *, timeout: float = 600.0) -> bytes:
+def _http_bytes(
+    url: str,
+    *,
+    timeout: float = 600.0,
+    on_progress: Any | None = None,
+) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+        total = 0
+        try:
+            total = int(resp.headers.get("Content-Length") or 0)
+        except Exception:
+            total = 0
+        chunks: list[bytes] = []
+        read = 0
+        while True:
+            block = resp.read(256 * 1024)
+            if not block:
+                break
+            chunks.append(block)
+            read += len(block)
+            if on_progress:
+                try:
+                    pct = (read * 100.0 / total) if total > 0 else None
+                    on_progress(read, total, pct)
+                except Exception:
+                    pass
+        return b"".join(chunks)
 
 
 def _http_github_json(url: str, *, timeout: float = 20.0) -> dict[str, Any]:
@@ -398,7 +422,11 @@ def check_for_update() -> dict[str, Any]:
     }
 
 
-def download_update(download_url: str | None = None) -> dict[str, Any]:
+def download_update(
+    download_url: str | None = None,
+    *,
+    on_progress: Any | None = None,
+) -> dict[str, Any]:
     """Download latest (or given) exe next to the running binary as Nexuz_update.exe."""
     info = check_for_update()
     if not info.get("ok"):
@@ -440,14 +468,45 @@ def download_update(download_url: str | None = None) -> dict[str, Any]:
     dest = dest_dir / "Nexuz_update.exe"
     partial = dest.with_suffix(".exe.partial")
 
+    last_emit = [0.0]
+
+    def _progress(read: int, total: int, pct: float | None) -> None:
+        if not on_progress:
+            return
+        import time as _time
+
+        now = _time.time()
+        # Throttle UI emits
+        if pct is not None and (pct >= 100 or now - last_emit[0] >= 0.2):
+            last_emit[0] = now
+            on_progress(
+                {
+                    "downloaded": read,
+                    "total": total,
+                    "percent": float(pct),
+                    "message": f"正在下载… {int(pct)}%" if pct is not None else "正在下载…",
+                }
+            )
+
     try:
-        blob = _http_bytes(url)
+        if on_progress:
+            on_progress({"downloaded": 0, "total": 0, "percent": 0, "message": "开始下载…"})
+        blob = _http_bytes(url, on_progress=_progress if on_progress else None)
         if len(blob) < 1024 * 100:
             return {"ok": False, "error": "下载文件过小，可能不是有效的安装包"}
         partial.write_bytes(blob)
         if dest.exists():
             dest.unlink()
         partial.rename(dest)
+        if on_progress:
+            on_progress(
+                {
+                    "downloaded": len(blob),
+                    "total": len(blob),
+                    "percent": 100,
+                    "message": "下载完成",
+                }
+            )
     except urllib.error.HTTPError as exc:
         try:
             if partial.exists():
@@ -484,6 +543,10 @@ def download_update(download_url: str | None = None) -> dict[str, Any]:
     }
 
 
+def _ps_escape(path: str) -> str:
+    return str(path).replace("'", "''")
+
+
 def _target_exe_path() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve()
@@ -491,7 +554,7 @@ def _target_exe_path() -> Path:
 
 
 def apply_update_and_restart() -> dict[str, Any]:
-    """Swap in downloaded exe via a helper bat, then exit the app."""
+    """Swap in downloaded exe via a hidden PowerShell script, then exit the app."""
     if not getattr(sys, "frozen", False):
         return {
             "ok": False,
@@ -504,41 +567,54 @@ def apply_update_and_restart() -> dict[str, Any]:
 
     target = _target_exe_path()
     pid = os.getpid()
-    bat = Path(tempfile.gettempdir()) / f"nexuz_apply_update_{pid}.bat"
-    upd = str(update_path)
-    tgt = str(target)
-    work = str(target.parent)
-    script = f"""@echo off
-chcp 65001 >nul
-setlocal
-set "PID={pid}"
-set "UPD={upd}"
-set "TGT={tgt}"
-set "WORK={work}"
-:wait
-tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul
-if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto wait
-)
-timeout /t 1 /nobreak >nul
-copy /Y "%UPD%" "%TGT%" >nul
-if errorlevel 1 (
-  echo Nexuz update failed: cannot replace exe
-  pause
-  exit /b 1
-)
-del /F /Q "%UPD%" >nul 2>&1
-start "" /D "%WORK%" "%TGT%"
-del /F /Q "%~f0" >nul 2>&1
+    ps1 = Path(tempfile.gettempdir()) / f"nexuz_apply_update_{pid}.ps1"
+    upd = _ps_escape(str(update_path))
+    tgt = _ps_escape(str(target))
+    work = _ps_escape(str(target.parent))
+    log = _ps_escape(str(exe_dir() / "nexuz_update.log"))
+    script = f"""
+$ErrorActionPreference = 'Stop'
+$pidToWait = {pid}
+$upd = '{upd}'
+$tgt = '{tgt}'
+$work = '{work}'
+$log = '{log}'
+function Write-Log([string]$msg) {{
+  try {{ Add-Content -LiteralPath $log -Value ("[{{0}}] {{1}}" -f (Get-Date -Format o), $msg) -Encoding UTF8 }} catch {{}}
+}}
+Write-Log "waiting for pid $pidToWait"
+while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{
+  Start-Sleep -Milliseconds 400
+}}
+Start-Sleep -Seconds 1
+Write-Log "copy $upd -> $tgt"
+Copy-Item -LiteralPath $upd -Destination $tgt -Force
+Remove-Item -LiteralPath $upd -Force -ErrorAction SilentlyContinue
+Write-Log "start $tgt"
+Start-Process -FilePath $tgt -WorkingDirectory $work
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 """
     try:
-        bat.write_text(script, encoding="utf-8")
+        ps1.write_text(script, encoding="utf-8")
+        # Hidden PowerShell — no console flash / no find.exe window
+        CREATE_NO_WINDOW = 0x08000000
+        DETACHED_PROCESS = 0x00000008
         subprocess.Popen(
-            ["cmd.exe", "/c", str(bat)],
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                str(ps1),
+            ],
             cwd=str(target.parent),
-            creationflags=0x00000008 | 0x08000000,  # DETACHED_PROCESS | CREATE_NO_WINDOW
+            creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS,
             close_fds=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     except Exception as exc:
         return {"ok": False, "error": f"无法启动更新脚本: {exc}"}
@@ -546,7 +622,7 @@ del /F /Q "%~f0" >nul 2>&1
     return {
         "ok": True,
         "restarting": True,
-        "message": "即将退出并应用更新…",
+        "message": "即将退出并应用更新，程序会自动重启…",
     }
 
 

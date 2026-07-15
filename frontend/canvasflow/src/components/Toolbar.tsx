@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
+import { useUpdateDialog } from './UpdateDialog';
 
 interface ToolbarProps {
   themeName: ThemeName;
@@ -90,7 +91,8 @@ export default function Toolbar({
   viewMode = 'canvas',
   onViewModeChange
 }: ToolbarProps) {
-  const { alert, confirm } = useAppDialog();
+  const { alert } = useAppDialog();
+  const { openUpdate } = useUpdateDialog();
   const [isSaved, setIsSaved] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [onTop, setOnTop] = useState(false);
@@ -138,56 +140,7 @@ export default function Toolbar({
         return;
       }
       setUpdateDot(!!res.update_available);
-      if (!res.update_available) {
-        await alert({
-          title: '已是最新版本',
-          description: `当前版本 ${res.current_version}`,
-        });
-        return;
-      }
-
-      const notes = String(res.release_notes || '').trim();
-      const preview = notes
-        ? `\n\n更新说明：\n${notes.slice(0, 600)}${notes.length > 600 ? '…' : ''}`
-        : '';
-      const goDownload = await confirm({
-        title: `发现新版本 ${res.latest_version}`,
-        description: `当前 ${res.current_version} → ${res.latest_version}${preview}`,
-        confirmText: '下载更新',
-        cancelText: '稍后',
-      });
-      if (!goDownload) return;
-
-      const dl = await bridge.downloadUpdate(res.download_url || null);
-      if (!dl?.ok) {
-        const open = await confirm({
-          title: '下载失败',
-          description: dl?.error || '无法下载更新包',
-          confirmText: '打开 Releases',
-          cancelText: '关闭',
-        });
-        if (open) await bridge.openReleasesPage();
-        return;
-      }
-
-      const goApply = await confirm({
-        title: '下载完成',
-        description: `${dl.message || '更新包已就绪'}。是否立即替换并重启？请先保存流程。`,
-        confirmText: '立即更新',
-        cancelText: '稍后',
-      });
-      if (!goApply) {
-        await alert({
-          title: '已下载',
-          description: '可稍后在「设置 → 关于与更新」点击「立即更新」。',
-        });
-        return;
-      }
-
-      const applied = await bridge.applyUpdate();
-      if (!applied?.ok) {
-        await alert({ title: '无法更新', description: applied?.error || '应用更新失败' });
-      }
+      await openUpdate(res);
     } catch (e: any) {
       await alert({ title: '检查更新失败', description: String(e?.message || e) });
     }

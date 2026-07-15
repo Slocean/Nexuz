@@ -15,6 +15,7 @@ import RunningBanner from './components/RunningBanner';
 import SettingsPage from './components/SettingsPage';
 import DebugBar from './components/DebugBar';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
+import { UpdateDialogProvider, useUpdateDialog } from './components/UpdateDialog';
 import { getThemeColors } from './theme';
 import {
   applyDefaultCaptureMode,
@@ -96,13 +97,16 @@ function withThemeTransition(update: () => void) {
 export default function App() {
   return (
     <AppDialogProvider>
-      <AppShell />
+      <UpdateDialogProvider>
+        <AppShell />
+      </UpdateDialogProvider>
     </AppDialogProvider>
   );
 }
 
 function AppShell() {
   const { confirm, alert } = useAppDialog();
+  const { openUpdate } = useUpdateDialog();
   const flow = useFlowStore((s) => s.flow);
   const schemas = useFlowStore((s) => s.schemas);
   const schemaMap = useFlowStore((s) => s.schemaMap);
@@ -256,6 +260,11 @@ function AppShell() {
   useEffect(() => {
     (window as any).__nexuzEmit = (msg: any) => {
       if (!msg) return;
+      if (msg.event === 'update_download_progress') {
+        window.dispatchEvent(
+          new CustomEvent('nexuz-update-progress', { detail: msg.payload || {} }),
+        );
+      }
       onRuntimeEvent(msg.event, msg.payload || {});
     };
     let cancelled = false;
@@ -323,45 +332,26 @@ function AppShell() {
         }
       }
       if (!cancelled) {
+        let autoCheck = true;
         try {
-          const upd = await bridge.checkForUpdate();
-          if (upd?.ok && upd.update_available) {
-            const notes = String(upd.release_notes || '').trim();
-            const preview = notes
-              ? `\n\n${notes.slice(0, 400)}${notes.length > 400 ? '…' : ''}`
-              : '';
-            const go = await confirm({
-              title: `发现新版本 ${upd.latest_version}`,
-              description: `当前 ${upd.current_version} → ${upd.latest_version}${preview}`,
-              confirmText: '下载更新',
-              cancelText: '稍后',
-            });
-            if (go) {
-              const dl = await bridge.downloadUpdate(upd.download_url || null);
-              if (!dl?.ok) {
-                await alert({ title: '下载失败', description: dl?.error || '无法下载' });
-              } else {
-                const apply = await confirm({
-                  title: '下载完成',
-                  description: '是否立即更新并重启？请先保存流程。',
-                  confirmText: '立即更新',
-                  cancelText: '稍后',
-                });
-                if (apply) {
-                  const r = await bridge.applyUpdate();
-                  if (!r?.ok) {
-                    await alert({ title: '无法更新', description: r?.error || '应用失败' });
-                  }
-                }
-              }
-            }
-            appendLog({
-              level: 'info',
-              message: `有可用更新：${upd.current_version} → ${upd.latest_version}`,
-            });
-          }
+          const v = localStorage.getItem('nexuz.autoCheckUpdate');
+          if (v === '0' || v === 'false') autoCheck = false;
         } catch {
           /* ignore */
+        }
+        if (autoCheck) {
+          try {
+            const upd = await bridge.checkForUpdate();
+            if (upd?.ok && upd.update_available) {
+              appendLog({
+                level: 'info',
+                message: `有可用更新：${upd.current_version} → ${upd.latest_version}`,
+              });
+              await openUpdate(upd);
+            }
+          } catch {
+            /* ignore */
+          }
         }
       }
     })();
@@ -369,7 +359,7 @@ function AppShell() {
       cancelled = true;
       delete (window as any).__nexuzEmit;
     };
-  }, [onRuntimeEvent, setBridgeReady, setSchemas, appendLog, alert, confirm, setViewMode]);
+  }, [onRuntimeEvent, setBridgeReady, setSchemas, appendLog, alert, openUpdate, setViewMode]);
 
   useEffect(() => {
     const last = logs[logs.length - 1];
