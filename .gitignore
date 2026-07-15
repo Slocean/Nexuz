@@ -6,6 +6,9 @@ __pycache__/
 venv/
 .env
 .github_token
+.codesign/
+*.pfx
+*.p12
 
 # Node
 frontend/node_modules/

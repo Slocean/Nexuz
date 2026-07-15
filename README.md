@@ -103,6 +103,11 @@ python trigger_release.py
 进度：https://github.com/Slocean/Nexuz/actions  
 成品：https://github.com/Slocean/Nexuz/releases
 
+### Windows 代码签名
+
+未签名 exe 容易被 Defender 删。配置方法见 [`docs/WINDOWS_SIGNING.md`](docs/WINDOWS_SIGNING.md)。  
+在 GitHub Secrets 填入 `WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD` 后，Release Action 会自动签名。
+
 ### 客户端热更新与公告
 
 - 通道文件：[`app_update.json`](app_update.json)（累计 `history`）

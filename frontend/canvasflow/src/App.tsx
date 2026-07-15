@@ -134,6 +134,7 @@ function AppShell() {
   const addNodeFromSchema = useFlowStore((s) => s.addNodeFromSchema);
   const updateNodeParams = useFlowStore((s) => s.updateNodeParams);
   const updateNodeName = useFlowStore((s) => s.updateNodeName);
+  const setNodeCollapsed = useFlowStore((s) => s.setNodeCollapsed);
   const updateNodePosition = useFlowStore((s) => s.updateNodePosition);
   const setNodeLink = useFlowStore((s) => s.setNodeLink);
   const removeNodeLink = useFlowStore((s) => s.removeNodeLink);
@@ -957,6 +958,15 @@ function AppShell() {
     [updateNodeName],
   );
 
+  const handleToggleNodeCollapsed = useCallback(
+    (nodeId: string) => {
+      const node = useFlowStore.getState().flow.nodes[nodeId];
+      if (!node) return;
+      setNodeCollapsed(nodeId, !node.collapsed);
+    },
+    [setNodeCollapsed],
+  );
+
   const handleRunSingleNode = useCallback(
     async (nodeId: string) => {
       if (isExecuting) {
@@ -1103,6 +1113,7 @@ function AppShell() {
               onRunSingleNode={handleRunSingleNode}
               onToggleBreakpoint={handleToggleBreakpoint}
               onUpdateNodeName={handleUpdateNodeName}
+              onToggleNodeCollapsed={handleToggleNodeCollapsed}
               themeName={themeName as any}
               themeMode={themeMode as any}
               isExecuting={isExecuting}

@@ -10,6 +10,8 @@ import {
   Pause,
   Play,
   Waypoints,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   WorkflowNode,
@@ -45,6 +47,7 @@ interface CanvasProps {
   onRunSingleNode?: (nodeId: string) => void;
   onToggleBreakpoint?: (nodeId: string) => void;
   onUpdateNodeName?: (nodeId: string, name: string) => void;
+  onToggleNodeCollapsed?: (nodeId: string) => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
   isExecuting: boolean;
@@ -200,6 +203,7 @@ function Canvas({
   onRunSingleNode,
   onToggleBreakpoint,
   onUpdateNodeName,
+  onToggleNodeCollapsed,
   themeName,
   themeMode,
   isExecuting: _isExecuting,
@@ -385,6 +389,11 @@ function Canvas({
 
   const getSocketPosition = (node: WorkflowNode, socketId: string, isInput: boolean) => {
     const xy = getNodeXY(node);
+    // Collapsed: dock all wires to the header mid-line
+    if (node.collapsed) {
+      const y = xy.y + NODE_PAD_TOP + Math.floor(NODE_HEADER_H / 2);
+      return { x: isInput ? xy.x : xy.x + NODE_WIDTH, y };
+    }
     if (isInput) {
       let index = node.inputs.findIndex((s) => s.id === socketId);
       if (index === -1 && socketId.startsWith("param:")) {
@@ -1410,8 +1419,29 @@ function Canvas({
                     {node.bindErrorCount} 绑定
                   </div>
                 )}
-                <div className="flex items-center justify-between border-b border-black/10 dark:border-white/10 pb-1.5 shrink-0">
-                  <div className="flex items-center gap-1.5 truncate min-w-0 flex-1">
+                <div
+                  className={`flex items-center justify-between shrink-0 ${
+                    node.collapsed ? "" : "border-b border-black/10 dark:border-white/10 pb-1.5"
+                  }`}
+                >
+                  <div className="flex items-center gap-1 truncate min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleNodeCollapsed?.(node.id);
+                      }}
+                      className="p-0.5 rounded hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
+                      style={{ color: colors.secondaryText }}
+                      title={node.collapsed ? "展开节点" : "折叠节点"}
+                    >
+                      {node.collapsed ? (
+                        <ChevronRight className="w-3 h-3" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3" />
+                      )}
+                    </button>
                     <span
                       style={{
                         backgroundColor: nodeAccentColor + "1E",
@@ -1444,7 +1474,7 @@ function Canvas({
                     ) : (
                       <span
                         className="font-semibold text-xs truncate cursor-text"
-                        title="双击修改名称"
+                        title="双击修改名称；点左侧箭头折叠"
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           setEditingNameId(node.id);
@@ -1495,6 +1525,39 @@ function Canvas({
                   </div>
                 </div>
 
+                {node.collapsed ? (
+                  <>
+                    {node.inputs.length > 0 ? (
+                      <div
+                        onMouseUp={(e) => handleSocketDragDrop(e, node, node.inputs[0].id)}
+                        style={{
+                          backgroundColor: themeMode === "light" ? "#FFFFFF" : "#111524",
+                          borderColor: nodeAccentColor,
+                        }}
+                        className="w-3 h-3 border-2 absolute -left-[18px] top-[14px] rounded-full hover:scale-125 transition-transform cursor-crosshair z-30"
+                        title="折叠中：连线接到首个入口（展开可选具体口）"
+                      />
+                    ) : null}
+                    {node.outputs.length > 0 ? (
+                      <div
+                        onMouseDown={(e) => {
+                          const out =
+                            node.outputs.find((o) => o.id === "next") || node.outputs[0];
+                          handleSocketDragStart(e, node, out.id);
+                        }}
+                        style={{
+                          backgroundColor: nodeAccentColor,
+                          borderColor: themeMode === "light" ? "#FFFFFF" : "#111524",
+                        }}
+                        className="w-3 h-3 border-2 absolute -right-[18px] top-[14px] rounded-full hover:scale-125 transition-transform cursor-crosshair z-30 flex items-center justify-center"
+                        title="折叠中：从 next/首个出口拖出（展开可选具体口）"
+                      >
+                        <div className="w-1 h-1 rounded-full bg-white" />
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
                 <div className="flex flex-col gap-1 relative">
                   {node.inputs.map((inp) => {
                     const isDataIn = inp.kind === "data";
@@ -1622,6 +1685,8 @@ function Canvas({
                     {node.subType.replace("-", " ")}
                   </span>
                 </div>
+                  </>
+                )}
               </div>
             );
           })}

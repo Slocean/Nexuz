@@ -368,6 +368,7 @@ export function flowToCanvas(
       status,
       // Only attach live output for nodes that produced one (already summarized upstream).
       outputData: nodeOutputs[id] || null,
+      collapsed: !!node.collapsed,
     });
 
     const links: [string, string | null | undefined][] = [

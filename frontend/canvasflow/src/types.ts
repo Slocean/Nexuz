@@ -45,6 +45,8 @@ export interface WorkflowNode {
   outputData?: any;
   /** P3: count of bind errors on this node */
   bindErrorCount?: number;
+  /** UI: collapse body (sockets / footer); wires dock to header */
+  collapsed?: boolean;
 }
 
 export interface NodeConnection {

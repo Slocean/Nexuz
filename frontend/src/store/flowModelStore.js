@@ -477,6 +477,24 @@ export const useFlowStore = create((set, get) => ({
       };
     }),
 
+  setNodeCollapsed: (nodeId, collapsed) =>
+    set((state) => {
+      const node = state.flow.nodes[nodeId];
+      if (!node) return state;
+      const nextNode = { ...node };
+      if (collapsed) nextNode.collapsed = true;
+      else delete nextNode.collapsed;
+      return {
+        flow: {
+          ...state.flow,
+          nodes: {
+            ...state.flow.nodes,
+            [nodeId]: nextNode,
+          },
+        },
+      };
+    }),
+
   updateNodePosition: (nodeId, position) =>
     set((state) => {
       const node = state.flow.nodes[nodeId];
