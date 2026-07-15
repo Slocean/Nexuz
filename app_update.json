@@ -1,6 +1,12 @@
 {
   "history": [
     {
+      "version": "0.1.8",
+      "title": "0.1.8 热更新整包替换修复",
+      "body": "• 下载完成后进度条保留在 100%，不再消失\n• 立即更新：退出后删除旧 Nexuz.exe，将新包改回同名并启动（整包替换，非安装包）\n• 用独立助手执行替换，避免黑窗或点了无反应；失败会弹窗并写 nexuz_update.log",
+      "notice": "热更新已修好：下载完进度条会留着；点立即更新后退出并删旧换新同名 exe 再启动。若失败请看程序目录 nexuz_update.log。"
+    },
+    {
       "version": "0.1.7",
       "title": "0.1.7 Release 只写本版公告",
       "body": "• GitHub Release 正文只写入当前发版版本的 title / body\n• 不再把历史版本更新记录全部塞进 Release 页面",

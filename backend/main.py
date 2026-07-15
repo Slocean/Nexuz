@@ -67,6 +67,13 @@ def resolve_app_icon() -> str | None:
 
 
 def main() -> None:
+    try:
+        from backend.core.updater import cleanup_old_exe
+
+        cleanup_old_exe()
+    except Exception:
+        pass
+
     api = Api()
     url = resolve_ui_url()
     icon = resolve_app_icon()

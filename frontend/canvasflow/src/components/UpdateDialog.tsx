@@ -1,5 +1,9 @@
 /**
  * Single-dialog update flow: info → downloading (progress) → ready (apply) → applying.
+ *
+ * Update mechanism (portable Nexuz.exe, not an installer):
+ *   download → Nexuz_update.exe beside current exe
+ *   apply → helper waits for exit → rename-swap → start new Nexuz.exe
  */
 import React, {
   createContext,
@@ -36,7 +40,6 @@ export type UpdateCheckInfo = {
 type Phase = 'info' | 'downloading' | 'ready' | 'applying' | 'uptodate' | 'error';
 
 type UpdateDialogApi = {
-  /** Open flow with known check result, or check first if omitted. */
   openUpdate: (info?: UpdateCheckInfo | null) => Promise<void>;
 };
 
@@ -58,6 +61,40 @@ function formatNotes(notes: string | undefined, max = 500) {
   const t = String(notes || '').trim();
   if (!t) return '';
   return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+function ProgressBlock({
+  statusText,
+  percent,
+  spinning,
+  hint,
+}: {
+  statusText: string;
+  percent: number | null;
+  spinning: boolean;
+  hint?: string;
+}) {
+  const showIndeterminate = spinning && percent == null;
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex items-center gap-2 text-sm">
+        {spinning ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : null}
+        <span>{statusText}</span>
+        {percent != null ? <span className="font-mono ml-auto">{percent}%</span> : null}
+      </div>
+      <div className="h-2 w-full rounded-full bg-black/10 dark:bg-white/10 overflow-hidden relative">
+        {showIndeterminate ? (
+          <div className="absolute inset-y-0 w-2/5 rounded-full bg-[var(--primary)] nexuz-indeterminate-bar" />
+        ) : (
+          <div
+            className="h-full rounded-full bg-[var(--primary)] transition-all duration-300"
+            style={{ width: `${percent ?? 0}%` }}
+          />
+        )}
+      </div>
+      {hint ? <p className="text-xs opacity-80">{hint}</p> : null}
+    </div>
+  );
 }
 
 export function UpdateDialogProvider({ children }: { children: React.ReactNode }) {
@@ -153,7 +190,7 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
         return;
       }
       setPercent(100);
-      setStatusText(dl.message || '下载完成');
+      setStatusText(dl.message || '下载完成（100%）');
       setPhase('ready');
     } catch (e: any) {
       setPhase('error');
@@ -163,7 +200,8 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
 
   const startApply = async () => {
     setPhase('applying');
-    setStatusText('正在替换程序并重启，请稍候…');
+    setPercent(100);
+    setStatusText('正在退出并替换程序文件…');
     setError('');
     try {
       const res = await bridge.applyUpdate();
@@ -172,6 +210,7 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
         setError(res?.error || '应用更新失败');
         return;
       }
+      setPercent(100);
       setStatusText(res.message || '即将重启…');
     } catch (e: any) {
       setPhase('error');
@@ -198,6 +237,9 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
               : info?.latest_version
                 ? `发现新版本 ${info.latest_version}`
                 : '检查更新';
+
+  const showProgress =
+    phase === 'downloading' || phase === 'ready' || phase === 'applying';
 
   return (
     <UpdateCtx.Provider value={api}>
@@ -245,39 +287,26 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
                   </p>
                 ) : null}
 
-                {(phase === 'downloading' || phase === 'applying') && (
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                      <span>{statusText || (phase === 'applying' ? '正在重启…' : '下载中…')}</span>
-                      {phase === 'downloading' && percent != null ? (
-                        <span className="font-mono ml-auto">{percent}%</span>
-                      ) : null}
-                    </div>
-                    <div className="h-2 w-full rounded-full bg-black/10 dark:bg-white/10 overflow-hidden relative">
-                      {phase === 'downloading' && percent == null ? (
-                        <div className="absolute inset-y-0 w-2/5 rounded-full bg-[var(--primary)] nexuz-indeterminate-bar" />
-                      ) : (
-                        <div
-                          className="h-full rounded-full bg-[var(--primary)] transition-all duration-300"
-                          style={{
-                            width: phase === 'applying' ? '100%' : `${percent ?? 0}%`,
-                          }}
-                        />
-                      )}
-                    </div>
-                    {phase === 'applying' ? (
-                      <p className="text-xs opacity-80">
-                        程序即将自动关闭并替换为新版本，请勿手动结束进程。
-                      </p>
-                    ) : null}
-                  </div>
-                )}
-
-                {phase === 'ready' ? (
-                  <p className="text-sm">
-                    {statusText || '更新包已就绪。请先保存流程，然后点击「立即更新」。'}
-                  </p>
+                {showProgress ? (
+                  <ProgressBlock
+                    statusText={
+                      statusText ||
+                      (phase === 'ready'
+                        ? '下载完成'
+                        : phase === 'applying'
+                          ? '正在重启…'
+                          : '下载中…')
+                    }
+                    percent={phase === 'downloading' && statusText.includes('检查') ? null : percent}
+                    spinning={busy}
+                    hint={
+                      phase === 'ready'
+                        ? '更新包已就绪。请先保存流程，然后点「立即更新」：程序会退出，用新 exe 替换旧文件并自动重启。'
+                        : phase === 'applying'
+                          ? '请勿手动结束进程。若失败会弹窗提示，日志在程序目录 nexuz_update.log。'
+                          : undefined
+                    }
+                  />
                 ) : null}
 
                 {phase === 'error' && error ? (

@@ -553,76 +553,158 @@ def _target_exe_path() -> Path:
     return exe_dir() / "Nexuz.exe"
 
 
+def _powershell_exe() -> str:
+    root = os.environ.get("SystemRoot") or r"C:\Windows"
+    return str(Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+
+
+def cleanup_old_exe() -> None:
+    """Remove leftover Nexuz.exe.old after a successful update restart."""
+    try:
+        old = exe_dir() / "Nexuz.exe.old"
+        if old.is_file():
+            old.unlink()
+    except OSError:
+        pass
+
+
 def apply_update_and_restart() -> dict[str, Any]:
-    """Swap in downloaded exe via a hidden PowerShell script, then exit the app."""
+    """整包替换：下载好的新 exe 改成和旧版同名，再启动。
+
+    不能边跑边删旧文件（Windows 锁住正在运行的 exe），所以顺序是：
+      1. 新包已下到 Nexuz_update.exe（名字先不同，避免覆盖正在跑的文件）
+      2. 启动助手后，本进程退出
+      3. 助手：删掉旧 Nexuz.exe → 把 Nexuz_update.exe 改名为 Nexuz.exe → 启动
+    """
     if not getattr(sys, "frozen", False):
         return {
             "ok": False,
-            "error": "开发模式下请直接拉取代码或手动替换打包产物，无法热更新 exe",
+            "error": (
+                "当前不是打包后的 Nexuz.exe（开发模式）。"
+                "热更新只替换正在运行的可执行文件，请用 Release 里的 exe 测试。"
+            ),
         }
 
     update_path = exe_dir() / "Nexuz_update.exe"
     if not update_path.is_file():
-        return {"ok": False, "error": "未找到已下载的更新包，请先下载更新"}
+        return {"ok": False, "error": "未找到已下载的更新包（Nexuz_update.exe），请先下载更新"}
+
+    try:
+        if update_path.stat().st_size < 1024 * 100:
+            return {"ok": False, "error": "更新包过小，可能下载不完整，请重新下载"}
+    except OSError as exc:
+        return {"ok": False, "error": f"无法读取更新包: {exc}"}
 
     target = _target_exe_path()
     pid = os.getpid()
-    ps1 = Path(tempfile.gettempdir()) / f"nexuz_apply_update_{pid}.ps1"
+    work_dir = target.parent
+    log_path = exe_dir() / "nexuz_update.log"
+
     upd = _ps_escape(str(update_path))
     tgt = _ps_escape(str(target))
-    work = _ps_escape(str(target.parent))
-    log = _ps_escape(str(exe_dir() / "nexuz_update.log"))
+    work = _ps_escape(str(work_dir))
+    log = _ps_escape(str(log_path))
+    tgt_name = _ps_escape(target.name)
+
+    ps1 = Path(tempfile.gettempdir()) / f"nexuz_apply_update_{pid}.ps1"
+    vbs = Path(tempfile.gettempdir()) / f"nexuz_apply_update_{pid}.vbs"
+
     script = f"""
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $pidToWait = {pid}
 $upd = '{upd}'
 $tgt = '{tgt}'
 $work = '{work}'
 $log = '{log}'
+$tgtName = '{tgt_name}'
+
 function Write-Log([string]$msg) {{
-  try {{ Add-Content -LiteralPath $log -Value ("[{{0}}] {{1}}" -f (Get-Date -Format o), $msg) -Encoding UTF8 }} catch {{}}
+  $line = "[{{0}}] {{1}}" -f (Get-Date -Format o), $msg
+  try {{ Add-Content -LiteralPath $log -Value $line -Encoding UTF8 }} catch {{}}
 }}
-Write-Log "waiting for pid $pidToWait"
-while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{
-  Start-Sleep -Milliseconds 400
+
+function Show-Fail([string]$msg) {{
+  Write-Log $msg
+  try {{
+    Add-Type -AssemblyName System.Windows.Forms | Out-Null
+    [System.Windows.Forms.MessageBox]::Show($msg, 'Nexuz 更新失败') | Out-Null
+  }} catch {{}}
 }}
-Start-Sleep -Seconds 1
-Write-Log "copy $upd -> $tgt"
-Copy-Item -LiteralPath $upd -Destination $tgt -Force
-Remove-Item -LiteralPath $upd -Force -ErrorAction SilentlyContinue
-Write-Log "start $tgt"
-Start-Process -FilePath $tgt -WorkingDirectory $work
+
+Write-Log "wait exit pid=$pidToWait"
+$exited = $false
+for ($i = 0; $i -lt 120; $i++) {{
+  if (-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) {{
+    $exited = $true
+    break
+  }}
+  Start-Sleep -Milliseconds 500
+}}
+if (-not $exited) {{
+  Show-Fail "等待程序退出超时。日志: $log"
+  exit 1
+}}
+Start-Sleep -Milliseconds 600
+
+# 删旧 → 新文件改成同名（文件锁时短暂重试）
+$ok = $false
+for ($i = 0; $i -lt 40; $i++) {{
+  try {{
+    if (Test-Path -LiteralPath $tgt) {{
+      Remove-Item -LiteralPath $tgt -Force
+    }}
+    Rename-Item -LiteralPath $upd -NewName $tgtName -Force
+    $ok = $true
+    Write-Log "deleted old, renamed new to $tgtName"
+    break
+  }} catch {{
+    Write-Log ("try $($i+1): " + $_.Exception.Message)
+    Start-Sleep -Milliseconds 500
+  }}
+}}
+
+if ($ok -and (Test-Path -LiteralPath $tgt)) {{
+  Write-Log "start $tgt"
+  Start-Process -FilePath $tgt -WorkingDirectory $work
+}} elseif (Test-Path -LiteralPath $upd) {{
+  Write-Log "fallback start downloaded exe"
+  Start-Process -FilePath $upd -WorkingDirectory $work
+  Show-Fail "删不掉旧版（可能被占用）。已直接启动下载的新版本。日志: $log"
+}} else {{
+  Show-Fail "更新失败。日志: $log"
+  exit 1
+}}
+
 Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 """
     try:
         ps1.write_text(script, encoding="utf-8")
-        # Hidden PowerShell — no console flash / no find.exe window
+        ps_exe = _powershell_exe()
+        vbs_body = (
+            'Set sh = CreateObject("WScript.Shell")\r\n'
+            f'sh.Run """{ps_exe}"" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{ps1}""", 0, False\r\n'
+        )
+        vbs.write_text(vbs_body, encoding="ascii", errors="replace")
+
         CREATE_NO_WINDOW = 0x08000000
-        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
         subprocess.Popen(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-WindowStyle",
-                "Hidden",
-                "-File",
-                str(ps1),
-            ],
-            cwd=str(target.parent),
-            creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS,
-            close_fds=True,
+            ["wscript.exe", "//B", "//Nologo", str(vbs)],
+            cwd=str(work_dir),
+            creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
+            close_fds=False,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
     except Exception as exc:
-        return {"ok": False, "error": f"无法启动更新脚本: {exc}"}
+        return {"ok": False, "error": f"无法启动更新助手: {exc}"}
 
     return {
         "ok": True,
         "restarting": True,
-        "message": "即将退出并应用更新，程序会自动重启…",
+        "log": str(log_path),
+        "message": "即将退出：删除旧版，把新版改名为 Nexuz.exe 并启动…",
     }
 
 
