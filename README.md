@@ -100,6 +100,8 @@ python trigger_release.py
 
 会打 `v版本号` 的 tag 并推送，GitHub Action 自动打包上传 Release。**不需要安装 gh。**
 
+Release 正文会从 [`app_update.json`](app_update.json) 的 `history` **完整写入每次更新记录**（`title` / `body`），不会再用 GitHub 自动生成的 Changelog 跳转链接。
+
 进度：https://github.com/Slocean/Nexuz/actions  
 成品：https://github.com/Slocean/Nexuz/releases
 

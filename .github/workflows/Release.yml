@@ -114,6 +114,16 @@ jobs:
           path: dist/Nexuz.exe
           if-no-files-found: error
 
+      - name: Build release notes from app_update.json
+        id: notes
+        shell: bash
+        run: |
+          python build_release_notes.py \
+            --version "${{ steps.ver.outputs.version }}" \
+            -o RELEASE_NOTES.md
+          echo "----- RELEASE_NOTES.md -----"
+          cat RELEASE_NOTES.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -121,7 +131,8 @@ jobs:
           name: Nexuz ${{ steps.ver.outputs.version }}
           draft: false
           prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
-          generate_release_notes: true
+          generate_release_notes: false
+          body_path: RELEASE_NOTES.md
           files: dist/Nexuz.exe
           fail_on_unmatched_files: true
         env:

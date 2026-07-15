@@ -1,6 +1,12 @@
 {
   "history": [
     {
+      "version": "0.1.6",
+      "title": "0.1.6 Release 正文写入更新记录",
+      "body": "• GitHub Release 不再使用自动 Changelog 跳转链接\n• 发版时从 app_update.json 的 history 完整写入每次 title / body 更新说明\n• 新增 build_release_notes.py，与 Release Action 共用",
+      "notice": "发版说明已修好：GitHub Releases 页面会直接显示完整更新记录，不再只有 Changelog 链接。"
+    },
+    {
       "version": "0.1.5",
       "title": "0.1.5 更新体验修复",
       "body": "• 下载更新改为同一弹窗内显示进度，下载完成后直接出现「立即更新」，不再另弹第二个框\n• 应用更新改为隐藏 PowerShell 替换重启，不再闪出 find/cmd 黑窗\n• 设置「关于与更新」：可开关「启动时自动检查新版本」；去掉多余下载/立即更新按钮，保留「检查更新」；Releases 移到卡片右上角",
