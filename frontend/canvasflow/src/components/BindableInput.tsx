@@ -25,11 +25,14 @@ import {
   formatVarRef,
   isRefValue,
   listFlowVariableNames,
+  listValuePaths,
   literalToDisplay,
   parseNodeRef,
+  rootFieldName,
 } from '../bindValue';
 import { inspectBindValue } from '../bindValidate';
 import VariableSelect from './VariableSelect';
+import NodeOutputFieldSelect from './NodeOutputFieldSelect';
 import { bridge } from '@/bridge';
 
 type SchemaMap = Record<string, { label?: string; outputs?: { name: string; type?: string }[] }>;
@@ -46,6 +49,10 @@ interface BindableInputProps {
   className?: string;
   /** Allow JSON object/array as literal (赋值节点等) */
   allowJson?: boolean;
+  /** Override label for bind-kind row (default: 类型) */
+  kindLabel?: string;
+  /** Override label for literal/variable value row (default: 值) */
+  valueLabel?: string;
 }
 
 function Row({
@@ -78,10 +85,13 @@ export default function BindableInput({
   trailing,
   className,
   allowJson = false,
+  kindLabel = '类型',
+  valueLabel = '值',
 }: BindableInputProps) {
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
   const variables = useFlowStore((s) => s.flow.variables || {});
   const variableSchemas = useFlowStore((s) => s.flow.variable_schemas || {});
+  const nodeOutputs = useFlowStore((s) => s.nodeOutputs || {});
 
   const kind = detectBindKind(value);
   const nodeRef = kind === 'node' && typeof value === 'string' ? parseNodeRef(value) : null;
@@ -130,6 +140,14 @@ export default function BindableInput({
 
   const selectedNode = nodeOptions.find((n) => n.id === nodeRef?.nodeId);
   const fields = selectedNode?.outputs || [];
+  const runtimeRootValue = useMemo(() => {
+    const nid = nodeRef?.nodeId;
+    const root = nodeRef?.field ? rootFieldName(nodeRef.field) : '';
+    if (!nid || !root) return undefined;
+    const live = nodeOutputs[nid];
+    if (!live || typeof live !== 'object') return undefined;
+    return (live as Record<string, unknown>)[root];
+  }, [nodeRef?.nodeId, nodeRef?.field, nodeOutputs]);
 
   useEffect(() => {
     if (!hasUpstream && kind === 'node') {
@@ -194,7 +212,7 @@ export default function BindableInput({
         }`}
         title={status.message || undefined}
       >
-        <Row title="类型">
+        <Row title={kindLabel}>
           <Select
             value={kind === 'node' && !hasUpstream ? 'literal' : kind}
             onValueChange={(v) => setKind(v as BindKind)}
@@ -215,7 +233,7 @@ export default function BindableInput({
         </Row>
 
         {kind === 'literal' || (kind === 'node' && !hasUpstream) ? (
-          <Row title={allowJson ? '值（支持 JSON）' : '值'} trailing={trailing}>
+          <Row title={allowJson ? `${valueLabel}（支持 JSON）` : valueLabel} trailing={trailing}>
             {allowJson ? (
               <div className="space-y-1 w-full">
                 <Textarea
@@ -242,7 +260,7 @@ export default function BindableInput({
             )}
           </Row>
         ) : kind === 'variable' ? (
-          <Row title="变量" trailing={trailing}>
+          <Row title={valueLabel} trailing={trailing}>
             <VariableSelect
               value={value}
               onChange={onChange}
@@ -280,31 +298,16 @@ export default function BindableInput({
               </Select>
             </Row>
             <Row title="输出字段" trailing={trailing}>
-              <Select
-                value={nodeRef?.field || undefined}
-                onValueChange={(field) => {
+              <NodeOutputFieldSelect
+                value={nodeRef?.field || ''}
+                outputs={fields}
+                runtimeRootValue={runtimeRootValue}
+                onChange={(field) => {
                   const nid = nodeRef?.nodeId || nodeOptions[0]?.id;
                   if (!nid) return;
                   onChange(formatNodeRef(nid, field));
                 }}
-              >
-                <SelectTrigger className="h-8 w-full text-xs">
-                  <SelectValue placeholder="选择字段" />
-                </SelectTrigger>
-                <SelectContent>
-                  {fields.length === 0 ? (
-                    <SelectItem value="__none" disabled>
-                      —
-                    </SelectItem>
-                  ) : (
-                    fields.map((f) => (
-                      <SelectItem key={f.name} value={f.name}>
-                        {f.name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+              />
             </Row>
             {typeof value === 'string' && isRefValue(value) && (
               <p className="text-[10px] font-mono opacity-45 truncate" title={value}>
@@ -590,15 +593,24 @@ export function OutputRefChip({
 }) {
   const ref = formatNodeRef(nodeId, field);
   const isImage = looksLikeImagePath(value);
+  const pathChips = useMemo(() => {
+    if (value == null) return [] as string[];
+    if (Array.isArray(value) || (typeof value === 'object' && value)) {
+      return listValuePaths(value, 3).filter(Boolean).slice(0, 16);
+    }
+    return [] as string[];
+  }, [value]);
   const display =
     value === undefined
       ? '—'
       : typeof value === 'object'
         ? JSON.stringify(value)
         : String(value);
-  const copy = async () => {
+
+  const copyRef = async (fieldPath: string) => {
+    const text = formatNodeRef(nodeId, fieldPath);
     try {
-      const res = await bridge.clipboardWrite(ref);
+      const res = await bridge.clipboardWrite(text);
       if (res?.ok) {
         onCopied?.();
         return;
@@ -607,45 +619,64 @@ export function OutputRefChip({
       /* fall through */
     }
     try {
-      await navigator.clipboard.writeText(ref);
+      await navigator.clipboard.writeText(text);
       onCopied?.();
     } catch {
       /* ignore */
     }
   };
+
   return (
-    <div className="flex items-start gap-1.5 w-full min-w-0 rounded-lg px-2 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors group">
-      <button
-        type="button"
-        onClick={copy}
-        title={`点击复制 ${ref}`}
-        className="flex items-start gap-1.5 shrink-0 text-left"
-      >
-        <Hash className="w-3 h-3 opacity-40 shrink-0 mt-0.5" />
-        <span className="font-mono text-xs font-medium shrink-0 mt-0.5">{field}</span>
-      </button>
-      <div className="flex-1 min-w-0">
-        {isImage ? (
-          <ImagePathLink path={String(value)} />
-        ) : (
-          <button
-            type="button"
-            onClick={copy}
-            title={`点击复制 ${ref}`}
-            className="font-mono text-xs opacity-50 flex-1 min-w-0 break-all whitespace-pre-wrap text-left w-full"
-          >
-            {display}
-          </button>
-        )}
+    <div className="flex flex-col gap-1 w-full min-w-0 rounded-lg px-2 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors group">
+      <div className="flex items-start gap-1.5 w-full min-w-0">
+        <button
+          type="button"
+          onClick={() => copyRef(field)}
+          title={`点击复制 ${ref}`}
+          className="flex items-start gap-1.5 shrink-0 text-left"
+        >
+          <Hash className="w-3 h-3 opacity-40 shrink-0 mt-0.5" />
+          <span className="font-mono text-xs font-medium shrink-0 mt-0.5">{field}</span>
+        </button>
+        <div className="flex-1 min-w-0">
+          {isImage ? (
+            <ImagePathLink path={String(value)} />
+          ) : (
+            <button
+              type="button"
+              onClick={() => copyRef(field)}
+              title={`点击复制 ${ref}`}
+              className="font-mono text-xs opacity-50 flex-1 min-w-0 break-all whitespace-pre-wrap text-left w-full"
+              style={{ overflowWrap: 'anywhere' }}
+            >
+              {display}
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => copyRef(field)}
+          title={`点击复制 ${ref}`}
+          className="shrink-0 mt-0.5"
+        >
+          <Link2 className="w-3 h-3 opacity-0 group-hover:opacity-60" />
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={copy}
-        title={`点击复制 ${ref}`}
-        className="shrink-0 mt-0.5"
-      >
-        <Link2 className="w-3 h-3 opacity-0 group-hover:opacity-60" />
-      </button>
+      {pathChips.length > 0 ? (
+        <div className="flex flex-wrap gap-1 pl-5">
+          {pathChips.map((p) => (
+            <button
+              type="button"
+              key={p}
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100"
+              title={`复制 ${formatNodeRef(nodeId, `${field}.${p}`)}`}
+              onClick={() => copyRef(`${field}.${p}`)}
+            >
+              .{p}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

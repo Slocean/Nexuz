@@ -17,7 +17,7 @@ SCHEMA = {
     ],
     "outputs": [
         {"name": "ok", "type": "boolean"},
-        {"name": "written", "type": "any"},
+        {"name": "written", "type": "array", "canvas": False},
     ],
 }
 

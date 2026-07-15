@@ -124,7 +124,12 @@ function flowOutputsFor(blockType: string, params?: Record<string, any>): NodeSo
     const outs: NodeSocket[] = cases.map((c: any, i: number) => {
       const custom = String(c?.name ?? '').trim();
       const matchVal = String(c?.value ?? '').trim();
-      const name = custom || (matchVal ? matchVal : `分支${i + 1}`);
+      const op = String(c?.op || '==').trim() || '==';
+      const opLabel =
+        op === 'contains' ? '包含' : op === '!=' ? '≠' : op === '==' ? '=' : op;
+      const name =
+        custom ||
+        (matchVal ? `${opLabel} ${matchVal}` : `分支${i + 1}`);
       return {
         id: `${CASE_OUT_PREFIX}${i}`,
         name,

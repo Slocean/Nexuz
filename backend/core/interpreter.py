@@ -430,23 +430,32 @@ class FlowInterpreter:
             return self._resolve_fallthrough(nxt, loop_stack), loop_stack
 
         if block_type == "switch":
+            from .expression import compare_values
+
             params = node.get("params") or {}
             variable = params.get("variable")
             current = resolve_value(variable, context) if variable else None
             current_s = "" if current is None else str(current)
 
             matched_target: str | None = None
+            matched_op = "=="
+            matched_rhs = ""
             for case in params.get("cases") or []:
                 if not isinstance(case, dict):
                     continue
                 raw = case.get("value")
                 if raw is None or str(raw).strip() == "":
                     continue
-                if str(raw) != current_s:
+                # Allow {{node.colors.0}} / $var.path as match values
+                resolved = resolve_value(raw, context)
+                op = str(case.get("op") or "==").strip() or "=="
+                if not compare_values(current, resolved, op):
                     continue
                 target = str(case.get("node_id") or "").strip()
                 if target:
                     matched_target = target
+                    matched_op = op
+                    matched_rhs = "" if resolved is None else str(resolved)
                 break
 
             if matched_target:
@@ -454,7 +463,10 @@ class FlowInterpreter:
                     "log",
                     {
                         "level": "info",
-                        "message": f"多分支匹配 → {matched_target}（值={current_s!r}）",
+                        "message": (
+                            f"多分支匹配 → {matched_target}"
+                            f"（{current_s!r} {matched_op} {matched_rhs!r}）"
+                        ),
                         "node_id": node_id,
                     },
                 )

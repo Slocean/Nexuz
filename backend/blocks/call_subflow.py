@@ -44,6 +44,7 @@ SCHEMA = {
     "outputs": [
         {"name": "ok", "type": "boolean"},
         {"name": "context_keys", "type": "number"},
+        {"name": "keys", "type": "array", "canvas": False},
     ],
 }
 
@@ -56,24 +57,16 @@ def _normalize_var_key(name: str) -> str:
 
 
 def _lookup_sub(key: str, sub_ctx: dict):
-    """Resolve a key from subflow context: $var | node.field | bare name."""
+    """Resolve $var / node.field / nested path (e.g. node.colors.0) from subflow context."""
+    from backend.core.variable_resolver import _lookup
+
     k = str(key or "").strip()
     if not k:
         return None
-    if k in sub_ctx:
-        return sub_ctx[k]
-    if k.startswith("$"):
-        bare = k[1:]
-        if bare in sub_ctx:
-            return sub_ctx[bare]
-        if k in sub_ctx:
-            return sub_ctx[k]
-    else:
-        dollar = f"${k}"
-        if dollar in sub_ctx:
-            return sub_ctx[dollar]
-    return None
-
+    # Accidental paste of {{node.field}} from parent UI
+    if k.startswith("{{") and k.endswith("}}"):
+        k = k[2:-2].strip()
+    return _lookup(k, sub_ctx)
 
 def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     """Run another flow file synchronously inside current interpreter thread."""
@@ -133,8 +126,11 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
         if sk.startswith("$"):
             context[f"sub.{sk}"] = v
 
-    # Explicit output map: parent $name ← subflow key
-    raw_out = params.get("output_map") or {}
+    # Explicit output map: parent $name ← subflow key (use RAW keys, not parent-resolved)
+    node = kwargs.get("node") or {}
+    raw_out = (node.get("params") or {}).get("output_map")
+    if not isinstance(raw_out, dict):
+        raw_out = params.get("output_map") or {}
     if isinstance(raw_out, dict):
         for parent_key, sub_key in raw_out.items():
             pk = _normalize_var_key(str(parent_key))
@@ -149,4 +145,4 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     # Drop the heavy sub_ctx reference ASAP for GC in long parent runs.
     key_count = len(sub_ctx)
     del sub_ctx
-    return {"ok": True, "context_keys": key_count}
+    return {"ok": True, "context_keys": key_count, "keys": discoverable[:80]}

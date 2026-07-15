@@ -2,9 +2,8 @@
  * Dropdown of flow.variables — always synced from the Variables panel.
  * Optional nested path (e.g. users.0.name → $users.0.name).
  */
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { useFlowStore } from '@/store/flowModelStore';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -36,6 +35,8 @@ type Props = {
   exclude?: string[];
   disabled?: boolean;
 };
+
+const ROOT_PATH = '__root__';
 
 function typeTag(value: unknown): string {
   if (typeof value === 'boolean') return '布尔';
@@ -78,11 +79,6 @@ export default function VariableSelect({
     parsed || (typeof value === 'string' ? String(value).replace(/^\$/, '') : ''),
   );
 
-  const [pathDraft, setPathDraft] = useState(currentPath);
-  useEffect(() => {
-    setPathDraft(currentPath);
-  }, [currentPath, currentRoot]);
-
   const options = useMemo(() => {
     if (currentRoot && !names.includes(currentRoot) && listFlowVariableNames(variables).includes(currentRoot)) {
       return [currentRoot, ...names];
@@ -110,16 +106,19 @@ export default function VariableSelect({
   };
 
   const showPath = allowPath && !bare && !!currentRoot && isComplex(rootValue);
+  const pathSelectValue = currentPath || ROOT_PATH;
+  const pathOptions = useMemo(() => {
+    const set = new Set(pathSuggestions);
+    if (currentPath && !set.has(currentPath)) set.add(currentPath);
+    return Array.from(set);
+  }, [pathSuggestions, currentPath]);
 
   return (
     <div className={`flex flex-col gap-1 min-w-0 w-full ${className || ''}`}>
       <Select
         value={currentRoot || undefined}
         disabled={disabled || options.length === 0}
-        onValueChange={(v) => {
-          setPathDraft('');
-          emit(v, '');
-        }}
+        onValueChange={(v) => emit(v, '')}
       >
         <SelectTrigger className={triggerClassName || 'h-8 flex-1 min-w-0 w-full'}>
           <SelectValue
@@ -147,58 +146,23 @@ export default function VariableSelect({
       </Select>
 
       {showPath ? (
-        <div className="space-y-1">
-          <Input
-            list={`var-paths-${currentRoot}`}
-            className="h-7 text-xs font-mono"
-            placeholder="嵌套路径，如 0.name（可空=整变量）"
-            value={pathDraft}
-            disabled={disabled}
-            onChange={(e) => setPathDraft(e.target.value.replace(/^\./, ''))}
-            onBlur={() => emit(currentRoot, pathDraft)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                emit(currentRoot, pathDraft);
-              }
-            }}
-          />
-          <datalist id={`var-paths-${currentRoot}`}>
-            {pathSuggestions.map((p) => (
-              <option key={p} value={p} />
+        <Select
+          value={pathSelectValue}
+          disabled={disabled}
+          onValueChange={(v) => emit(currentRoot, v === ROOT_PATH ? '' : v)}
+        >
+          <SelectTrigger className="h-8 w-full text-xs font-mono">
+            <SelectValue placeholder="选择下标 / 路径" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ROOT_PATH}>整变量（${currentRoot}）</SelectItem>
+            {pathOptions.map((p) => (
+              <SelectItem key={p} value={p}>
+                <span className="font-mono">.${currentRoot}.{p}</span>
+              </SelectItem>
             ))}
-          </datalist>
-          {pathSuggestions.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              <button
-                type="button"
-                className="text-[10px] px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100"
-                onClick={() => {
-                  setPathDraft('');
-                  emit(currentRoot, '');
-                }}
-              >
-                整变量
-              </button>
-              {pathSuggestions.slice(0, 10).map((p) => (
-                <button
-                  type="button"
-                  key={p}
-                  className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100"
-                  onClick={() => {
-                    setPathDraft(p);
-                    emit(currentRoot, p);
-                  }}
-                >
-                  .{p}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <p className="text-[10px] font-mono opacity-50 truncate">
-            {formatVarRef(currentRoot, pathDraft)}
-          </p>
-        </div>
+          </SelectContent>
+        </Select>
       ) : null}
     </div>
   );

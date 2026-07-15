@@ -287,7 +287,7 @@ export const MOCK_SCHEMAS = [
     ],
     outputs: [
       { name: 'color', type: 'string' },
-      { name: 'colors', type: 'any', canvas: false },
+      { name: 'colors', type: 'array', canvas: false },
       { name: 'count', type: 'number' },
     ],
   },
@@ -375,7 +375,13 @@ export const MOCK_SCHEMAS = [
     category: '控制类',
     inputs: [
       { name: 'variable', type: 'string', label: '判断值', default: '' },
-      { name: 'cases', type: 'cases', label: '分支', default: [] },
+      {
+        name: 'cases',
+        type: 'cases',
+        label: '分支',
+        default: [],
+        description: '每条分支可设比较方式（等于/包含/大于等），自上而下首次命中即跳转',
+      },
       { name: 'default', type: 'string', label: '默认分支', default: '', bindable: false, placeholder: '未匹配时跳转' },
     ],
     outputs: [{ name: 'value', type: 'string' }],
@@ -410,7 +416,7 @@ export const MOCK_SCHEMAS = [
     ],
     outputs: [
       { name: 'index', type: 'number' },
-      { name: 'item', type: 'any' },
+      { name: 'item', type: 'any', canvas: false },
       { name: 'length', type: 'number' },
     ],
   },
@@ -513,10 +519,10 @@ export const MOCK_SCHEMAS = [
       { name: 'matched_text', type: 'string' },
       { name: 'text', type: 'string' },
       { name: 'confidence', type: 'number' },
-      { name: 'matches', type: 'any', canvas: false },
-      { name: 'boxes', type: 'any', canvas: false },
-      { name: 'region', type: 'any', canvas: false },
-      { name: 'anchor', type: 'any', canvas: false },
+      { name: 'matches', type: 'array', canvas: false },
+      { name: 'boxes', type: 'array', canvas: false },
+      { name: 'region', type: 'object', canvas: false },
+      { name: 'anchor', type: 'object', canvas: false },
     ],
   },
   {
@@ -865,6 +871,7 @@ export const MOCK_SCHEMAS = [
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'context_keys', type: 'number' },
+      { name: 'keys', type: 'array', canvas: false },
     ],
   },
   {
@@ -882,7 +889,7 @@ export const MOCK_SCHEMAS = [
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
-      { name: 'written', type: 'any' },
+      { name: 'written', type: 'array', canvas: false },
     ],
   },
 ];

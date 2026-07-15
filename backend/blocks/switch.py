@@ -11,7 +11,13 @@ SCHEMA = {
             "label": "判断值",
             "default": "",
         },
-        {"name": "cases", "type": "cases", "label": "分支", "default": []},
+        {
+            "name": "cases",
+            "type": "cases",
+            "label": "分支",
+            "default": [],
+            "description": "每条分支可设比较方式（等于/包含/大于等），自上而下首次命中即跳转",
+        },
         {
             "name": "default",
             "type": "string",

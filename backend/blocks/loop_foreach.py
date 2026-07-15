@@ -26,7 +26,7 @@ SCHEMA = {
     ],
     "outputs": [
         {"name": "index", "type": "number"},
-        {"name": "item", "type": "any"},
+        {"name": "item", "type": "any", "canvas": False},
         {"name": "length", "type": "number"},
     ],
 }

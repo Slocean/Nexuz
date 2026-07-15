@@ -58,7 +58,7 @@ SCHEMA = {
     ],
     "outputs": [
         {"name": "color", "type": "string"},
-        {"name": "colors", "type": "any", "canvas": False},
+        {"name": "colors", "type": "array", "canvas": False},
         {"name": "count", "type": "number"},
     ],
 }

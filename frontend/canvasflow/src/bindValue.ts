@@ -172,7 +172,19 @@ export function isBindableInput(input: {
   if (input.type === 'condition_list' || input.type === 'cases' || input.type === 'logic_tree')
     return false;
   if (input.type === 'point_list' || input.type === 'key_steps') return false;
+  if (input.type === 'keys' || input.type === 'rect' || input.type === 'select') return false;
   if (input.bindable === true) return true;
   const t = input.type || 'string';
-  return t === 'number' || t === 'string' || t === 'color';
+  // Scalars + whole array/object bindings (path dig via NodeOutputFieldSelect / VariableSelect)
+  return (
+    t === 'number' ||
+    t === 'string' ||
+    t === 'color' ||
+    t === 'boolean' ||
+    t === 'bool' ||
+    t === 'any' ||
+    t === 'array' ||
+    t === 'object' ||
+    t === 'textarea'
+  );
 }

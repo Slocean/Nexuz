@@ -4,8 +4,8 @@ import { cn } from '@/lib/utils';
 
 function ScrollArea({ className, children, ...props }) {
   return (
-    <ScrollAreaPrimitive.Root className={cn('relative overflow-hidden', className)} {...props}>
-      <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+    <ScrollAreaPrimitive.Root className={cn('relative overflow-hidden min-w-0', className)} {...props}>
+      <ScrollAreaPrimitive.Viewport className="h-full w-full max-w-full rounded-[inherit] [&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full [&>div]:!max-w-full">
         {children}
       </ScrollAreaPrimitive.Viewport>
       <ScrollAreaPrimitive.Scrollbar

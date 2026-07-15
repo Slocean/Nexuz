@@ -179,10 +179,10 @@ SCHEMA = {
         {"name": "matched_text", "type": "string"},
         {"name": "text", "type": "string"},
         {"name": "confidence", "type": "number"},
-        {"name": "matches", "type": "any", "canvas": False},
-        {"name": "boxes", "type": "any", "canvas": False},
-        {"name": "region", "type": "any", "canvas": False},
-        {"name": "anchor", "type": "any", "canvas": False},
+        {"name": "matches", "type": "array", "canvas": False},
+        {"name": "boxes", "type": "array", "canvas": False},
+        {"name": "region", "type": "object", "canvas": False},
+        {"name": "anchor", "type": "object", "canvas": False},
     ],
 }
 

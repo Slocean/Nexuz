@@ -9,9 +9,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { formatNodeRef, formatVarRef, listFlowVariableNames } from '../bindValue';
+import { formatNodeRef, formatVarRef, listFlowVariableNames, rootFieldName } from '../bindValue';
 import { inspectEmbeddedRefs } from '../bindValidate';
 import VariableSelect from './VariableSelect';
+import NodeOutputFieldSelect from './NodeOutputFieldSelect';
 
 const OPS = [
   { value: '==', label: '等于' },
@@ -55,6 +56,7 @@ export default function ExpressionField({
 }) {
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
   const variables = useFlowStore((s) => s.flow.variables || {});
+  const nodeOutputs = useFlowStore((s) => s.nodeOutputs || {});
   const [leftNode, setLeftNode] = useState('');
   const [leftField, setLeftField] = useState('');
   const [op, setOp] = useState('contains');
@@ -84,6 +86,22 @@ export default function ExpressionField({
 
   const leftFields = nodeOptions.find((n) => n.id === leftNode)?.outputs || [];
   const rightFields = nodeOptions.find((n) => n.id === rightNode)?.outputs || [];
+
+  const leftRuntimeRoot = useMemo(() => {
+    const root = leftField ? rootFieldName(leftField) : '';
+    if (!leftNode || !root) return undefined;
+    const live = nodeOutputs[leftNode];
+    if (!live || typeof live !== 'object') return undefined;
+    return (live as Record<string, unknown>)[root];
+  }, [leftNode, leftField, nodeOutputs]);
+
+  const rightRuntimeRoot = useMemo(() => {
+    const root = rightField ? rootFieldName(rightField) : '';
+    if (!rightNode || !root) return undefined;
+    const live = nodeOutputs[rightNode];
+    if (!live || typeof live !== 'object') return undefined;
+    return (live as Record<string, unknown>)[root];
+  }, [rightNode, rightField, nodeOutputs]);
 
   useEffect(() => {
     if (!hasUpstream && rightKind === 'node') setRightKind('literal');
@@ -156,22 +174,13 @@ export default function ExpressionField({
         </Labeled>
 
         <Labeled title="左值字段">
-          <Select
-            value={leftField || undefined}
+          <NodeOutputFieldSelect
+            value={leftField}
+            outputs={leftFields}
+            runtimeRootValue={leftRuntimeRoot}
             disabled={!hasUpstream || !leftNode}
-            onValueChange={setLeftField}
-          >
-            <SelectTrigger className="h-8 w-full text-xs">
-              <SelectValue placeholder="选择字段" />
-            </SelectTrigger>
-            <SelectContent>
-              {leftFields.map((f) => (
-                <SelectItem key={f.name} value={f.name}>
-                  {f.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onChange={setLeftField}
+          />
         </Labeled>
 
         <Labeled title="比较方式">
@@ -260,22 +269,13 @@ export default function ExpressionField({
               </Select>
             </Labeled>
             <Labeled title="右值字段">
-              <Select
-                value={rightField || undefined}
+              <NodeOutputFieldSelect
+                value={rightField}
+                outputs={rightFields}
+                runtimeRootValue={rightRuntimeRoot}
                 disabled={!rightNode}
-                onValueChange={setRightField}
-              >
-                <SelectTrigger className="h-8 w-full text-xs">
-                  <SelectValue placeholder="选择字段" />
-                </SelectTrigger>
-                <SelectContent>
-                  {rightFields.map((f) => (
-                    <SelectItem key={f.name} value={f.name}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={setRightField}
+              />
             </Labeled>
           </>
         )}

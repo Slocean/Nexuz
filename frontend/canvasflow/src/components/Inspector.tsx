@@ -61,16 +61,20 @@ function KeyMapEditor({
   valueMode,
   keyMode = 'text',
   currentNodeId,
-  schemaMap
+  schemaMap,
+  keySuggestions = [],
 }: {
   value: Record<string, any>;
   onChange: (next: Record<string, any>) => void;
   keyPlaceholder: string;
-  valueMode: 'bindable' | 'plain';
+  /** bindable = 父流程绑定；subflow_key = 子流程内键（支持 node.colors.0）；plain = 纯文本 */
+  valueMode: 'bindable' | 'plain' | 'subflow_key';
   /** variable = 下拉选择已创建全局变量，禁止手输 */
   keyMode?: 'variable' | 'text';
   currentNodeId: string;
   schemaMap: Record<string, any>;
+  /** 运行后的子流程可发现键（如 nodeId.colors） */
+  keySuggestions?: string[];
 }) {
   const variables = useFlowStore(s => s.flow.variables || {});
   const varNames = listFlowVariableNames(variables);
@@ -111,18 +115,34 @@ function KeyMapEditor({
     onChange({ ...Object.fromEntries(entries), [key]: '' });
   };
 
+  const pathHints = (root: string) => {
+    // Common digs when user picks a known array/object root key
+    if (root.endsWith('.colors') || root === 'colors') return [`${root}.0`, `${root}.1`];
+    if (root.endsWith('.matches') || root === 'matches') {
+      return [`${root}.0`, `${root}.0.text`, `${root}.0.x`, `${root}.0.y`];
+    }
+    if (root.endsWith('.boxes') || root === 'boxes') return [`${root}.0`, `${root}.0.text`];
+    return [`${root}.0`];
+  };
+
   return (
-    <div className="space-y-2 w-full">
+    <div className="space-y-2 w-full min-w-0">
       {keyMode === 'variable' && varNames.length === 0 && (
         <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
           请先在侧栏「变量」页创建全局变量，再添加映射。
         </p>
       )}
+      {valueMode === 'subflow_key' && (
+        <p className="text-[11px] opacity-55 leading-snug">
+          取回值填子流程内键，支持嵌套路径，如 <code className="font-mono">ocr1.matches.0.text</code>、
+          <code className="font-mono">color1.colors.0</code>、<code className="font-mono">$result</code>
+        </p>
+      )}
       {entries.map(([k, v], idx) => (
         <div
           key={idx}
-          className="flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 p-1.5">
-          <div className="flex items-center gap-1">
+          className="flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 p-1.5 min-w-0">
+          <div className="flex items-center gap-1 min-w-0">
             {keyMode === 'variable' ? (
               <VariableSelect
                 value={k}
@@ -134,7 +154,7 @@ function KeyMapEditor({
               />
             ) : (
               <Input
-                className="h-7 text-xs font-mono flex-1"
+                className="h-7 text-xs font-mono flex-1 min-w-0"
                 placeholder={keyPlaceholder}
                 value={k}
                 onChange={e => setEntry(idx, e.target.value, v)}
@@ -160,12 +180,72 @@ function KeyMapEditor({
               allowJson={keyMode === 'variable'}
             />
           ) : (
-            <Input
-              className="h-7 text-xs font-mono"
-              placeholder="node1.text"
-              value={v == null ? '' : String(v)}
-              onChange={e => setEntry(idx, k, e.target.value)}
-            />
+            <div className="space-y-1 min-w-0">
+              <Input
+                className="h-7 text-xs font-mono w-full min-w-0"
+                placeholder={
+                  valueMode === 'subflow_key'
+                    ? 'nodeId.colors.0 或 $var'
+                    : 'node1.text'
+                }
+                value={v == null ? '' : String(v)}
+                onChange={e => setEntry(idx, k, e.target.value)}
+                list={valueMode === 'subflow_key' ? `subflow-keys-${currentNodeId}` : undefined}
+              />
+              {valueMode === 'subflow_key' && keySuggestions.length > 0 ? (
+                <>
+                  <datalist id={`subflow-keys-${currentNodeId}`}>
+                    {keySuggestions.map(s => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                  <div className="flex flex-wrap gap-1">
+                    {keySuggestions.slice(0, 16).map(s => (
+                      <button
+                        type="button"
+                        key={s}
+                        className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100 max-w-full truncate"
+                        title={s}
+                        onClick={() => setEntry(idx, k, s)}>
+                        {s}
+                      </button>
+                    ))}
+                    {/* Quick dig chips for currently typed root */}
+                    {typeof v === 'string' &&
+                      v.trim() &&
+                      !v.includes('.0') &&
+                      pathHints(v.trim())
+                        .slice(0, 4)
+                        .map(p => (
+                          <button
+                            type="button"
+                            key={p}
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-blue-500/30 text-blue-500 opacity-80 hover:opacity-100"
+                            onClick={() => setEntry(idx, k, p)}>
+                            {p.includes('.0') ? p.slice(v.trim().length) : `.${p}`}
+                          </button>
+                        ))}
+                  </div>
+                </>
+              ) : valueMode === 'subflow_key' ? (
+                <div className="flex flex-wrap gap-1">
+                  {['.0', '.0.text', '.0.x', '.0.y'].map(suf => (
+                    <button
+                      type="button"
+                      key={suf}
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100"
+                      disabled={!String(v || '').trim()}
+                      onClick={() => {
+                        const base = String(v || '').trim().replace(/\.(0|0\..*)$/, '');
+                        if (!base) return;
+                        setEntry(idx, k, `${base}${suf}`);
+                      }}>
+                      {suf}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           )}
         </div>
       ))}
@@ -589,14 +669,31 @@ function KeyStepsEditor({
   );
 }
 
+const CASE_OPS = [
+  { value: '==', label: '等于' },
+  { value: '!=', label: '不等于' },
+  { value: '>', label: '>' },
+  { value: '<', label: '<' },
+  { value: '>=', label: '>=' },
+  { value: '<=', label: '<=' },
+  { value: 'contains', label: '包含' },
+];
+
+function caseOpLabel(op?: string): string {
+  const o = String(op || '==').trim() || '==';
+  return CASE_OPS.find(x => x.value === o)?.label || o;
+}
+
 function CasesEditor({
   value,
   onChange,
-  currentNodeId
+  currentNodeId,
+  schemaMap = {},
 }: {
-  value: { name?: string; value?: string; node_id?: string }[];
-  onChange: (cases: { name: string; value: string; node_id: string }[]) => void;
+  value: { name?: string; op?: string; value?: string; node_id?: string }[];
+  onChange: (cases: { name: string; op: string; value: string; node_id: string }[]) => void;
   currentNodeId?: string;
+  schemaMap?: Record<string, any>;
 }) {
   const nodes = useFlowStore(s => s.flow.nodes || {});
   // 禁止连回自己：自环容易死循环，重试请用循环节点
@@ -604,26 +701,34 @@ function CasesEditor({
   const cases = Array.isArray(value) ? value : [];
   const [collapsed, setCollapsed] = React.useState<Record<number, boolean>>({});
 
-  const normalize = (c: any, patch?: Partial<{ name: string; value: string; node_id: string }>) => ({
+  const normalize = (
+    c: any,
+    patch?: Partial<{ name: string; op: string; value: string; node_id: string }>
+  ) => ({
     name: typeof c?.name === 'string' ? c.name : '',
-    value: typeof c?.value === 'string' ? c.value : '',
+    op: typeof c?.op === 'string' && c.op ? c.op : '==',
+    value: typeof c?.value === 'string' ? c.value : c?.value != null ? String(c.value) : '',
     node_id: typeof c?.node_id === 'string' ? c.node_id : '',
     ...patch
   });
 
-  const update = (idx: number, patch: Partial<{ name: string; value: string; node_id: string }>) => {
+  const update = (
+    idx: number,
+    patch: Partial<{ name: string; op: string; value: string; node_id: string }>
+  ) => {
     const next = cases.map((c, i) => (i === idx ? normalize(c, patch) : normalize(c)));
     onChange(next);
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 min-w-0 w-full">
       {cases.map((c, idx) => {
         const closed = !!collapsed[idx];
         const title = (c.name || '').trim() || `分支${idx + 1}`;
-        const summary = `${title} · ${c.value || '（空匹配值）'} → ${c.node_id || '未选节点'}`;
+        const op = c.op || '==';
+        const summary = `${title} · ${caseOpLabel(op)} ${c.value || '（空）'} → ${c.node_id || '未选节点'}`;
         return (
-          <div key={idx} className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2">
+          <div key={idx} className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2 min-w-0">
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -651,7 +756,7 @@ function CasesEditor({
             </div>
             {!closed && (
               <>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">名称</span>
                   <Input
                     className="h-8 text-xs flex-1 min-w-0"
@@ -660,16 +765,48 @@ function CasesEditor({
                     onChange={e => update(idx, { name: e.target.value })}
                   />
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">匹配值</span>
-                  <Input
-                    className="h-8 text-xs flex-1 min-w-0"
-                    placeholder="匹配值"
-                    value={c.value ?? ''}
-                    onChange={e => update(idx, { value: e.target.value })}
-                  />
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">比较</span>
+                  <Select
+                    value={op}
+                    onValueChange={v => update(idx, { op: v })}>
+                    <SelectTrigger className="h-8 text-xs flex-1 min-w-0">
+                      <SelectValue placeholder="比较方式" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CASE_OPS.map(o => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-1 min-w-0">
+                  {currentNodeId ? (
+                    <BindableInput
+                      value={c.value ?? ''}
+                      inputType="string"
+                      currentNodeId={currentNodeId}
+                      schemaMap={schemaMap}
+                      onChange={nv => update(idx, { value: nv == null ? '' : String(nv) })}
+                      placeholder="常量或绑定上游（支持 colors.0）"
+                      kindLabel="匹配值类型"
+                      valueLabel="匹配值"
+                    />
+                  ) : (
+                    <>
+                      <span className="text-[11px] opacity-60">匹配值</span>
+                      <Input
+                        className="h-8 text-xs flex-1 min-w-0"
+                        placeholder="比较值"
+                        value={c.value ?? ''}
+                        onChange={e => update(idx, { value: e.target.value })}
+                      />
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">跳转节点</span>
                   <Select
                     value={c.node_id && c.node_id !== currentNodeId ? c.node_id : undefined}
@@ -702,6 +839,7 @@ function CasesEditor({
             ...cases.map(c => normalize(c)),
             {
               name: `分支${cases.length + 1}`,
+              op: '==',
               value: '',
               node_id: ''
             }
@@ -1002,12 +1140,12 @@ export default function Inspector({
   }, [logs]);
 
   const logsPanel = (
-    <div className="space-y-2 p-3 border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text">
-      <div className="flex items-center justify-between gap-2 select-none">
-        <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5">
+    <div className="space-y-2 p-3 border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text min-w-0 max-w-full overflow-hidden">
+      <div className="flex items-center justify-between gap-2 select-none min-w-0">
+        <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5 shrink-0">
           <Terminal className="w-3.5 h-3.5" /> 运行日志
         </h4>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 shrink-0">
           <Button
             variant="ghost"
             size="sm"
@@ -1040,8 +1178,8 @@ export default function Inspector({
           </Button>
         </div>
       </div>
-      <ScrollArea className="h-36">
-        <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed">
+      <div className="h-36 min-w-0 max-w-full overflow-y-auto overflow-x-hidden">
+        <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed min-w-0 w-full max-w-full">
           {logs.length === 0 && (
             <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
               尚无日志
@@ -1050,7 +1188,7 @@ export default function Inspector({
           {logs.slice(-80).map(log => (
             <div
               key={log.id}
-              className={`select-text break-words whitespace-pre-wrap py-0.5 ${
+              className={`select-text break-all whitespace-pre-wrap py-0.5 min-w-0 w-full max-w-full ${
                 log.type === 'error'
                   ? 'text-rose-500'
                   : log.type === 'success'
@@ -1059,11 +1197,13 @@ export default function Inspector({
                       ? 'text-amber-500'
                       : ''
               }`}
-              style={
-                log.type === 'error' || log.type === 'success' || log.type === 'warning'
-                  ? undefined
-                  : { color: colors.secondaryText }
-              }>
+              style={{
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+                ...(log.type === 'error' || log.type === 'success' || log.type === 'warning'
+                  ? {}
+                  : { color: colors.secondaryText }),
+              }}>
               <span className="opacity-50 mr-2">{log.timestamp}</span>
               {log.nodeId ? <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span> : null}
               {log.message}
@@ -1071,7 +1211,7 @@ export default function Inspector({
           ))}
           <div ref={logEndRef} />
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 
@@ -1085,8 +1225,8 @@ export default function Inspector({
           borderColor: colors.border,
           color: colors.text
         }}
-        className="w-[21.8rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60">
+        className="w-[21.8rem] max-w-[21.8rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0">
           <div className="w-12 h-12 mx-auto flex items-center justify-center">
             <img
               src={`${import.meta.env.BASE_URL}logo.png`}
@@ -1271,6 +1411,7 @@ export default function Inspector({
           <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
             <p className="text-xs leading-relaxed opacity-90">
               多字结果：<code className="font-mono">{'{{ocr.matches.0.x}}'}</code>
+              ；多点取色：<code className="font-mono">{'{{取色.colors.0}}'}</code>
               ；或「文字定位」复用 <code className="font-mono">boxes</code>
             </p>
             {onPickRegion && (
@@ -1397,6 +1538,7 @@ export default function Inspector({
                   <CasesEditor
                     value={Array.isArray(value) ? value : []}
                     currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
                     onChange={cases => handleFieldChange(input.name, cases)}
                   />
                 ) : input.type === 'logic_tree' || input.type === 'condition_list' ? (
@@ -1478,9 +1620,19 @@ export default function Inspector({
                     onChange={next => handleFieldChange(input.name, next)}
                     keyPlaceholder="变量名"
                     keyMode={input.ui === 'output_map' || input.name === 'mappings' ? 'variable' : 'text'}
-                    valueMode={input.ui === 'output_map' ? 'plain' : 'bindable'}
+                    valueMode={
+                      input.ui === 'output_map'
+                        ? 'subflow_key'
+                        : 'bindable'
+                    }
                     currentNodeId={selectedNode.id}
                     schemaMap={schemaMap}
+                    keySuggestions={
+                      input.ui === 'output_map' &&
+                      Array.isArray((selectedNode.outputData as any)?.keys)
+                        ? ((selectedNode.outputData as any).keys as string[])
+                        : []
+                    }
                   />
                 ) : input.type === 'rect' ? (
                   <RectField
@@ -1522,12 +1674,14 @@ export default function Inspector({
                     )}
                   </>
                 ) : input.ui === 'textarea' || input.type === 'textarea' ? (
-                  <Textarea
-                    rows={4}
-                    className="w-full text-sm min-h-[5.5rem]"
+                  <BindableInput
                     value={value ?? input.default ?? ''}
+                    inputType="string"
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={v => handleFieldChange(input.name, v)}
                     placeholder={input.placeholder || placeholder || ''}
-                    onChange={e => handleFieldChange(input.name, e.target.value)}
+                    allowJson
                   />
                 ) : selectedNode.subType === 'switch' && input.name === 'default' ? (
                   <div className="flex-1 min-w-0 space-y-1">
@@ -1557,6 +1711,12 @@ export default function Inspector({
                     schemaMap={schemaMap}
                     onChange={v => handleFieldChange(input.name, v)}
                     placeholder={placeholder}
+                    allowJson={
+                      input.type === 'object' ||
+                      input.type === 'array' ||
+                      input.type === 'any' ||
+                      input.type === 'textarea'
+                    }
                     trailing={
                       (input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') && onPickPoint ? (
                         <Button
@@ -1779,7 +1939,7 @@ export default function Inspector({
         borderColor: colors.border,
         color: colors.text
       }}
-      className="w-[24rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
+      className="w-[24rem] max-w-[24rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
       <div className="px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -1934,14 +2094,14 @@ export default function Inspector({
                 </Button>
               ) : null}
             </div>
-            <div className="space-y-0.5 max-h-36 overflow-y-auto font-mono text-sm leading-relaxed select-text cursor-text rounded-lg border border-black/5 dark:border-white/5 px-2 py-1.5">
+            <div className="space-y-0.5 max-h-36 overflow-y-auto overflow-x-hidden font-mono text-sm leading-relaxed select-text cursor-text rounded-lg border border-black/5 dark:border-white/5 px-2 py-1.5 min-w-0 w-full max-w-full">
               {nodeLogs.length === 0 ? (
                 <p className="text-xs opacity-50 py-2">此节点尚无运行日志</p>
               ) : (
                 nodeLogs.map(log => (
                   <div
                     key={log.id}
-                    className={`break-words whitespace-pre-wrap py-0.5 select-text ${
+                    className={`break-all whitespace-pre-wrap py-0.5 select-text min-w-0 w-full max-w-full ${
                       log.type === 'error'
                         ? 'text-rose-500'
                         : log.type === 'warning'
@@ -1950,11 +2110,13 @@ export default function Inspector({
                             ? 'text-emerald-500'
                             : ''
                     }`}
-                    style={
-                      log.type === 'error' || log.type === 'warning' || log.type === 'success'
-                        ? undefined
-                        : { color: colors.secondaryText }
-                    }>
+                    style={{
+                      overflowWrap: 'anywhere',
+                      wordBreak: 'break-word',
+                      ...(log.type === 'error' || log.type === 'warning' || log.type === 'success'
+                        ? {}
+                        : { color: colors.secondaryText }),
+                    }}>
                     <span className="opacity-50 mr-2">{log.timestamp}</span>
                     {log.message}
                   </div>

@@ -43,6 +43,14 @@ def evaluate_expression(expression: str, context: dict[str, Any]) -> bool:
     return bool(resolved)
 
 
+def compare_values(left: Any, right: Any, op: str = "==") -> bool:
+    """Compare two resolved values with a supported operator (switch / conditions)."""
+    op_s = str(op or "==").strip() or "=="
+    if op_s not in OPS:
+        op_s = "=="
+    return _compare(left, right, op_s)
+
+
 def _parse_rhs(raw: str, context: dict[str, Any]) -> Any:
     raw = raw.strip()
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ('"', "'"):
