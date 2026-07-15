@@ -1076,6 +1076,7 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: false, error: '请在桌面客户端中运行流程（python backend/main.py --dev）' });
     case 'save_flow':
     case 'load_flow':
+    case 'read_local_image':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持文件操作' });
     case 'clipboard_write':
       try {
@@ -1216,6 +1217,7 @@ export const bridge = {
   deleteFlowTemplate: (filepath) => call('delete_flow_template', filepath),
   loadFlowTemplate: (filepath) => call('load_flow_template', filepath),
   clipboardWrite: (text) => call('clipboard_write', text),
+  readLocalImage: (filepath) => call('read_local_image', filepath),
   exportText: (text, filename = null) => call('export_text', text, filename),
   windowMinimize: () => call('window_minimize'),
   windowToggleMaximize: () => call('window_toggle_maximize'),

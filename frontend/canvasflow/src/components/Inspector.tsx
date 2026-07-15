@@ -1790,8 +1790,8 @@ export default function Inspector({
         </Button>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="p-3 space-y-4">
+      <ScrollArea className="flex-1 min-w-0">
+        <div className="p-3 space-y-4 min-w-0 max-w-full overflow-x-hidden">
           <div className="bg-black/5 dark:bg-white/5 rounded-xl px-3 py-2 border border-black/10 dark:border-white/10 space-y-2">
             <div className="flex justify-between items-center gap-2">
               <span className="font-medium text-xs text-blue-500 truncate">
@@ -1845,7 +1845,7 @@ export default function Inspector({
 
           <Separator />
 
-          <div className="space-y-3">
+          <div className="space-y-3 min-w-0 w-full">
             <div className="flex justify-between items-center">
               <h4 className="font-medium text-sm opacity-70">输出</h4>
               {outputText ? (
@@ -1882,9 +1882,9 @@ export default function Inspector({
               return (
                 <div
                   style={{ borderColor: colors.border }}
-                  className="rounded-xl border divide-y divide-black/5 dark:divide-white/5 overflow-hidden">
+                  className="rounded-xl border divide-y divide-black/5 dark:divide-white/5 min-w-0 w-full">
                   <p className="text-xs opacity-60 px-2 py-1.5 bg-black/[0.03] dark:bg-white/[0.03]">
-                    点击字段复制引用
+                    点击字段名复制引用；图片路径悬停预览，点击放大
                   </p>
                   {outs.map(o => (
                     <OutputRefChip
@@ -1906,9 +1906,11 @@ export default function Inspector({
               <pre
                 style={{
                   backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
-                  borderColor: colors.border
+                  borderColor: colors.border,
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'break-word',
                 }}
-                className="rounded-xl p-2 border font-mono text-xs max-h-40 overflow-y-auto whitespace-pre-wrap break-all select-text cursor-text"
+                className="rounded-xl p-2 border font-mono text-xs max-h-40 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all select-text cursor-text min-w-0 w-full max-w-full"
                 tabIndex={0}
                 title="可选中后 Ctrl+C 复制">
                 {outputText}

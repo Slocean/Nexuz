@@ -981,6 +981,44 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def read_local_image(self, filepath: str) -> dict:
+        """Read a local image as data URL for Inspector preview (size-capped)."""
+        import base64
+
+        path = Path(str(filepath or "")).expanduser()
+        try:
+            path = path.resolve()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        if not path.is_file():
+            return {"ok": False, "error": "文件不存在"}
+        mime_map = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".bmp": "image/bmp",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+        }
+        mime = mime_map.get(path.suffix.lower())
+        if not mime:
+            return {"ok": False, "error": "不支持的图片格式"}
+        max_bytes = 12 * 1024 * 1024
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        if size <= 0:
+            return {"ok": False, "error": "空文件"}
+        if size > max_bytes:
+            return {"ok": False, "error": "图片过大，无法预览"}
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+        return {"ok": True, "data_url": data_url, "path": str(path), "size": size}
+
     def export_text(self, text: str, filename: str | None = None) -> dict:
         """Save plain text via Save dialog (for logs export)."""
         raw = "" if text is None else str(text)

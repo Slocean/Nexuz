@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link2, Hash } from 'lucide-react';
 import { useFlowStore } from '@/store/flowModelStore';
 import { Input } from '@/components/ui/input';
@@ -10,6 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   BindKind,
   coerceLiteral,
@@ -320,6 +327,255 @@ export default function BindableInput({
   );
 }
 
+function looksLikeImagePath(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const p = value.trim();
+  if (!p) return false;
+  return /\.(png|jpe?g|bmp|webp|gif)$/i.test(p);
+}
+
+function useLocalImage(path: string | null, enabled: boolean) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!enabled || !path) {
+      setDataUrl(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        const res = await bridge.readLocalImage(path);
+        if (cancelled) return;
+        if (res?.ok && res.data_url) setDataUrl(String(res.data_url));
+        else setError(res?.error || '无法加载预览');
+      } catch (e: any) {
+        if (!cancelled) setError(String(e?.message || e || '预览失败'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [path, enabled]);
+
+  return { dataUrl, error, loading };
+}
+
+/** Wheel zoom + drag pan image stage for the preview dialog. */
+function ZoomPanImage({ src, alt }: { src: string; alt: string }) {
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [grabbing, setGrabbing] = useState(false);
+  const dragging = useRef(false);
+  const last = useRef({ x: 0, y: 0 });
+  const stageRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setScale(1);
+    setOffset({ x: 0, y: 0 });
+    setGrabbing(false);
+  }, [src]);
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.12 : 0.12;
+      setScale((s) => Math.min(8, Math.max(0.2, Number((s + delta * Math.max(s, 0.5)).toFixed(3)))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    dragging.current = true;
+    setGrabbing(true);
+    last.current = { x: e.clientX, y: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    const dx = e.clientX - last.current.x;
+    const dy = e.clientY - last.current.y;
+    last.current = { x: e.clientX, y: e.clientY };
+    setOffset((o) => ({ x: o.x + dx, y: o.y + dy }));
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    dragging.current = false;
+    setGrabbing(false);
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <div className="relative w-full h-full min-h-0 flex flex-col">
+      <div
+        ref={stageRef}
+        className={`relative flex-1 min-h-0 overflow-hidden rounded-lg bg-black/10 dark:bg-black/50 select-none touch-none ${
+          grabbing ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={() => {
+          setScale(1);
+          setOffset({ x: 0, y: 0 });
+        }}
+      >
+        <img
+          src={src}
+          alt={alt}
+          draggable={false}
+          className="absolute left-1/2 top-1/2 max-w-none pointer-events-none"
+          style={{
+            transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+            transformOrigin: 'center center',
+          }}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-2 shrink-0">
+        <p className="text-[11px] opacity-50">滚轮缩放 · 拖动平移 · 双击复位</p>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="h-7 px-2 text-xs rounded-md border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10"
+            onClick={() => setScale((s) => Math.max(0.2, Number((s / 1.2).toFixed(3))))}
+          >
+            −
+          </button>
+          <span className="text-[11px] font-mono opacity-60 w-12 text-center">
+            {Math.round(scale * 100)}%
+          </span>
+          <button
+            type="button"
+            className="h-7 px-2 text-xs rounded-md border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10"
+            onClick={() => setScale((s) => Math.min(8, Number((s * 1.2).toFixed(3))))}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="h-7 px-2 text-xs rounded-md border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10"
+            onClick={() => {
+              setScale(1);
+              setOffset({ x: 0, y: 0 });
+            }}
+          >
+            复位
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Image path shown as link: hover thumbnail above, click opens dialog. */
+function ImagePathLink({ path }: { path: string }) {
+  const linkRef = useRef<HTMLAnchorElement | null>(null);
+  const [hover, setHover] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [tipPos, setTipPos] = useState<{ left: number; top: number } | null>(null);
+  const wantLoad = hover || open;
+  const { dataUrl, error, loading } = useLocalImage(path, wantLoad);
+
+  const updateTipPos = () => {
+    const el = linkRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const tipW = 200;
+    const tipH = 150;
+    let left = r.left;
+    let top = r.top - tipH - 10;
+    if (left + tipW > window.innerWidth - 8) left = window.innerWidth - tipW - 8;
+    if (left < 8) left = 8;
+    if (top < 8) top = r.bottom + 8;
+    setTipPos({ left, top });
+  };
+
+  return (
+    <>
+      <a
+        ref={linkRef}
+        href="#"
+        className="font-mono text-xs text-blue-500 underline underline-offset-2 break-all whitespace-pre-wrap text-left hover:text-blue-400"
+        title="悬停预览，点击放大"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(true);
+        }}
+        onMouseEnter={() => {
+          updateTipPos();
+          setHover(true);
+        }}
+        onMouseLeave={() => setHover(false)}
+        onMouseMove={updateTipPos}
+      >
+        {path}
+      </a>
+      {hover &&
+        tipPos &&
+        createPortal(
+          <div
+            className="fixed z-[220] pointer-events-none rounded-lg border border-black/15 dark:border-white/15 bg-zinc-950/95 shadow-xl p-1.5"
+            style={{ left: tipPos.left, top: tipPos.top, width: 200 }}
+          >
+            <div className="flex items-center justify-center h-[130px] bg-black/40 rounded-md overflow-hidden">
+              {loading ? (
+                <span className="text-[10px] text-zinc-400">加载中…</span>
+              ) : error ? (
+                <span className="text-[10px] text-rose-400 px-1 text-center">{error}</span>
+              ) : dataUrl ? (
+                <img
+                  src={dataUrl}
+                  alt="缩略图"
+                  className="max-w-full max-h-[130px] object-contain"
+                  draggable={false}
+                />
+              ) : null}
+            </div>
+          </div>,
+          document.body,
+        )}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-[min(96vw,88rem)] w-[min(96vw,88rem)] h-[min(92vh,56rem)] p-4 flex flex-col gap-3">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="text-sm">图片预览</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 flex flex-col">
+            {loading && !dataUrl ? (
+              <div className="flex-1 flex items-center justify-center rounded-lg bg-black/5 dark:bg-black/40">
+                <p className="text-xs opacity-50">加载中…</p>
+              </div>
+            ) : error && !dataUrl ? (
+              <div className="flex-1 flex items-center justify-center rounded-lg bg-black/5 dark:bg-black/40">
+                <p className="text-xs text-rose-400 break-all px-2">{error}</p>
+              </div>
+            ) : dataUrl ? (
+              <ZoomPanImage src={dataUrl} alt="预览" />
+            ) : null}
+          </div>
+          <p className="text-[11px] font-mono opacity-60 break-all select-text shrink-0">{path}</p>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 /** Compact chip showing a copyable output ref */
 export function OutputRefChip({
   nodeId,
@@ -333,6 +589,13 @@ export function OutputRefChip({
   onCopied?: () => void;
 }) {
   const ref = formatNodeRef(nodeId, field);
+  const isImage = looksLikeImagePath(value);
+  const display =
+    value === undefined
+      ? '—'
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value);
   const copy = async () => {
     try {
       const res = await bridge.clipboardWrite(ref);
@@ -351,18 +614,38 @@ export function OutputRefChip({
     }
   };
   return (
-    <button
-      type="button"
-      onClick={copy}
-      title={`点击复制 ${ref}`}
-      className="flex items-center gap-1.5 w-full text-left rounded-lg px-2 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors group"
-    >
-      <Hash className="w-3 h-3 opacity-40 shrink-0" />
-      <span className="font-mono text-xs font-medium shrink-0">{field}</span>
-      <span className="font-mono text-xs opacity-50 truncate flex-1 min-w-0">
-        {value === undefined ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value)}
-      </span>
-      <Link2 className="w-3 h-3 opacity-0 group-hover:opacity-60 shrink-0" />
-    </button>
+    <div className="flex items-start gap-1.5 w-full min-w-0 rounded-lg px-2 py-1.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors group">
+      <button
+        type="button"
+        onClick={copy}
+        title={`点击复制 ${ref}`}
+        className="flex items-start gap-1.5 shrink-0 text-left"
+      >
+        <Hash className="w-3 h-3 opacity-40 shrink-0 mt-0.5" />
+        <span className="font-mono text-xs font-medium shrink-0 mt-0.5">{field}</span>
+      </button>
+      <div className="flex-1 min-w-0">
+        {isImage ? (
+          <ImagePathLink path={String(value)} />
+        ) : (
+          <button
+            type="button"
+            onClick={copy}
+            title={`点击复制 ${ref}`}
+            className="font-mono text-xs opacity-50 flex-1 min-w-0 break-all whitespace-pre-wrap text-left w-full"
+          >
+            {display}
+          </button>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={copy}
+        title={`点击复制 ${ref}`}
+        className="shrink-0 mt-0.5"
+      >
+        <Link2 className="w-3 h-3 opacity-0 group-hover:opacity-60" />
+      </button>
+    </div>
   );
 }
