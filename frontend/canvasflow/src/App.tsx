@@ -102,7 +102,7 @@ export default function App() {
 }
 
 function AppShell() {
-  const { confirm } = useAppDialog();
+  const { confirm, alert } = useAppDialog();
   const flow = useFlowStore((s) => s.flow);
   const schemas = useFlowStore((s) => s.schemas);
   const schemaMap = useFlowStore((s) => s.schemaMap);
@@ -271,6 +271,14 @@ function AppShell() {
       } catch (e: any) {
         appendLog({ level: 'error', message: String(e) });
       }
+      try {
+        const info = await bridge.getAppInfo();
+        if (info?.version) {
+          appendLog({ level: 'info', message: `版本 ${info.version}` });
+        }
+      } catch {
+        /* ignore */
+      }
       const list = await bridge.getBlockRegistry();
       if (!cancelled) {
         const merged = mergeSchemas(list);
@@ -283,12 +291,61 @@ function AppShell() {
             : `积木已加载 ${merged.length} 个`,
         });
       }
+
+      // Soft check: announcement + update (non-blocking UX)
+      if (!cancelled) {
+        try {
+          const ann = await bridge.fetchAnnouncement();
+          const a = ann?.announcement;
+          if (a?.id && a?.body) {
+            let readId = '';
+            try {
+              readId = localStorage.getItem('nexuz.announcementReadId') || '';
+            } catch {
+              /* ignore */
+            }
+            if (String(a.id) !== readId) {
+              await alert({
+                title: a.title || '更新公告',
+                description: String(a.body),
+              });
+              try {
+                localStorage.setItem('nexuz.announcementReadId', String(a.id));
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        } catch {
+          /* ignore network errors on boot */
+        }
+      }
+      if (!cancelled) {
+        try {
+          const upd = await bridge.checkForUpdate();
+          if (upd?.ok && upd.update_available) {
+            const go = await confirm({
+              title: `发现新版本 ${upd.latest_version}`,
+              description: `当前 ${upd.current_version}，可更新至 ${upd.latest_version}。是否前往设置下载？`,
+              confirmText: '去设置',
+              cancelText: '稍后',
+            });
+            if (go) setViewMode('settings');
+            appendLog({
+              level: 'info',
+              message: `有可用更新：${upd.current_version} → ${upd.latest_version}`,
+            });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
     })();
     return () => {
       cancelled = true;
       delete (window as any).__nexuzEmit;
     };
-  }, [onRuntimeEvent, setBridgeReady, setSchemas, appendLog]);
+  }, [onRuntimeEvent, setBridgeReady, setSchemas, appendLog, alert, confirm, setViewMode]);
 
   useEffect(() => {
     const last = logs[logs.length - 1];

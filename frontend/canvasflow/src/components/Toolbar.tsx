@@ -22,6 +22,8 @@ import {
   Minimize2,
   Pin,
   Waypoints,
+  Megaphone,
+  ArrowUpCircle,
   X
 } from 'lucide-react';
 import { ThemeName, ThemeMode } from '../types';
@@ -35,6 +37,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { bridge } from '@/bridge';
+import { useAppDialog } from './AppDialogs';
 
 interface ToolbarProps {
   themeName: ThemeName;
@@ -87,9 +90,12 @@ export default function Toolbar({
   viewMode = 'canvas',
   onViewModeChange
 }: ToolbarProps) {
+  const { alert, confirm } = useAppDialog();
   const [isSaved, setIsSaved] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [onTop, setOnTop] = useState(false);
+  const [updateDot, setUpdateDot] = useState(false);
+  const [annDot, setAnnDot] = useState(false);
   const colors = getThemeColors(themeName, themeMode);
   const themes: ThemeName[] = ['Ocean', 'Mint', 'Purple', 'Rose', 'Orange'];
 
@@ -100,7 +106,78 @@ export default function Toolbar({
     bridge.windowIsOnTop?.().then((res: any) => {
       if (res?.on_top != null) setOnTop(!!res.on_top);
     });
+    (async () => {
+      try {
+        const upd = await bridge.checkForUpdate();
+        if (upd?.ok && upd.update_available) setUpdateDot(true);
+      } catch {
+        /* ignore */
+      }
+      try {
+        const ann = await bridge.fetchAnnouncement();
+        const a = ann?.announcement;
+        if (!a?.id) return;
+        let readId = '';
+        try {
+          readId = localStorage.getItem('nexuz.announcementReadId') || '';
+        } catch {
+          /* ignore */
+        }
+        if (String(a.id) !== readId) setAnnDot(true);
+      } catch {
+        /* ignore */
+      }
+    })();
   }, []);
+
+  const handleCheckUpdate = async () => {
+    try {
+      const res = await bridge.checkForUpdate();
+      if (!res?.ok) {
+        await alert({ title: '检查更新失败', description: res?.error || '无法连接 GitHub' });
+        return;
+      }
+      setUpdateDot(!!res.update_available);
+      if (res.update_available) {
+        const go = await confirm({
+          title: `发现新版本 ${res.latest_version}`,
+          description: `当前 ${res.current_version} → ${res.latest_version}。前往设置下载并热更新？`,
+          confirmText: '去设置',
+          cancelText: '稍后',
+        });
+        if (go) onViewModeChange?.('settings');
+      } else {
+        await alert({
+          title: '已是最新版本',
+          description: `当前版本 ${res.current_version}`,
+        });
+      }
+    } catch (e: any) {
+      await alert({ title: '检查更新失败', description: String(e?.message || e) });
+    }
+  };
+
+  const handleAnnouncement = async () => {
+    try {
+      const res = await bridge.fetchAnnouncement();
+      const a = res?.announcement;
+      if (!res?.ok || !a?.body) {
+        await alert({ title: '公告', description: res?.error || '暂无公告' });
+        return;
+      }
+      await alert({ title: a.title || '更新公告', description: String(a.body) });
+      if (a.id) {
+        try {
+          localStorage.setItem('nexuz.announcementReadId', String(a.id));
+        } catch {
+          /* ignore */
+        }
+        setAnnDot(false);
+      }
+    } catch (e: any) {
+      await alert({ title: '获取公告失败', description: String(e?.message || e) });
+    }
+  };
 
   const handleSave = async () => {
     if (onSave) {
@@ -355,6 +432,30 @@ export default function Toolbar({
               </Button>
             </div>
           )}
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 relative"
+            onClick={() => void handleAnnouncement()}
+            title="更新公告">
+            <Megaphone className="w-4 h-4" />
+            {annDot ? (
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
+            ) : null}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 relative"
+            onClick={() => void handleCheckUpdate()}
+            title="检查更新">
+            <ArrowUpCircle className="w-4 h-4" />
+            {updateDot ? (
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            ) : null}
+          </Button>
 
           <Button
             variant="ghost"

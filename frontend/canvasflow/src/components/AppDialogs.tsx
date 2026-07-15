@@ -135,7 +135,9 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{confirmState?.title}</AlertDialogTitle>
-            <AlertDialogDescription>{confirmState?.description}</AlertDialogDescription>
+            <AlertDialogDescription className="whitespace-pre-wrap">
+              {confirmState?.description}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
@@ -172,7 +174,9 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
         <DialogContent showClose={false}>
           <DialogHeader>
             <DialogTitle>{alertState?.title}</DialogTitle>
-            <DialogDescription>{alertState?.description}</DialogDescription>
+            <DialogDescription className="whitespace-pre-wrap">
+              {alertState?.description}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" onClick={finishAlert}>

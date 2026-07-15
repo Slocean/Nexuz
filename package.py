@@ -10,12 +10,15 @@ Usage (from repo root):
   python package.py
   python package.py --skip-frontend
   python package.py --onedir
+  python package.py --version 0.1.1
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -116,6 +119,7 @@ def collect_datas() -> list[tuple[str, str]]:
 
     add(FRONTEND / "dist", "frontend/dist")
     add(ROOT / "schemas", "schemas")
+    add(ROOT / "app_update.json", ".")
     add(ROOT / "logo.ico", ".")
     add(ROOT / "logo.png", ".")
     add(
@@ -248,6 +252,57 @@ def finalize_windows_exe_icon(exe_path: Path) -> None:
         print(f"! SHChangeNotify failed: {exc}")
 
 
+def read_channel_version() -> str | None:
+    path = ROOT / "app_update.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        ver = str(data.get("version") or "").strip().lstrip("v")
+        return ver or None
+    except Exception:
+        return None
+
+
+def inject_version(version: str) -> None:
+    """Bake version into backend/version.py and sync app_update.json."""
+    ver = str(version or "").strip().lstrip("v")
+    if not ver:
+        raise SystemExit("empty --version")
+
+    path = ROOT / "backend" / "version.py"
+    text = path.read_text(encoding="utf-8")
+    updated, n = re.subn(
+        r'^__version__\s*=\s*["\'].*?["\']',
+        f'__version__ = "{ver}"',
+        text,
+        count=1,
+        flags=re.M,
+    )
+    if n != 1:
+        raise SystemExit(f"failed to patch __version__ in {path}")
+    path.write_text(updated, encoding="utf-8")
+    print(f"OK: injected version {ver} → {path}")
+
+    channel_path = ROOT / "app_update.json"
+    if channel_path.is_file():
+        try:
+            data = json.loads(channel_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                data = {}
+            data["version"] = ver
+            # Preserve title/body; strip obsolete fixed fields if present
+            for dead in ("download_url", "release_url", "notes", "announcement"):
+                data.pop(dead, None)
+            channel_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            print(f"OK: synced version {ver} → {channel_path}")
+        except Exception as exc:
+            print(f"! failed to sync app_update.json: {exc}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build Nexuz desktop package")
     parser.add_argument(
@@ -260,10 +315,21 @@ def main() -> None:
         action="store_true",
         help="Folder bundle (exe + _internal); default is single-file exe",
     )
+    parser.add_argument(
+        "--version",
+        default=os.environ.get("NEXUZ_VERSION", "").strip() or None,
+        help="Bake app version (default: app_update.json / NEXUZ_VERSION)",
+    )
     args = parser.parse_args()
 
     if sys.platform != "win32":
         print("warning: packaging is intended for Windows (WebView2)")
+
+    version = args.version or read_channel_version()
+    if version:
+        inject_version(version)
+    else:
+        print("! no version from --version / NEXUZ_VERSION / app_update.json")
 
     if not args.skip_frontend:
         build_frontend()

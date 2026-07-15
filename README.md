@@ -81,9 +81,47 @@ package.bat
 ```bash
 python package.py --skip-frontend   # 已有 frontend/dist 时跳过 npm build
 python package.py --onedir          # 目录模式（exe + _internal，启动更快）
+python package.py --version 0.1.1   # 写入版本号再打包（CI 用）
 ```
 
 首次打包会自动安装 `pyinstaller`。产物含前端 `dist`、schemas、Frida 脚本与 OCR 运行时依赖。
+
+## GitHub 自动打包与 Release
+
+**不需要自备公钥/私钥。** Action 使用仓库内置的 `GITHUB_TOKEN` 创建 Release 并上传 `Nexuz.exe`（HTTPS）。若以后要 Windows 代码签名或更新包验签，再单独配置证书即可，当前热更新不依赖。
+
+发版前编辑仓库根目录 [`app_update.json`](app_update.json)（版本号 + 公告同一文件），提交推送后：
+
+```bash
+gh workflow run Release.yml
+```
+
+或临时覆盖版本：
+
+```bash
+gh workflow run Release.yml -f version=0.1.1
+```
+
+也可打 tag：`git tag v0.1.1 && git push origin v0.1.1`。
+
+### 客户端热更新与公告
+
+- 通道文件：[`app_update.json`](app_update.json)（`version` + `announcement`）
+- 客户端从 `main` 分支拉取该文件比对版本、展示公告
+- **检查更新**：顶栏 ↑，或「设置 → 关于与更新」
+- **热更新**：下载 Release 中的 `Nexuz.exe` →「立即更新」替换并重启（仅打包后的 exe）
+
+`app_update.json` 只需手填三项：
+
+```json
+{
+  "version": "0.1.1",
+  "title": "0.1.1 更新公告",
+  "body": "修复了……\n新增了……"
+}
+```
+
+下载地址、Releases 链接等写死在代码里。未读公告按 `version` 判断（升版本即视为新公告）。
 
 ## 界面
 

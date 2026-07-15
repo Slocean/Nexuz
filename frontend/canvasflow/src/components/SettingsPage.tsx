@@ -2,7 +2,19 @@
  * App settings page — behavior / window prefs (not buried in Inspector).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EyeOff, Link2, Monitor, MousePointer2, RefreshCw, Settings2, Unplug } from 'lucide-react';
+import {
+  Download,
+  EyeOff,
+  ExternalLink,
+  Info,
+  Link2,
+  Megaphone,
+  Monitor,
+  MousePointer2,
+  RefreshCw,
+  Settings2,
+  Unplug,
+} from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,6 +32,8 @@ import {
 import { useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
+
+const ANN_READ_KEY = 'nexuz.announcementReadId';
 
 type ProcRow = {
   pid: number;
@@ -55,7 +69,7 @@ export default function SettingsPage({
   themeMode: ThemeMode;
 }) {
   const colors = getThemeColors(themeName, themeMode);
-  const { confirm } = useAppDialog();
+  const { confirm, alert } = useAppDialog();
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
@@ -105,6 +119,14 @@ export default function SettingsPage({
   const onlyWithWindowRef = useRef(onlyWithWindow);
   onlyWithWindowRef.current = onlyWithWindow;
 
+  const [appVersion, setAppVersion] = useState('');
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState('');
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const [downloadedPath, setDownloadedPath] = useState('');
+  const [announcement, setAnnouncement] = useState<any>(null);
+  const [annBusy, setAnnBusy] = useState(false);
+
   const refreshFrida = useCallback(async () => {
     try {
       const st = await bridge.fridaStatus();
@@ -128,7 +150,6 @@ export default function SettingsPage({
       );
       if (seq !== listSeq.current) return;
       if (res?.ok && Array.isArray(res.processes)) {
-        // Keep only fields the UI needs, and cap list size to bound memory.
         const slim = res.processes.slice(0, 500).map((p: ProcRow) => ({
           pid: p.pid,
           name: p.name,
@@ -156,6 +177,31 @@ export default function SettingsPage({
     }
   }, []);
 
+  const loadAbout = useCallback(async () => {
+    try {
+      const info = await bridge.getAppInfo();
+      if (info?.version) setAppVersion(String(info.version));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const loadAnnouncement = useCallback(async () => {
+    setAnnBusy(true);
+    try {
+      const res = await withTimeout(bridge.fetchAnnouncement(), 15000, '获取公告');
+      if (res?.ok && res.announcement) {
+        setAnnouncement(res.announcement);
+      } else {
+        setAnnouncement(null);
+      }
+    } catch {
+      setAnnouncement(null);
+    } finally {
+      setAnnBusy(false);
+    }
+  }, []);
+
   useEffect(() => {
     void refreshFrida();
     const t = setInterval(() => {
@@ -164,10 +210,14 @@ export default function SettingsPage({
     return () => clearInterval(t);
   }, [refreshFrida]);
 
-  // Load once on mount + whenever filter mode changes (stable callback, no loop)
   useEffect(() => {
     void refreshProcesses(onlyWithWindow);
   }, [onlyWithWindow, refreshProcesses]);
+
+  useEffect(() => {
+    void loadAbout();
+    void loadAnnouncement();
+  }, [loadAbout, loadAnnouncement]);
 
   const filtered = useMemo(() => {
     const q = processFilter.trim().toLowerCase();
@@ -244,6 +294,109 @@ export default function SettingsPage({
     }
   };
 
+  const handleCheckUpdate = async () => {
+    if (updateBusy) return;
+    setUpdateBusy(true);
+    setUpdateMsg('正在检查更新…');
+    try {
+      const res = await withTimeout(bridge.checkForUpdate(), 25000, '检查更新');
+      setUpdateInfo(res);
+      if (!res?.ok) {
+        setUpdateMsg(res?.error || '检查失败');
+        return;
+      }
+      setUpdateMsg(res.message || (res.update_available ? '发现新版本' : '已是最新版本'));
+      if (res.update_available) {
+        const notes = String(res.release_notes || '').trim();
+        const preview = notes
+          ? `\n\n更新说明：\n${notes.slice(0, 800)}${notes.length > 800 ? '…' : ''}`
+          : '';
+        await alert({
+          title: `发现新版本 ${res.latest_version}`,
+          description: `当前 ${res.current_version} → ${res.latest_version}${preview}\n\n可点击「下载更新」自动下载，再「立即更新」替换并重启。`,
+        });
+      } else {
+        await alert({
+          title: '已是最新版本',
+          description: `当前版本 ${res.current_version || appVersion || '?'}`,
+        });
+      }
+    } catch (e: any) {
+      setUpdateMsg(String(e?.message || e || '检查失败'));
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    if (updateBusy) return;
+    setUpdateBusy(true);
+    setUpdateMsg('正在下载更新包…');
+    try {
+      const res = await withTimeout(bridge.downloadUpdate(), 600000, '下载更新');
+      if (!res?.ok) {
+        setUpdateMsg(res?.error || '下载失败');
+        await alert({ title: '下载失败', description: res?.error || '无法下载更新包' });
+        return;
+      }
+      setDownloadedPath(res.path || '');
+      setUpdateMsg(res.message || '下载完成');
+      await alert({
+        title: '下载完成',
+        description:
+          res.message ||
+          `已保存到\n${res.path || ''}\n\n点击「立即更新」将替换程序并重启。`,
+      });
+    } catch (e: any) {
+      setUpdateMsg(String(e?.message || e || '下载失败'));
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
+  const handleApplyUpdate = async () => {
+    if (updateBusy) return;
+    const ok = await confirm({
+      title: '立即更新并重启',
+      description: '将退出当前程序并用新版本替换。请先保存流程。是否继续？',
+      confirmText: '立即更新',
+    });
+    if (!ok) return;
+    setUpdateBusy(true);
+    setUpdateMsg('正在应用更新…');
+    try {
+      const res = await bridge.applyUpdate();
+      if (!res?.ok) {
+        setUpdateMsg(res?.error || '应用失败');
+        await alert({ title: '无法更新', description: res?.error || '应用更新失败' });
+        return;
+      }
+      setUpdateMsg(res.message || '即将重启…');
+    } catch (e: any) {
+      setUpdateMsg(String(e?.message || e || '应用失败'));
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
+  const handleShowAnnouncement = async () => {
+    if (!announcement?.body) {
+      await alert({ title: '公告', description: '暂无公告' });
+      return;
+    }
+    await alert({
+      title: announcement.title || '公告',
+      description: String(announcement.body),
+    });
+    if (announcement.id) {
+      try {
+        localStorage.setItem(ANN_READ_KEY, String(announcement.id));
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
   return (
     <div className="flex-1 min-w-0 h-full overflow-auto">
       <div className="max-w-xl mx-auto px-8 py-10 space-y-8">
@@ -258,6 +411,126 @@ export default function SettingsPage({
             全局偏好，保存在本机，与当前流程无关。
           </p>
         </div>
+
+        <section
+          className="rounded-2xl border p-5 space-y-4"
+          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        >
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
+            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
+              关于与更新
+            </h2>
+          </div>
+          <Separator />
+
+          <p className="text-sm" style={{ color: colors.text }}>
+            当前版本{' '}
+            <span className="font-mono font-medium">{appVersion || '…'}</span>
+            {updateInfo?.latest_version && updateInfo?.update_available ? (
+              <span className="ml-2 text-amber-600 dark:text-amber-400">
+                · 可更新至 {updateInfo.latest_version}
+              </span>
+            ) : null}
+          </p>
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" disabled={updateBusy} onClick={() => void handleCheckUpdate()}>
+              <RefreshCw className={`w-3.5 h-3.5 ${updateBusy ? 'animate-spin' : ''}`} />
+              检查更新
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={updateBusy || !updateInfo?.update_available}
+              onClick={() => void handleDownloadUpdate()}
+            >
+              <Download className="w-3.5 h-3.5" />
+              下载更新
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={updateBusy || (!downloadedPath && !updateInfo?.update_available)}
+              onClick={() => void handleApplyUpdate()}
+              title="需先下载更新包"
+            >
+              立即更新
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={updateBusy}
+              onClick={() => void bridge.openReleasesPage()}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Releases
+            </Button>
+          </div>
+          {updateMsg ? (
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+              {updateMsg}
+            </p>
+          ) : (
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+              从 GitHub Releases 检查新版本；下载后点「立即更新」会自动替换 exe 并重启。
+            </p>
+          )}
+        </section>
+
+        <section
+          className="rounded-2xl border p-5 space-y-4"
+          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Megaphone className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
+              <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
+                更新公告
+              </h2>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              disabled={annBusy}
+              onClick={() => void loadAnnouncement()}
+              title="刷新公告"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${annBusy ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+          <Separator />
+
+          {announcement?.body ? (
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-medium" style={{ color: colors.text }}>
+                  {announcement.title || '公告'}
+                </p>
+                <p
+                  className="text-sm leading-relaxed mt-1 whitespace-pre-wrap"
+                  style={{ color: colors.secondaryText }}
+                >
+                  {String(announcement.body).length > 280
+                    ? `${String(announcement.body).slice(0, 280)}…`
+                    : announcement.body}
+                </p>
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={() => void handleShowAnnouncement()}>
+                查看全文
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+              {annBusy ? '加载中…' : '暂无公告'}
+            </p>
+          )}
+        </section>
 
         <section
           className="rounded-2xl border p-5 space-y-4"
@@ -397,7 +670,10 @@ export default function SettingsPage({
               </SelectContent>
             </Select>
             {selected && (
-              <p className="text-xs font-mono leading-relaxed opacity-70 break-all" style={{ color: colors.secondaryText }}>
+              <p
+                className="text-xs font-mono leading-relaxed opacity-70 break-all"
+                style={{ color: colors.secondaryText }}
+              >
                 {selected.window_title ? `窗口：${selected.window_title}` : '无窗口标题'}
                 {selected.exe ? `\n路径：${selected.exe}` : ''}
               </p>

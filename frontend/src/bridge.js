@@ -908,6 +908,42 @@ function mockCall(method, ...args) {
   switch (method) {
     case 'ping':
       return Promise.resolve({ ok: true, message: 'pong (browser mock)', dpi_scale: 1 });
+    case 'get_app_info':
+      return Promise.resolve({
+        ok: true,
+        version: '0.1.0-dev',
+        frozen: false,
+        github: 'Slocean/Nexuz',
+        releases_url: 'https://github.com/Slocean/Nexuz/releases',
+      });
+    case 'check_for_update':
+      return Promise.resolve({
+        ok: true,
+        update_available: false,
+        current_version: '0.1.0-dev',
+        latest_version: '0.1.0-dev',
+        message: '浏览器预览：无法检查 GitHub 更新',
+      });
+    case 'fetch_announcement':
+      return Promise.resolve({
+        ok: true,
+        announcement: {
+          id: 'browser-mock',
+          title: '浏览器预览',
+          body: '公告与热更新需在桌面客户端中使用。',
+          priority: 'info',
+        },
+      });
+    case 'download_update':
+    case 'apply_update':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持热更新' });
+    case 'open_releases_page':
+      try {
+        window.open('https://github.com/Slocean/Nexuz/releases', '_blank');
+        return Promise.resolve({ ok: true });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
     case 'get_block_registry':
       return Promise.resolve(MOCK_SCHEMAS);
     case 'list_schedule_jobs':
@@ -1053,6 +1089,12 @@ function mockCall(method, ...args) {
 
 export const bridge = {
   ping: () => call('ping'),
+  getAppInfo: () => call('get_app_info'),
+  checkForUpdate: () => call('check_for_update'),
+  fetchAnnouncement: () => call('fetch_announcement'),
+  downloadUpdate: (downloadUrl = null) => call('download_update', downloadUrl),
+  applyUpdate: () => call('apply_update'),
+  openReleasesPage: () => call('open_releases_page'),
   getBlockRegistry: () => call('get_block_registry'),
   getScreenInfo: () => call('get_screen_info'),
   runFlow: (flow, stepMode = false, hideWindow = true, debugMode = false, breakpoints = null) =>

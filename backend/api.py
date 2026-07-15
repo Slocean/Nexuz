@@ -153,6 +153,62 @@ class Api:
         w, h = screen_size_logical()
         return {"width": w, "height": h, "dpi_scale": get_dpi_scale()}
 
+    # --- version / update / announcement ---
+    def get_app_info(self) -> dict:
+        from backend.version import GITHUB_OWNER, GITHUB_REPO, RELEASES_PAGE_URL, __version__
+
+        frozen = bool(getattr(__import__("sys"), "frozen", False))
+        return {
+            "ok": True,
+            "version": __version__,
+            "frozen": frozen,
+            "github": f"{GITHUB_OWNER}/{GITHUB_REPO}",
+            "releases_url": RELEASES_PAGE_URL,
+        }
+
+    def check_for_update(self) -> dict:
+        from backend.core.updater import check_for_update
+
+        return check_for_update()
+
+    def fetch_announcement(self) -> dict:
+        from backend.core.updater import fetch_announcement
+
+        return fetch_announcement()
+
+    def download_update(self, download_url: str | None = None) -> dict:
+        from backend.core.updater import download_update
+
+        return download_update(download_url)
+
+    def apply_update(self) -> dict:
+        """Download already done → swap exe via helper script and quit."""
+        from backend.core.updater import apply_update_and_restart
+
+        result = apply_update_and_restart()
+        if result.get("ok") and result.get("restarting") and self._window:
+            # Give JS time to show the toast, then exit so the bat can replace the exe.
+            def _quit():
+                time.sleep(0.6)
+                try:
+                    self._window.destroy()
+                except Exception:
+                    pass
+                try:
+                    import os
+
+                    os._exit(0)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_quit, daemon=True).start()
+        return result
+
+    def open_releases_page(self) -> dict:
+        from backend.core.updater import open_releases_page
+
+        return open_releases_page()
+
     # --- window chrome (frameless custom title bar) ---
     def window_minimize(self) -> dict:
         if not self._window:
