@@ -293,25 +293,26 @@ function AppShell() {
         });
       }
 
-      // Soft check: announcement + update (non-blocking UX)
+      // Soft check: notice (sticky) + update
       if (!cancelled) {
         try {
-          const ann = await bridge.fetchAnnouncement();
-          const a = ann?.announcement;
-          if (a?.id && a?.body) {
+          const res = await bridge.fetchNotice();
+          const n = res?.notice;
+          if (n?.id && n?.body) {
             let readId = '';
             try {
-              readId = localStorage.getItem('nexuz.announcementReadId') || '';
+              readId = localStorage.getItem('nexuz.noticeReadId') || '';
             } catch {
               /* ignore */
             }
-            if (String(a.id) !== readId) {
+            if (String(n.id) !== readId) {
               await alert({
-                title: a.title || '更新公告',
-                description: String(a.body),
+                title: n.title || '通知',
+                description: String(n.body),
+                okText: '我知道了',
               });
               try {
-                localStorage.setItem('nexuz.announcementReadId', String(a.id));
+                localStorage.setItem('nexuz.noticeReadId', String(n.id));
               } catch {
                 /* ignore */
               }

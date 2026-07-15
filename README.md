@@ -108,33 +108,36 @@ python trigger_release.py
 未签名 exe 容易被 Defender 删。配置方法见 [`docs/WINDOWS_SIGNING.md`](docs/WINDOWS_SIGNING.md)。  
 在 GitHub Secrets 填入 `WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD` 后，Release Action 会自动签名。
 
-### 客户端热更新与公告
+### 客户端热更新与通知
 
 - 通道文件：[`app_update.json`](app_update.json)（累计 `history`）
-- 客户端从 `main` 分支拉取该文件比对版本、展示公告
 - **检查更新**：顶栏 ↑，或「设置 → 关于与更新」
 - **热更新**：下载 Release 中的 `Nexuz.exe` →「立即更新」替换并重启（仅打包后的 exe）
+- **通知**（喇叭 / 启动弹窗）：读取 `history[].notice`；当前条为空则沿用上一条非空通知；点「我知道了」后同内容不再弹，直到出现新通知
+- **版本更新记录**：仅在「设置 → 更新公告」查看（`title` / `body`）
 
-`app_update.json` 是**累计更新记录**（不要覆盖旧条目）。发版时在 `history` **最前面**追加一条：
+发版时在 `history` **最前面**追加一条（不要删旧记录）：
 
 ```json
 {
   "history": [
     {
-      "version": "0.1.1",
-      "title": "0.1.1 更新",
-      "body": "修复了……\n新增了……"
+      "version": "0.1.4",
+      "title": "0.1.4 标题",
+      "body": "版本更新说明（设置页展示）",
+      "notice": "给用户的通知说明（喇叭/启动弹窗；可留空沿用上一条）"
     },
     {
-      "version": "0.1.0",
-      "title": "欢迎使用 Nexuz",
-      "body": "首次发布……"
+      "version": "0.1.3",
+      "title": "……",
+      "body": "……",
+      "notice": ""
     }
   ]
 }
 ```
 
-最新版本 = `history[0].version`。客户端检查更新读第一条，公告页展示完整历史。
+最新版本 = `history[0].version`。
 
 ## 界面
 

@@ -1,24 +1,34 @@
 {
   "history": [
     {
+      "version": "0.1.4",
+      "title": "0.1.4 通知说明与喇叭分离",
+      "body": "• 顶栏喇叭改为「通知说明」，不再展示版本更新记录\n• app_update.json 每条 history 增加 notice 字段；为空则自动沿用上一条非空通知\n• 启动时弹出未读通知；点「我知道了」后同内容不再提示，仅新通知再次弹出\n• 版本更新记录仍在「设置 → 更新公告」中查看",
+      "notice": "Nexuz 已将「通知」与「版本更新说明」分开：喇叭按钮与启动弹窗只显示通知；版本更新记录请到设置页查看。配置证书后可减轻 Defender 误删风险。"
+    },
+    {
       "version": "0.1.3",
       "title": "0.1.3 更新体验优化",
-      "body": "• 公告/检查更新按钮移到顶栏右侧\n• 检查更新弹窗可直接「下载更新」并立即应用，不必再进设置\n• 修复下载更新 HTTP 404：改为从 GitHub Releases API 解析真实资源地址\n• 设置页更新公告改为可滚动、每条可折叠的列表\n• 启动发现新版本时同样支持一键下载更新"
+      "body": "• 公告/检查更新按钮移到顶栏右侧\n• 检查更新弹窗可直接「下载更新」并立即应用，不必再进设置\n• 修复下载更新 HTTP 404：改为从 GitHub Releases API 解析真实资源地址\n• 设置页更新公告改为可滚动、每条可折叠的列表\n• 启动发现新版本时同样支持一键下载更新",
+      "notice": ""
     },
     {
       "version": "0.1.2",
       "title": "0.1.2 节点折叠与代码签名",
-      "body": "• 画布节点标题支持折叠/展开，连线在折叠时收到标题中线\n• Release 支持 Windows Authenticode 代码签名（配置 Secrets 后自动签）\n• 新增签名脚本与说明文档（docs/WINDOWS_SIGNING.md）\n• 降低未签名 exe 被 Defender 误删的风险（正式证书效果更好）"
+      "body": "• 画布节点标题支持折叠/展开，连线在折叠时收到标题中线\n• Release 支持 Windows Authenticode 代码签名（配置 Secrets 后自动签）\n• 新增签名脚本与说明文档（docs/WINDOWS_SIGNING.md）\n• 降低未签名 exe 被 Defender 误删的风险（正式证书效果更好）",
+      "notice": ""
     },
     {
       "version": "0.1.1",
       "title": "0.1.1 自动更新与公告",
-      "body": "• 支持 GitHub Actions 自动打包并发布 Release\n• 本地执行 release.bat 即可打 tag 触发打包（无需网页手动点）\n• 新增检查更新 / 下载更新 / 立即更新（热更新替换 exe）\n• 顶栏可查看更新公告；设置页「关于与更新」可管理版本\n• app_update.json 改为累计 history，完整保留历史更新记录\n• 修复 Windows CI 日志编码导致打包失败的问题"
+      "body": "• 支持 GitHub Actions 自动打包并发布 Release\n• 本地执行 release.bat 即可打 tag 触发打包（无需网页手动点）\n• 新增检查更新 / 下载更新 / 立即更新（热更新替换 exe）\n• 顶栏可查看更新公告；设置页「关于与更新」可管理版本\n• app_update.json 改为累计 history，完整保留历史更新记录\n• 修复 Windows CI 日志编码导致打包失败的问题",
+      "notice": ""
     },
     {
       "version": "0.1.0",
       "title": "欢迎使用 Nexuz",
-      "body": "首次启用更新通道与公告功能。"
+      "body": "首次启用更新通道与公告功能。",
+      "notice": ""
     }
   ]
 }

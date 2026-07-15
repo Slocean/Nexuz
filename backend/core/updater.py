@@ -80,7 +80,7 @@ def _http_github_json(url: str, *, timeout: float = 20.0) -> dict[str, Any]:
 
 
 def _normalize_channel(raw: Any) -> dict[str, Any]:
-    """Normalize app_update.json into {history: [{version,title,body}, ...]} (newest first)."""
+    """Normalize app_update.json into {history: [{version,title,body,notice}, ...]} (newest first)."""
     if isinstance(raw, list):
         entries = raw
     elif isinstance(raw, dict):
@@ -98,13 +98,15 @@ def _normalize_channel(raw: Any) -> dict[str, Any]:
         ver = str(item.get("version") or "").lstrip("v").strip()
         title = str(item.get("title") or "").strip()
         body = str(item.get("body") or "").strip()
-        if not ver and not title and not body:
+        notice = str(item.get("notice") or "").strip()
+        if not ver and not title and not body and not notice:
             continue
         history.append(
             {
                 "version": ver,
                 "title": title or (f"{ver} 更新" if ver else "更新公告"),
                 "body": body,
+                "notice": notice,
             }
         )
     return {"history": history}
@@ -182,9 +184,78 @@ def _history_list(channel: dict[str, Any]) -> list[dict[str, str]]:
                 "version": str(item.get("version") or ""),
                 "title": str(item.get("title") or ""),
                 "body": str(item.get("body") or ""),
+                "notice": str(item.get("notice") or ""),
             }
         )
     return out
+
+
+def _notice_id(body: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+
+
+def resolve_notice(channel: dict[str, Any]) -> dict[str, Any] | None:
+    """Pick notice from newest history entry; if empty, walk older entries."""
+    for item in channel.get("history") or []:
+        if not isinstance(item, dict):
+            continue
+        body = str(item.get("notice") or "").strip()
+        if not body:
+            continue
+        ver = str(item.get("version") or "").strip()
+        return {
+            "id": _notice_id(body),
+            "title": "通知",
+            "body": body,
+            "version": ver,
+            "from_version": ver,
+        }
+    return None
+
+
+def fetch_notice() -> dict[str, Any]:
+    """Startup / megaphone: sticky notice (not the version changelog)."""
+    ch = fetch_channel(prefer_remote=True)
+    if not ch.get("ok"):
+        return {"ok": False, "error": ch.get("error") or "获取通知失败"}
+    notice = resolve_notice(ch["channel"])
+    if not notice:
+        return {
+            "ok": True,
+            "notice": None,
+            "message": "暂无通知",
+            "source": ch.get("source"),
+        }
+    return {"ok": True, "notice": notice, "source": ch.get("source")}
+
+
+def fetch_announcement() -> dict[str, Any]:
+    """Settings: version changelog history (title/body), plus resolved notice for reference."""
+    ch = fetch_channel(prefer_remote=True)
+    if not ch.get("ok"):
+        return {"ok": False, "error": ch.get("error") or "获取公告失败"}
+    channel = ch["channel"]
+    history = _history_list(channel)
+    ann = _announcement_from_channel(channel)
+    notice = resolve_notice(channel)
+    if not ann and not history:
+        return {
+            "ok": True,
+            "announcement": None,
+            "history": [],
+            "notice": notice,
+            "message": "暂无公告",
+            "source": ch.get("source"),
+        }
+    return {
+        "ok": True,
+        "announcement": ann,
+        "history": history,
+        "notice": notice,
+        "source": ch.get("source"),
+    }
 
 
 def _default_download_url(version: str) -> str:
@@ -324,30 +395,6 @@ def check_for_update() -> dict[str, Any]:
         "asset_error": None if resolved.get("ok") else resolved.get("error"),
         "source": ch.get("source"),
         "message": f"发现新版本 {latest}" if available else "已是最新版本",
-    }
-
-
-def fetch_announcement() -> dict[str, Any]:
-    """Latest announcement + full cumulative history from app_update.json."""
-    ch = fetch_channel(prefer_remote=True)
-    if not ch.get("ok"):
-        return {"ok": False, "error": ch.get("error") or "获取公告失败"}
-    channel = ch["channel"]
-    history = _history_list(channel)
-    ann = _announcement_from_channel(channel)
-    if not ann and not history:
-        return {
-            "ok": True,
-            "announcement": None,
-            "history": [],
-            "message": "暂无公告",
-            "source": ch.get("source"),
-        }
-    return {
-        "ok": True,
-        "announcement": ann,
-        "history": history,
-        "source": ch.get("source"),
     }
 
 

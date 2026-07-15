@@ -35,8 +35,6 @@ import { useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
 
-const ANN_READ_KEY = 'nexuz.announcementReadId';
-
 type ProcRow = {
   pid: number;
   name: string;

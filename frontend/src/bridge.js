@@ -931,15 +931,30 @@ function mockCall(method, ...args) {
           id: '0.1.0-dev',
           version: '0.1.0-dev',
           title: '浏览器预览',
-          body: '公告与热更新需在桌面客户端中使用。',
+          body: '更新记录预览。',
         },
         history: [
           {
             version: '0.1.0-dev',
             title: '浏览器预览',
-            body: '公告与热更新需在桌面客户端中使用。',
+            body: '更新记录预览。',
+            notice: '这是通知说明预览。',
           },
         ],
+        notice: {
+          id: 'mock-notice',
+          title: '通知',
+          body: '这是通知说明预览。',
+        },
+      });
+    case 'fetch_notice':
+      return Promise.resolve({
+        ok: true,
+        notice: {
+          id: 'mock-notice',
+          title: '通知',
+          body: '这是通知说明预览（桌面客户端中读取 app_update.json 的 notice 字段）。',
+        },
       });
     case 'download_update':
     case 'apply_update':
@@ -1099,6 +1114,7 @@ export const bridge = {
   getAppInfo: () => call('get_app_info'),
   checkForUpdate: () => call('check_for_update'),
   fetchAnnouncement: () => call('fetch_announcement'),
+  fetchNotice: () => call('fetch_notice'),
   downloadUpdate: (downloadUrl = null) => call('download_update', downloadUrl),
   applyUpdate: () => call('apply_update'),
   openReleasesPage: () => call('open_releases_page'),

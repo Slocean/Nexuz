@@ -176,6 +176,11 @@ class Api:
 
         return fetch_announcement()
 
+    def fetch_notice(self) -> dict:
+        from backend.core.updater import fetch_notice
+
+        return fetch_notice()
+
     def download_update(self, download_url: str | None = None) -> dict:
         from backend.core.updater import download_update
 

@@ -114,16 +114,16 @@ export default function Toolbar({
         /* ignore */
       }
       try {
-        const ann = await bridge.fetchAnnouncement();
-        const a = ann?.announcement;
-        if (!a?.id) return;
+        const res = await bridge.fetchNotice();
+        const n = res?.notice;
+        if (!n?.id || !n?.body) return;
         let readId = '';
         try {
-          readId = localStorage.getItem('nexuz.announcementReadId') || '';
+          readId = localStorage.getItem('nexuz.noticeReadId') || '';
         } catch {
           /* ignore */
         }
-        if (String(a.id) !== readId) setAnnDot(true);
+        if (String(n.id) !== readId) setAnnDot(true);
       } catch {
         /* ignore */
       }
@@ -193,38 +193,29 @@ export default function Toolbar({
     }
   };
 
-  const handleAnnouncement = async () => {
+  const handleNotice = async () => {
     try {
-      const res = await bridge.fetchAnnouncement();
-      const list = Array.isArray(res?.history) && res.history.length
-        ? res.history
-        : res?.announcement
-          ? [res.announcement]
-          : [];
-      if (!res?.ok || !list.length) {
-        await alert({ title: '更新记录', description: res?.error || '暂无公告' });
+      const res = await bridge.fetchNotice();
+      const n = res?.notice;
+      if (!res?.ok || !n?.body) {
+        await alert({ title: '通知', description: res?.error || '暂无通知', okText: '我知道了' });
         return;
       }
-      const text = list
-        .map((item: any) => {
-          const ver = item.version || item.id || '';
-          const title = item.title || '更新';
-          const body = String(item.body || '').trim();
-          return `[${ver}] ${title}${body ? `\n${body}` : ''}`;
-        })
-        .join('\n\n────────\n\n');
-      await alert({ title: '更新记录', description: text });
-      const latestId = list[0]?.version || list[0]?.id;
-      if (latestId) {
+      await alert({
+        title: n.title || '通知',
+        description: String(n.body),
+        okText: '我知道了',
+      });
+      if (n.id) {
         try {
-          localStorage.setItem('nexuz.announcementReadId', String(latestId));
+          localStorage.setItem('nexuz.noticeReadId', String(n.id));
         } catch {
           /* ignore */
         }
         setAnnDot(false);
       }
     } catch (e: any) {
-      await alert({ title: '获取公告失败', description: String(e?.message || e) });
+      await alert({ title: '获取通知失败', description: String(e?.message || e), okText: '我知道了' });
     }
   };
 
@@ -502,8 +493,8 @@ export default function Toolbar({
             variant="ghost"
             size="icon"
             className="h-8 w-8 relative"
-            onClick={() => void handleAnnouncement()}
-            title="更新公告">
+            onClick={() => void handleNotice()}
+            title="通知">
             <Megaphone className="w-4 h-4" />
             {annDot ? (
               <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
