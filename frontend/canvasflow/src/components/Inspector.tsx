@@ -1,5 +1,17 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Settings, Terminal, X, Copy, Check, Download, Trash2, Keyboard } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Settings,
+  Terminal,
+  X,
+  Copy,
+  Check,
+  Download,
+  Trash2,
+  Keyboard
+} from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
@@ -18,13 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppDialog } from './AppDialogs';
 
 interface InspectorProps {
@@ -55,7 +61,7 @@ function KeyMapEditor({
   valueMode,
   keyMode = 'text',
   currentNodeId,
-  schemaMap,
+  schemaMap
 }: {
   value: Record<string, any>;
   onChange: (next: Record<string, any>) => void;
@@ -66,7 +72,7 @@ function KeyMapEditor({
   currentNodeId: string;
   schemaMap: Record<string, any>;
 }) {
-  const variables = useFlowStore((s) => s.flow.variables || {});
+  const variables = useFlowStore(s => s.flow.variables || {});
   const varNames = listFlowVariableNames(variables);
   const entries = Object.entries(value && typeof value === 'object' ? value : {});
   const usedKeys = entries.map(([k]) => String(k).replace(/^\$/, ''));
@@ -90,7 +96,7 @@ function KeyMapEditor({
 
   const addRow = () => {
     if (keyMode === 'variable') {
-      const free = varNames.find((n) => !usedKeys.includes(n));
+      const free = varNames.find(n => !usedKeys.includes(n));
       if (!free) return;
       onChange({ ...Object.fromEntries(entries), [free]: '' });
       return;
@@ -115,15 +121,14 @@ function KeyMapEditor({
       {entries.map(([k, v], idx) => (
         <div
           key={idx}
-          className="flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 p-1.5"
-        >
+          className="flex flex-col gap-1 rounded-lg border border-black/10 dark:border-white/10 p-1.5">
           <div className="flex items-center gap-1">
             {keyMode === 'variable' ? (
               <VariableSelect
                 value={k}
                 bare
-                exclude={usedKeys.filter((u) => u !== String(k).replace(/^\$/, ''))}
-                onChange={(name) => setEntry(idx, name, v)}
+                exclude={usedKeys.filter(u => u !== String(k).replace(/^\$/, ''))}
+                onChange={name => setEntry(idx, name, v)}
                 placeholder={keyPlaceholder}
                 triggerClassName="h-7 text-xs font-mono flex-1"
               />
@@ -132,7 +137,7 @@ function KeyMapEditor({
                 className="h-7 text-xs font-mono flex-1"
                 placeholder={keyPlaceholder}
                 value={k}
-                onChange={(e) => setEntry(idx, e.target.value, v)}
+                onChange={e => setEntry(idx, e.target.value, v)}
               />
             )}
             <Button
@@ -140,8 +145,7 @@ function KeyMapEditor({
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-rose-400 shrink-0"
-              onClick={() => removeAt(idx)}
-            >
+              onClick={() => removeAt(idx)}>
               <X className="w-3.5 h-3.5" />
             </Button>
           </div>
@@ -151,7 +155,7 @@ function KeyMapEditor({
               inputType="string"
               currentNodeId={currentNodeId}
               schemaMap={schemaMap}
-              onChange={(nv) => setEntry(idx, k, nv)}
+              onChange={nv => setEntry(idx, k, nv)}
               placeholder="值"
               allowJson={keyMode === 'variable'}
             />
@@ -160,7 +164,7 @@ function KeyMapEditor({
               className="h-7 text-xs font-mono"
               placeholder="node1.text"
               value={v == null ? '' : String(v)}
-              onChange={(e) => setEntry(idx, k, e.target.value)}
+              onChange={e => setEntry(idx, k, e.target.value)}
             />
           )}
         </div>
@@ -171,8 +175,7 @@ function KeyMapEditor({
         size="sm"
         className="w-full"
         disabled={keyMode === 'variable' && (varNames.length === 0 || usedKeys.length >= varNames.length)}
-        onClick={addRow}
-      >
+        onClick={addRow}>
         添加映射
       </Button>
     </div>
@@ -185,7 +188,7 @@ function PointListEditor({
   onPickPoint,
   onPickClick,
   captureMode = 'coord',
-  showDelay = false,
+  showDelay = false
 }: {
   value: {
     x?: number;
@@ -207,7 +210,7 @@ function PointListEditor({
   const normalize = (p: any) => {
     const out: any = {
       x: Number(p?.x) || 0,
-      y: Number(p?.y) || 0,
+      y: Number(p?.y) || 0
     };
     if (showDelay && p?.delay_ms != null && p.delay_ms !== '') {
       out.delay_ms = Number(p.delay_ms);
@@ -234,20 +237,18 @@ function PointListEditor({
   };
 
   const pickAt = async (idx: number) => {
-    const res = onPickClick
-      ? await onPickClick(isFrida ? 'frida_ui' : 'coord')
-      : await onPickPoint?.();
+    const res = onPickClick ? await onPickClick(isFrida ? 'frida_ui' : 'coord') : await onPickPoint?.();
     if (!res?.ok) {
       await alert({
         title: '录入失败',
-        description: res?.error || res?.message || '已取消或超时',
+        description: res?.error || res?.message || '已取消或超时'
       });
       return;
     }
     const params = res.params || {};
     const patch: any = {
       x: Number(params.x ?? res.x) || 0,
-      y: Number(params.y ?? res.y) || 0,
+      y: Number(params.y ?? res.y) || 0
     };
     if (params.point_norm || res.point_norm) patch.point_norm = params.point_norm || res.point_norm;
     if (params.coord_space || res.coord_space) {
@@ -262,10 +263,7 @@ function PointListEditor({
   return (
     <div className="space-y-2 w-full">
       {points.map((p, idx) => (
-        <div
-          key={idx}
-          className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-1.5"
-        >
+        <div key={idx} className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-1.5">
           <div className="flex items-center gap-1">
             <span className="text-[11px] opacity-60 font-medium shrink-0 w-10">#{idx + 1}</span>
             <Button
@@ -275,8 +273,7 @@ function PointListEditor({
               className="h-6 w-6 shrink-0"
               disabled={idx === 0}
               onClick={() => move(idx, -1)}
-              title="上移"
-            >
+              title="上移">
               <ChevronUp className="w-3.5 h-3.5" />
             </Button>
             <Button
@@ -286,8 +283,7 @@ function PointListEditor({
               className="h-6 w-6 shrink-0"
               disabled={idx >= points.length - 1}
               onClick={() => move(idx, 1)}
-              title="下移"
-            >
+              title="下移">
               <ChevronDown className="w-3.5 h-3.5" />
             </Button>
             <Button
@@ -295,17 +291,14 @@ function PointListEditor({
               variant="ghost"
               size="icon"
               className="h-6 w-6 text-rose-400 shrink-0 ml-auto"
-              onClick={() => onChange(points.filter((_, i) => i !== idx).map(normalize))}
-            >
+              onClick={() => onChange(points.filter((_, i) => i !== idx).map(normalize))}>
               <X className="w-3.5 h-3.5" />
             </Button>
           </div>
           {isFrida ? (
             <div className="flex items-center gap-1">
               <span className="text-[11px] font-mono opacity-70 truncate flex-1 min-w-0">
-                {p.frida_ui?.display_name ||
-                  p.frida_ui?.hierarchy_path ||
-                  '尚未录入 Frida UI'}
+                {p.frida_ui?.display_name || p.frida_ui?.hierarchy_path || '尚未录入 Frida UI'}
               </span>
               {(onPickClick || onPickPoint) && (
                 <Button
@@ -313,8 +306,7 @@ function PointListEditor({
                   variant="outline"
                   size="sm"
                   className="h-7 shrink-0 px-2"
-                  onClick={() => pickAt(idx)}
-                >
+                  onClick={() => pickAt(idx)}>
                   录入
                 </Button>
               )}
@@ -325,13 +317,13 @@ function PointListEditor({
                 className="h-7 text-xs font-mono flex-1 min-w-0"
                 placeholder="X"
                 value={p.x ?? 0}
-                onChange={(e) => update(idx, { x: Number(e.target.value) || 0 })}
+                onChange={e => update(idx, { x: Number(e.target.value) || 0 })}
               />
               <Input
                 className="h-7 text-xs font-mono flex-1 min-w-0"
                 placeholder="Y"
                 value={p.y ?? 0}
-                onChange={(e) => update(idx, { y: Number(e.target.value) || 0 })}
+                onChange={e => update(idx, { y: Number(e.target.value) || 0 })}
               />
               {(onPickClick || onPickPoint) && (
                 <Button
@@ -339,8 +331,7 @@ function PointListEditor({
                   variant="outline"
                   size="sm"
                   className="h-7 shrink-0 px-2"
-                  onClick={() => pickAt(idx)}
-                >
+                  onClick={() => pickAt(idx)}>
                   取点
                 </Button>
               )}
@@ -351,7 +342,7 @@ function PointListEditor({
               className="h-7 text-xs font-mono w-full"
               placeholder="本点前延迟毫秒（空=用全局）"
               value={p.delay_ms ?? ''}
-              onChange={(e) => {
+              onChange={e => {
                 const v = e.target.value.trim();
                 update(idx, { delay_ms: v === '' ? undefined : Number(v) || 0 });
               }}
@@ -364,8 +355,7 @@ function PointListEditor({
         variant="outline"
         size="sm"
         className="w-full"
-        onClick={() => onChange([...points.map(normalize), { x: 0, y: 0 }])}
-      >
+        onClick={() => onChange([...points.map(normalize), { x: 0, y: 0 }])}>
         添加点
       </Button>
     </div>
@@ -402,13 +392,7 @@ function eventToPyKey(e: KeyboardEvent): string | null {
 }
 
 /** Click to capture a key / hotkey combo (maps to pyautogui names). */
-function KeyCaptureInput({
-  value,
-  onChange,
-}: {
-  value: string[] | string;
-  onChange: (keys: string[]) => void;
-}) {
+function KeyCaptureInput({ value, onChange }: { value: string[] | string; onChange: (keys: string[]) => void }) {
   const [listening, setListening] = React.useState(false);
   const heldRef = React.useRef<string[]>([]);
 
@@ -416,7 +400,7 @@ function KeyCaptureInput({
     ? value.map(String)
     : String(value || '')
         .split('+')
-        .map((s) => s.trim())
+        .map(s => s.trim())
         .filter(Boolean);
   const display = keysArr.length ? keysArr.join(' + ') : '';
 
@@ -440,8 +424,8 @@ function KeyCaptureInput({
         // Order: modifiers first
         const mods = ['ctrl', 'alt', 'shift', 'win'];
         const ordered = [
-          ...mods.filter((m) => heldRef.current.includes(m)),
-          ...heldRef.current.filter((k) => !mods.includes(k)),
+          ...mods.filter(m => heldRef.current.includes(m)),
+          ...heldRef.current.filter(k => !mods.includes(k))
         ];
         onChange(ordered);
       }
@@ -471,9 +455,8 @@ function KeyCaptureInput({
         variant={listening ? 'default' : 'outline'}
         size="sm"
         className="h-8 shrink-0 px-2"
-        onClick={() => setListening((v) => !v)}
-        title="点击后按下键盘按键进行录制"
-      >
+        onClick={() => setListening(v => !v)}
+        title="点击后按下键盘按键进行录制">
         <Keyboard className="w-3.5 h-3.5" />
         {listening ? '取消' : '录制'}
       </Button>
@@ -484,8 +467,7 @@ function KeyCaptureInput({
           size="icon"
           className="h-8 w-8 shrink-0 text-rose-400"
           onClick={() => onChange([])}
-          title="清除"
-        >
+          title="清除">
           <X className="w-3.5 h-3.5" />
         </Button>
       ) : null}
@@ -495,7 +477,7 @@ function KeyCaptureInput({
 
 function KeyStepsEditor({
   value,
-  onChange,
+  onChange
 }: {
   value: { keys?: string; delay_ms?: number | string }[];
   onChange: (next: { keys: string; delay_ms?: number }[]) => void;
@@ -507,17 +489,17 @@ function KeyStepsEditor({
       if (i !== idx) {
         return {
           keys: typeof s.keys === 'string' ? s.keys : Array.isArray(s.keys) ? (s.keys as any).join('+') : '',
-          delay_ms: s.delay_ms as any,
+          delay_ms: s.delay_ms as any
         };
       }
       return {
-        keys: patch.keys !== undefined ? patch.keys : (typeof s.keys === 'string' ? s.keys : ''),
+        keys: patch.keys !== undefined ? patch.keys : typeof s.keys === 'string' ? s.keys : '',
         delay_ms:
           patch.delay_ms !== undefined
             ? patch.delay_ms
             : s.delay_ms === '' || s.delay_ms == null
               ? undefined
-              : Number(s.delay_ms),
+              : Number(s.delay_ms)
       };
     });
     onChange(next as any);
@@ -531,10 +513,10 @@ function KeyStepsEditor({
     next[idx] = next[j];
     next[j] = tmp;
     onChange(
-      next.map((s) => ({
+      next.map(s => ({
         keys: typeof s.keys === 'string' ? s.keys : Array.isArray(s.keys) ? (s.keys as any).join('+') : '',
-        ...(s.delay_ms != null && s.delay_ms !== '' ? { delay_ms: Number(s.delay_ms) } : {}),
-      })) as any,
+        ...(s.delay_ms != null && s.delay_ms !== '' ? { delay_ms: Number(s.delay_ms) } : {})
+      })) as any
     );
   };
 
@@ -542,16 +524,9 @@ function KeyStepsEditor({
     <div className="space-y-2 w-full">
       {steps.map((s, idx) => {
         const keysStr =
-          typeof s.keys === 'string'
-            ? s.keys
-            : Array.isArray(s.keys)
-              ? (s.keys as any).join('+')
-              : '';
+          typeof s.keys === 'string' ? s.keys : Array.isArray(s.keys) ? (s.keys as any).join('+') : '';
         return (
-          <div
-            key={idx}
-            className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-1.5"
-          >
+          <div key={idx} className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-1.5">
             <div className="flex items-center gap-1">
               <span className="text-[11px] opacity-60 font-medium shrink-0 w-10">#{idx + 1}</span>
               <Button
@@ -560,8 +535,7 @@ function KeyStepsEditor({
                 size="icon"
                 className="h-6 w-6 shrink-0"
                 disabled={idx === 0}
-                onClick={() => move(idx, -1)}
-              >
+                onClick={() => move(idx, -1)}>
                 <ChevronUp className="w-3.5 h-3.5" />
               </Button>
               <Button
@@ -570,8 +544,7 @@ function KeyStepsEditor({
                 size="icon"
                 className="h-6 w-6 shrink-0"
                 disabled={idx >= steps.length - 1}
-                onClick={() => move(idx, 1)}
-              >
+                onClick={() => move(idx, 1)}>
                 <ChevronDown className="w-3.5 h-3.5" />
               </Button>
               <Button
@@ -579,20 +552,16 @@ function KeyStepsEditor({
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 text-rose-400 shrink-0 ml-auto"
-                onClick={() => onChange(steps.filter((_, i) => i !== idx) as any)}
-              >
+                onClick={() => onChange(steps.filter((_, i) => i !== idx) as any)}>
                 <X className="w-3.5 h-3.5" />
               </Button>
             </div>
-            <KeyCaptureInput
-              value={keysStr}
-              onChange={(keys) => update(idx, { keys: keys.join('+') })}
-            />
+            <KeyCaptureInput value={keysStr} onChange={keys => update(idx, { keys: keys.join('+') })} />
             <Input
               className="h-7 text-xs font-mono w-full"
               placeholder="本步前延迟毫秒（空=用全局）"
               value={s.delay_ms ?? ''}
-              onChange={(e) => {
+              onChange={e => {
                 const v = e.target.value.trim();
                 update(idx, { delay_ms: v === '' ? (undefined as any) : Number(v) || 0 });
               }}
@@ -607,21 +576,13 @@ function KeyStepsEditor({
         className="w-full"
         onClick={() =>
           onChange([
-            ...steps.map((s) => ({
-              keys:
-                typeof s.keys === 'string'
-                  ? s.keys
-                  : Array.isArray(s.keys)
-                    ? (s.keys as any).join('+')
-                    : '',
-              ...(s.delay_ms != null && s.delay_ms !== ''
-                ? { delay_ms: Number(s.delay_ms) }
-                : {}),
+            ...steps.map(s => ({
+              keys: typeof s.keys === 'string' ? s.keys : Array.isArray(s.keys) ? (s.keys as any).join('+') : '',
+              ...(s.delay_ms != null && s.delay_ms !== '' ? { delay_ms: Number(s.delay_ms) } : {})
             })),
-            { keys: '' },
+            { keys: '' }
           ] as any)
-        }
-      >
+        }>
         添加步骤
       </Button>
     </div>
@@ -631,15 +592,15 @@ function KeyStepsEditor({
 function CasesEditor({
   value,
   onChange,
-  currentNodeId,
+  currentNodeId
 }: {
   value: { name?: string; value?: string; node_id?: string }[];
   onChange: (cases: { name: string; value: string; node_id: string }[]) => void;
   currentNodeId?: string;
 }) {
-  const nodes = useFlowStore((s) => s.flow.nodes || {});
+  const nodes = useFlowStore(s => s.flow.nodes || {});
   // 禁止连回自己：自环容易死循环，重试请用循环节点
-  const nodeIds = Object.keys(nodes).filter((id) => id !== currentNodeId);
+  const nodeIds = Object.keys(nodes).filter(id => id !== currentNodeId);
   const cases = Array.isArray(value) ? value : [];
   const [collapsed, setCollapsed] = React.useState<Record<number, boolean>>({});
 
@@ -647,13 +608,10 @@ function CasesEditor({
     name: typeof c?.name === 'string' ? c.name : '',
     value: typeof c?.value === 'string' ? c.value : '',
     node_id: typeof c?.node_id === 'string' ? c.node_id : '',
-    ...patch,
+    ...patch
   });
 
-  const update = (
-    idx: number,
-    patch: Partial<{ name: string; value: string; node_id: string }>,
-  ) => {
+  const update = (idx: number, patch: Partial<{ name: string; value: string; node_id: string }>) => {
     const next = cases.map((c, i) => (i === idx ? normalize(c, patch) : normalize(c)));
     onChange(next);
   };
@@ -665,38 +623,29 @@ function CasesEditor({
         const title = (c.name || '').trim() || `分支${idx + 1}`;
         const summary = `${title} · ${c.value || '（空匹配值）'} → ${c.node_id || '未选节点'}`;
         return (
-          <div
-            key={idx}
-            className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2"
-          >
+          <div key={idx} className="rounded-lg border border-black/10 dark:border-white/10 p-2 space-y-2">
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 className="h-6 w-6 inline-flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 shrink-0"
-                onClick={() => setCollapsed((p) => ({ ...p, [idx]: !p[idx] }))}
-                title={closed ? '展开' : '折叠'}
-              >
+                onClick={() => setCollapsed(p => ({ ...p, [idx]: !p[idx] }))}
+                title={closed ? '展开' : '折叠'}>
                 {closed ? (
                   <ChevronRight className="w-3.5 h-3.5 opacity-70" />
                 ) : (
                   <ChevronDown className="w-3.5 h-3.5 opacity-70" />
                 )}
               </button>
-              <span className="text-[11px] opacity-60 font-medium shrink-0 truncate max-w-[7rem]">
-                {title}
-              </span>
+              <span className="text-[11px] opacity-60 font-medium shrink-0 truncate max-w-[7rem]">{title}</span>
               {closed && (
-                <span className="text-[11px] opacity-50 truncate flex-1 min-w-0 font-mono">
-                  {summary}
-                </span>
+                <span className="text-[11px] opacity-50 truncate flex-1 min-w-0 font-mono">{summary}</span>
               )}
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 text-rose-400 shrink-0 ml-auto"
-                onClick={() => onChange(cases.filter((_, i) => i !== idx).map((x) => normalize(x)))}
-              >
+                onClick={() => onChange(cases.filter((_, i) => i !== idx).map(x => normalize(x)))}>
                 <X className="w-3.5 h-3.5" />
               </Button>
             </div>
@@ -708,7 +657,7 @@ function CasesEditor({
                     className="h-8 text-xs flex-1 min-w-0"
                     placeholder={`分支${idx + 1}`}
                     value={c.name ?? ''}
-                    onChange={(e) => update(idx, { name: e.target.value })}
+                    onChange={e => update(idx, { name: e.target.value })}
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -717,20 +666,19 @@ function CasesEditor({
                     className="h-8 text-xs flex-1 min-w-0"
                     placeholder="匹配值"
                     value={c.value ?? ''}
-                    onChange={(e) => update(idx, { value: e.target.value })}
+                    onChange={e => update(idx, { value: e.target.value })}
                   />
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] opacity-60 shrink-0 w-[4.5rem]">跳转节点</span>
                   <Select
                     value={c.node_id && c.node_id !== currentNodeId ? c.node_id : undefined}
-                    onValueChange={(v) => update(idx, { node_id: v })}
-                  >
+                    onValueChange={v => update(idx, { node_id: v })}>
                     <SelectTrigger className="h-8 text-xs flex-1 min-w-0">
                       <SelectValue placeholder="跳转 / 画布连线" />
                     </SelectTrigger>
                     <SelectContent>
-                      {nodeIds.map((id) => (
+                      {nodeIds.map(id => (
                         <SelectItem key={id} value={id}>
                           {id}
                         </SelectItem>
@@ -751,15 +699,14 @@ function CasesEditor({
         className="w-full"
         onClick={() =>
           onChange([
-            ...cases.map((c) => normalize(c)),
+            ...cases.map(c => normalize(c)),
             {
               name: `分支${cases.length + 1}`,
               value: '',
-              node_id: '',
-            },
+              node_id: ''
+            }
           ])
-        }
-      >
+        }>
         添加分支
       </Button>
     </div>
@@ -769,7 +716,7 @@ function CasesEditor({
 function Field({
   label,
   children,
-  stacked = false,
+  stacked = false
 }: {
   label: string;
   children: React.ReactNode;
@@ -788,10 +735,7 @@ function Field({
   }
   return (
     <div className="flex items-start gap-2 min-w-0">
-      <Label
-        className="text-xs font-medium opacity-75 shrink-0 w-[7.5rem] leading-8"
-        title={label}
-      >
+      <Label className="text-xs font-medium opacity-75 shrink-0 w-[7.5rem] leading-8" title={label}>
         {label}
       </Label>
       <div className="flex-1 min-w-0 flex items-start gap-1.5 flex-wrap">{children}</div>
@@ -804,7 +748,7 @@ function RectField({
   onChange,
   onPickRegion,
   applyRegionPick,
-  fieldName,
+  fieldName
 }: {
   value: any;
   onChange: (v: any) => void;
@@ -827,7 +771,7 @@ function RectField({
           className="h-8 flex-1 min-w-0 font-mono text-xs"
           value={draft}
           placeholder="[x1,y1,x2,y2]"
-          onChange={(e) => {
+          onChange={e => {
             const text = e.target.value;
             setDraft(text);
             if (!text.trim()) {
@@ -857,8 +801,7 @@ function RectField({
             onClick={async () => {
               const res = await onPickRegion();
               applyRegionPick(fieldName, res);
-            }}
-          >
+            }}>
             框选
           </Button>
         )}
@@ -892,8 +835,7 @@ function inputVisible(input: any, config: Record<string, any> | undefined): bool
     }
     // Legacy color_detect: sample_mode "single" → region if configured, else point
     if (key === 'sample_mode' && String(cur) === 'single') {
-      const hasRegion =
-        Array.isArray(cfg.region) && cfg.region.length === 4;
+      const hasRegion = Array.isArray(cfg.region) && cfg.region.length === 4;
       cur = hasRegion ? 'region' : 'point';
     }
     if (Array.isArray(expect)) {
@@ -929,7 +871,7 @@ export default function Inspector({
   onSetEntry,
   defaultCaptureMode = 'coord',
   rawLogs = [],
-  bindIssues = [],
+  bindIssues = []
 }: InspectorProps) {
   const { alert } = useAppDialog();
   const [copied, setCopied] = React.useState(false);
@@ -937,7 +879,8 @@ export default function Inspector({
   const [logCopyHint, setLogCopyHint] = React.useState<string | null>(null);
   const logCopyHintTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const logSelectionRef = React.useRef('');
-  const clearLogs = useFlowStore((s) => s.clearLogs);
+  const logEndRef = React.useRef<HTMLDivElement | null>(null);
+  const clearLogs = useFlowStore(s => s.clearLogs);
   const colors = getThemeColors(themeName, themeMode);
 
   const showLogCopyHint = (msg: string) => {
@@ -952,8 +895,8 @@ export default function Inspector({
   };
 
   const nodeIssues = React.useMemo(
-    () => (selectedNode ? bindIssues.filter((i) => i.nodeId === selectedNode.id) : []),
-    [bindIssues, selectedNode],
+    () => (selectedNode ? bindIssues.filter(i => i.nodeId === selectedNode.id) : []),
+    [bindIssues, selectedNode]
   );
 
   const copyText = async (text: string, mark: 'copied' | 'output' | 'silent' = 'copied') => {
@@ -1002,16 +945,16 @@ export default function Inspector({
           ts: l.ts,
           level: l.level,
           message: l.message,
-          detail: l.detail,
-        })),
+          detail: l.detail
+        }))
       );
     }
     return logsToText(
-      logs.map((l) => ({
+      logs.map(l => ({
         ts: Date.now(),
         level: l.type,
-        message: l.message,
-      })),
+        message: l.message
+      }))
     );
   };
 
@@ -1054,6 +997,10 @@ export default function Inspector({
     clearLogs();
   };
 
+  React.useEffect(() => {
+    logEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [logs]);
+
   const logsPanel = (
     <div className="space-y-2 p-3 border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text">
       <div className="flex items-center justify-between gap-2 select-none">
@@ -1065,30 +1012,22 @@ export default function Inspector({
             variant="ghost"
             size="sm"
             className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
-            onMouseDown={(e) => {
+            onMouseDown={e => {
               captureLogSelection();
               // 避免按钮抢焦点清空选区
               e.preventDefault();
             }}
             onClick={copySelectedOrAllLogs}
-            title="复制选中；无选中则复制全部"
-          >
-            {copied || logCopyHint ? (
-              <Check className="w-3 h-3 text-emerald-500" />
-            ) : (
-              <Copy className="w-3 h-3" />
-            )}{' '}
-            <span className={logCopyHint ? 'text-emerald-500' : undefined}>
-              {logCopyHint || '复制选中'}
-            </span>
+            title="复制选中；无选中则复制全部">
+            {copied || logCopyHint ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}{' '}
+            <span className={logCopyHint ? 'text-emerald-500' : undefined}>{logCopyHint || '复制选中'}</span>
           </Button>
           <Button
             variant="ghost"
             size="sm"
             className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
             onClick={handleClearLogs}
-            title="清空运行日志"
-          >
+            title="清空运行日志">
             <Trash2 className="w-3 h-3" /> 清空
           </Button>
           <Button
@@ -1096,8 +1035,7 @@ export default function Inspector({
             size="sm"
             className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
             onClick={exportLogs}
-            title="导出日志为 .txt"
-          >
+            title="导出日志为 .txt">
             <Download className="w-3 h-3" /> 导出
           </Button>
         </div>
@@ -1109,7 +1047,7 @@ export default function Inspector({
               尚无日志
             </p>
           )}
-          {logs.slice(0, 80).map((log) => (
+          {logs.slice(-80).map(log => (
             <div
               key={log.id}
               className={`select-text break-words whitespace-pre-wrap py-0.5 ${
@@ -1125,32 +1063,29 @@ export default function Inspector({
                 log.type === 'error' || log.type === 'success' || log.type === 'warning'
                   ? undefined
                   : { color: colors.secondaryText }
-              }
-            >
+              }>
               <span className="opacity-50 mr-2">{log.timestamp}</span>
-              {log.nodeId ? (
-                <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span>
-              ) : null}
+              {log.nodeId ? <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span> : null}
               {log.message}
             </div>
           ))}
+          <div ref={logEndRef} />
         </div>
       </ScrollArea>
     </div>
   );
 
   if (!selectedNode) {
-    const errN = bindIssues.filter((i) => i.level === 'error').length;
-    const warnN = bindIssues.filter((i) => i.level === 'warn').length;
+    const errN = bindIssues.filter(i => i.level === 'error').length;
+    const warnN = bindIssues.filter(i => i.level === 'warn').length;
     return (
       <aside
         style={{
           backgroundColor: colors.surface,
           borderColor: colors.border,
-          color: colors.text,
+          color: colors.text
         }}
-        className="w-[31.2rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
-      >
+        className="w-[21.8rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60">
           <div className="w-12 h-12 mx-auto flex items-center justify-center">
             <img
@@ -1163,8 +1098,7 @@ export default function Inspector({
           <h3 className="font-semibold text-sm mt-2">未选中</h3>
           <p
             style={{ color: colors.secondaryText }}
-            className="text-sm leading-relaxed max-w-[180px] mx-auto mt-1"
-          >
+            className="text-sm leading-relaxed max-w-[180px] mx-auto mt-1">
             点击节点编辑参数
           </p>
           {(errN > 0 || warnN > 0) && (
@@ -1181,7 +1115,7 @@ export default function Inspector({
   const handleFieldChange = (key: string, value: any) => {
     const patch: any = {
       ...selectedNode.config,
-      [key]: value,
+      [key]: value
     };
     // 取色：单点 / 区域 / 多点互斥，切换时清空另一侧残留
     if (key === 'sample_mode' && selectedNode.subType === 'color_detect') {
@@ -1270,14 +1204,10 @@ export default function Inspector({
     const schema = schemaMap[selectedNode.subType];
     if (!schema) return null;
     const switchNodeIds =
-      selectedNode.subType === 'switch'
-        ? Object.keys(useFlowStore.getState().flow.nodes || {})
-        : [];
+      selectedNode.subType === 'switch' ? Object.keys(useFlowStore.getState().flow.nodes || {}) : [];
     const isClick = selectedNode.subType === 'click';
     const clickMode = String(selectedNode.config?.click_mode || 'single');
-    const isOcr =
-      selectedNode.subType === 'ocr_recognize' ||
-      selectedNode.subType === 'if_text_contains';
+    const isOcr = selectedNode.subType === 'ocr_recognize' || selectedNode.subType === 'if_text_contains';
 
     return (
       <div className="space-y-3">
@@ -1286,15 +1216,13 @@ export default function Inspector({
             <Field label="录入模式">
               <Select
                 value={
-                  selectedNode.config?.capture_mode === 'frida_ui' ||
-                  selectedNode.config?.capture_mode === 'coord'
+                  selectedNode.config?.capture_mode === 'frida_ui' || selectedNode.config?.capture_mode === 'coord'
                     ? selectedNode.config.capture_mode
                     : defaultCaptureMode === 'frida_ui'
                       ? 'frida_ui'
                       : 'coord'
                 }
-                onValueChange={(v) => handleFieldChange('capture_mode', v)}
-              >
+                onValueChange={v => handleFieldChange('capture_mode', v)}>
                 <SelectTrigger className="h-8 flex-1 min-w-0">
                   <SelectValue />
                 </SelectTrigger>
@@ -1310,19 +1238,16 @@ export default function Inspector({
                   className="h-8 shrink-0 px-2"
                   onClick={async () => {
                     const mode = resolveClickMode();
-                    const res = onPickClick
-                      ? await onPickClick(mode)
-                      : await onPickPoint?.();
+                    const res = onPickClick ? await onPickClick(mode) : await onPickPoint?.();
                     if (!res?.ok) {
                       await alert({
                         title: '录入失败',
-                        description: res?.error || res?.message || '已取消或超时',
+                        description: res?.error || res?.message || '已取消或超时'
                       });
                       return;
                     }
                     applyClickCapture(res);
-                  }}
-                >
+                  }}>
                   重新录入
                 </Button>
               )}
@@ -1358,8 +1283,7 @@ export default function Inspector({
                   onClick={async () => {
                     const res = await onPickRegion();
                     applyRegionPick('region', res);
-                  }}
-                >
+                  }}>
                   拖拽框选
                 </Button>
               </div>
@@ -1384,310 +1308,282 @@ export default function Inspector({
             return true;
           })
           .map((input: any) => {
-          const value = selectedNode.config?.[input.name];
-          const label = input.label || input.name;
-          const optionLabels = input.option_labels || {};
-          const stacked =
-            input.type === 'keymap' ||
-            input.ui === 'input_map' ||
-            input.ui === 'output_map' ||
-            input.type === 'condition_list' ||
-            input.type === 'logic_tree' ||
-            input.type === 'cases' ||
-            input.type === 'point_list' ||
-            input.type === 'key_steps' ||
-            input.ui === 'expression' ||
-            input.name === 'expression' ||
-            input.name === 'exit_condition';
-          const placeholder =
-            input.placeholder ||
-            (typeof input.label === 'string' && !String(input.label).includes('(')
-              ? input.label
-              : input.name);
+            const value = selectedNode.config?.[input.name];
+            const label = input.label || input.name;
+            const optionLabels = input.option_labels || {};
+            const stacked =
+              input.type === 'keymap' ||
+              input.ui === 'input_map' ||
+              input.ui === 'output_map' ||
+              input.type === 'condition_list' ||
+              input.type === 'logic_tree' ||
+              input.type === 'cases' ||
+              input.type === 'point_list' ||
+              input.type === 'key_steps' ||
+              input.ui === 'expression' ||
+              input.name === 'expression' ||
+              input.name === 'exit_condition';
+            const placeholder =
+              input.placeholder ||
+              (typeof input.label === 'string' && !String(input.label).includes('(') ? input.label : input.name);
 
-          return (
-            <Field key={input.name} label={label} stacked={stacked}>
-              {input.type === 'select' ? (
-                <Select
-                  value={
-                    input.name === 'sample_mode'
-                      ? (() => {
-                          const raw = String(value ?? input.default ?? 'point');
-                          if (raw === 'single') {
-                            const hasRegion =
-                              Array.isArray(selectedNode.config?.region) &&
-                              selectedNode.config.region.length === 4;
-                            return hasRegion ? 'region' : 'point';
-                          }
-                          return raw;
-                        })()
-                      : String(value ?? input.default ?? '')
-                  }
-                  onValueChange={(v) => handleFieldChange(input.name, v)}
-                >
-                  <SelectTrigger className="h-8 w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(input.options || []).map((opt: string) => (
-                      <SelectItem key={opt} value={opt}>
-                        {optionLabels[opt] || opt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : input.type === 'point_list' ? (
-                <PointListEditor
-                  value={Array.isArray(value) ? value : []}
-                  onChange={(next) => handleFieldChange(input.name, next)}
-                  onPickPoint={onPickPoint}
-                  onPickClick={selectedNode.subType === 'click' ? onPickClick : undefined}
-                  captureMode={
-                    selectedNode.subType === 'click'
-                      ? resolveClickMode()
-                      : 'coord'
-                  }
-                  showDelay={
-                    selectedNode.subType === 'click' ||
-                    selectedNode.subType === 'mouse_hover'
-                  }
-                />
-              ) : input.type === 'key_steps' ? (
-                <KeyStepsEditor
-                  value={Array.isArray(value) ? value : []}
-                  onChange={(next) => handleFieldChange(input.name, next)}
-                />
-              ) : input.type === 'color' ? (
-                <>
-                  <Input
-                    type="color"
-                    value={typeof value === 'string' && value.startsWith('#') ? value : '#FF0000'}
-                    onChange={(e) => handleFieldChange(input.name, e.target.value.toUpperCase())}
-                    className="h-8 w-10 p-1 cursor-pointer shrink-0"
+            return (
+              <Field key={input.name} label={label} stacked={stacked}>
+                {input.type === 'select' ? (
+                  <Select
+                    value={
+                      input.name === 'sample_mode'
+                        ? (() => {
+                            const raw = String(value ?? input.default ?? 'point');
+                            if (raw === 'single') {
+                              const hasRegion =
+                                Array.isArray(selectedNode.config?.region) &&
+                                selectedNode.config.region.length === 4;
+                              return hasRegion ? 'region' : 'point';
+                            }
+                            return raw;
+                          })()
+                        : String(value ?? input.default ?? '')
+                    }
+                    onValueChange={v => handleFieldChange(input.name, v)}>
+                    <SelectTrigger className="h-8 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(input.options || []).map((opt: string) => (
+                        <SelectItem key={opt} value={opt}>
+                          {optionLabels[opt] || opt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : input.type === 'point_list' ? (
+                  <PointListEditor
+                    value={Array.isArray(value) ? value : []}
+                    onChange={next => handleFieldChange(input.name, next)}
+                    onPickPoint={onPickPoint}
+                    onPickClick={selectedNode.subType === 'click' ? onPickClick : undefined}
+                    captureMode={selectedNode.subType === 'click' ? resolveClickMode() : 'coord'}
+                    showDelay={selectedNode.subType === 'click' || selectedNode.subType === 'mouse_hover'}
                   />
-                  <BindableInput
-                    value={value}
-                    inputType="string"
+                ) : input.type === 'key_steps' ? (
+                  <KeyStepsEditor
+                    value={Array.isArray(value) ? value : []}
+                    onChange={next => handleFieldChange(input.name, next)}
+                  />
+                ) : input.type === 'color' ? (
+                  <>
+                    <Input
+                      type="color"
+                      value={typeof value === 'string' && value.startsWith('#') ? value : '#FF0000'}
+                      onChange={e => handleFieldChange(input.name, e.target.value.toUpperCase())}
+                      className="h-8 w-10 p-1 cursor-pointer shrink-0"
+                    />
+                    <BindableInput
+                      value={value}
+                      inputType="string"
+                      currentNodeId={selectedNode.id}
+                      schemaMap={schemaMap}
+                      onChange={v => handleFieldChange(input.name, v)}
+                      placeholder="#RRGGBB"
+                    />
+                  </>
+                ) : input.type === 'keys' ? (
+                  <KeyCaptureInput
+                    value={Array.isArray(value) ? value : value || []}
+                    onChange={keys => handleFieldChange(input.name, keys)}
+                  />
+                ) : input.type === 'cases' ? (
+                  <CasesEditor
+                    value={Array.isArray(value) ? value : []}
                     currentNodeId={selectedNode.id}
-                    schemaMap={schemaMap}
-                    onChange={(v) => handleFieldChange(input.name, v)}
-                    placeholder="#RRGGBB"
+                    onChange={cases => handleFieldChange(input.name, cases)}
                   />
-                </>
-              ) : input.type === 'keys' ? (
-                <KeyCaptureInput
-                  value={Array.isArray(value) ? value : value || []}
-                  onChange={(keys) => handleFieldChange(input.name, keys)}
-                />
-              ) : input.type === 'cases' ? (
-                <CasesEditor
-                  value={Array.isArray(value) ? value : []}
-                  currentNodeId={selectedNode.id}
-                  onChange={(cases) => handleFieldChange(input.name, cases)}
-                />
-              ) : input.type === 'logic_tree' || input.type === 'condition_list' ? (
-                <LogicTreeEditor
-                  value={
-                    input.type === 'logic_tree'
-                      ? value ??
-                        normalizeLogicValue(
-                          selectedNode.config?.conditions,
-                          selectedNode.config?.mode,
-                        )
-                      : value
-                  }
-                  legacyMode={selectedNode.config?.mode}
-                  onChange={(logic) => {
-                    // Prefer new tree; drop flat legacy fields when present.
-                    onUpdateNodeConfig(selectedNode.id, {
-                      ...selectedNode.config,
-                      logic,
-                      mode: undefined,
-                      conditions: undefined,
-                    });
-                  }}
-                  currentNodeId={selectedNode.id}
-                  schemaMap={schemaMap}
-                />
-              ) : input.ui === 'flow_path' || input.name === 'subflow_path' ? (
-                <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                  <BindableInput
-                    value={value ?? ''}
-                    inputType="string"
-                    currentNodeId={selectedNode.id}
-                    schemaMap={schemaMap}
-                    onChange={(v) => handleFieldChange(input.name, v)}
-                    placeholder={input.placeholder || '子流程 .flow.json 路径'}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 shrink-0 px-2"
-                    onClick={async () => {
-                      const picked = await bridge.pickFlowFile?.();
-                      if (picked?.ok && picked.path) {
-                        handleFieldChange(input.name, picked.path);
-                        return;
-                      }
-                      if (picked?.cancelled) return;
-                      await alert({
-                        title: '选择失败',
-                        description: picked?.error || '无法打开文件对话框，请手动填写路径',
+                ) : input.type === 'logic_tree' || input.type === 'condition_list' ? (
+                  <LogicTreeEditor
+                    value={
+                      input.type === 'logic_tree'
+                        ? (value ??
+                          normalizeLogicValue(selectedNode.config?.conditions, selectedNode.config?.mode))
+                        : value
+                    }
+                    legacyMode={selectedNode.config?.mode}
+                    onChange={logic => {
+                      // Prefer new tree; drop flat legacy fields when present.
+                      onUpdateNodeConfig(selectedNode.id, {
+                        ...selectedNode.config,
+                        logic,
+                        mode: undefined,
+                        conditions: undefined
                       });
                     }}
-                  >
-                    浏览
-                  </Button>
-                </div>
-              ) : input.ui === 'collection' ||
-                (selectedNode.subType === 'loop_foreach' && input.name === 'collection') ? (
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  <BindableInput
-                    value={value ?? ''}
-                    inputType="string"
                     currentNodeId={selectedNode.id}
                     schemaMap={schemaMap}
-                    onChange={(v) => handleFieldChange(input.name, v)}
-                    placeholder={input.placeholder || '$items 或 {{节点.字段}}'}
                   />
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] opacity-50 shrink-0">变量</span>
-                    <VariableSelect
+                ) : input.ui === 'flow_path' || input.name === 'subflow_path' ? (
+                  <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                    <BindableInput
                       value={value ?? ''}
-                      onChange={(v) => handleFieldChange(input.name, v)}
-                      allowPath
-                      placeholder="选择数组变量"
-                      triggerClassName="h-7 text-xs flex-1"
+                      inputType="string"
+                      currentNodeId={selectedNode.id}
+                      schemaMap={schemaMap}
+                      onChange={v => handleFieldChange(input.name, v)}
+                      placeholder={input.placeholder || '子流程 .flow.json 路径'}
                     />
-                  </div>
-                </div>
-              ) : input.type === 'keymap' ||
-                input.ui === 'input_map' ||
-                input.ui === 'output_map' ? (
-                <KeyMapEditor
-                  value={value && typeof value === 'object' && !Array.isArray(value) ? value : {}}
-                  onChange={(next) => handleFieldChange(input.name, next)}
-                  keyPlaceholder="变量名"
-                  keyMode={
-                    input.ui === 'output_map' || input.name === 'mappings'
-                      ? 'variable'
-                      : 'text'
-                  }
-                  valueMode={input.ui === 'output_map' ? 'plain' : 'bindable'}
-                  currentNodeId={selectedNode.id}
-                  schemaMap={schemaMap}
-                />
-              ) : input.type === 'rect' ? (
-                <RectField
-                  value={value}
-                  onChange={(v) => handleFieldChange(input.name, v)}
-                  onPickRegion={onPickRegion}
-                  applyRegionPick={applyRegionPick}
-                  fieldName={input.name}
-                />
-              ) : input.ui === 'expression' ||
-                input.name === 'expression' ||
-                input.name === 'exit_condition' ? (
-                <ExpressionField
-                  value={value ?? ''}
-                  onChange={(v) => handleFieldChange(input.name, v)}
-                  currentNodeId={selectedNode.id}
-                  schemaMap={schemaMap}
-                />
-              ) : input.name === 'template_image' || input.name === 'anchor_template' ? (
-                <>
-                  <BindableInput
-                    value={value}
-                    inputType="string"
-                    currentNodeId={selectedNode.id}
-                    schemaMap={schemaMap}
-                    onChange={(v) => handleFieldChange(input.name, v)}
-                    placeholder="模板 PNG 路径"
-                  />
-                  {onCaptureTemplate && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       className="h-8 shrink-0 px-2"
                       onClick={async () => {
-                        const res = await onCaptureTemplate();
-                        if (res?.ok && res.path) handleFieldChange(input.name, res.path);
-                      }}
-                    >
-                      截模板
+                        const picked = await bridge.pickFlowFile?.();
+                        if (picked?.ok && picked.path) {
+                          handleFieldChange(input.name, picked.path);
+                          return;
+                        }
+                        if (picked?.cancelled) return;
+                        await alert({
+                          title: '选择失败',
+                          description: picked?.error || '无法打开文件对话框，请手动填写路径'
+                        });
+                      }}>
+                      浏览
                     </Button>
-                  )}
-                </>
-              ) : input.ui === 'textarea' || input.type === 'textarea' ? (
-                <Textarea
-                  rows={4}
-                  className="w-full text-sm min-h-[5.5rem]"
-                  value={value ?? input.default ?? ''}
-                  placeholder={input.placeholder || placeholder || ''}
-                  onChange={(e) => handleFieldChange(input.name, e.target.value)}
-                />
-              ) : selectedNode.subType === 'switch' && input.name === 'default' ? (
-                <div className="flex-1 min-w-0 space-y-1">
-                  <Select
-                    value={
-                      value && value !== selectedNode.id ? String(value) : undefined
-                    }
-                    onValueChange={(v) => handleFieldChange('default', v)}
-                  >
-                    <SelectTrigger className="h-8 text-xs w-full">
-                      <SelectValue placeholder="默认分支目标 / 画布「默认」口" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {switchNodeIds
-                        .filter((id) => id !== selectedNode.id)
-                        .map((id) => (
-                        <SelectItem key={id} value={id}>
-                          {id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[10px] opacity-50">也可从节点右侧「默认」口拖线（不可连自己）</p>
-                </div>
-              ) : isBindableInput(input) ? (
-                <BindableInput
-                  value={value ?? input.default ?? (input.type === 'number' ? 0 : '')}
-                  inputType={input.type === 'number' ? 'number' : 'string'}
-                  currentNodeId={selectedNode.id}
-                  schemaMap={schemaMap}
-                  onChange={(v) => handleFieldChange(input.name, v)}
-                  placeholder={placeholder}
-                  trailing={
-                    (input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') &&
-                    onPickPoint ? (
+                  </div>
+                ) : input.ui === 'collection' ||
+                  (selectedNode.subType === 'loop_foreach' && input.name === 'collection') ? (
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <BindableInput
+                      value={value ?? ''}
+                      inputType="string"
+                      currentNodeId={selectedNode.id}
+                      schemaMap={schemaMap}
+                      onChange={v => handleFieldChange(input.name, v)}
+                      placeholder={input.placeholder || '$items 或 {{节点.字段}}'}
+                    />
+                    <div className="flex flex-col gap-1 min-w-0 w-full">
+                      <span className="text-[11px] font-medium opacity-60 leading-none">变量</span>
+                      <VariableSelect
+                        value={value ?? ''}
+                        onChange={v => handleFieldChange(input.name, v)}
+                        allowPath
+                        placeholder="选择数组变量"
+                        triggerClassName="h-8 text-xs w-full"
+                      />
+                    </div>
+                  </div>
+                ) : input.type === 'keymap' || input.ui === 'input_map' || input.ui === 'output_map' ? (
+                  <KeyMapEditor
+                    value={value && typeof value === 'object' && !Array.isArray(value) ? value : {}}
+                    onChange={next => handleFieldChange(input.name, next)}
+                    keyPlaceholder="变量名"
+                    keyMode={input.ui === 'output_map' || input.name === 'mappings' ? 'variable' : 'text'}
+                    valueMode={input.ui === 'output_map' ? 'plain' : 'bindable'}
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                  />
+                ) : input.type === 'rect' ? (
+                  <RectField
+                    value={value}
+                    onChange={v => handleFieldChange(input.name, v)}
+                    onPickRegion={onPickRegion}
+                    applyRegionPick={applyRegionPick}
+                    fieldName={input.name}
+                  />
+                ) : input.ui === 'expression' || input.name === 'expression' || input.name === 'exit_condition' ? (
+                  <ExpressionField
+                    value={value ?? ''}
+                    onChange={v => handleFieldChange(input.name, v)}
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                  />
+                ) : input.name === 'template_image' || input.name === 'anchor_template' ? (
+                  <>
+                    <BindableInput
+                      value={value}
+                      inputType="string"
+                      currentNodeId={selectedNode.id}
+                      schemaMap={schemaMap}
+                      onChange={v => handleFieldChange(input.name, v)}
+                      placeholder="模板 PNG 路径"
+                    />
+                    {onCaptureTemplate && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
                         className="h-8 shrink-0 px-2"
                         onClick={async () => {
-                          const res = await onPickPoint();
-                          applyPointPick(input.name, res);
-                        }}
-                      >
-                        取点
+                          const res = await onCaptureTemplate();
+                          if (res?.ok && res.path) handleFieldChange(input.name, res.path);
+                        }}>
+                        截模板
                       </Button>
-                    ) : undefined
-                  }
-                />
-              ) : (
-                <Input
-                  className="h-8 w-full"
-                  value={value ?? ''}
-                  placeholder={placeholder}
-                  onChange={(e) => handleFieldChange(input.name, e.target.value)}
-                />
-              )}
-            </Field>
-          );
-        })}
+                    )}
+                  </>
+                ) : input.ui === 'textarea' || input.type === 'textarea' ? (
+                  <Textarea
+                    rows={4}
+                    className="w-full text-sm min-h-[5.5rem]"
+                    value={value ?? input.default ?? ''}
+                    placeholder={input.placeholder || placeholder || ''}
+                    onChange={e => handleFieldChange(input.name, e.target.value)}
+                  />
+                ) : selectedNode.subType === 'switch' && input.name === 'default' ? (
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <Select
+                      value={value && value !== selectedNode.id ? String(value) : undefined}
+                      onValueChange={v => handleFieldChange('default', v)}>
+                      <SelectTrigger className="h-8 text-xs w-full">
+                        <SelectValue placeholder="默认分支目标 / 画布「默认」口" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {switchNodeIds
+                          .filter(id => id !== selectedNode.id)
+                          .map(id => (
+                            <SelectItem key={id} value={id}>
+                              {id}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] opacity-50">也可从节点右侧「默认」口拖线（不可连自己）</p>
+                  </div>
+                ) : isBindableInput(input) ? (
+                  <BindableInput
+                    value={value ?? input.default ?? (input.type === 'number' ? 0 : '')}
+                    inputType={input.type === 'number' ? 'number' : 'string'}
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={v => handleFieldChange(input.name, v)}
+                    placeholder={placeholder}
+                    trailing={
+                      (input.name === 'x' || input.name === 'from_x' || input.name === 'to_x') && onPickPoint ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0 px-2"
+                          onClick={async () => {
+                            const res = await onPickPoint();
+                            applyPointPick(input.name, res);
+                          }}>
+                          取点
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                ) : (
+                  <Input
+                    className="h-8 w-full"
+                    value={value ?? ''}
+                    placeholder={placeholder}
+                    onChange={e => handleFieldChange(input.name, e.target.value)}
+                  />
+                )}
+              </Field>
+            );
+          })}
 
         {onSetEntry && (
           <Button type="button" variant="outline" size="sm" onClick={() => onSetEntry(selectedNode.id)}>
@@ -1710,14 +1606,14 @@ export default function Inspector({
             <Field label="AI Instruction">
               <Input
                 value={config.systemInstruction || 'You are a helpful assistant.'}
-                onChange={(e) => handleFieldChange('systemInstruction', e.target.value)}
+                onChange={e => handleFieldChange('systemInstruction', e.target.value)}
               />
             </Field>
             <Field label="Prompt Template">
               <Textarea
                 rows={4}
                 value={config.prompt || ''}
-                onChange={(e) => handleFieldChange('prompt', e.target.value)}
+                onChange={e => handleFieldChange('prompt', e.target.value)}
               />
             </Field>
             <Field label={`Temperature · ${config.temperature ?? 0.7}`}>
@@ -1727,7 +1623,7 @@ export default function Inspector({
                 max={2}
                 step={0.1}
                 value={config.temperature ?? 0.7}
-                onChange={(e) => handleFieldChange('temperature', parseFloat(e.target.value))}
+                onChange={e => handleFieldChange('temperature', parseFloat(e.target.value))}
                 className="h-8 accent-blue-500"
               />
             </Field>
@@ -1740,13 +1636,12 @@ export default function Inspector({
             <Field label="Target Language">
               <Select
                 value={config.targetLanguage || 'Spanish'}
-                onValueChange={(v) => handleFieldChange('targetLanguage', v)}
-              >
+                onValueChange={v => handleFieldChange('targetLanguage', v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {['Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Arabic'].map((lang) => (
+                  {['Spanish', 'French', 'German', 'Japanese', 'Chinese', 'Arabic'].map(lang => (
                     <SelectItem key={lang} value={lang}>
                       {lang}
                     </SelectItem>
@@ -1758,7 +1653,7 @@ export default function Inspector({
               <Textarea
                 rows={3}
                 value={config.text || ''}
-                onChange={(e) => handleFieldChange('text', e.target.value)}
+                onChange={e => handleFieldChange('text', e.target.value)}
               />
             </Field>
           </div>
@@ -1771,14 +1666,14 @@ export default function Inspector({
               <Input
                 type="number"
                 value={config.wordLimit || 30}
-                onChange={(e) => handleFieldChange('wordLimit', parseInt(e.target.value) || 30)}
+                onChange={e => handleFieldChange('wordLimit', parseInt(e.target.value) || 30)}
               />
             </Field>
             <Field label="Fallback Content">
               <Textarea
                 rows={3}
                 value={config.text || ''}
-                onChange={(e) => handleFieldChange('text', e.target.value)}
+                onChange={e => handleFieldChange('text', e.target.value)}
               />
             </Field>
           </div>
@@ -1788,10 +1683,7 @@ export default function Inspector({
         return (
           <div className="space-y-4">
             <Field label="Database Operation">
-              <Select
-                value={config.operation || 'write'}
-                onValueChange={(v) => handleFieldChange('operation', v)}
-              >
+              <Select value={config.operation || 'write'} onValueChange={v => handleFieldChange('operation', v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -1804,15 +1696,12 @@ export default function Inspector({
             <Field label="Storage Key Name">
               <Input
                 value={config.key || ''}
-                onChange={(e) => handleFieldChange('key', e.target.value)}
+                onChange={e => handleFieldChange('key', e.target.value)}
                 placeholder="e.g. summary_data_v1"
               />
             </Field>
             <Field label="Default Value">
-              <Input
-                value={config.value || ''}
-                onChange={(e) => handleFieldChange('value', e.target.value)}
-              />
+              <Input value={config.value || ''} onChange={e => handleFieldChange('value', e.target.value)} />
             </Field>
           </div>
         );
@@ -1821,10 +1710,7 @@ export default function Inspector({
         return (
           <div className="space-y-4">
             <Field label="REST Method">
-              <Select
-                value={config.method || 'GET'}
-                onValueChange={(v) => handleFieldChange('method', v)}
-              >
+              <Select value={config.method || 'GET'} onValueChange={v => handleFieldChange('method', v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -1838,7 +1724,7 @@ export default function Inspector({
             <Field label="Target Endpoint URL">
               <Input
                 value={config.url || 'https://api.example.com/feed'}
-                onChange={(e) => handleFieldChange('url', e.target.value)}
+                onChange={e => handleFieldChange('url', e.target.value)}
               />
             </Field>
           </div>
@@ -1847,10 +1733,7 @@ export default function Inspector({
       case 'if-else':
         return (
           <Field label="Branching Rule">
-            <Select
-              value={config.condition || 'true'}
-              onValueChange={(v) => handleFieldChange('condition', v)}
-            >
+            <Select value={config.condition || 'true'} onValueChange={v => handleFieldChange('condition', v)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1868,7 +1751,7 @@ export default function Inspector({
             <Textarea
               rows={5}
               value={config.value || ''}
-              onChange={(e) => handleFieldChange('value', e.target.value)}
+              onChange={e => handleFieldChange('value', e.target.value)}
             />
           </Field>
         );
@@ -1882,7 +1765,7 @@ export default function Inspector({
     }
   };
 
-  const nodeLogs = logs.filter((l) => l.nodeId === selectedNode.id);
+  const nodeLogs = logs.filter(l => l.nodeId === selectedNode.id);
   const outputText = selectedNode.outputData
     ? typeof selectedNode.outputData === 'string'
       ? selectedNode.outputData
@@ -1894,10 +1777,9 @@ export default function Inspector({
       style={{
         backgroundColor: colors.surface,
         borderColor: colors.border,
-        color: colors.text,
+        color: colors.text
       }}
-      className="w-[31.2rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0"
-    >
+      className="w-[24rem] border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
       <div className="px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -1915,19 +1797,15 @@ export default function Inspector({
               <span className="font-medium text-xs text-blue-500 truncate">
                 {selectedNode.subType || selectedNode.type}
               </span>
-              <span className="text-xs opacity-50 font-mono shrink-0">
-                {selectedNode.id.substring(0, 6)}
-              </span>
+              <span className="text-xs opacity-50 font-mono shrink-0">{selectedNode.id.substring(0, 6)}</span>
             </div>
             <div className="flex items-center gap-2 min-w-0">
-              <Label className="text-xs font-medium opacity-75 shrink-0 w-[7.5rem] leading-8">
-                名称
-              </Label>
+              <Label className="text-xs font-medium opacity-75 shrink-0 w-[7.5rem] leading-8">名称</Label>
               <Input
-                className="h-8 flex-1 min-w-0 max-w-[14rem]"
+                className="h-8 flex-1 min-w-0 max-w-[9.8rem]"
                 value={selectedNode.name || ''}
                 placeholder="节点显示名称"
-                onChange={(e) => onUpdateNodeName?.(selectedNode.id, e.target.value)}
+                onChange={e => onUpdateNodeName?.(selectedNode.id, e.target.value)}
               />
             </div>
           </div>
@@ -1939,15 +1817,13 @@ export default function Inspector({
           ) : null}
 
           <div className="space-y-3">
-            <h4 className="font-medium text-sm opacity-70">
-              参数
-            </h4>
+            <h4 className="font-medium text-sm opacity-70">参数</h4>
             {nodeIssues.length > 0 && (
               <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 space-y-1">
                 <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
-                  绑定问题 ({nodeIssues.filter((i) => i.level === 'error').length} 错误
-                  {nodeIssues.some((i) => i.level === 'warn')
-                    ? ` / ${nodeIssues.filter((i) => i.level === 'warn').length} 警告`
+                  绑定问题 ({nodeIssues.filter(i => i.level === 'error').length} 错误
+                  {nodeIssues.some(i => i.level === 'warn')
+                    ? ` / ${nodeIssues.filter(i => i.level === 'warn').length} 警告`
                     : ''}
                   )
                 </p>
@@ -1958,8 +1834,7 @@ export default function Inspector({
                       iss.level === 'error'
                         ? 'text-rose-600 dark:text-rose-400'
                         : 'text-amber-700 dark:text-amber-400'
-                    }`}
-                  >
+                    }`}>
                     {iss.message}
                   </p>
                 ))}
@@ -1979,8 +1854,7 @@ export default function Inspector({
                   size="sm"
                   className="h-7 text-xs text-blue-500 gap-1"
                   onClick={() => copyText(outputText, 'output')}
-                  title="复制全部输出"
-                >
+                  title="复制全部输出">
                   {outputCopied ? (
                     <>
                       <Check className="w-3 h-3 text-emerald-500" />
@@ -1997,27 +1871,22 @@ export default function Inspector({
             </div>
 
             {(() => {
-              const outs =
-                (schemaMap[selectedNode.subType]?.outputs as { name: string; type?: string }[]) ||
-                [];
+              const outs = (schemaMap[selectedNode.subType]?.outputs as { name: string; type?: string }[]) || [];
               const live =
                 selectedNode.outputData && typeof selectedNode.outputData === 'object'
                   ? selectedNode.outputData
                   : {};
               if (outs.length === 0) {
-                return (
-                  <p className="text-xs opacity-50 py-2">此节点无声明输出字段</p>
-                );
+                return <p className="text-xs opacity-50 py-2">此节点无声明输出字段</p>;
               }
               return (
                 <div
                   style={{ borderColor: colors.border }}
-                  className="rounded-xl border divide-y divide-black/5 dark:divide-white/5 overflow-hidden"
-                >
+                  className="rounded-xl border divide-y divide-black/5 dark:divide-white/5 overflow-hidden">
                   <p className="text-xs opacity-60 px-2 py-1.5 bg-black/[0.03] dark:bg-white/[0.03]">
                     点击字段复制引用
                   </p>
-                  {outs.map((o) => (
+                  {outs.map(o => (
                     <OutputRefChip
                       key={o.name}
                       nodeId={selectedNode.id}
@@ -2037,12 +1906,11 @@ export default function Inspector({
               <pre
                 style={{
                   backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
-                  borderColor: colors.border,
+                  borderColor: colors.border
                 }}
                 className="rounded-xl p-2 border font-mono text-xs max-h-40 overflow-y-auto whitespace-pre-wrap break-all select-text cursor-text"
                 tabIndex={0}
-                title="可选中后 Ctrl+C 复制"
-              >
+                title="可选中后 Ctrl+C 复制">
                 {outputText}
               </pre>
             ) : (
@@ -2058,15 +1926,8 @@ export default function Inspector({
                   variant="ghost"
                   size="sm"
                   className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
-                  onClick={() =>
-                    copyText(
-                      nodeLogs
-                        .map((l) => `${l.timestamp || ''} ${l.message}`)
-                        .join('\n'),
-                    )
-                  }
-                  title="复制此节点日志"
-                >
+                  onClick={() => copyText(nodeLogs.map(l => `${l.timestamp || ''} ${l.message}`).join('\n'))}
+                  title="复制此节点日志">
                   <Copy className="w-3 h-3" /> 复制
                 </Button>
               ) : null}
@@ -2075,7 +1936,7 @@ export default function Inspector({
               {nodeLogs.length === 0 ? (
                 <p className="text-xs opacity-50 py-2">此节点尚无运行日志</p>
               ) : (
-                nodeLogs.map((log) => (
+                nodeLogs.map(log => (
                   <div
                     key={log.id}
                     className={`break-words whitespace-pre-wrap py-0.5 select-text ${
@@ -2088,13 +1949,10 @@ export default function Inspector({
                             : ''
                     }`}
                     style={
-                      log.type === 'error' ||
-                      log.type === 'warning' ||
-                      log.type === 'success'
+                      log.type === 'error' || log.type === 'warning' || log.type === 'success'
                         ? undefined
                         : { color: colors.secondaryText }
-                    }
-                  >
+                    }>
                     <span className="opacity-50 mr-2">{log.timestamp}</span>
                     {log.message}
                   </div>

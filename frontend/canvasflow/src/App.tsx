@@ -243,17 +243,14 @@ function AppShell() {
 
   const canvasLogs = useMemo(
     () =>
-      logs
-        .slice(-80)
-        .reverse()
-        .map((l, i) => ({
-          id: `${l.ts || 0}-${i}-${String(l.message || '').slice(0, 24)}`,
-          timestamp: new Date(l.ts || Date.now()).toLocaleTimeString(),
-          type: mapLogLevel(l.level),
-          message: l.message,
-          nodeId: l.nodeId || undefined,
-          nodeName: undefined,
-        })),
+      logs.slice(-80).map((l, i) => ({
+        id: `${l.ts || 0}-${i}-${String(l.message || '').slice(0, 24)}`,
+        timestamp: new Date(l.ts || Date.now()).toLocaleTimeString(),
+        type: mapLogLevel(l.level),
+        message: l.message,
+        nodeId: l.nodeId || undefined,
+        nodeName: undefined,
+      })),
     [logs],
   );
 

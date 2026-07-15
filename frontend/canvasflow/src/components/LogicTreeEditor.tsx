@@ -308,7 +308,7 @@ function GroupBlock({
             )
           }
         >
-          <SelectTrigger className="h-7 w-[5.5rem] text-xs">
+          <SelectTrigger className="h-7 w-[11rem] text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
