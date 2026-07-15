@@ -1,9 +1,14 @@
 {
   "history": [
     {
+      "version": "0.1.1",
+      "title": "0.1.1 自动更新与公告",
+      "body": "• 支持 GitHub Actions 自动打包并发布 Release\n• 本地执行 release.bat 即可打 tag 触发打包（无需网页手动点）\n• 新增检查更新 / 下载更新 / 立即更新（热更新替换 exe）\n• 顶栏可查看更新公告；设置页「关于与更新」可管理版本\n• app_update.json 改为累计 history，完整保留历史更新记录\n• 修复 Windows CI 日志编码导致打包失败的问题"
+    },
+    {
       "version": "0.1.0",
       "title": "欢迎使用 Nexuz",
-      "body": "已启用自动检查更新与公告。可在「设置 → 关于与更新」中查看更新记录。\n\n发版时在 history 数组最前面追加一条，旧记录不要删。"
+      "body": "首次启用更新通道与公告功能。"
     }
   ]
 }
