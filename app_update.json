@@ -1,6 +1,12 @@
 {
   "history": [
     {
+      "version": "0.1.10",
+      "title": "0.1.10 修复立即更新后启动失败",
+      "body": "• 修复点击「立即更新」后偶发 Failed to load Python DLL / 找不到 python312.dll（手动双击同目录 exe 却正常）\n• 更新助手在替换完成后：解除文件锁定标记、等待文件可读，再延迟启动\n• 优先用资源管理器方式拉起新进程（更接近手动双击），失败时回退 cmd / Start-Process\n• 替换逻辑本身不变：删旧 Nexuz.exe → 将 Nexuz_update.exe 改名为 Nexuz.exe → 启动",
+      "notice": "已修复「立即更新」后偶尔起不来的问题。若仍失败，可手动打开同目录 Nexuz.exe，并查看 nexuz_update.log。"
+    },
+    {
       "version": "0.1.9",
       "title": "0.1.9 数据目录迁至 AppData，支持导入导出",
       "body": "• 流程 / 模板 / 截图等默认改存到 %LOCALAPPDATA%\\Nexuz，与 exe 解耦；热更新只换程序，不再动用户数据\n• 设置 → 数据存储：可打开数据目录、更改存储位置、恢复默认、一键清空（直接删除整个数据文件夹）\n• 工具栏与流程库新增「导入」「导出」，用 .flow.json 与外部交换流程\n• 首次启动会尝试把旧版 exe 旁的 flows / flow_templates / templates 迁入新数据目录\n• 清空后目录会被移除，只有再次保存到该位置时才会自动新建",

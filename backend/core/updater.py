@@ -663,12 +663,48 @@ for ($i = 0; $i -lt 40; $i++) {{
   }}
 }}
 
+function Start-Nexuz([string]$exePath) {{
+  # 下载/刚改名的文件可能仍被 Defender 扫描；PowerShell Start-Process
+  # 直接拉起时，PyInstaller 解压 python*.dll 偶发失败（手动双击却正常）。
+  try {{ Unblock-File -LiteralPath $exePath -ErrorAction SilentlyContinue }} catch {{}}
+  for ($w = 0; $w -lt 20; $w++) {{
+    try {{
+      $fs = [System.IO.File]::Open($exePath, 'Open', 'Read', 'Read')
+      $fs.Close()
+      break
+    }} catch {{
+      Start-Sleep -Milliseconds 250
+    }}
+  }}
+  Start-Sleep -Milliseconds 1500
+  # 用 explorer 启动，模拟用户双击，避免继承隐藏 PowerShell 的环境
+  $started = $false
+  try {{
+    Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $exePath + '"')
+    $started = $true
+    Write-Log "start via explorer: $exePath"
+  }} catch {{
+    Write-Log ("explorer start failed: " + $_.Exception.Message)
+  }}
+  if (-not $started) {{
+    try {{
+      Start-Process -FilePath 'cmd.exe' -ArgumentList '/c','start','','/D',("`"$work`""),("`"$exePath`"") -WindowStyle Hidden
+      Write-Log "start via cmd: $exePath"
+      $started = $true
+    }} catch {{
+      Write-Log ("cmd start failed: " + $_.Exception.Message)
+      Start-Process -FilePath $exePath -WorkingDirectory $work
+      Write-Log "start via Start-Process: $exePath"
+    }}
+  }}
+}}
+
 if ($ok -and (Test-Path -LiteralPath $tgt)) {{
   Write-Log "start $tgt"
-  Start-Process -FilePath $tgt -WorkingDirectory $work
+  Start-Nexuz $tgt
 }} elseif (Test-Path -LiteralPath $upd) {{
   Write-Log "fallback start downloaded exe"
-  Start-Process -FilePath $upd -WorkingDirectory $work
+  Start-Nexuz $upd
   Show-Fail "删不掉旧版（可能被占用）。已直接启动下载的新版本。日志: $log"
 }} else {{
   Show-Fail "更新失败。日志: $log"
