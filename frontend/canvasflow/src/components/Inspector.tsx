@@ -438,7 +438,9 @@ function PointListEditor({
           {showDelay && (
             <Input
               className="h-7 text-xs font-mono w-full"
-              placeholder="本点前延迟毫秒（空=用全局）"
+              placeholder={
+                idx === 0 ? '本点前延迟毫秒（空=不等待）' : '本点前延迟毫秒（空=用全局点间延迟）'
+              }
               value={p.delay_ms ?? ''}
               onChange={e => {
                 const v = e.target.value.trim();
@@ -657,7 +659,9 @@ function KeyStepsEditor({
             <KeyCaptureInput value={keysStr} onChange={keys => update(idx, { keys: keys.join('+') })} />
             <Input
               className="h-7 text-xs font-mono w-full"
-              placeholder="本步前延迟毫秒（空=用全局）"
+              placeholder={
+                idx === 0 ? '本步前延迟毫秒（空=不等待）' : '本步前延迟毫秒（空=用全局步间延迟）'
+              }
               value={s.delay_ms ?? ''}
               onChange={e => {
                 const v = e.target.value.trim();

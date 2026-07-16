@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.blocks._helpers import interruptible_sleep
+from backend.blocks._helpers import sleep_pre_step
 from backend.core.input.provider_registry import get_provider_registry
 from backend.core.input.resolve import normalize_click_params
 from backend.core.input.types import ERROR_INVALID_MODE
@@ -179,11 +179,14 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     for i, pt in enumerate(raw_points):
         if not isinstance(pt, dict):
             continue
-        if i > 0:
-            delay = pt.get("delay_ms")
-            wait = _as_int(delay, interval) if delay is not None and delay != "" else interval
-            if wait > 0:
-                interruptible_sleep(wait / 1000.0, should_stop, cooperate=cooperate)
+        # 每一点「本点前延迟」：首点填了也要等；空则首点不等待、后续用全局点间延迟
+        sleep_pre_step(
+            i,
+            pt.get("delay_ms"),
+            default_interval=interval,
+            should_stop=should_stop,
+            cooperate=cooperate,
+        )
         one = _point_to_click_params(pt, params)
         # Prefer node-level capture_mode when point has no frida target
         node_cap = str(params.get("capture_mode") or "coord")
@@ -199,6 +202,8 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
         last = _click_once(one, ctx)
         done += 1
 
+    if done <= 0:
+        raise ValueError("多点模式请至少添加一个点击点")
     last["count"] = done
     last.setdefault("ok", True)
     last.setdefault("button", button)

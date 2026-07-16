@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from backend.blocks._helpers import pre_step_delay_ms
 from backend.core.expression import evaluate_expression
 from backend.core.variable_resolver import resolve_variables
 
@@ -31,7 +32,22 @@ def test_expressions():
     assert evaluate_expression('{{node_1.text}} == "x"', ctx) is False
 
 
+def test_pre_step_delay_ms():
+    # First step: empty → no wait; explicit delay honored (the old multi-click bug).
+    assert pre_step_delay_ms(0, None, default_interval=200) == 0
+    assert pre_step_delay_ms(0, "", default_interval=200) == 0
+    assert pre_step_delay_ms(0, 1500, default_interval=200) == 1500
+    assert pre_step_delay_ms(0, "3000", default_interval=200) == 3000
+    assert pre_step_delay_ms(0, 0, default_interval=200) == 0
+    # Later steps: empty falls back to global interval; explicit overrides.
+    assert pre_step_delay_ms(1, None, default_interval=200) == 200
+    assert pre_step_delay_ms(1, "", default_interval=200) == 200
+    assert pre_step_delay_ms(1, 50, default_interval=200) == 50
+    assert pre_step_delay_ms(2, 0, default_interval=200) == 0
+
+
 if __name__ == "__main__":
     test_variables()
     test_expressions()
+    test_pre_step_delay_ms()
     print("UNIT OK")

@@ -54,6 +54,41 @@ def interruptible_sleep(
         remaining -= slice_s
 
 
+def pre_step_delay_ms(index: int, item_delay: Any, *, default_interval: int = 0) -> int:
+    """Milliseconds to wait *before* step ``index`` (0-based).
+
+    Matches UI「本点/本步前延迟」:
+    - Explicit ``item_delay`` always wins (including 0).
+    - Empty on the first step → 0 (do not apply global interval before #1).
+    - Empty on later steps → ``default_interval`` (点间/步间全局延迟).
+    """
+    if item_delay is not None and item_delay != "":
+        try:
+            return max(0, int(float(item_delay)))
+        except (TypeError, ValueError):
+            return 0
+    if int(index) <= 0:
+        return 0
+    try:
+        return max(0, int(float(default_interval)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def sleep_pre_step(
+    index: int,
+    item_delay: Any,
+    *,
+    default_interval: int = 0,
+    should_stop: Callable[[], bool] | None = None,
+    cooperate: Callable[[], None] | None = None,
+) -> None:
+    """Apply :func:`pre_step_delay_ms` via :func:`interruptible_sleep`."""
+    wait = pre_step_delay_ms(index, item_delay, default_interval=default_interval)
+    if wait > 0:
+        interruptible_sleep(wait / 1000.0, should_stop, cooperate=cooperate)
+
+
 def validate_point(x: int, y: int) -> tuple[int, int]:
     """Clamp point into the virtual desktop (all monitors)."""
     left, top, right, bottom = virtual_screen_rect()

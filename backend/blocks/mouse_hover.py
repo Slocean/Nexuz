@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pyautogui
 
-from backend.blocks._helpers import interruptible_sleep, require_configured_point, resolve_point
+from backend.blocks._helpers import (
+    interruptible_sleep,
+    require_configured_point,
+    resolve_point,
+    sleep_pre_step,
+)
 
 SCHEMA = {
     "type": "mouse_hover",
@@ -121,11 +126,13 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     for i, pt in enumerate(raw_points):
         if not isinstance(pt, dict):
             continue
-        if i > 0:
-            delay = pt.get("delay_ms")
-            wait = _as_int(delay, interval) if delay is not None and delay != "" else interval
-            if wait > 0:
-                interruptible_sleep(wait / 1000.0, should_stop, cooperate=cooperate)
+        sleep_pre_step(
+            i,
+            pt.get("delay_ms"),
+            default_interval=interval,
+            should_stop=should_stop,
+            cooperate=cooperate,
+        )
         hold = pt.get("hold_ms")
         hold_ms = (
             _as_int(hold, hold_default)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pyautogui
 
-from backend.blocks._helpers import interruptible_sleep
+from backend.blocks._helpers import sleep_pre_step
 
 SCHEMA = {
     "type": "key_press",
@@ -90,18 +90,14 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     interval = max(0, _as_int(params.get("interval_ms"), 100))
     done = 0
     for i, step in enumerate(steps):
-        if i > 0:
-            if isinstance(step, dict):
-                delay = step.get("delay_ms")
-                wait = (
-                    _as_int(delay, interval)
-                    if delay is not None and delay != ""
-                    else interval
-                )
-            else:
-                wait = interval
-            if wait > 0:
-                interruptible_sleep(wait / 1000.0, should_stop, cooperate=cooperate)
+        item_delay = step.get("delay_ms") if isinstance(step, dict) else None
+        sleep_pre_step(
+            i,
+            item_delay,
+            default_interval=interval,
+            should_stop=should_stop,
+            cooperate=cooperate,
+        )
         keys = _parse_keys(step.get("keys") if isinstance(step, dict) else step)
         _press(keys)
         done += 1
