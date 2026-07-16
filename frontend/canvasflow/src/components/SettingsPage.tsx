@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  Keyboard,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -237,6 +238,7 @@ const SETTINGS_SECTION_IDS = [
   'click',
   'frida',
   'window',
+  'shortcuts',
 ] as const;
 
 type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -1106,6 +1108,83 @@ export default function SettingsPage({
                 themeMode={themeMode}
               />
             </Label>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          title="快捷键"
+          icon={<Keyboard className="w-4 h-4" />}
+          open={openSections.shortcuts}
+          onToggle={() => toggleSection('shortcuts')}
+          colors={colors}
+        >
+          <div className="space-y-3 pt-1 text-sm" style={{ color: colors.text }}>
+            <p className="text-xs opacity-70 leading-relaxed">
+              在输入框中打字时，下列画布快捷键不会触发，以免误删或打断输入。
+            </p>
+            <div className="rounded-lg border px-3 py-2.5 space-y-2" style={{ borderColor: colors.border }}>
+              <p className="text-xs font-medium opacity-80">画布与节点</p>
+              <ul className="space-y-1.5 text-xs leading-relaxed opacity-90">
+                <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Delete</kbd>
+                  {' / '}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Backspace</kbd>
+                  ：删除选中节点（支持多选）
+                </li>
+                <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Enter</kbd>
+                  {' / '}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">空格</kbd>
+                  ：对当前选中节点执行「取点」（仅坐标取点；Frida / 框选 / 截模板无效）
+                </li>
+                <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Ctrl</kbd>
+                  {'+'}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">A</kbd>
+                  ：全选节点
+                </li>
+                <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Ctrl</kbd>
+                  {'+'}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">C</kbd>
+                  {' / '}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">V</kbd>
+                  ：复制 / 粘贴节点
+                </li>
+                <li>
+                  顶栏「框选」工具，或{' '}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Shift</kbd>
+                  +拖动画布空白：框选多个节点
+                </li>
+                <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Ctrl</kbd>
+                  +点击：多选 / 取消选中
+                </li>
+              </ul>
+            </div>
+            <div className="rounded-lg border px-3 py-2.5 space-y-2" style={{ borderColor: colors.border }}>
+              <p className="text-xs font-medium opacity-80">录制与运行（全局）</p>
+              <ul className="space-y-1.5 text-xs leading-relaxed opacity-90">
+                <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">X</kbd>
+                  {'+'}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">F10</kbd>
+                  ：停止录制
+                </li>
+                <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">X</kbd>
+                  {'+'}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">F5</kbd>
+                  ：运行中暂停 / 继续
+                </li>
+                <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">X</kbd>
+                  {'+'}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">F4</kbd>
+                  ：结束运行
+                </li>
+              </ul>
+            </div>
           </div>
         </SettingsSection>
       </div>

@@ -626,13 +626,14 @@ function Canvas({
     };
   }, [screenToCanvas, applyWorldTransform]);
 
-  // Keyboard: Delete, Ctrl+C/V, Ctrl+A
+  // Keyboard: Delete, Ctrl+C/V, Ctrl+A (capture so it works while Inspector buttons focused)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) {
         return;
       }
+      if ((e.target as HTMLElement)?.closest?.('[role="dialog"]')) return;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "a") {
         e.preventDefault();
@@ -668,8 +669,8 @@ function Canvas({
         onSelectNodeRef.current(null);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onRemoveNode]);
 
   const isPanSurface = (target: EventTarget | null) => {

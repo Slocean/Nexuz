@@ -43,6 +43,7 @@ interface InspectorProps {
   selectedNode: WorkflowNode | null;
   onUpdateNodeConfig: (nodeId: string, updatedConfig: any) => void;
   onUpdateNodeName?: (nodeId: string, name: string) => void;
+  onRemoveNode?: (nodeId: string) => void;
   onDeselect: () => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
@@ -52,6 +53,8 @@ interface InspectorProps {
   onPickClick?: (mode: string, method?: string) => Promise<any>;
   onPickRegion?: (method?: string) => Promise<any>;
   onCaptureTemplate?: (method?: string) => Promise<any>;
+  /** Delete selected node (Delete / Backspace when not typing) */
+  onRemoveNode?: (nodeId: string) => void;
   onSetEntry?: (id: string) => void;
   defaultCaptureMode?: string;
   /** Global default: screenshot | live */
@@ -1018,6 +1021,7 @@ export default function Inspector({
   selectedNode,
   onUpdateNodeConfig,
   onUpdateNodeName,
+  onRemoveNode,
   onDeselect,
   themeName,
   themeMode,
@@ -1027,6 +1031,7 @@ export default function Inspector({
   onPickClick,
   onPickRegion,
   onCaptureTemplate,
+  onRemoveNode,
   onSetEntry,
   defaultCaptureMode = 'coord',
   defaultPickMethod = 'screenshot',
@@ -1041,6 +1046,7 @@ export default function Inspector({
   const logCopyHintTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const logSelectionRef = React.useRef('');
   const logEndRef = React.useRef<HTMLDivElement | null>(null);
+  const pickBusyRef = React.useRef(false);
   const clearLogs = useFlowStore(s => s.clearLogs);
   const colors = getThemeColors(themeName, themeMode);
 
@@ -1401,6 +1407,100 @@ export default function Inspector({
     if (m === 'live' || m === 'screenshot') return m;
     return defaultPickMethod === 'live' ? 'live' : 'screenshot';
   };
+
+  /** Enter/Space 快捷取点：仅坐标取点（不含 Frida / 框选 / 截模板） */
+  const nodeSupportsHotkeyPickPoint = React.useCallback((): boolean => {
+    if (!selectedNode || (!onPickPoint && !onPickClick)) return false;
+    if (selectedNode.subType === 'click') {
+      if (String(selectedNode.config?.click_mode || 'single') !== 'single') return false;
+      return resolveClickMode() === 'coord';
+    }
+    const schema = schemaMap[selectedNode.subType];
+    const inputs = schema?.inputs || [];
+    return inputs.some(
+      (i: any) =>
+        (i.name === 'x' || i.name === 'from_x') && inputVisible(i, selectedNode.config),
+    );
+  }, [selectedNode, onPickPoint, onPickClick, schemaMap, defaultCaptureMode]);
+
+  React.useEffect(() => {
+    if (!selectedNode) return;
+
+    const isTypingTarget = (t: EventTarget | null) => {
+      if (!t || !(t instanceof HTMLElement)) return false;
+      const tag = t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (t.isContentEditable) return true;
+      if (t.closest('[role="dialog"]')) return true;
+      return false;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (!nodeSupportsHotkeyPickPoint()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        void (async () => {
+          const pickMethod = resolvePickMethod();
+          try {
+            if (selectedNode.subType === 'click') {
+              const res = onPickClick
+                ? await onPickClick('coord', pickMethod)
+                : await onPickPoint?.(pickMethod);
+              if (!res?.ok) {
+                if (res && res.cancelled !== true) {
+                  await alert({
+                    title: '取点失败',
+                    description: res?.error || res?.message || '已取消或超时',
+                  });
+                }
+                return;
+              }
+              applyClickCapture(res);
+              return;
+            }
+            const schema = schemaMap[selectedNode.subType];
+            const inputs = schema?.inputs || [];
+            const xInput = inputs.find(
+              (i: any) =>
+                (i.name === 'x' || i.name === 'from_x') &&
+                inputVisible(i, selectedNode.config),
+            );
+            if (!xInput || !onPickPoint) return;
+            const res = await onPickPoint(pickMethod);
+            if (!res?.ok) {
+              if (res && res.cancelled !== true) {
+                await alert({
+                  title: '取点失败',
+                  description: res?.error || res?.message || '已取消或超时',
+                });
+              }
+              return;
+            }
+            applyPointPick(xInput.name, res);
+          } catch (err: any) {
+            await alert({
+              title: '取点失败',
+              description: String(err?.message || err),
+            });
+          }
+        })();
+      }
+    };
+
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [
+    selectedNode,
+    onPickPoint,
+    onPickClick,
+    nodeSupportsHotkeyPickPoint,
+    schemaMap,
+    alert,
+  ]);
 
   const renderNexuzSchemaForm = () => {
     const schema = schemaMap[selectedNode.subType];

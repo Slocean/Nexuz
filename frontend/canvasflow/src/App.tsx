@@ -1199,6 +1199,10 @@ function AppShell() {
           }
           onPickRegion={(method?: string) => runCoordPick('region', method)}
           onCaptureTemplate={(method?: string) => runCoordPick('template', method)}
+          onRemoveNode={(id: string) => {
+            deleteNodes([id]);
+            appendLog({ level: 'info', message: `已删除节点 ${id}` });
+          }}
           onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
           defaultCaptureMode={defaultCaptureMode}
           defaultPickMethod={defaultPickMethod}
