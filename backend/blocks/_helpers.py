@@ -282,15 +282,59 @@ def color_distance(c1: str, c2: str) -> float:
     return ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
 
 
-def _imread_bgr(path: Path):
-    """Read image as BGR; supports Unicode paths (cv2.imread fails on non-ASCII)."""
+def _imread_template(path: Path):
+    """Read a template unchanged; supports Unicode paths and preserves PNG alpha."""
     import cv2
     import numpy as np
 
     raw = path.read_bytes()
     arr = np.frombuffer(raw, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    img = cv2.imdecode(arr, cv2.IMREAD_UNCHANGED)
     return img
+
+
+def _best_template_match(hay, tpl, mask=None):
+    """Return an intuitive 0..1 similarity and its best location.
+
+    CCOEFF is useful for structure but can report surprisingly low values after
+    harmless rendering/color changes.  Pixel RMSE makes identical and visually
+    near-identical images score as users expect.  Transparent template pixels
+    are excluded from the RMSE comparison.
+    """
+    import cv2
+    import numpy as np
+
+    channels = int(tpl.shape[2]) if tpl.ndim == 3 else 1
+    if mask is not None:
+        valid = np.asarray(mask, dtype=np.float32)
+        if valid.ndim == 2 and channels > 1:
+            valid = np.repeat(valid[:, :, None], channels, axis=2)
+        weight = float(np.sum(valid * valid))
+        if weight <= 0:
+            valid = None
+        else:
+            squared_error = cv2.matchTemplate(hay, tpl, cv2.TM_SQDIFF, mask=valid)
+            similarity = 1.0 - np.sqrt(np.maximum(squared_error, 0.0) / weight) / 255.0
+            similarity = np.nan_to_num(similarity, nan=0.0, posinf=0.0, neginf=0.0)
+            _min_val, max_val, _min_loc, max_loc = cv2.minMaxLoc(similarity)
+            return max(0.0, min(1.0, float(max_val))), max_loc
+
+    pixel_count = max(1, int(tpl.shape[0]) * int(tpl.shape[1]) * channels)
+    squared_error = cv2.matchTemplate(hay, tpl, cv2.TM_SQDIFF)
+    pixel_similarity = 1.0 - np.sqrt(np.maximum(squared_error, 0.0) / pixel_count) / 255.0
+    pixel_similarity = np.nan_to_num(
+        pixel_similarity, nan=0.0, posinf=0.0, neginf=0.0
+    )
+    _min_val, pixel_score, _min_loc, pixel_loc = cv2.minMaxLoc(pixel_similarity)
+
+    # Keep correlation as a second signal for templates whose brightness or
+    # contrast changed, while avoiding its NaN/Inf behavior on flat images.
+    correlation = cv2.matchTemplate(hay, tpl, cv2.TM_CCOEFF_NORMED)
+    correlation = np.nan_to_num(correlation, nan=0.0, posinf=0.0, neginf=0.0)
+    _min_val, corr_score, _min_loc, corr_loc = cv2.minMaxLoc(correlation)
+    if float(corr_score) > float(pixel_score):
+        return max(0.0, min(1.0, float(corr_score))), corr_loc
+    return max(0.0, min(1.0, float(pixel_score))), pixel_loc
 
 
 def match_template_on_screen(
@@ -313,11 +357,25 @@ def match_template_on_screen(
         raise FileNotFoundError(f"模板图片不存在: {template_path}")
 
     try:
-        tpl = _imread_bgr(path)
+        template = _imread_template(path)
     except OSError as exc:
         raise ValueError(f"无法读取模板图片: {template_path}") from exc
-    if tpl is None:
+    if template is None:
         raise ValueError(f"无法读取模板图片: {template_path}")
+    if template.ndim == 2:
+        tpl = cv2.cvtColor(template, cv2.COLOR_GRAY2BGR)
+        mask = None
+    elif template.shape[2] == 4:
+        tpl = template[:, :, :3]
+        alpha = template[:, :, 3]
+        # Ignore transparent and antialiased edge pixels: their stored RGB is
+        # not the color produced when the image is rendered over a background.
+        mask = (alpha >= 250).astype(np.float32)
+        if not np.any(mask):
+            mask = (alpha > 0).astype(np.float32)
+    else:
+        tpl = template[:, :, :3]
+        mask = None
 
     if search_region:
         x1, y1, x2, y2 = validate_region(search_region)
@@ -349,11 +407,12 @@ def match_template_on_screen(
                 "message": f"搜索区域过小（{hw}x{hh}），模板为 {tw}x{th}",
             }
         tpl = tpl[0:hh, 0:hw]
+        if mask is not None:
+            mask = mask[0:hh, 0:hw]
         th, tw = hh, hw
 
-    res = cv2.matchTemplate(hay, tpl, cv2.TM_CCOEFF_NORMED)
-    _min_val, max_val, _min_loc, max_loc = cv2.minMaxLoc(res)
-    score = round(float(max_val), 4)
+    max_val, max_loc = _best_template_match(hay, tpl, mask)
+    score = round(max_val, 4)
     found = score >= float(threshold)
     left = int(origin_x + max_loc[0])
     top = int(origin_y + max_loc[1])
