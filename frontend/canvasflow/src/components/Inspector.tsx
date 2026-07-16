@@ -43,7 +43,6 @@ interface InspectorProps {
   selectedNode: WorkflowNode | null;
   onUpdateNodeConfig: (nodeId: string, updatedConfig: any) => void;
   onUpdateNodeName?: (nodeId: string, name: string) => void;
-  onRemoveNode?: (nodeId: string) => void;
   onDeselect: () => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
@@ -1021,7 +1020,6 @@ export default function Inspector({
   selectedNode,
   onUpdateNodeConfig,
   onUpdateNodeName,
-  onRemoveNode,
   onDeselect,
   themeName,
   themeMode,
