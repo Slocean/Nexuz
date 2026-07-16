@@ -37,10 +37,11 @@ export type UpdateCheckInfo = {
   error?: string;
 };
 
-type Phase = 'info' | 'downloading' | 'ready' | 'applying' | 'uptodate' | 'error';
+type Phase = 'checking' | 'info' | 'downloading' | 'ready' | 'applying' | 'uptodate' | 'error';
 
 type UpdateDialogApi = {
-  openUpdate: (info?: UpdateCheckInfo | null) => Promise<void>;
+  /** Opens the dialog immediately. Without preset, shows loading then fetches. Returns check result. */
+  openUpdate: (info?: UpdateCheckInfo | null) => Promise<UpdateCheckInfo | null>;
 };
 
 const UpdateCtx = createContext<UpdateDialogApi | null>(null);
@@ -51,6 +52,7 @@ export function useUpdateDialog(): UpdateDialogApi {
     return {
       openUpdate: async () => {
         console.warn('UpdateDialogProvider missing');
+        return null;
       },
     };
   }
@@ -118,62 +120,68 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
     return () => window.removeEventListener('nexuz-update-progress', onProgress as EventListener);
   }, []);
 
-  const busy = phase === 'downloading' || phase === 'applying';
+  const busy = phase === 'checking' || phase === 'downloading' || phase === 'applying';
 
   const close = useCallback(() => {
     if (busy) return;
     setOpen(false);
   }, [busy]);
 
-  const openUpdate = useCallback(async (preset?: UpdateCheckInfo | null) => {
+  const openUpdate = useCallback(async (preset?: UpdateCheckInfo | null): Promise<UpdateCheckInfo | null> => {
     setError('');
     setPercent(null);
     setStatusText('');
-    setPhase('info');
+    setInfo(null);
 
     let data = preset || null;
     if (!data) {
+      // Open immediately with loading — do not wait for network before showing UI
       setOpen(true);
-      setPhase('downloading');
+      setPhase('checking');
       setStatusText('正在检查更新…');
       try {
         const res = await bridge.checkForUpdate();
         if (!res?.ok) {
           setPhase('error');
           setError(res?.error || '检查更新失败');
-          return;
+          return res || { ok: false, error: '检查更新失败' };
         }
         if (!res.update_available) {
-          setInfo({
+          const uptodate: UpdateCheckInfo = {
+            ok: true,
+            update_available: false,
             current_version: res.current_version,
             latest_version: res.latest_version,
             message: res.message || '已是最新版本',
-          });
+          };
+          setInfo(uptodate);
           setPhase('uptodate');
-          return;
+          return uptodate;
         }
         data = res;
       } catch (e: any) {
+        const err = String(e?.message || e || '检查更新失败');
         setPhase('error');
-        setError(String(e?.message || e || '检查更新失败'));
-        return;
+        setError(err);
+        return { ok: false, error: err };
       }
     } else if (data.update_available === false) {
       setInfo(data);
       setPhase('uptodate');
       setOpen(true);
-      return;
+      return data;
     } else if (data.ok === false) {
       setInfo(data);
       setPhase('error');
       setError(data.error || '检查更新失败');
       setOpen(true);
-      return;
+      return data;
     }
 
     setInfo(data);
     setPhase('info');
     setOpen(true);
+    return data;
   }, []);
 
   const startDownload = async () => {
@@ -224,22 +232,22 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
   const title =
     phase === 'ready'
       ? '下载完成'
-      : phase === 'downloading'
-        ? statusText.includes('检查')
-          ? '检查更新'
-          : '正在下载更新'
-        : phase === 'applying'
-          ? '正在应用更新'
-          : phase === 'uptodate'
-            ? '已是最新版本'
-            : phase === 'error'
-              ? '更新失败'
-              : info?.latest_version
-                ? `发现新版本 ${info.latest_version}`
-                : '检查更新';
+      : phase === 'checking'
+        ? '检查更新'
+        : phase === 'downloading'
+          ? '正在下载更新'
+          : phase === 'applying'
+            ? '正在应用更新'
+            : phase === 'uptodate'
+              ? '已是最新版本'
+              : phase === 'error'
+                ? '更新失败'
+                : info?.latest_version
+                  ? `发现新版本 ${info.latest_version}`
+                  : '检查更新';
 
   const showProgress =
-    phase === 'downloading' || phase === 'ready' || phase === 'applying';
+    phase === 'checking' || phase === 'downloading' || phase === 'ready' || phase === 'applying';
 
   return (
     <UpdateCtx.Provider value={api}>
@@ -291,13 +299,15 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
                   <ProgressBlock
                     statusText={
                       statusText ||
-                      (phase === 'ready'
-                        ? '下载完成'
-                        : phase === 'applying'
-                          ? '正在重启…'
-                          : '下载中…')
+                      (phase === 'checking'
+                        ? '正在检查更新…'
+                        : phase === 'ready'
+                          ? '下载完成'
+                          : phase === 'applying'
+                            ? '正在重启…'
+                            : '下载中…')
                     }
-                    percent={phase === 'downloading' && statusText.includes('检查') ? null : percent}
+                    percent={phase === 'checking' ? null : percent}
                     spinning={busy}
                     hint={
                       phase === 'ready'

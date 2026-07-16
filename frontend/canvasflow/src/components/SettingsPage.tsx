@@ -640,14 +640,14 @@ export default function SettingsPage({
     setUpdateBusy(true);
     setUpdateMsg('正在检查更新…');
     try {
-      const res = await withTimeout(bridge.checkForUpdate(), 25000, '检查更新');
+      // Dialog opens immediately with loading
+      const res = await openUpdate();
       setUpdateInfo(res);
       if (!res?.ok) {
         setUpdateMsg(res?.error || '检查失败');
         return;
       }
       setUpdateMsg(res.message || (res.update_available ? '发现新版本' : '已是最新版本'));
-      await openUpdate(res);
     } catch (e: any) {
       setUpdateMsg(String(e?.message || e || '检查失败'));
     } finally {

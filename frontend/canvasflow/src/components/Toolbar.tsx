@@ -94,7 +94,7 @@ export default function Toolbar({
   viewMode = 'canvas',
   onViewModeChange
 }: ToolbarProps) {
-  const { alert } = useAppDialog();
+  const { openAlert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
   const [isSaved, setIsSaved] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -136,28 +136,31 @@ export default function Toolbar({
   }, []);
 
   const handleCheckUpdate = async () => {
-    try {
-      const res = await bridge.checkForUpdate();
-      if (!res?.ok) {
-        await alert({ title: '检查更新失败', description: res?.error || '无法连接 GitHub' });
-        return;
-      }
-      setUpdateDot(!!res.update_available);
-      await openUpdate(res);
-    } catch (e: any) {
-      await alert({ title: '检查更新失败', description: String(e?.message || e) });
-    }
+    // Dialog opens immediately with loading; network runs inside openUpdate()
+    const res = await openUpdate();
+    if (res?.ok) setUpdateDot(!!res.update_available);
   };
 
   const handleNotice = async () => {
+    const dlg = openAlert({
+      title: '通知',
+      description: '正在获取通知…',
+      loading: true,
+      okText: '我知道了',
+    });
     try {
       const res = await bridge.fetchNotice();
       const n = res?.notice;
       if (!res?.ok || !n?.body) {
-        await alert({ title: '通知', description: res?.error || '暂无通知', okText: '我知道了' });
+        dlg.setContent({
+          title: '通知',
+          description: res?.error || '暂无通知',
+          okText: '我知道了',
+        });
+        await dlg.done;
         return;
       }
-      await alert({
+      dlg.setContent({
         title: n.title || '通知',
         description: String(n.body),
         okText: '我知道了',
@@ -170,8 +173,14 @@ export default function Toolbar({
         }
         setAnnDot(false);
       }
+      await dlg.done;
     } catch (e: any) {
-      await alert({ title: '获取通知失败', description: String(e?.message || e), okText: '我知道了' });
+      dlg.setContent({
+        title: '获取通知失败',
+        description: String(e?.message || e),
+        okText: '我知道了',
+      });
+      await dlg.done;
     }
   };
 

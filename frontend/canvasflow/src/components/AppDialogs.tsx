@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
 
 type ConfirmOpts = {
   title?: string;
@@ -36,9 +37,28 @@ type AlertOpts = {
   okText?: string;
 };
 
+type OpenAlertOpts = {
+  title?: string;
+  description?: string;
+  okText?: string;
+  /** When true, show spinner and hide OK until setContent / update */
+  loading?: boolean;
+};
+
+type AlertHandle = {
+  /** Replace content and exit loading (user can dismiss with OK) */
+  setContent: (opts: { title?: string; description: string; okText?: string }) => void;
+  /** Update fields without closing; can toggle loading */
+  update: (opts: Partial<OpenAlertOpts> & { description?: string }) => void;
+  /** Resolves when user clicks OK (after loading ends) */
+  done: Promise<void>;
+};
+
 type DialogApi = {
   confirm: (opts: ConfirmOpts | string) => Promise<boolean>;
   alert: (opts: AlertOpts | string) => Promise<void>;
+  /** Open dialog immediately (optionally loading), then setContent when ready */
+  openAlert: (opts?: OpenAlertOpts) => AlertHandle;
 };
 
 const DialogCtx = createContext<DialogApi | null>(null);
@@ -46,12 +66,21 @@ const DialogCtx = createContext<DialogApi | null>(null);
 export function useAppDialog(): DialogApi {
   const ctx = useContext(DialogCtx);
   if (!ctx) {
-    // Fallback for components outside provider (should not happen)
     return {
       confirm: async (opts) =>
         window.confirm(typeof opts === 'string' ? opts : opts.description),
       alert: async (opts) => {
         window.alert(typeof opts === 'string' ? opts : opts.description);
+      },
+      openAlert: (opts) => {
+        const description = opts?.description || '';
+        return {
+          setContent: (o) => {
+            window.alert(o.description);
+          },
+          update: () => {},
+          done: Promise.resolve(),
+        };
       },
     };
   }
@@ -74,6 +103,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
     title: string;
     description: string;
     okText: string;
+    loading: boolean;
   } | null>(null);
   const alertResolver = useRef<(() => void) | null>(null);
 
@@ -101,11 +131,58 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
         title: o.title || '提示',
         description: o.description,
         okText: o.okText || '知道了',
+        loading: false,
       });
     });
   }, []);
 
-  const api = useMemo(() => ({ confirm, alert }), [confirm, alert]);
+  const openAlert = useCallback((opts?: OpenAlertOpts): AlertHandle => {
+    let resolveDone: (() => void) | null = null;
+    const done = new Promise<void>((resolve) => {
+      resolveDone = resolve;
+    });
+    alertResolver.current = () => {
+      resolveDone?.();
+    };
+    setAlertState({
+      open: true,
+      title: opts?.title || '提示',
+      description: opts?.description || (opts?.loading ? '加载中…' : ''),
+      okText: opts?.okText || '知道了',
+      loading: !!opts?.loading,
+    });
+    return {
+      setContent: (o) => {
+        setAlertState((s) =>
+          s
+            ? {
+                ...s,
+                title: o.title ?? s.title,
+                description: o.description,
+                okText: o.okText || s.okText,
+                loading: false,
+              }
+            : s,
+        );
+      },
+      update: (o) => {
+        setAlertState((s) =>
+          s
+            ? {
+                ...s,
+                title: o.title ?? s.title,
+                description: o.description ?? s.description,
+                okText: o.okText ?? s.okText,
+                loading: o.loading !== undefined ? !!o.loading : s.loading,
+              }
+            : s,
+        );
+      },
+      done,
+    };
+  }, []);
+
+  const api = useMemo(() => ({ confirm, alert, openAlert }), [confirm, alert, openAlert]);
 
   const finishConfirm = (v: boolean) => {
     const resolve = confirmResolver.current;
@@ -115,6 +192,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
   };
 
   const finishAlert = () => {
+    if (alertState?.loading) return;
     const resolve = alertResolver.current;
     alertResolver.current = null;
     setAlertState((s) => (s ? { ...s, open: false } : s));
@@ -168,20 +246,45 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
       <Dialog
         open={!!alertState?.open}
         onOpenChange={(open) => {
-          if (!open && alertResolver.current) finishAlert();
+          if (!open && alertResolver.current && !alertState?.loading) finishAlert();
         }}
       >
-        <DialogContent showClose={false}>
+        <DialogContent
+          showClose={!alertState?.loading}
+          onPointerDownOutside={(e) => {
+            if (alertState?.loading) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (alertState?.loading) e.preventDefault();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{alertState?.title}</DialogTitle>
-            <DialogDescription className="whitespace-pre-wrap">
-              {alertState?.description}
+            <DialogDescription asChild>
+              <div className="text-sm text-[var(--muted-foreground)]">
+                {alertState?.loading ? (
+                  <div className="flex items-center gap-2 py-1">
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    <span className="whitespace-pre-wrap">
+                      {alertState?.description || '加载中…'}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap">{alertState?.description}</p>
+                )}
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" onClick={finishAlert}>
-              {alertState?.okText}
-            </Button>
+            {alertState?.loading ? (
+              <Button type="button" variant="ghost" disabled>
+                请稍候…
+              </Button>
+            ) : (
+              <Button type="button" onClick={finishAlert}>
+                {alertState?.okText}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
