@@ -785,6 +785,34 @@ class Api:
             )
         return {"ok": True, "flows": items, "dir": str(folder), "exists": True}
 
+    def rename_flow(self, filepath: str, new_name: str) -> dict:
+        """Update a flow's display name without moving its file.
+
+        Keeping the path stable prevents existing subflow and schedule references
+        from breaking when a user renames a library entry.
+        """
+        path = Path(str(filepath))
+        flows = self._flows_dir(create=False)
+        name = str(new_name or "").strip()
+        if not name:
+            return {"ok": False, "error": "流程名称不能为空"}
+        try:
+            if not flows.is_dir() or not self._is_under_dir(path, flows):
+                return {"ok": False, "error": "只能重命名数据目录内的流程"}
+            resolved = path.resolve()
+            if not resolved.is_file():
+                return {"ok": False, "error": "流程文件不存在"}
+            flow = json.loads(resolved.read_text(encoding="utf-8"))
+            if not isinstance(flow, dict):
+                return {"ok": False, "error": "无效的流程对象"}
+            flow["name"] = name
+            temp = resolved.with_suffix(resolved.suffix + ".tmp")
+            temp.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
+            temp.replace(resolved)
+            return {"ok": True, "path": str(resolved), "name": name}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def delete_flow(self, filepath: str) -> dict:
         path = Path(str(filepath))
         flows = self._flows_dir(create=False)

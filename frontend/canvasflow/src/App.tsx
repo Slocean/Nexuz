@@ -657,6 +657,24 @@ function AppShell() {
     }
   };
 
+  const handleRenameFlow = async (path: string, newName: string) => {
+    const res = await bridge.renameFlow(path, newName);
+    if (!res?.ok) {
+      const message = res?.error || '重命名失败';
+      appendLog({ level: 'error', message });
+      await alert({ title: '重命名失败', description: message });
+      return false;
+    }
+    const normalizePath = (value: string | null | undefined) =>
+      String(value || '').replace(/\\/g, '/').toLowerCase();
+    if (normalizePath(filePath) === normalizePath(path)) {
+      updateFlowMeta({ name: res.name || newName });
+    }
+    setFlowsRefreshToken((n) => n + 1);
+    appendLog({ level: 'ok', message: `流程已重命名为: ${res.name || newName}` });
+    return true;
+  };
+
   const handleNewFlow = async () => {
     if (Object.keys(flow.nodes || {}).length) {
       const ok = await confirm({
@@ -1126,6 +1144,7 @@ function AppShell() {
           interactionLocked={isExecuting}
           currentFlowPath={filePath}
           onOpenFlowPath={handleOpenFlowPath}
+          onRenameFlow={handleRenameFlow}
           onNewFlow={handleNewFlow}
           onImportFlow={handleImport}
           onExportFlow={handleExport}

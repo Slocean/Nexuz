@@ -24,6 +24,7 @@ interface SidebarProps {
   interactionLocked?: boolean;
   currentFlowPath?: string | null;
   onOpenFlowPath?: (path: string) => void;
+  onRenameFlow?: (path: string, newName: string) => Promise<boolean>;
   onNewFlow?: () => void;
   onImportFlow?: () => void;
   onExportFlow?: () => void;
@@ -127,6 +128,7 @@ export default function Sidebar({
   interactionLocked = false,
   currentFlowPath = null,
   onOpenFlowPath,
+  onRenameFlow,
   onNewFlow,
   onImportFlow,
   onExportFlow,
@@ -226,6 +228,7 @@ export default function Sidebar({
             themeMode={themeMode}
             currentPath={currentFlowPath}
             onOpenFlow={(path) => onOpenFlowPath?.(path)}
+            onRenameFlow={onRenameFlow}
             onNewFlow={() => onNewFlow?.()}
             onImport={onImportFlow}
             onExport={onExportFlow}

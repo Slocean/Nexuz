@@ -309,7 +309,12 @@ def _pick_exe_asset(release: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def resolve_download_url(version: str | None = None) -> dict[str, Any]:
-    """Resolve a real browser_download_url from GitHub Releases (tag -> latest)."""
+    """Resolve browser_download_url for a specific Release tag.
+
+    When ``version`` is set, only that tag is accepted. Never silently fall back
+    to ``/releases/latest`` — that used to hand users an older exe while the UI
+    still claimed the newer channel version (forcing a second update later).
+    """
     ver = str(version or "").lstrip("v").strip()
     tried: list[str] = []
 
@@ -335,21 +340,56 @@ def resolve_download_url(version: str | None = None) -> dict[str, Any]:
             f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/tags/v{ver}"
         )
         tried.append(tag_url)
+        html = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/tag/v{ver}"
         try:
             hit = from_release(_http_github_json(tag_url))
             if hit:
+                # Guard against a mismatched tag payload.
+                got = str(hit.get("latest_version") or "").lstrip("v").strip()
+                if got and got != ver:
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"Release 版本不匹配：通道要求 v{ver}，"
+                            f"但拿到的是 v{got}。请等待对应 Release 发布完成。"
+                        ),
+                        "tried": tried,
+                        "html_url": html,
+                        "pending": True,
+                    }
                 return hit
+            return {
+                "ok": False,
+                "error": (
+                    f"v{ver} 的 Release 已存在，但还没有 Nexuz.exe。"
+                    f"打包可能仍在进行或失败，请稍后再试。"
+                ),
+                "tried": tried,
+                "html_url": html,
+                "pending": True,
+            }
         except urllib.error.HTTPError as exc:
-            if exc.code != 404:
+            if exc.code == 404:
                 return {
                     "ok": False,
-                    "error": f"查询 Release 失败 HTTP {exc.code}",
+                    "error": (
+                        f"v{ver} 尚未发布（Release 不存在或 exe 未上传）。"
+                        f"通道已宣告该版本时，通常是打包还在跑——请稍后再检查更新。"
+                    ),
                     "tried": tried,
-                    "html_url": RELEASES_PAGE_URL,
+                    "html_url": html,
+                    "pending": True,
                 }
+            return {
+                "ok": False,
+                "error": f"查询 Release 失败 HTTP {exc.code}",
+                "tried": tried,
+                "html_url": html,
+            }
         except Exception as exc:
-            return {"ok": False, "error": str(exc), "tried": tried, "html_url": RELEASES_PAGE_URL}
+            return {"ok": False, "error": str(exc), "tried": tried, "html_url": html}
 
+    # No target version: resolve whatever GitHub considers latest.
     latest_url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
     tried.append(latest_url)
     try:
@@ -403,6 +443,17 @@ def check_for_update() -> dict[str, Any]:
     )
 
     available = version_gt(latest, local)
+    asset_ready = bool(resolved.get("ok") and download_url)
+    pending = bool(resolved.get("pending"))
+    if available and not asset_ready:
+        message = (
+            f"发现新版本 {latest}，但安装包尚未就绪"
+            + ("（发布仍在进行中，请稍后再试）" if pending else "")
+        )
+    elif available:
+        message = f"发现新版本 {latest}"
+    else:
+        message = "已是最新版本"
     return {
         "ok": True,
         "update_available": available,
@@ -412,13 +463,15 @@ def check_for_update() -> dict[str, Any]:
         "announcement": ann,
         "history": history,
         "html_url": html_url,
-        "download_url": download_url,
+        # Never return a URL for a different release than `latest`.
+        "download_url": download_url if asset_ready else None,
         "asset_name": resolved.get("asset_name") or ASSET_NAME,
-        "asset_size": resolved.get("asset_size"),
-        "asset_ready": bool(resolved.get("ok") and download_url),
+        "asset_size": resolved.get("asset_size") if asset_ready else None,
+        "asset_ready": asset_ready,
+        "asset_pending": pending,
         "asset_error": None if resolved.get("ok") else resolved.get("error"),
         "source": ch.get("source"),
-        "message": f"发现新版本 {latest}" if available else "已是最新版本",
+        "message": message,
     }
 
 

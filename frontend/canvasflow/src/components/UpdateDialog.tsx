@@ -35,6 +35,9 @@ export type UpdateCheckInfo = {
   html_url?: string;
   message?: string;
   error?: string;
+  asset_ready?: boolean;
+  asset_pending?: boolean;
+  asset_error?: string | null;
 };
 
 type Phase = 'checking' | 'info' | 'downloading' | 'ready' | 'applying' | 'uptodate' | 'error';
@@ -186,6 +189,15 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
 
   const startDownload = async () => {
     if (!info) return;
+    if (info.asset_ready === false || (!info.download_url && info.asset_pending)) {
+      setPhase('error');
+      setError(
+        info.asset_error ||
+          info.message ||
+          `新版本 ${info.latest_version || ''} 的安装包尚未上传完成，请稍后再试。`,
+      );
+      return;
+    }
     setPhase('downloading');
     setPercent(null);
     setStatusText('正在下载更新包…');
@@ -295,6 +307,13 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
                   </p>
                 ) : null}
 
+                {phase === 'info' && info?.update_available && info.asset_ready === false ? (
+                  <p className="text-amber-700 dark:text-amber-400 text-xs leading-relaxed">
+                    {info.asset_error ||
+                      '安装包还在发布中（或上次发版失败）。此时下载会拿到旧包，请等 Release 上传完成后再更新。'}
+                  </p>
+                ) : null}
+
                 {showProgress ? (
                   <ProgressBlock
                     statusText={
@@ -334,9 +353,19 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                   稍后
                 </Button>
-                <Button type="button" onClick={() => void startDownload()}>
-                  下载更新
-                </Button>
+                {info?.asset_ready === false ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void bridge.openReleasesPage()}
+                  >
+                    打开 Releases
+                  </Button>
+                ) : (
+                  <Button type="button" onClick={() => void startDownload()}>
+                    下载更新
+                  </Button>
+                )}
               </>
             ) : null}
 

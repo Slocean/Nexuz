@@ -1216,6 +1216,7 @@ export const bridge = {
   listFlows: () => call('list_flows'),
   pickFlowFile: () => call('pick_flow_file'),
   deleteFlow: (filepath) => call('delete_flow', filepath),
+  renameFlow: (filepath, newName) => call('rename_flow', filepath, newName),
   saveFlow: (flow, filepath = null, name = null) =>
     call('save_flow', JSON.stringify(flow), filepath, name),
   loadFlow: (filepath = null) => call('load_flow', filepath),

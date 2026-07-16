@@ -2,12 +2,13 @@
  * Flow library panel — lists flows in the user data directory.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { Download, Plus, RefreshCw, Trash2, FileJson, Upload } from 'lucide-react';
+import { Download, FileJson, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
 import { useAppDialog } from './AppDialogs';
+import SaveNameDialog from './SaveNameDialog';
 
 export interface FlowListItem {
   name: string;
@@ -21,6 +22,7 @@ export default function FlowLibrary({
   themeMode,
   currentPath,
   onOpenFlow,
+  onRenameFlow,
   onNewFlow,
   onImport,
   onExport,
@@ -30,6 +32,7 @@ export default function FlowLibrary({
   themeMode: ThemeMode;
   currentPath?: string | null;
   onOpenFlow: (path: string) => void;
+  onRenameFlow?: (path: string, newName: string) => Promise<boolean>;
   onNewFlow: () => void;
   onImport?: () => void;
   onExport?: () => void;
@@ -40,6 +43,7 @@ export default function FlowLibrary({
   const [flows, setFlows] = useState<FlowListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<FlowListItem | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -77,6 +81,14 @@ export default function FlowLibrary({
       setError(res.error || '删除失败');
       return;
     }
+    await refresh();
+  };
+
+  const rename = async (newName: string) => {
+    if (!renameTarget || !onRenameFlow) return;
+    const ok = await onRenameFlow(renameTarget.path, newName);
+    if (!ok) return;
+    setRenameTarget(null);
     await refresh();
   };
 
@@ -139,7 +151,7 @@ export default function FlowLibrary({
                 type="button"
                 className="min-w-0 flex-1 text-left"
                 onClick={() => onOpenFlow(f.path)}
-                title={f.name}
+                title={`应用「${f.name}」`}
               >
                 <div className="flex items-center gap-1.5">
                   <FileJson className="w-3.5 h-3.5 shrink-0 opacity-60" />
@@ -149,19 +161,43 @@ export default function FlowLibrary({
                   {fmtTime(f.mtime)}
                 </div>
               </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 text-rose-400"
-                onClick={() => remove(f)}
-                title="删除"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
+              <div className="flex items-center gap-0.5 shrink-0">
+                {onRenameFlow && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 opacity-70 group-hover:opacity-100"
+                    onClick={() => setRenameTarget(f)}
+                    title={`重命名「${f.name}」`}
+                    aria-label={`重命名流程 ${f.name}`}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 opacity-0 group-hover:opacity-100 text-rose-400 focus-visible:opacity-100"
+                  onClick={() => remove(f)}
+                  title={`删除「${f.name}」`}
+                  aria-label={`删除流程 ${f.name}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
           );
         })}
       </div>
+      <SaveNameDialog
+        open={!!renameTarget}
+        initialName={renameTarget?.name || ''}
+        title="重命名流程"
+        description="修改流程在流程管理中的显示名称，不会改变文件路径。"
+        confirmText="确认修改"
+        onCancel={() => setRenameTarget(null)}
+        onConfirm={(name) => void rename(name)}
+      />
     </div>
   );
 }
