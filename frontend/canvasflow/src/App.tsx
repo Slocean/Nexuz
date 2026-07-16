@@ -16,6 +16,7 @@ import SettingsPage from './components/SettingsPage';
 import DebugBar from './components/DebugBar';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
 import { UpdateDialogProvider, useUpdateDialog } from './components/UpdateDialog';
+import { useScreenshotPick } from './hooks/useScreenshotPick';
 import { getThemeColors } from './theme';
 import {
   applyDefaultCaptureMode,
@@ -126,11 +127,40 @@ function AppShell() {
   const toggleBreakpoint = useFlowStore((s) => s.toggleBreakpoint);
   const nodeOutputs = useFlowStore((s) => s.nodeOutputs);
   const logs = useFlowStore((s) => s.logs);
+  const logArchive = useFlowStore((s) => s.logArchive);
   const runHistory = useFlowStore((s) => s.runHistory);
   const clearRunHistory = useFlowStore((s) => s.clearRunHistory);
   const filePath = useFlowStore((s) => s.filePath);
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
+  const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
+  const {
+    pickPoint: screenshotPickPoint,
+    pickRegion: screenshotPickRegion,
+    captureTemplate: screenshotCaptureTemplate,
+    dialog: screenPickDialog,
+  } = useScreenshotPick({ hideWindow: hideWindowOnRecord });
+
+  const runCoordPick = useCallback(
+    (kind: 'point' | 'region' | 'template', method?: string) => {
+      const m = method === 'live' || method === 'screenshot' ? method : defaultPickMethod;
+      if (m === 'live') {
+        if (kind === 'point') return bridge.pickPoint(hideWindowOnRecord);
+        if (kind === 'region') return bridge.pickRegion(hideWindowOnRecord);
+        return bridge.captureTemplate(hideWindowOnRecord);
+      }
+      if (kind === 'point') return screenshotPickPoint();
+      if (kind === 'region') return screenshotPickRegion();
+      return screenshotCaptureTemplate();
+    },
+    [
+      defaultPickMethod,
+      hideWindowOnRecord,
+      screenshotPickPoint,
+      screenshotPickRegion,
+      screenshotCaptureTemplate,
+    ],
+  );
 
   const setSchemas = useFlowStore((s) => s.setSchemas);
   const setBridgeReady = useFlowStore((s) => s.setBridgeReady);
@@ -1158,15 +1188,23 @@ function AppShell() {
           themeMode={themeMode as any}
           logs={canvasLogs}
           rawLogs={logs}
+          fullLogs={logArchive}
           schemaMap={schemaMap}
           bindIssues={bindIssues}
-          onPickPoint={async () => bridge.pickPoint(hideWindowOnRecord)}
-          onPickClick={async (mode: string) => bridge.pickClick(mode, hideWindowOnRecord)}
-          onPickRegion={async () => bridge.pickRegion(hideWindowOnRecord)}
-          onCaptureTemplate={async () => bridge.captureTemplate(hideWindowOnRecord)}
+          onPickPoint={(method?: string) => runCoordPick('point', method)}
+          onPickClick={(mode: string, method?: string) =>
+            mode === 'frida_ui'
+              ? bridge.pickClick(mode, hideWindowOnRecord)
+              : runCoordPick('point', method)
+          }
+          onPickRegion={(method?: string) => runCoordPick('region', method)}
+          onCaptureTemplate={(method?: string) => runCoordPick('template', method)}
           onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
           defaultCaptureMode={defaultCaptureMode}
+          defaultPickMethod={defaultPickMethod}
         />
+
+        {screenPickDialog}
 
         {/* Design-only: keep AI Assistant UI as-is */}
         <AIAssistant

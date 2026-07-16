@@ -2,6 +2,7 @@
  * App settings page — behavior / window prefs (not buried in Inspector).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   EyeOff,
   ExternalLink,
@@ -18,12 +19,12 @@ import {
   Unplug,
   ChevronDown,
   ChevronRight,
+  CircleHelp,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -37,6 +38,8 @@ import { useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
+
+type ThemeColors = ReturnType<typeof getThemeColors>;
 
 type ProcRow = {
   pid: number;
@@ -64,6 +67,180 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+/** ? icon — portal tooltip (opaque, not clipped by overflow) */
+function HelpHint({
+  text,
+  colors,
+  themeMode,
+}: {
+  text: React.ReactNode;
+  colors: ThemeColors;
+  themeMode: ThemeMode;
+}) {
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  const tipRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+
+  const updatePos = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const tipW = Math.min(320, Math.max(160, window.innerWidth - 16));
+    const tipH = tipRef.current?.offsetHeight || 96;
+    let left = r.left + r.width / 2 - tipW / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+    const spaceAbove = r.top - 8;
+    const spaceBelow = window.innerHeight - r.bottom - 8;
+    let top: number;
+    if (spaceAbove >= tipH + 4 || spaceAbove >= spaceBelow) {
+      top = Math.max(8, r.top - tipH - 8);
+    } else {
+      top = r.bottom + 8;
+      if (top + tipH > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - tipH - 8);
+      }
+    }
+    setPos({ left, top, width: tipW });
+  }, []);
+
+  const show = useCallback(() => {
+    setOpen(true);
+    updatePos();
+    requestAnimationFrame(() => {
+      updatePos();
+      requestAnimationFrame(updatePos);
+    });
+  }, [updatePos]);
+
+  const hide = useCallback(() => {
+    setOpen(false);
+    setPos(null);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onScrollOrResize = () => updatePos();
+    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+    };
+  }, [open, updatePos]);
+
+  const tipBg = themeMode === 'dark' ? '#141822' : '#ffffff';
+  const tipFg = themeMode === 'dark' ? '#e8eaef' : '#1a1d26';
+  const tipBorder = themeMode === 'dark' ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)';
+
+  return (
+    <span
+      ref={triggerRef}
+      className="relative inline-flex items-center align-middle shrink-0"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      <span
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full cursor-help opacity-50 hover:opacity-90"
+        style={{ color: colors.secondaryText }}
+        tabIndex={0}
+        aria-label="说明"
+      >
+        <CircleHelp className="w-3.5 h-3.5" />
+      </span>
+      {open &&
+        createPortal(
+          <div
+            ref={tipRef}
+            role="tooltip"
+            className="fixed z-[300] rounded-lg border px-2.5 py-1.5 text-xs leading-relaxed pointer-events-none"
+            style={{
+              left: pos?.left ?? -9999,
+              top: pos?.top ?? -9999,
+              width: pos?.width ?? Math.min(320, window.innerWidth - 16),
+              visibility: pos ? 'visible' : 'hidden',
+              borderColor: tipBorder,
+              backgroundColor: tipBg,
+              color: tipFg,
+              boxShadow:
+                themeMode === 'dark'
+                  ? '0 10px 32px rgba(0,0,0,0.55)'
+                  : '0 10px 32px rgba(0,0,0,0.18)',
+            }}
+          >
+            {text}
+          </div>,
+          document.body,
+        )}
+    </span>
+  );
+}
+
+function SettingsSection({
+  title,
+  icon,
+  open,
+  onToggle,
+  colors,
+  headerRight,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  colors: ThemeColors;
+  headerRight?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="rounded-2xl border overflow-hidden"
+      style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+    >
+      <div className="flex items-center gap-1 pr-2">
+        <button
+          type="button"
+          className="flex-1 min-w-0 flex items-center gap-2 px-4 py-3.5 text-left hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
+          onClick={onToggle}
+          aria-expanded={open}
+        >
+          {open ? (
+            <ChevronDown className="w-4 h-4 shrink-0 opacity-60" style={{ color: colors.text }} />
+          ) : (
+            <ChevronRight className="w-4 h-4 shrink-0 opacity-60" style={{ color: colors.text }} />
+          )}
+          <span className="shrink-0 opacity-70" style={{ color: colors.text }}>
+            {icon}
+          </span>
+          <h2 className="font-display text-sm font-semibold truncate" style={{ color: colors.text }}>
+            {title}
+          </h2>
+        </button>
+        {headerRight ? (
+          <div className="shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            {headerRight}
+          </div>
+        ) : null}
+      </div>
+      {open ? <div className="px-5 pb-5 space-y-4 border-t" style={{ borderColor: colors.border }}>{children}</div> : null}
+    </section>
+  );
+}
+
+const SETTINGS_SECTION_IDS = [
+  'about',
+  'data',
+  'announce',
+  'click',
+  'frida',
+  'window',
+] as const;
+
+type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
+
 export default function SettingsPage({
   themeName,
   themeMode,
@@ -78,6 +255,9 @@ export default function SettingsPage({
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
   const setDefaultCaptureMode = useFlowStore((s) => s.setDefaultCaptureMode);
+  const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
+  const setDefaultPickMethod = useFlowStore((s) => s.setDefaultPickMethod);
+  const syncAllPickMethods = useFlowStore((s) => s.syncAllPickMethods);
   const syncAllClickCaptureModes = useFlowStore((s) => s.syncAllClickCaptureModes);
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
 
@@ -103,6 +283,29 @@ export default function SettingsPage({
     }
 
     setDefaultCaptureMode(mode);
+  };
+
+  const handleDefaultPickMethodChange = async (next: string) => {
+    const method = next === 'live' ? 'live' : 'screenshot';
+    if (method === defaultPickMethod) return;
+
+    const differing = Object.values(flowNodes).filter((n: any) => {
+      const cur = n?.params?.pick_method;
+      return (cur === 'live' || cur === 'screenshot') && cur !== method;
+    });
+
+    if (differing.length > 0) {
+      const label = method === 'live' ? '实地取点' : '截图取点';
+      const ok = await confirm({
+        title: '修改默认取色 / 取点方式',
+        description: `当前有 ${differing.length} 个节点的取点方式与「${label}」不同。确认后将把这些节点全部改为「${label}」，之后未单独设置的节点也会默认使用此方式。`,
+        confirmText: '全部修改',
+      });
+      if (!ok) return;
+      syncAllPickMethods(method);
+    }
+
+    setDefaultPickMethod(method);
   };
 
   const [processes, setProcesses] = useState<ProcRow[]>([]);
@@ -458,32 +661,31 @@ export default function SettingsPage({
     }
   };
 
+  const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(() =>
+    Object.fromEntries(SETTINGS_SECTION_IDS.map((id) => [id, false])) as Record<SectionId, boolean>,
+  );
+  const toggleSection = (id: SectionId) => {
+    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   return (
     <div className="flex-1 min-w-0 h-full overflow-auto">
-      <div className="max-w-xl mx-auto px-8 py-10 space-y-8">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <Settings2 style={{ color: colors.primary }} className="w-5 h-5" />
-            <h1 className="font-display text-xl font-semibold" style={{ color: colors.text }}>
-              设置
-            </h1>
-          </div>
-          <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-            全局偏好，保存在本机，与当前流程无关。
-          </p>
+      <div className="max-w-xl mx-auto px-8 py-10 space-y-3">
+        <div className="flex items-center gap-2 mb-5">
+          <Settings2 style={{ color: colors.primary }} className="w-5 h-5" />
+          <h1 className="font-display text-xl font-semibold" style={{ color: colors.text }}>
+            设置
+          </h1>
+          <HelpHint text="全局偏好，保存在本机，与当前流程无关。" colors={colors} themeMode={themeMode} />
         </div>
 
-        <section
-          className="rounded-2xl border p-5 space-y-4"
-          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
-              <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
-                关于与更新
-              </h2>
-            </div>
+        <SettingsSection
+          title="关于与更新"
+          icon={<Info className="w-4 h-4" />}
+          open={openSections.about}
+          onToggle={() => toggleSection('about')}
+          colors={colors}
+          headerRight={
             <Button
               type="button"
               size="sm"
@@ -496,10 +698,9 @@ export default function SettingsPage({
               <ExternalLink className="w-3.5 h-3.5" />
               Releases
             </Button>
-          </div>
-          <Separator />
-
-          <p className="text-sm" style={{ color: colors.text }}>
+          }
+        >
+          <p className="text-sm pt-1" style={{ color: colors.text }}>
             当前版本{' '}
             <span className="font-mono font-medium">{appVersion || '…'}</span>
             {updateInfo?.latest_version && updateInfo?.update_available ? (
@@ -517,48 +718,43 @@ export default function SettingsPage({
             />
             <Label
               htmlFor="auto-check-update"
-              className="text-sm cursor-pointer"
+              className="text-sm cursor-pointer inline-flex items-center gap-1.5"
               style={{ color: colors.text }}
             >
               程序启动时自动检查新版本
             </Label>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" disabled={updateBusy} onClick={() => void handleCheckUpdate()}>
               <RefreshCw className={`w-3.5 h-3.5 ${updateBusy ? 'animate-spin' : ''}`} />
               检查更新
             </Button>
+            {!updateMsg ? (
+              <HelpHint
+                text="点击「检查更新」可下载并安装新版本；下载进度与「立即更新」都在同一弹窗内完成。"
+                colors={colors}
+                themeMode={themeMode}
+              />
+            ) : null}
           </div>
           {updateMsg ? (
             <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
               {updateMsg}
             </p>
-          ) : (
-            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-              点击「检查更新」可下载并安装新版本；下载进度与「立即更新」都在同一弹窗内完成。
-            </p>
-          )}
-        </section>
+          ) : null}
+        </SettingsSection>
 
-        <section
-          className="rounded-2xl border p-5 space-y-4"
-          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        <SettingsSection
+          title="数据存储"
+          icon={<HardDrive className="w-4 h-4" />}
+          open={openSections.data}
+          onToggle={() => toggleSection('data')}
+          colors={colors}
+          headerRight={<HelpHint text="流程、模板、截图等保存在本机数据目录（默认 %LOCALAPPDATA%\Nexuz）。热更新只替换程序，不会动这里。" colors={colors} themeMode={themeMode} />}
         >
-          <div className="flex items-center gap-2">
-            <HardDrive className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
-            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
-              数据存储
-            </h2>
-          </div>
-          <Separator />
-
-          <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-            流程、模板、截图等保存在本机数据目录（默认 %LOCALAPPDATA%\Nexuz）。热更新只替换程序，不会动这里。
-          </p>
-
           <div
-            className="rounded-xl border px-3 py-2.5 font-mono text-xs break-all"
+            className="rounded-xl border px-3 py-2.5 font-mono text-xs break-all mt-1"
             style={{ borderColor: colors.border, color: colors.text }}
           >
             {dataDirPath || '…'}
@@ -598,19 +794,15 @@ export default function SettingsPage({
               {dataDirMsg}
             </p>
           ) : null}
-        </section>
+        </SettingsSection>
 
-        <section
-          className="rounded-2xl border p-5 space-y-4"
-          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Megaphone className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
-              <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
-                更新公告
-              </h2>
-            </div>
+        <SettingsSection
+          title="更新公告"
+          icon={<Megaphone className="w-4 h-4" />}
+          open={openSections.announce}
+          onToggle={() => toggleSection('announce')}
+          colors={colors}
+          headerRight={
             <Button
               type="button"
               size="sm"
@@ -622,12 +814,11 @@ export default function SettingsPage({
             >
               <RefreshCw className={`w-3.5 h-3.5 ${annBusy ? 'animate-spin' : ''}`} />
             </Button>
-          </div>
-          <Separator />
-
+          }
+        >
           {updateHistory.length > 0 || announcement?.body ? (
             <div
-              className="max-h-72 overflow-y-auto pr-1 space-y-1 rounded-xl border"
+              className="max-h-72 overflow-y-auto pr-1 space-y-1 rounded-xl border mt-1"
               style={{ borderColor: colors.border }}
             >
               {(updateHistory.length ? updateHistory : [announcement]).map((item: any, idx: number) => {
@@ -674,28 +865,30 @@ export default function SettingsPage({
               })}
             </div>
           ) : (
-            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+            <p className="text-sm leading-relaxed mt-1" style={{ color: colors.secondaryText }}>
               {annBusy ? '加载中…' : '暂无公告'}
             </p>
           )}
-        </section>
+        </SettingsSection>
 
-        <section
-          className="rounded-2xl border p-5 space-y-4"
-          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        <SettingsSection
+          title="点击录入"
+          icon={<MousePointer2 className="w-4 h-4" />}
+          open={openSections.click}
+          onToggle={() => toggleSection('click')}
+          colors={colors}
         >
-          <div className="flex items-center gap-2">
-            <MousePointer2 className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
-            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
-              点击录入
-            </h2>
-          </div>
-          <Separator />
-
-          <div className="space-y-2">
-            <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
-              默认录入模式
-            </Label>
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center gap-1.5">
+              <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
+                默认录入模式
+              </Label>
+              <HelpHint
+                text="顶栏「录制」与新建点击节点默认使用此模式。修改时若已有节点模式不一致，将提示并同步全部点击节点。Frida 模式需先连接游戏进程。"
+                colors={colors}
+                themeMode={themeMode}
+              />
+            </div>
             <Select
               value={defaultCaptureMode || 'coord'}
               onValueChange={(v) => {
@@ -710,26 +903,51 @@ export default function SettingsPage({
                 <SelectItem value="frida_ui">Frida UI（Unity 组件）</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-              顶栏「录制」与新建点击节点默认使用此模式。修改时若已有节点模式不一致，将提示并同步全部点击节点。
-              Frida 模式需先连接游戏进程。
-            </p>
           </div>
-        </section>
 
-        <section
-          className="rounded-2xl border p-5 space-y-4"
-          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
+                取色 / 取点方式
+              </Label>
+              <HelpHint
+                text="坐标模式下的取点、框选、截模板默认方式。修改时若已有节点取点方式不一致，将提示并同步这些节点。也可在节点参数里单独修改。Frida UI 录入不受此项影响。"
+                colors={colors}
+                themeMode={themeMode}
+              />
+            </div>
+            <Select
+              value={defaultPickMethod || 'screenshot'}
+              onValueChange={(v) => {
+                void handleDefaultPickMethodChange(v);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="screenshot">截图取点（弹窗缩放点选）</SelectItem>
+                <SelectItem value="live">实地取点（全屏叠加实时点选）</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Frida 连接"
+          icon={<Link2 className="w-4 h-4" />}
+          open={openSections.frida}
+          onToggle={() => toggleSection('frida')}
+          colors={colors}
+          headerRight={
+            <HelpHint
+              text="默认只列出有可见窗口的进程，避免同名辅助进程干扰。选中后按 PID 连接。"
+              colors={colors}
+              themeMode={themeMode}
+            />
+          }
         >
-          <div className="flex items-center gap-2">
-            <Link2 className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
-            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
-              Frida 连接
-            </h2>
-          </div>
-          <Separator />
-
-          <div className="flex items-center gap-2 text-xs" style={{ color: colors.secondaryText }}>
+          <div className="flex items-center gap-2 text-xs pt-1" style={{ color: colors.secondaryText }}>
             <span
               className={`inline-block w-2 h-2 rounded-full ${
                 fridaStatus.attached ? 'bg-emerald-500' : 'bg-zinc-400'
@@ -763,19 +981,19 @@ export default function SettingsPage({
               </Button>
             </div>
 
-            <div className="flex items-start gap-3">
+            <div className="flex items-center gap-2">
               <Checkbox
                 id="only-with-window"
                 checked={onlyWithWindow}
                 onCheckedChange={(v) => setOnlyWithWindow(!!v)}
-                className="mt-0.5"
               />
               <Label
                 htmlFor="only-with-window"
-                className="text-xs font-normal normal-case tracking-normal cursor-pointer leading-relaxed"
-                style={{ color: colors.secondaryText }}
+                className="text-xs font-normal normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
+                style={{ color: colors.text }}
               >
-                仅显示有窗口的进程（推荐：过滤掉同名后台/辅助进程）
+                仅显示有窗口的进程
+                <HelpHint text="推荐：过滤掉同名后台/辅助进程。" colors={colors} themeMode={themeMode} />
               </Label>
             </div>
 
@@ -826,9 +1044,6 @@ export default function SettingsPage({
                 {selected.exe ? `\n路径：${selected.exe}` : ''}
               </p>
             )}
-            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-              默认只列出有可见窗口的进程，避免同名辅助进程干扰。选中后按 PID 连接。
-            </p>
           </div>
 
           <div className="flex gap-2">
@@ -851,58 +1066,42 @@ export default function SettingsPage({
               {fridaMsg}
             </p>
           )}
-        </section>
+        </SettingsSection>
 
-        <section
-          className="rounded-2xl border p-5 space-y-4"
-          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        <SettingsSection
+          title="窗口与录制"
+          icon={<Monitor className="w-4 h-4" />}
+          open={openSections.window}
+          onToggle={() => toggleSection('window')}
+          colors={colors}
         >
-          <div className="flex items-center gap-2">
-            <Monitor className="w-4 h-4 opacity-70" style={{ color: colors.text }} />
-            <h2 className="font-display text-sm font-semibold" style={{ color: colors.text }}>
-              窗口与录制
-            </h2>
-          </div>
-          <Separator />
-
-          <div className="flex items-start gap-3">
+          <div className="flex items-center gap-3 pt-1">
             <Checkbox
               id="setting-hide-window"
               checked={hideWindowOnRecord}
               onCheckedChange={(v) => setHideWindowOnRecord(!!v)}
-              className="mt-0.5"
             />
-            <div className="space-y-1.5 min-w-0">
-              <Label
-                htmlFor="setting-hide-window"
-                className="text-sm font-medium normal-case tracking-normal cursor-pointer"
-                style={{ color: colors.text }}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <EyeOff className="w-3.5 h-3.5 opacity-70" />
-                  操作时隐藏主窗口
-                </span>
-              </Label>
-              <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-                开启后，录制、运行、取点、框选时会暂时隐藏 Nexuz，避免点到本程序。
-                <br />
-                录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。录制快捷键{' '}
-                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                  X+F10
-                </kbd>
-                （支持点击/按键/延迟/滚轮，不含拖拽/悬停/打字）。运行中可全局{' '}
-                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                  X+F5
-                </kbd>{' '}
-                暂停、
-                <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                  X+F4
-                </kbd>{' '}
-                结束。
-              </p>
-            </div>
+            <Label
+              htmlFor="setting-hide-window"
+              className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
+              style={{ color: colors.text }}
+            >
+              <EyeOff className="w-3.5 h-3.5 opacity-70" />
+              操作时隐藏主窗口
+              <HelpHint
+                text={
+                  <>
+                    开启后，录制、运行、取点、框选时会暂时隐藏 Nexuz，避免点到本程序。
+                    <br />
+                    录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。录制快捷键 X+F10（支持点击/按键/延迟/滚轮，不含拖拽/悬停/打字）。运行中可全局 X+F5 暂停、X+F4 结束。
+                  </>
+                }
+                colors={colors}
+                themeMode={themeMode}
+              />
+            </Label>
           </div>
-        </section>
+        </SettingsSection>
       </div>
     </div>
   );

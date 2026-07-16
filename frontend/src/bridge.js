@@ -1116,6 +1116,10 @@ function mockCall(method, ...args) {
     case 'pick_click':
     case 'pick_region':
     case 'capture_template':
+    case 'capture_desktop':
+    case 'pack_screen_point':
+    case 'pack_screen_region':
+    case 'capture_template_from_region':
     case 'list_capture_providers':
     case 'frida_attach':
     case 'frida_detach':
@@ -1185,6 +1189,11 @@ export const bridge = {
   pickRegion: (hideWindow = true) => call('pick_region', hideWindow),
   captureTemplate: (hideWindow = true, filename = null) =>
     call('capture_template', hideWindow, filename),
+  captureDesktop: (hideWindow = true) => call('capture_desktop', hideWindow),
+  packScreenPoint: (x, y, color = null) => call('pack_screen_point', x, y, color),
+  packScreenRegion: (region) => call('pack_screen_region', region),
+  captureTemplateFromRegion: (region, filename = null, dataUrl = null, left = null, top = null) =>
+    call('capture_template_from_region', region, filename, dataUrl, left, top),
   listCaptureProviders: () => call('list_capture_providers'),
   fridaAttach: (processNameOrOpts = null, pid = null) => {
     if (processNameOrOpts && typeof processNameOrOpts === 'object') {

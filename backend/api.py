@@ -1258,6 +1258,145 @@ class Api:
         return get_frida_session_manager().status()
 
     # --- screen pick ---
+    def capture_desktop(self, hide_window: bool = True) -> dict:
+        """Capture the full virtual desktop as a PNG data URL for screenshot picking."""
+        import base64
+        import io
+        import time as _time
+
+        from backend.blocks._helpers import grab_region, pack_coord_space
+        from backend.core.dpi import virtual_screen_size
+
+        do_hide = bool(hide_window) and bool(self._window)
+        if do_hide:
+            self._set_window_visible(False)
+            # Let the hide settle so Nexuz is not in the shot
+            _time.sleep(0.12)
+        try:
+            left, top, width, height = virtual_screen_size()
+            if width <= 0 or height <= 0:
+                return {"ok": False, "error": "无效的屏幕尺寸"}
+            img = grab_region(left, top, left + width, top + height)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG", optimize=True)
+            raw = buf.getvalue()
+            mime = "image/png"
+            if len(raw) > 25 * 1024 * 1024:
+                buf = io.BytesIO()
+                img.convert("RGB").save(buf, format="JPEG", quality=92)
+                raw = buf.getvalue()
+                mime = "image/jpeg"
+            data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+            space = pack_coord_space()
+            return {
+                "ok": True,
+                "data_url": data_url,
+                "width": int(img.width),
+                "height": int(img.height),
+                "left": int(left),
+                "top": int(top),
+                "coord_space": space,
+                "size": len(raw),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            if do_hide:
+                self._set_window_visible(True)
+
+    def pack_screen_point(self, x: int, y: int, color: str | None = None) -> dict:
+        """Pack absolute screen point (+ optional color) like live pick_point."""
+        try:
+            from backend.blocks._helpers import pack_point, pixel_color, validate_point
+
+            x, y = validate_point(int(x), int(y))
+            packed = pack_point(x, y)
+            if color and isinstance(color, str) and color.startswith("#"):
+                packed["color"] = color.upper()
+            else:
+                try:
+                    packed["color"] = pixel_color(x, y)
+                except Exception:
+                    packed["color"] = color
+            return {"ok": True, **packed}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def pack_screen_region(self, region) -> dict:
+        """Pack absolute screen region like live pick_region."""
+        try:
+            from backend.blocks._helpers import pack_region
+
+            packed = pack_region(region)
+            return {"ok": True, **packed}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def capture_template_from_region(
+        self,
+        region,
+        filename: str | None = None,
+        data_url: str | None = None,
+        left: int | None = None,
+        top: int | None = None,
+    ) -> dict:
+        """Crop `region` and save as find-image template PNG.
+
+        If `data_url` is provided (screenshot pick), crop from that image using
+        virtual-desktop origin (`left`/`top`); otherwise grab the live desktop.
+        """
+        try:
+            import base64
+            import io
+            import re
+
+            from PIL import Image
+
+            from backend.blocks._helpers import grab_region, pack_region, validate_region
+            from backend.core.dpi import virtual_screen_size
+
+            x1, y1, x2, y2 = validate_region(region)
+            if isinstance(data_url, str) and data_url.startswith("data:"):
+                m = re.match(r"^data:image/[^;]+;base64,(.+)$", data_url, re.DOTALL)
+                if not m:
+                    return {"ok": False, "error": "无效的截图 data_url"}
+                raw = base64.b64decode(m.group(1))
+                full = Image.open(io.BytesIO(raw)).convert("RGB")
+                origin_left, origin_top, _, _ = virtual_screen_size()
+                ox = int(left) if left is not None else int(origin_left)
+                oy = int(top) if top is not None else int(origin_top)
+                ix1 = max(0, x1 - ox)
+                iy1 = max(0, y1 - oy)
+                ix2 = min(full.width, x2 - ox)
+                iy2 = min(full.height, y2 - oy)
+                if ix2 <= ix1 or iy2 <= iy1:
+                    return {"ok": False, "error": "裁切区域无效"}
+                img = full.crop((ix1, iy1, ix2, iy2))
+            else:
+                img = grab_region(x1, y1, x2, y2)
+            templates_dir = self._templates_dir(create=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            name = (
+                filename.strip()
+                if isinstance(filename, str) and filename.strip()
+                else f"tpl_{stamp}.png"
+            )
+            if not name.lower().endswith(".png"):
+                name += ".png"
+            name = Path(name).name
+            out = templates_dir / name
+            img.save(out)
+            packed = pack_region([x1, y1, x2, y2])
+            return {
+                "ok": True,
+                "path": str(out),
+                "region": packed["region"],
+                "region_norm": packed.get("region_norm"),
+                "coord_space": packed.get("coord_space"),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def pick_point(self, hide_window: bool = True) -> dict:
         """Compat alias → pick_click(coord); captures real mouse button."""
         result = self.pick_click(mode="coord", hide_window=hide_window)
@@ -1301,27 +1440,4 @@ class Api:
         picked = self.pick_region(hide_window=hide_window)
         if not picked.get("ok"):
             return picked
-        region = picked["region"]
-        try:
-            from backend.blocks._helpers import grab_region, validate_region
-
-            x1, y1, x2, y2 = validate_region(region)
-            img = grab_region(x1, y1, x2, y2)
-            templates_dir = self._templates_dir(create=True)
-            stamp = time.strftime("%Y%m%d_%H%M%S")
-            name = filename.strip() if isinstance(filename, str) and filename.strip() else f"tpl_{stamp}.png"
-            if not name.lower().endswith(".png"):
-                name += ".png"
-            # sanitize basename
-            name = Path(name).name
-            out = templates_dir / name
-            img.save(out)
-            return {
-                "ok": True,
-                "path": str(out),
-                "region": region,
-                "region_norm": picked.get("region_norm"),
-                "coord_space": picked.get("coord_space"),
-            }
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+        return self.capture_template_from_region(picked["region"], filename=filename)

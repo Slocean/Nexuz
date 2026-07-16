@@ -31,6 +31,12 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAppDialog } from './AppDialogs';
 
 interface InspectorProps {
@@ -42,14 +48,18 @@ interface InspectorProps {
   themeMode: ThemeMode;
   logs: ExecutionLog[];
   schemaMap?: Record<string, any>;
-  onPickPoint?: () => Promise<any>;
-  onPickClick?: (mode: string) => Promise<any>;
-  onPickRegion?: () => Promise<any>;
-  onCaptureTemplate?: () => Promise<any>;
+  onPickPoint?: (method?: string) => Promise<any>;
+  onPickClick?: (mode: string, method?: string) => Promise<any>;
+  onPickRegion?: (method?: string) => Promise<any>;
+  onCaptureTemplate?: (method?: string) => Promise<any>;
   onSetEntry?: (id: string) => void;
   defaultCaptureMode?: string;
-  /** Raw store logs for file export */
+  /** Global default: screenshot | live */
+  defaultPickMethod?: string;
+  /** Display-capped store logs */
   rawLogs?: { ts?: number; level?: string; message?: string; detail?: any }[];
+  /** Full session archive for export */
+  fullLogs?: { ts?: number; level?: string; message?: string; detail?: any }[];
   bindIssues?: BindIssue[];
 }
 
@@ -268,7 +278,8 @@ function PointListEditor({
   onPickPoint,
   onPickClick,
   captureMode = 'coord',
-  showDelay = false
+  showDelay = false,
+  pickMethod
 }: {
   value: {
     x?: number;
@@ -278,10 +289,12 @@ function PointListEditor({
     button?: string;
   }[];
   onChange: (next: any[]) => void;
-  onPickPoint?: () => Promise<any>;
-  onPickClick?: (mode: string) => Promise<any>;
+  onPickPoint?: (method?: string) => Promise<any>;
+  onPickClick?: (mode: string, method?: string) => Promise<any>;
   captureMode?: string;
   showDelay?: boolean;
+  /** Resolved pick method for coord mode */
+  pickMethod?: string;
 }) {
   const { alert } = useAppDialog();
   const points = Array.isArray(value) ? value : [];
@@ -317,7 +330,9 @@ function PointListEditor({
   };
 
   const pickAt = async (idx: number) => {
-    const res = onPickClick ? await onPickClick(isFrida ? 'frida_ui' : 'coord') : await onPickPoint?.();
+    const res = onPickClick
+      ? await onPickClick(isFrida ? 'frida_ui' : 'coord', pickMethod)
+      : await onPickPoint?.(pickMethod);
     if (!res?.ok) {
       await alert({
         title: '录入失败',
@@ -886,13 +901,15 @@ function RectField({
   onChange,
   onPickRegion,
   applyRegionPick,
-  fieldName
+  fieldName,
+  pickMethod
 }: {
   value: any;
   onChange: (v: any) => void;
-  onPickRegion?: () => Promise<any>;
+  onPickRegion?: (method?: string) => Promise<any>;
   applyRegionPick: (name: string, res: any) => void;
   fieldName: string;
+  pickMethod?: string;
 }) {
   const [draft, setDraft] = React.useState(() => (value ? JSON.stringify(value) : ''));
   const [err, setErr] = React.useState('');
@@ -937,7 +954,7 @@ function RectField({
             size="sm"
             className="h-8 shrink-0 px-2"
             onClick={async () => {
-              const res = await onPickRegion();
+              const res = await onPickRegion(pickMethod);
               applyRegionPick(fieldName, res);
             }}>
             框选
@@ -1008,7 +1025,9 @@ export default function Inspector({
   onCaptureTemplate,
   onSetEntry,
   defaultCaptureMode = 'coord',
+  defaultPickMethod = 'screenshot',
   rawLogs = [],
+  fullLogs = [],
   bindIssues = []
 }: InspectorProps) {
   const { alert } = useAppDialog();
@@ -1076,10 +1095,18 @@ export default function Inspector({
     }
   };
 
-  const logsAsText = () => {
-    if (rawLogs.length) {
+  const logsAsText = (source: 'display' | 'full' = 'full') => {
+    const rows =
+      source === 'full'
+        ? fullLogs.length
+          ? fullLogs
+          : rawLogs
+        : rawLogs.length
+          ? rawLogs
+          : null;
+    if (rows && rows.length) {
       return logsToText(
-        rawLogs.map((l: any) => ({
+        rows.map((l: any) => ({
           ts: l.ts,
           level: l.level,
           message: l.message,
@@ -1096,20 +1123,30 @@ export default function Inspector({
     );
   };
 
-  const exportLogs = async () => {
-    const text = logsAsText();
+  const exportLogs = async (source: 'display' | 'full' = 'full') => {
+    const text = logsAsText(source);
     if (!text.trim()) {
       await alert({ title: '导出日志', description: '暂无日志可导出' });
       return;
     }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const res = await bridge.exportText(text, `nexuz-logs-${stamp}.txt`);
+    const tag = source === 'full' ? 'full' : 'recent';
+    const res = await bridge.exportText(text, `nexuz-logs-${tag}-${stamp}.txt`);
     if (res?.cancelled) return;
     if (!res?.ok) {
       await alert({ title: '导出失败', description: res?.error || '无法保存日志文件' });
       return;
     }
-    await alert({ title: '已导出', description: res.path ? `已保存到\n${res.path}` : '日志已导出' });
+    const count =
+      source === 'full'
+        ? fullLogs.length || rawLogs.length || logs.length
+        : rawLogs.length || logs.length;
+    await alert({
+      title: '已导出',
+      description: res.path
+        ? `已保存 ${count} 条（${source === 'full' ? '完整' : '当前显示'}）到\n${res.path}`
+        : `已导出 ${count} 条`
+    });
   };
 
   const captureLogSelection = () => {
@@ -1122,7 +1159,7 @@ export default function Inspector({
 
   const copySelectedOrAllLogs = async () => {
     const selected = (logSelectionRef.current || window.getSelection?.()?.toString?.() || '').trim();
-    const text = selected || logsAsText();
+    const text = selected || logsAsText('full');
     if (!text.trim()) {
       showLogCopyHint('暂无内容');
       return;
@@ -1168,14 +1205,25 @@ export default function Inspector({
             title="清空运行日志">
             <Trash2 className="w-3 h-3" /> 清空
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
-            onClick={exportLogs}
-            title="导出日志为 .txt">
-            <Download className="w-3 h-3" /> 导出
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+                title="导出日志为 .txt">
+                <Download className="w-3 h-3" /> 导出
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[11rem]">
+              <DropdownMenuItem onClick={() => exportLogs('full')}>
+                完整日志（{fullLogs.length || rawLogs.length || 0}）
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportLogs('display')}>
+                当前显示（{rawLogs.length || logs.length}）
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       <div className="h-36 min-w-0 max-w-full overflow-y-auto overflow-x-hidden">
@@ -1257,6 +1305,9 @@ export default function Inspector({
       ...selectedNode.config,
       [key]: value
     };
+    if (key === 'pick_method' && (value == null || value === 'inherit')) {
+      delete patch.pick_method;
+    }
     // 取色：单点 / 区域 / 多点互斥，切换时清空另一侧残留
     if (key === 'sample_mode' && selectedNode.subType === 'color_detect') {
       const mode = String(value) === 'single' ? 'point' : String(value);
@@ -1340,6 +1391,13 @@ export default function Inspector({
     return defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
   };
 
+  /** Node override or global default. */
+  const resolvePickMethod = () => {
+    const m = selectedNode?.config?.pick_method;
+    if (m === 'live' || m === 'screenshot') return m;
+    return defaultPickMethod === 'live' ? 'live' : 'screenshot';
+  };
+
   const renderNexuzSchemaForm = () => {
     const schema = schemaMap[selectedNode.subType];
     if (!schema) return null;
@@ -1348,9 +1406,49 @@ export default function Inspector({
     const isClick = selectedNode.subType === 'click';
     const clickMode = String(selectedNode.config?.click_mode || 'single');
     const isOcr = selectedNode.subType === 'ocr_recognize' || selectedNode.subType === 'if_text_contains';
+    const pickMethod = resolvePickMethod();
+    const schemaInputs = schema.inputs || [];
+    const needsScreenPick =
+      isClick ||
+      isOcr ||
+      schemaInputs.some((i: any) => {
+        const n = String(i?.name || '');
+        return (
+          i?.type === 'rect' ||
+          i?.type === 'point_list' ||
+          n === 'template_image' ||
+          n === 'anchor_template' ||
+          n === 'x' ||
+          n === 'from_x' ||
+          n === 'to_x' ||
+          n === 'region' ||
+          n === 'search_region'
+        );
+      });
+    const showPickMethodUi =
+      needsScreenPick &&
+      !!(onPickPoint || onPickRegion || onCaptureTemplate) &&
+      !(isClick && resolveClickMode() === 'frida_ui');
 
     return (
       <div className="space-y-3">
+        {showPickMethodUi && (
+          <Field label="取点方式">
+            <Select
+              value={pickMethod}
+              onValueChange={v =>
+                handleFieldChange('pick_method', v === 'live' ? 'live' : 'screenshot')
+              }>
+              <SelectTrigger className="h-8 flex-1 min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="screenshot">截图取点</SelectItem>
+                <SelectItem value="live">实地取点</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
         {isClick && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
             <Field label="录入模式">
@@ -1378,7 +1476,9 @@ export default function Inspector({
                   className="h-8 shrink-0 px-2"
                   onClick={async () => {
                     const mode = resolveClickMode();
-                    const res = onPickClick ? await onPickClick(mode) : await onPickPoint?.();
+                    const res = onPickClick
+                      ? await onPickClick(mode, pickMethod)
+                      : await onPickPoint?.(pickMethod);
                     if (!res?.ok) {
                       await alert({
                         title: '录入失败',
@@ -1422,7 +1522,7 @@ export default function Inspector({
                   size="sm"
                   className="h-8 flex-1"
                   onClick={async () => {
-                    const res = await onPickRegion();
+                    const res = await onPickRegion(pickMethod);
                     applyRegionPick('region', res);
                   }}>
                   拖拽框选
@@ -1434,6 +1534,7 @@ export default function Inspector({
 
         {(schema.inputs || [])
           .filter((input: any) => {
+            if (input.name === 'pick_method') return false;
             if (!inputVisible(input, selectedNode.config)) return false;
             if (!isClick) return true;
             // Handled in the click panel above / nested object not edited as text
@@ -1506,6 +1607,7 @@ export default function Inspector({
                     onPickClick={selectedNode.subType === 'click' ? onPickClick : undefined}
                     captureMode={selectedNode.subType === 'click' ? resolveClickMode() : 'coord'}
                     showDelay={selectedNode.subType === 'click' || selectedNode.subType === 'mouse_hover'}
+                    pickMethod={pickMethod}
                   />
                 ) : input.type === 'key_steps' ? (
                   <KeyStepsEditor
@@ -1641,6 +1743,7 @@ export default function Inspector({
                     onPickRegion={onPickRegion}
                     applyRegionPick={applyRegionPick}
                     fieldName={input.name}
+                    pickMethod={pickMethod}
                   />
                 ) : input.ui === 'expression' || input.name === 'expression' || input.name === 'exit_condition' ? (
                   <ExpressionField
@@ -1666,7 +1769,7 @@ export default function Inspector({
                         size="sm"
                         className="h-8 shrink-0 px-2"
                         onClick={async () => {
-                          const res = await onCaptureTemplate();
+                          const res = await onCaptureTemplate(pickMethod);
                           if (res?.ok && res.path) handleFieldChange(input.name, res.path);
                         }}>
                         截模板
@@ -1725,7 +1828,7 @@ export default function Inspector({
                           size="sm"
                           className="h-8 shrink-0 px-2"
                           onClick={async () => {
-                            const res = await onPickPoint();
+                            const res = await onPickPoint(pickMethod);
                             applyPointPick(input.name, res);
                           }}>
                           取点

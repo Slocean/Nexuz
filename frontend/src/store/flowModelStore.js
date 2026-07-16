@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 
 const MAX_LOGS = 200;
+/** Keep a full run archive for export; soft-cap to avoid unbounded RAM. */
+const MAX_LOG_ARCHIVE = 50000;
 const HEAVY_KEYS = new Set(['boxes', 'box', 'image', 'bitmap', 'pixels', 'raw', 'screenshot']);
 
 function uid(prefix = 'node') {
@@ -127,6 +129,17 @@ function loadDefaultCaptureMode() {
   }
 }
 
+/** screenshot = 截图弹窗取点；live = 实地全屏叠加取点 */
+function loadDefaultPickMethod() {
+  try {
+    const v = localStorage.getItem('nexuz.defaultPickMethod');
+    if (v === 'live' || v === 'screenshot') return v;
+    return 'screenshot';
+  } catch {
+    return 'screenshot';
+  }
+}
+
 function loadTheme() {
   try {
     return {
@@ -156,6 +169,7 @@ export const useFlowStore = create((set, get) => ({
   // app settings
   hideWindowOnRecord: loadHideWindowOnRecord(),
   defaultCaptureMode: loadDefaultCaptureMode(),
+  defaultPickMethod: loadDefaultPickMethod(),
 
   // run history for sidebar
   runHistory: [],
@@ -166,6 +180,8 @@ export const useFlowStore = create((set, get) => ({
   execNodeStates: {}, // id -> running|done|error
   debugMode: false,
   logs: [],
+  /** Full session log archive (not capped at display MAX_LOGS); used for export. */
+  logArchive: [],
 
   setHideWindowOnRecord: (hideWindowOnRecord) => {
     try {
@@ -185,6 +201,37 @@ export const useFlowStore = create((set, get) => ({
     }
     set({ defaultCaptureMode: mode });
   },
+
+  setDefaultPickMethod: (defaultPickMethod) => {
+    const method = defaultPickMethod === 'live' ? 'live' : 'screenshot';
+    try {
+      localStorage.setItem('nexuz.defaultPickMethod', method);
+    } catch {
+      /* ignore */
+    }
+    set({ defaultPickMethod: method });
+  },
+
+  /** Force all nodes with an explicit pick_method to the given value */
+  syncAllPickMethods: (method) =>
+    set((state) => {
+      const m = method === 'live' ? 'live' : 'screenshot';
+      const nodes = { ...state.flow.nodes };
+      let changed = false;
+      for (const [id, node] of Object.entries(nodes)) {
+        if (!node || typeof node !== 'object') continue;
+        const prev = node.params?.pick_method;
+        if (prev !== 'live' && prev !== 'screenshot') continue;
+        if (prev === m) continue;
+        changed = true;
+        nodes[id] = {
+          ...node,
+          params: { ...(node.params || {}), pick_method: m },
+        };
+      }
+      if (!changed) return state;
+      return { flow: { ...state.flow, nodes } };
+    }),
 
   /** Force all click nodes to use the given capture_mode */
   syncAllClickCaptureModes: (mode) =>
@@ -442,6 +489,13 @@ export const useFlowStore = create((set, get) => ({
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
       const nextParams = { ...node.params, ...params };
+      // Clear inherit / null overrides so node follows global defaultPickMethod
+      if (
+        Object.prototype.hasOwnProperty.call(params, 'pick_method') &&
+        (params.pick_method == null || params.pick_method === 'inherit')
+      ) {
+        delete nextParams.pick_method;
+      }
       const patch = { ...node, params: nextParams };
       // Keep switch default ↔ next in sync for legacy interpreter fallback
       if (node.type === 'switch' && Object.prototype.hasOwnProperty.call(params, 'default')) {
@@ -724,18 +778,19 @@ export const useFlowStore = create((set, get) => ({
 
   // execution UI
   nodeOutputs: {}, // nodeId -> last summarized result (UI only)
-  clearLogs: () => set({ logs: [] }),
+  clearLogs: () => set({ logs: [], logArchive: [] }),
   appendLog: (entry) =>
-    set((state) => ({
-      logs: [
-        ...state.logs.slice(-(MAX_LOGS - 1)),
-        {
-          ...entry,
-          detail: entry.detail !== undefined ? summarizeDetail(entry.detail) : undefined,
-          ts: Date.now(),
-        },
-      ],
-    })),
+    set((state) => {
+      const row = {
+        ...entry,
+        detail: entry.detail !== undefined ? summarizeDetail(entry.detail) : undefined,
+        ts: Date.now(),
+      };
+      return {
+        logs: [...state.logs.slice(-(MAX_LOGS - 1)), row],
+        logArchive: [...state.logArchive.slice(-(MAX_LOG_ARCHIVE - 1)), row],
+      };
+    }),
   onRuntimeEvent: (event, payload) => {
     const appendLog = get().appendLog;
     if (event === 'node_start') {

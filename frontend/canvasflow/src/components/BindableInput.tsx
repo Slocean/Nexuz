@@ -34,6 +34,7 @@ import { inspectBindValue } from '../bindValidate';
 import VariableSelect from './VariableSelect';
 import NodeOutputFieldSelect from './NodeOutputFieldSelect';
 import { bridge } from '@/bridge';
+import { ZoomPanStage } from './ZoomPanStage';
 
 type SchemaMap = Record<string, { label?: string; outputs?: { name: string; type?: string }[] }>;
 
@@ -372,120 +373,6 @@ function useLocalImage(path: string | null, enabled: boolean) {
   return { dataUrl, error, loading };
 }
 
-/** Wheel zoom + drag pan image stage for the preview dialog. */
-function ZoomPanImage({ src, alt }: { src: string; alt: string }) {
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [grabbing, setGrabbing] = useState(false);
-  const dragging = useRef(false);
-  const last = useRef({ x: 0, y: 0 });
-  const stageRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    setScale(1);
-    setOffset({ x: 0, y: 0 });
-    setGrabbing(false);
-  }, [src]);
-
-  useEffect(() => {
-    const el = stageRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.12 : 0.12;
-      setScale((s) => Math.min(8, Math.max(0.2, Number((s + delta * Math.max(s, 0.5)).toFixed(3)))));
-    };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, []);
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    dragging.current = true;
-    setGrabbing(true);
-    last.current = { x: e.clientX, y: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    const dx = e.clientX - last.current.x;
-    const dy = e.clientY - last.current.y;
-    last.current = { x: e.clientX, y: e.clientY };
-    setOffset((o) => ({ x: o.x + dx, y: o.y + dy }));
-  };
-  const onPointerUp = (e: React.PointerEvent) => {
-    dragging.current = false;
-    setGrabbing(false);
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  return (
-    <div className="relative w-full h-full min-h-0 flex flex-col">
-      <div
-        ref={stageRef}
-        className={`relative flex-1 min-h-0 overflow-hidden rounded-lg bg-black/10 dark:bg-black/50 select-none touch-none ${
-          grabbing ? 'cursor-grabbing' : 'cursor-grab'
-        }`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onDoubleClick={() => {
-          setScale(1);
-          setOffset({ x: 0, y: 0 });
-        }}
-      >
-        <img
-          src={src}
-          alt={alt}
-          draggable={false}
-          className="absolute left-1/2 top-1/2 max-w-none pointer-events-none"
-          style={{
-            transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
-            transformOrigin: 'center center',
-          }}
-        />
-      </div>
-      <div className="flex items-center justify-between gap-2 pt-2 shrink-0">
-        <p className="text-[11px] opacity-50">滚轮缩放 · 拖动平移 · 双击复位</p>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            className="h-7 px-2 text-xs rounded-md border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10"
-            onClick={() => setScale((s) => Math.max(0.2, Number((s / 1.2).toFixed(3))))}
-          >
-            −
-          </button>
-          <span className="text-[11px] font-mono opacity-60 w-12 text-center">
-            {Math.round(scale * 100)}%
-          </span>
-          <button
-            type="button"
-            className="h-7 px-2 text-xs rounded-md border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10"
-            onClick={() => setScale((s) => Math.min(8, Number((s * 1.2).toFixed(3))))}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            className="h-7 px-2 text-xs rounded-md border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10"
-            onClick={() => {
-              setScale(1);
-              setOffset({ x: 0, y: 0 });
-            }}
-          >
-            复位
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /** Image path shown as link: hover thumbnail above, click opens dialog. */
 function ImagePathLink({ path }: { path: string }) {
   const linkRef = useRef<HTMLAnchorElement | null>(null);
@@ -569,7 +456,7 @@ function ImagePathLink({ path }: { path: string }) {
                 <p className="text-xs text-rose-400 break-all px-2">{error}</p>
               </div>
             ) : dataUrl ? (
-              <ZoomPanImage src={dataUrl} alt="预览" />
+              <ZoomPanStage src={dataUrl} alt="预览" mode="pan" />
             ) : null}
           </div>
           <p className="text-[11px] font-mono opacity-60 break-all select-text shrink-0">{path}</p>
