@@ -1271,6 +1271,147 @@ export default function Inspector({
     </div>
   );
 
+  const applyPointPick = (xKey: string, res: any) => {
+    if (!selectedNode || !res?.ok) return;
+    const yKey = xKey === 'from_x' ? 'from_y' : xKey === 'to_x' ? 'to_y' : 'y';
+    const patch: any = { ...selectedNode.config };
+    const params = res.params || {};
+    patch[xKey] = params.x ?? res.x;
+    patch[yKey] = params.y ?? res.y;
+    patch.coord_space = params.coord_space || res.coord_space || patch.coord_space;
+    if (xKey === 'from_x') patch.from_point_norm = params.point_norm || res.point_norm;
+    else if (xKey === 'to_x') patch.to_point_norm = params.point_norm || res.point_norm;
+    else patch.point_norm = params.point_norm || res.point_norm;
+    if (params.button || res.button) patch.button = params.button || res.button;
+    if (params.capture_mode) patch.capture_mode = params.capture_mode;
+    if (params.coord) patch.coord = params.coord;
+    if (selectedNode.subType.includes('color') && res.color) {
+      patch.target_color = res.color;
+    }
+    if (selectedNode.subType === 'color_detect' && xKey === 'x') {
+      patch.sample_mode = 'point';
+      patch.region = null;
+      patch.region_norm = undefined;
+      patch.points = [];
+    }
+    onUpdateNodeConfig(selectedNode.id, patch);
+  };
+
+  const applyClickCapture = (res: any) => {
+    if (!selectedNode || !res?.ok) return;
+    const params = res.params || {};
+    const patch: any = { ...selectedNode.config, ...params };
+    onUpdateNodeConfig(selectedNode.id, patch);
+  };
+
+  const resolveClickMode = () => {
+    const nodeMode = selectedNode?.config?.capture_mode;
+    if (nodeMode === 'coord' || nodeMode === 'frida_ui') return nodeMode;
+    return defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
+  };
+
+  /** Node override or global default. */
+  const resolvePickMethod = () => {
+    const m = selectedNode?.config?.pick_method;
+    if (m === 'live' || m === 'screenshot') return m;
+    return defaultPickMethod === 'live' ? 'live' : 'screenshot';
+  };
+
+  /** Enter/Space 快捷取点：仅坐标取点（不含 Frida / 框选 / 截模板） */
+  const nodeSupportsHotkeyPickPoint = React.useCallback((): boolean => {
+    if (!selectedNode || (!onPickPoint && !onPickClick)) return false;
+    if (selectedNode.subType === 'click') {
+      if (String(selectedNode.config?.click_mode || 'single') !== 'single') return false;
+      return resolveClickMode() === 'coord';
+    }
+    const schema = schemaMap[selectedNode.subType];
+    const inputs = schema?.inputs || [];
+    return inputs.some(
+      (i: any) =>
+        (i.name === 'x' || i.name === 'from_x') && inputVisible(i, selectedNode.config),
+    );
+  }, [selectedNode, onPickPoint, onPickClick, schemaMap, defaultCaptureMode]);
+
+  // Must stay above the `!selectedNode` early return (Rules of Hooks).
+  React.useEffect(() => {
+    if (!selectedNode) return;
+
+    const isTypingTarget = (t: EventTarget | null) => {
+      if (!t || !(t instanceof HTMLElement)) return false;
+      const tag = t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (t.isContentEditable) return true;
+      if (t.closest('[role="dialog"]')) return true;
+      return false;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+
+      if (e.key === 'Enter' || e.key === ' ') {
+        if (!nodeSupportsHotkeyPickPoint()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        void (async () => {
+          const pickMethod = resolvePickMethod();
+          try {
+            if (selectedNode.subType === 'click') {
+              const res = onPickClick
+                ? await onPickClick('coord', pickMethod)
+                : await onPickPoint?.(pickMethod);
+              if (!res?.ok) {
+                if (res && res.cancelled !== true) {
+                  await alert({
+                    title: '取点失败',
+                    description: res?.error || res?.message || '已取消或超时',
+                  });
+                }
+                return;
+              }
+              applyClickCapture(res);
+              return;
+            }
+            const schema = schemaMap[selectedNode.subType];
+            const inputs = schema?.inputs || [];
+            const xInput = inputs.find(
+              (i: any) =>
+                (i.name === 'x' || i.name === 'from_x') &&
+                inputVisible(i, selectedNode.config),
+            );
+            if (!xInput || !onPickPoint) return;
+            const res = await onPickPoint(pickMethod);
+            if (!res?.ok) {
+              if (res && res.cancelled !== true) {
+                await alert({
+                  title: '取点失败',
+                  description: res?.error || res?.message || '已取消或超时',
+                });
+              }
+              return;
+            }
+            applyPointPick(xInput.name, res);
+          } catch (err: any) {
+            await alert({
+              title: '取点失败',
+              description: String(err?.message || err),
+            });
+          }
+        })();
+      }
+    };
+
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [
+    selectedNode,
+    onPickPoint,
+    onPickClick,
+    nodeSupportsHotkeyPickPoint,
+    schemaMap,
+    alert,
+  ]);
+
   if (!selectedNode) {
     const errN = bindIssues.filter(i => i.level === 'error').length;
     const warnN = bindIssues.filter(i => i.level === 'warn').length;
@@ -1360,145 +1501,6 @@ export default function Inspector({
     onUpdateNodeConfig(selectedNode.id, patch);
   };
 
-  const applyPointPick = (xKey: string, res: any) => {
-    if (!res?.ok) return;
-    const yKey = xKey === 'from_x' ? 'from_y' : xKey === 'to_x' ? 'to_y' : 'y';
-    const patch: any = { ...selectedNode.config };
-    const params = res.params || {};
-    patch[xKey] = params.x ?? res.x;
-    patch[yKey] = params.y ?? res.y;
-    patch.coord_space = params.coord_space || res.coord_space || patch.coord_space;
-    if (xKey === 'from_x') patch.from_point_norm = params.point_norm || res.point_norm;
-    else if (xKey === 'to_x') patch.to_point_norm = params.point_norm || res.point_norm;
-    else patch.point_norm = params.point_norm || res.point_norm;
-    if (params.button || res.button) patch.button = params.button || res.button;
-    if (params.capture_mode) patch.capture_mode = params.capture_mode;
-    if (params.coord) patch.coord = params.coord;
-    if (selectedNode.subType.includes('color') && res.color) {
-      patch.target_color = res.color;
-    }
-    if (selectedNode.subType === 'color_detect' && xKey === 'x') {
-      patch.sample_mode = 'point';
-      patch.region = null;
-      patch.region_norm = undefined;
-      patch.points = [];
-    }
-    onUpdateNodeConfig(selectedNode.id, patch);
-  };
-
-  const applyClickCapture = (res: any) => {
-    if (!res?.ok) return;
-    const params = res.params || {};
-    const patch: any = { ...selectedNode.config, ...params };
-    onUpdateNodeConfig(selectedNode.id, patch);
-  };
-
-  const resolveClickMode = () => {
-    const nodeMode = selectedNode?.config?.capture_mode;
-    if (nodeMode === 'coord' || nodeMode === 'frida_ui') return nodeMode;
-    return defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
-  };
-
-  /** Node override or global default. */
-  const resolvePickMethod = () => {
-    const m = selectedNode?.config?.pick_method;
-    if (m === 'live' || m === 'screenshot') return m;
-    return defaultPickMethod === 'live' ? 'live' : 'screenshot';
-  };
-
-  /** Enter/Space 快捷取点：仅坐标取点（不含 Frida / 框选 / 截模板） */
-  const nodeSupportsHotkeyPickPoint = React.useCallback((): boolean => {
-    if (!selectedNode || (!onPickPoint && !onPickClick)) return false;
-    if (selectedNode.subType === 'click') {
-      if (String(selectedNode.config?.click_mode || 'single') !== 'single') return false;
-      return resolveClickMode() === 'coord';
-    }
-    const schema = schemaMap[selectedNode.subType];
-    const inputs = schema?.inputs || [];
-    return inputs.some(
-      (i: any) =>
-        (i.name === 'x' || i.name === 'from_x') && inputVisible(i, selectedNode.config),
-    );
-  }, [selectedNode, onPickPoint, onPickClick, schemaMap, defaultCaptureMode]);
-
-  React.useEffect(() => {
-    if (!selectedNode) return;
-
-    const isTypingTarget = (t: EventTarget | null) => {
-      if (!t || !(t instanceof HTMLElement)) return false;
-      const tag = t.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-      if (t.isContentEditable) return true;
-      if (t.closest('[role="dialog"]')) return true;
-      return false;
-    };
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (isTypingTarget(e.target)) return;
-
-      if (e.key === 'Enter' || e.key === ' ') {
-        if (!nodeSupportsHotkeyPickPoint()) return;
-        e.preventDefault();
-        e.stopPropagation();
-        void (async () => {
-          const pickMethod = resolvePickMethod();
-          try {
-            if (selectedNode.subType === 'click') {
-              const res = onPickClick
-                ? await onPickClick('coord', pickMethod)
-                : await onPickPoint?.(pickMethod);
-              if (!res?.ok) {
-                if (res && res.cancelled !== true) {
-                  await alert({
-                    title: '取点失败',
-                    description: res?.error || res?.message || '已取消或超时',
-                  });
-                }
-                return;
-              }
-              applyClickCapture(res);
-              return;
-            }
-            const schema = schemaMap[selectedNode.subType];
-            const inputs = schema?.inputs || [];
-            const xInput = inputs.find(
-              (i: any) =>
-                (i.name === 'x' || i.name === 'from_x') &&
-                inputVisible(i, selectedNode.config),
-            );
-            if (!xInput || !onPickPoint) return;
-            const res = await onPickPoint(pickMethod);
-            if (!res?.ok) {
-              if (res && res.cancelled !== true) {
-                await alert({
-                  title: '取点失败',
-                  description: res?.error || res?.message || '已取消或超时',
-                });
-              }
-              return;
-            }
-            applyPointPick(xInput.name, res);
-          } catch (err: any) {
-            await alert({
-              title: '取点失败',
-              description: String(err?.message || err),
-            });
-          }
-        })();
-      }
-    };
-
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [
-    selectedNode,
-    onPickPoint,
-    onPickClick,
-    nodeSupportsHotkeyPickPoint,
-    schemaMap,
-    alert,
-  ]);
 
   const renderNexuzSchemaForm = () => {
     const schema = schemaMap[selectedNode.subType];
