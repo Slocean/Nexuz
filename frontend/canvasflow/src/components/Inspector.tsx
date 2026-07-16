@@ -22,6 +22,7 @@ import BindableInput, { OutputRefChip } from './BindableInput';
 import VariableSelect from './VariableSelect';
 import ExpressionField from './ExpressionField';
 import LogicTreeEditor, { normalizeLogicValue } from './LogicTreeEditor';
+import TemplateImageField from './TemplateImageField';
 import { listFlowVariableNames } from '../bindValue';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
@@ -1857,29 +1858,15 @@ export default function Inspector({
                     schemaMap={schemaMap}
                   />
                 ) : input.name === 'template_image' || input.name === 'anchor_template' ? (
-                  <>
-                    <BindableInput
-                      value={value}
-                      inputType="string"
-                      currentNodeId={selectedNode.id}
-                      schemaMap={schemaMap}
-                      onChange={v => handleFieldChange(input.name, v)}
-                      placeholder="模板 PNG 路径"
-                    />
-                    {onCaptureTemplate && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 shrink-0 px-2"
-                        onClick={async () => {
-                          const res = await onCaptureTemplate(pickMethod);
-                          if (res?.ok && res.path) handleFieldChange(input.name, res.path);
-                        }}>
-                        截模板
-                      </Button>
-                    )}
-                  </>
+                  <TemplateImageField
+                    value={value}
+                    onChange={v => handleFieldChange(input.name, v)}
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onCaptureTemplate={onCaptureTemplate}
+                    pickMethod={pickMethod}
+                    placeholder={input.placeholder || '模板 PNG 路径'}
+                  />
                 ) : input.ui === 'textarea' || input.type === 'textarea' ? (
                   <BindableInput
                     value={value ?? input.default ?? ''}

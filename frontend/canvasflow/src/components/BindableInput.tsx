@@ -331,7 +331,7 @@ export default function BindableInput({
   );
 }
 
-function looksLikeImagePath(value: unknown): value is string {
+export function looksLikeImagePath(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const p = value.trim();
   if (!p) return false;
@@ -373,8 +373,43 @@ function useLocalImage(path: string | null, enabled: boolean) {
   return { dataUrl, error, loading };
 }
 
+function LocalImagePreviewDialog({
+  path,
+  open,
+  onOpenChange,
+}: {
+  path: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { dataUrl, error, loading } = useLocalImage(path, open);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[min(96vw,88rem)] w-[min(96vw,88rem)] h-[min(92vh,56rem)] p-4 flex flex-col gap-3">
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="text-sm">图片预览</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 flex flex-col">
+          {loading && !dataUrl ? (
+            <div className="flex-1 flex items-center justify-center rounded-lg bg-black/5 dark:bg-black/40">
+              <p className="text-xs opacity-50">加载中…</p>
+            </div>
+          ) : error && !dataUrl ? (
+            <div className="flex-1 flex items-center justify-center rounded-lg bg-black/5 dark:bg-black/40">
+              <p className="text-xs text-rose-400 break-all px-2">{error}</p>
+            </div>
+          ) : dataUrl ? (
+            <ZoomPanStage src={dataUrl} alt="预览" mode="pan" />
+          ) : null}
+        </div>
+        <p className="text-[11px] font-mono opacity-60 break-all select-text shrink-0">{path}</p>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Image path shown as link: hover thumbnail above, click opens dialog. */
-function ImagePathLink({ path }: { path: string }) {
+export function ImagePathLink({ path }: { path: string }) {
   const linkRef = useRef<HTMLAnchorElement | null>(null);
   const [hover, setHover] = useState(false);
   const [open, setOpen] = useState(false);
@@ -441,27 +476,37 @@ function ImagePathLink({ path }: { path: string }) {
           </div>,
           document.body,
         )}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-[min(96vw,88rem)] w-[min(96vw,88rem)] h-[min(92vh,56rem)] p-4 flex flex-col gap-3">
-          <DialogHeader className="shrink-0">
-            <DialogTitle className="text-sm">图片预览</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 flex flex-col">
-            {loading && !dataUrl ? (
-              <div className="flex-1 flex items-center justify-center rounded-lg bg-black/5 dark:bg-black/40">
-                <p className="text-xs opacity-50">加载中…</p>
-              </div>
-            ) : error && !dataUrl ? (
-              <div className="flex-1 flex items-center justify-center rounded-lg bg-black/5 dark:bg-black/40">
-                <p className="text-xs text-rose-400 break-all px-2">{error}</p>
-              </div>
-            ) : dataUrl ? (
-              <ZoomPanStage src={dataUrl} alt="预览" mode="pan" />
-            ) : null}
-          </div>
-          <p className="text-[11px] font-mono opacity-60 break-all select-text shrink-0">{path}</p>
-        </DialogContent>
-      </Dialog>
+      <LocalImagePreviewDialog path={path} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+/** Button that opens the same image preview dialog used by path links. */
+export function ImagePreviewButton({
+  path,
+  disabled,
+  className,
+  label = '预览',
+}: {
+  path: string;
+  disabled?: boolean;
+  className?: string;
+  label?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!looksLikeImagePath(path)) return null;
+  return (
+    <>
+      <button
+        type="button"
+        className={className}
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        title="预览图片"
+      >
+        {label}
+      </button>
+      <LocalImagePreviewDialog path={path.trim()} open={open} onOpenChange={setOpen} />
     </>
   );
 }
@@ -528,6 +573,10 @@ export function OutputRefChip({
         <div className="flex-1 min-w-0">
           {isImage ? (
             <ImagePathLink path={String(value)} />
+          ) : field === 'path' && (value == null || String(value).trim() === '') ? (
+            <span className="text-xs opacity-45">
+              （暂无预览图：请重新运行节点；未匹配时也会输出最佳匹配截图）
+            </span>
           ) : (
             <button
               type="button"

@@ -735,6 +735,48 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc), "path": path_str}
 
+    def clear_screenshot_cache(self) -> dict:
+        """Delete cached screenshots / match previews under data_dir/screenshots/.
+
+        Does not touch flows, templates/, or other user data.
+        """
+        folder = self._data_root(create=False) / "screenshots"
+        if not folder.is_dir():
+            return {
+                "ok": True,
+                "path": str(folder),
+                "deleted": 0,
+                "bytes": 0,
+                "message": "没有可清理的截图缓存",
+            }
+        deleted = 0
+        freed = 0
+        errors: list[str] = []
+        try:
+            for entry in folder.iterdir():
+                if not entry.is_file():
+                    continue
+                try:
+                    freed += int(entry.stat().st_size)
+                    entry.unlink()
+                    deleted += 1
+                except OSError as exc:
+                    errors.append(f"{entry.name}: {exc}")
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "path": str(folder)}
+        mb = freed / (1024 * 1024)
+        msg = f"已清理 {deleted} 个文件（约 {mb:.1f} MB）"
+        if errors:
+            msg += f"；{len(errors)} 个失败"
+        return {
+            "ok": True,
+            "path": str(folder),
+            "deleted": deleted,
+            "bytes": freed,
+            "errors": errors[:5],
+            "message": msg,
+        }
+
     @staticmethod
     def _safe_flow_filename(name: str) -> str:
         raw = (name or "未命名流程").strip() or "未命名流程"
@@ -1047,6 +1089,108 @@ class Api:
         data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
         return {"ok": True, "data_url": data_url, "path": str(path), "size": size}
 
+    def _unique_template_path(self, preferred_name: str) -> Path:
+        folder = self._templates_dir(create=True)
+        name = Path(preferred_name or "tpl.png").name
+        if not name.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".webp")):
+            name = f"{name}.png"
+        candidate = folder / name
+        if not candidate.exists():
+            return candidate
+        stem = candidate.stem
+        suffix = candidate.suffix or ".png"
+        for i in range(2, 1000):
+            alt = folder / f"{stem}_{i}{suffix}"
+            if not alt.exists():
+                return alt
+        return folder / f"{stem}_{int(time.time())}{suffix}"
+
+    def _import_image_bytes_to_templates(self, raw: bytes, preferred_name: str | None = None) -> dict:
+        """Decode image bytes and save as PNG under data_dir/templates/."""
+        import io
+
+        from PIL import Image
+
+        if not raw or len(raw) < 32:
+            return {"ok": False, "error": "图片数据无效"}
+        if len(raw) > 20 * 1024 * 1024:
+            return {"ok": False, "error": "图片过大（超过 20MB）"}
+        try:
+            img = Image.open(io.BytesIO(raw))
+            img.load()
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA" if "A" in (img.mode or "") else "RGB")
+        except Exception as exc:
+            return {"ok": False, "error": f"无法解析图片: {exc}"}
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        base = Path(preferred_name or f"tpl_{stamp}.png").stem or f"tpl_{stamp}"
+        out = self._unique_template_path(f"{base}.png")
+        try:
+            img.save(out, format="PNG")
+        except Exception as exc:
+            return {"ok": False, "error": f"保存失败: {exc}"}
+        return {"ok": True, "path": str(out.resolve()), "name": out.name}
+
+    def save_template_image(self, data_url: str, filename: str | None = None) -> dict:
+        """Save a pasted/dropped image (data URL) into templates/ and return path."""
+        import base64
+        import re
+
+        raw_url = str(data_url or "").strip()
+        m = re.match(r"^data:image/([a-zA-Z0-9.+-]+);base64,(.+)$", raw_url, re.DOTALL)
+        if not m:
+            return {"ok": False, "error": "无效的图片 data_url"}
+        ext = m.group(1).lower().split("+")[0]
+        if ext == "jpeg":
+            ext = "jpg"
+        try:
+            blob = base64.b64decode(m.group(2), validate=False)
+        except Exception as exc:
+            return {"ok": False, "error": f"解码失败: {exc}"}
+        preferred = None
+        if isinstance(filename, str) and filename.strip():
+            preferred = Path(filename.strip()).name
+        elif ext in ("png", "jpg", "jpeg", "bmp", "webp", "gif"):
+            preferred = f"tpl_{time.strftime('%Y%m%d_%H%M%S')}.{ext if ext != 'jpeg' else 'jpg'}"
+        return self._import_image_bytes_to_templates(blob, preferred)
+
+    def pick_template_image(self) -> dict:
+        """Pick an image from disk; copy into templates/ and return the library path."""
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        start_dir = self._templates_dir(create=True)
+        result = self._window.create_file_dialog(
+            webview.OPEN_DIALOG,
+            directory=str(start_dir),
+            allow_multiple=False,
+            file_types=(
+                "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif)",
+                "All files (*.*)",
+            ),
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+        src = result[0] if isinstance(result, (list, tuple)) else result
+        src_path = Path(str(src)).expanduser()
+        try:
+            src_path = src_path.resolve()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        if not src_path.is_file():
+            return {"ok": False, "error": "文件不存在"}
+        # Already in templates library → reuse path as-is
+        templates = self._templates_dir(create=False)
+        if templates.is_dir() and self._is_under_dir(src_path, templates):
+            return {"ok": True, "path": str(src_path), "name": src_path.name, "copied": False}
+        try:
+            raw = src_path.read_bytes()
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        saved = self._import_image_bytes_to_templates(raw, src_path.name)
+        if not saved.get("ok"):
+            return saved
+        return {**saved, "copied": True, "source": str(src_path)}
+
     def export_text(self, text: str, filename: str | None = None) -> dict:
         """Save plain text via Save dialog (for logs export)."""
         raw = "" if text is None else str(text)
@@ -1306,12 +1450,14 @@ class Api:
                 return {"ok": False, "error": "无效的屏幕尺寸"}
             img = grab_region(left, top, left + width, top + height)
             buf = io.BytesIO()
-            img.save(buf, format="PNG", optimize=True)
+            # Prefer lossless PNG so「截模板」裁切后还能和屏幕像素对齐；
+            # JPEG 压缩会让后续图像匹配分数明显偏低。
+            img.save(buf, format="PNG", optimize=True, compress_level=3)
             raw = buf.getvalue()
             mime = "image/png"
-            if len(raw) > 25 * 1024 * 1024:
+            if len(raw) > 40 * 1024 * 1024:
                 buf = io.BytesIO()
-                img.convert("RGB").save(buf, format="JPEG", quality=92)
+                img.convert("RGB").save(buf, format="JPEG", quality=95)
                 raw = buf.getvalue()
                 mime = "image/jpeg"
             data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"

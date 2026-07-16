@@ -30,9 +30,10 @@ SCHEMA = {
     ],
     "outputs": [
         {"name": "found", "type": "boolean"},
+        {"name": "score", "type": "number"},
+        {"name": "path", "type": "string"},
         {"name": "x", "type": "number"},
         {"name": "y", "type": "number"},
-        {"name": "score", "type": "number"},
         {"name": "left", "type": "number"},
         {"name": "top", "type": "number"},
         {"name": "width", "type": "number"},

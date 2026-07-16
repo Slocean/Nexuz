@@ -662,9 +662,10 @@ export const MOCK_SCHEMAS = [
     ],
     outputs: [
       { name: 'found', type: 'boolean' },
+      { name: 'score', type: 'number' },
+      { name: 'path', type: 'string' },
       { name: 'x', type: 'number' },
       { name: 'y', type: 'number' },
-      { name: 'score', type: 'number' },
       { name: 'left', type: 'number' },
       { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
@@ -681,6 +682,8 @@ export const MOCK_SCHEMAS = [
     ],
     outputs: [
       { name: 'path', type: 'string' },
+      { name: 'left', type: 'number' },
+      { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
     ],
@@ -992,6 +995,8 @@ function mockCall(method, ...args) {
     case 'open_data_dir':
     case 'clear_data_dir':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持数据目录操作' });
+    case 'clear_screenshot_cache':
+      return Promise.resolve({ ok: true, deleted: 0, bytes: 0, message: '浏览器预览无截图缓存' });
     case 'export_flow': {
       try {
         const flow = typeof args[0] === 'string' ? JSON.parse(args[0]) : args[0];
@@ -1012,6 +1017,10 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: false, error: '浏览器预览请使用桌面客户端导入' });
     case 'pick_flow_file':
       return Promise.resolve({ ok: false, cancelled: true, error: '浏览器预览请手动填写路径' });
+    case 'pick_template_image':
+      return Promise.resolve({ ok: false, cancelled: true, error: '浏览器预览请手动填写路径或拖入图片' });
+    case 'save_template_image':
+      return Promise.resolve({ ok: false, error: '浏览器预览无法保存模板到数据目录，请用桌面客户端' });
     case 'list_flow_templates': {
       try {
         const raw = localStorage.getItem('nexuz.flowTemplates');
@@ -1228,6 +1237,7 @@ export const bridge = {
   setDataDirPath: (path = null) => call('set_data_dir_path', path),
   openDataDir: () => call('open_data_dir'),
   clearDataDir: () => call('clear_data_dir'),
+  clearScreenshotCache: () => call('clear_screenshot_cache'),
   listFlowTemplates: () => call('list_flow_templates'),
   saveFlowTemplate: (flow, name = null, description = null) =>
     call('save_flow_template', JSON.stringify(flow), name, description),
@@ -1235,6 +1245,8 @@ export const bridge = {
   loadFlowTemplate: (filepath) => call('load_flow_template', filepath),
   clipboardWrite: (text) => call('clipboard_write', text),
   readLocalImage: (filepath) => call('read_local_image', filepath),
+  pickTemplateImage: () => call('pick_template_image'),
+  saveTemplateImage: (dataUrl, filename = null) => call('save_template_image', dataUrl, filename),
   exportText: (text, filename = null) => call('export_text', text, filename),
   windowMinimize: () => call('window_minimize'),
   windowToggleMaximize: () => call('window_toggle_maximize'),

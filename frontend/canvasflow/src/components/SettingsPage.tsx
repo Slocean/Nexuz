@@ -562,6 +562,31 @@ export default function SettingsPage({
     }
   };
 
+  const handleClearScreenshotCache = async () => {
+    const ok = await confirm({
+      title: '清理截图缓存',
+      description:
+        '将删除数据目录下 screenshots 中的区域截图、图像匹配预览等缓存文件。\n不会删除流程，也不会删除 templates 里的模板图片。',
+      confirmText: '清理缓存',
+      destructive: true,
+    });
+    if (!ok) return;
+    setDataDirBusy(true);
+    setDataDirMsg('');
+    try {
+      const res = await bridge.clearScreenshotCache();
+      if (!res?.ok) {
+        setDataDirMsg(res?.error || '清理失败');
+        return;
+      }
+      setDataDirMsg(res.message || `已清理 ${res.deleted || 0} 个文件`);
+    } catch (e: any) {
+      setDataDirMsg(String(e?.message || e));
+    } finally {
+      setDataDirBusy(false);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = processFilter.trim().toLowerCase();
     if (!q) return processes;
@@ -782,6 +807,17 @@ export default function SettingsPage({
                 恢复默认
               </Button>
             )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={dataDirBusy}
+              onClick={() => void handleClearScreenshotCache()}
+              title="清理 screenshots 缓存（区域截图 / 匹配预览），不影响流程与模板"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              清理截图缓存
+            </Button>
             <Button
               type="button"
               size="sm"

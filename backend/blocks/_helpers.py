@@ -282,6 +282,17 @@ def color_distance(c1: str, c2: str) -> float:
     return ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
 
 
+def _imread_bgr(path: Path):
+    """Read image as BGR; supports Unicode paths (cv2.imread fails on non-ASCII)."""
+    import cv2
+    import numpy as np
+
+    raw = path.read_bytes()
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    return img
+
+
 def match_template_on_screen(
     template_path: str,
     *,
@@ -301,7 +312,10 @@ def match_template_on_screen(
     if not path.is_file():
         raise FileNotFoundError(f"模板图片不存在: {template_path}")
 
-    tpl = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    try:
+        tpl = _imread_bgr(path)
+    except OSError as exc:
+        raise ValueError(f"无法读取模板图片: {template_path}") from exc
     if tpl is None:
         raise ValueError(f"无法读取模板图片: {template_path}")
 
@@ -310,38 +324,66 @@ def match_template_on_screen(
         hay_img = grab_region(x1, y1, x2, y2)
         origin_x, origin_y = x1, y1
     else:
-        w, h = screen_size_logical()
-        hay_img = grab_region(0, 0, w, h)
-        origin_x, origin_y = 0, 0
+        # Must use virtual desktop (same as capture_desktop / 截模板), not primary-only (0,0,w,h).
+        left, top, vw, vh = virtual_screen_size()
+        hay_img = grab_region(left, top, left + vw, top + vh)
+        origin_x, origin_y = left, top
 
     hay = cv2.cvtColor(np.array(hay_img), cv2.COLOR_RGB2BGR)
-    if hay.shape[0] < tpl.shape[0] or hay.shape[1] < tpl.shape[1]:
-        return {
-            "found": False,
-            "x": 0,
-            "y": 0,
-            "score": 0.0,
-            "left": 0,
-            "top": 0,
-            "width": 0,
-            "height": 0,
-        }
+    th, tw = int(tpl.shape[0]), int(tpl.shape[1])
+    hh, hw = int(hay.shape[0]), int(hay.shape[1])
+    if hh < th or hw < tw:
+        # Common when search_region ≈ template size but clamp/rounding shrank hay by 1px.
+        # Crop template to hay so an "identical" frame still matches instead of score=0.
+        if hh < 1 or hw < 1:
+            return {
+                "found": False,
+                "x": 0,
+                "y": 0,
+                "score": 0.0,
+                "path": "",
+                "left": 0,
+                "top": 0,
+                "width": 0,
+                "height": 0,
+                "message": f"搜索区域过小（{hw}x{hh}），模板为 {tw}x{th}",
+            }
+        tpl = tpl[0:hh, 0:hw]
+        th, tw = hh, hw
 
     res = cv2.matchTemplate(hay, tpl, cv2.TM_CCOEFF_NORMED)
     _min_val, max_val, _min_loc, max_loc = cv2.minMaxLoc(res)
-    found = float(max_val) >= float(threshold)
-    tw, th = int(tpl.shape[1]), int(tpl.shape[0])
+    score = round(float(max_val), 4)
+    found = score >= float(threshold)
     left = int(origin_x + max_loc[0])
     top = int(origin_y + max_loc[1])
     cx = left + tw // 2
     cy = top + th // 2
+
+    # Always save the best-match crop so users can preview even when below threshold.
+    match_path = ""
+    try:
+        from time import strftime
+
+        from backend.paths import get_data_dir
+
+        crop = grab_region(left, top, left + tw, top + th)
+        shots = get_data_dir(create=True) / "screenshots"
+        shots.mkdir(parents=True, exist_ok=True)
+        out = shots / f"match_{strftime('%Y%m%d_%H%M%S')}.png"
+        crop.save(out)
+        match_path = str(out.resolve())
+    except Exception:
+        match_path = ""
+
     return {
         "found": found,
-        "x": cx if found else 0,
-        "y": cy if found else 0,
-        "score": round(float(max_val), 4),
-        "left": left if found else 0,
-        "top": top if found else 0,
-        "width": tw if found else 0,
-        "height": th if found else 0,
+        "x": cx,
+        "y": cy,
+        "score": score,
+        "path": match_path,
+        "left": left,
+        "top": top,
+        "width": tw,
+        "height": th,
     }
