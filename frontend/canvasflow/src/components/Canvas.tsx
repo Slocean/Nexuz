@@ -12,6 +12,8 @@ import {
   Waypoints,
   ChevronDown,
   ChevronRight,
+  MousePointer2,
+  SquareDashedMousePointer,
 } from "lucide-react";
 import {
   WorkflowNode,
@@ -221,6 +223,8 @@ function Canvas({
   const [showDataLinks, setShowDataLinks] = useState(false);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState("");
+  /** pan = 拖动画布；select = 空处拖动框选 */
+  const [canvasTool, setCanvasTool] = useState<"pan" | "select">("pan");
   const [marquee, setMarquee] = useState<{
     x0: number;
     y0: number;
@@ -258,6 +262,10 @@ function Canvas({
   const isMarqueeRef = useRef(false);
   const clipboardRef = useRef<string[]>([]);
   const selectedIdsRef = useRef<string[]>([]);
+  const editingNameIdRef = useRef<string | null>(null);
+  const editingNameValueRef = useRef("");
+  const onUpdateNodeNameRef = useRef(onUpdateNodeName);
+  const canvasToolRef = useRef<"pan" | "select">("pan");
   const draftRef = useRef(draftConnection);
   const rafRef = useRef<number | null>(null);
   const marqueeRafRef = useRef<number | null>(null);
@@ -321,6 +329,27 @@ function Canvas({
   useEffect(() => {
     selectedIdsRef.current = selectedIds;
   }, [selectedIds]);
+  useEffect(() => {
+    editingNameIdRef.current = editingNameId;
+  }, [editingNameId]);
+  useEffect(() => {
+    editingNameValueRef.current = editingNameValue;
+  }, [editingNameValue]);
+  useEffect(() => {
+    onUpdateNodeNameRef.current = onUpdateNodeName;
+  }, [onUpdateNodeName]);
+  useEffect(() => {
+    canvasToolRef.current = canvasTool;
+  }, [canvasTool]);
+
+  /** Commit in-progress title edit (blur / click elsewhere / Enter). */
+  const commitNameEdit = useCallback(() => {
+    const id = editingNameIdRef.current;
+    if (!id) return;
+    onUpdateNodeNameRef.current?.(id, editingNameValueRef.current);
+    editingNameIdRef.current = null;
+    setEditingNameId(null);
+  }, []);
 
   // Keep multi-select in sync when external selection changes
   useEffect(() => {
@@ -665,12 +694,18 @@ function Canvas({
     // Middle mouse: pan anywhere on canvas
     if (e.button === 1) {
       e.preventDefault();
+      commitNameEdit();
       startPan(e.clientX, e.clientY);
       return;
     }
-    // Shift + left on empty: marquee select
-    if (e.button === 0 && e.shiftKey && isPanSurface(e.target)) {
+    // Select tool, or Shift + left on empty: marquee select
+    const wantMarquee =
+      e.button === 0 &&
+      isPanSurface(e.target) &&
+      (e.shiftKey || canvasToolRef.current === "select");
+    if (wantMarquee) {
       e.preventDefault();
+      commitNameEdit();
       const pos = screenToCanvas(e.clientX, e.clientY);
       isMarqueeRef.current = true;
       didPanOrDragRef.current = false;
@@ -682,6 +717,7 @@ function Canvas({
     // Left mouse on empty surface: pan
     if (e.button === 0 && isPanSurface(e.target)) {
       e.preventDefault();
+      commitNameEdit();
       startPan(e.clientX, e.clientY);
     }
   };
@@ -770,6 +806,10 @@ function Canvas({
   const handleNodeDragStart = (e: React.MouseEvent, node: WorkflowNode) => {
     e.stopPropagation();
     e.preventDefault();
+    // Clicking another node: save any in-progress title edit first
+    if (editingNameIdRef.current && editingNameIdRef.current !== node.id) {
+      commitNameEdit();
+    }
     let nextSelected = selectedIdsRef.current;
     if (e.ctrlKey || e.metaKey) {
       nextSelected = nextSelected.includes(node.id)
@@ -918,9 +958,11 @@ function Canvas({
       style={{
         backgroundColor: themeMode === "light" ? "#F5F7FB" : "#0A0D14",
       }}
-      className={`flex-1 relative overflow-hidden select-none cursor-grab active:cursor-grabbing ${
-        themeMode === "light" ? "bg-grid-light" : "bg-grid-dark"
-      }`}
+      className={`flex-1 relative overflow-hidden select-none ${
+        canvasTool === "select"
+          ? "cursor-crosshair"
+          : "cursor-grab active:cursor-grabbing"
+      } ${themeMode === "light" ? "bg-grid-light" : "bg-grid-dark"}`}
     >
       <div className="absolute bottom-5 left-5 z-20 flex flex-col gap-2 items-start">
         <MiniMap
@@ -964,7 +1006,7 @@ function Canvas({
         </Button>
       </div>
 
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
+      <div className="absolute top-4 left-4 z-20 flex items-center gap-2 flex-wrap max-w-[min(100%,520px)]">
         <Button
           variant="outline"
           size="sm"
@@ -979,11 +1021,67 @@ function Canvas({
         >
           数据连线 {showDataLinks ? "开" : "关"}
         </Button>
+        <div
+          className="flex items-center rounded-md border shadow-lg overflow-hidden h-8"
+          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+        >
+          <button
+            type="button"
+            onClick={() => setCanvasTool("pan")}
+            title="平移画布（空处拖动）"
+            className="h-full px-2 flex items-center gap-1 text-xs"
+            style={{
+              color: canvasTool === "pan" ? colors.primary : colors.text,
+              backgroundColor: canvasTool === "pan" ? colors.primary + "18" : "transparent",
+            }}
+          >
+            <MousePointer2 className="w-3.5 h-3.5" />
+            平移
+          </button>
+          <button
+            type="button"
+            onClick={() => setCanvasTool("select")}
+            title="框选节点（空处拖动拉框；也可 Shift+拖动）"
+            className="h-full px-2 flex items-center gap-1 text-xs border-l"
+            style={{
+              borderColor: colors.border,
+              color: canvasTool === "select" ? colors.primary : colors.text,
+              backgroundColor: canvasTool === "select" ? colors.primary + "18" : "transparent",
+            }}
+          >
+            <SquareDashedMousePointer className="w-3.5 h-3.5" />
+            框选
+          </button>
+        </div>
+        {selectedIds.length > 0 ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const ids = [...selectedIdsRef.current];
+              if (!ids.length) return;
+              if (onRemoveNodes) onRemoveNodes(ids);
+              else ids.forEach((id) => onRemoveNode(id));
+              setSelectedIds([]);
+              onSelectNode(null);
+            }}
+            style={{
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              color: colors.danger,
+            }}
+            className="h-8 text-xs shadow-lg gap-1"
+            title="删除选中节点（Delete）"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            删除{selectedIds.length > 1 ? ` ${selectedIds.length}` : ""}
+          </Button>
+        ) : null}
         <span
           style={{ color: colors.secondaryText }}
           className="text-xs opacity-60 hidden md:inline"
         >
-          Shift框选 · Ctrl多选 · Ctrl+C/V · Del
+          {canvasTool === "select" ? "拖空处框选" : "Shift框选"} · Ctrl多选 · Del删除
         </span>
       </div>
 
@@ -1456,16 +1554,15 @@ function Canvas({
                         onChange={(e) => setEditingNameValue(e.target.value)}
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
-                        onBlur={() => {
-                          onUpdateNodeName?.(node.id, editingNameValue);
-                          setEditingNameId(null);
-                        }}
+                        onBlur={() => commitNameEdit()}
                         onKeyDown={(e) => {
                           e.stopPropagation();
                           if (e.key === "Enter") {
-                            onUpdateNodeName?.(node.id, editingNameValue);
-                            setEditingNameId(null);
+                            e.preventDefault();
+                            commitNameEdit();
                           } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            editingNameIdRef.current = null;
                             setEditingNameId(null);
                           }
                         }}
@@ -1474,7 +1571,7 @@ function Canvas({
                     ) : (
                       <span
                         className="font-semibold text-xs truncate cursor-text"
-                        title="双击修改名称；点左侧箭头折叠"
+                        title="双击修改名称；点空白处或回车确认"
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           setEditingNameId(node.id);
@@ -1662,8 +1759,8 @@ function Canvas({
                   })}
                 </div>
 
-                <div className="flex items-center justify-between text-xs pt-1 border-t border-black/10 dark:border-white/10 font-mono text-slate-400">
-                  <div className="flex items-center gap-0.5 min-w-0 flex-1">
+                <div className="flex flex-col gap-0.5 text-xs pt-1 border-t border-black/10 dark:border-white/10 font-mono text-slate-400 min-w-0">
+                  <div className="flex items-center gap-0.5 min-w-0">
                     {node.status === "success" && (
                       <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
                     )}
@@ -1681,8 +1778,11 @@ function Canvas({
                       {node.id}
                     </span>
                   </div>
-                  <span className="opacity-60 capitalize truncate max-w-[72px] shrink-0">
-                    {node.subType.replace("-", " ")}
+                  <span
+                    className="opacity-60 truncate pl-0 leading-tight"
+                    title={node.subType}
+                  >
+                    {node.subType}
                   </span>
                 </div>
                   </>

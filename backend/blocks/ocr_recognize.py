@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from backend.blocks._helpers import (
     grab_region,
     match_template_on_screen,
@@ -21,6 +23,41 @@ SCHEMA = {
     "category": "识别类",
     "inputs": [
         {
+            "name": "source_mode",
+            "type": "select",
+            "label": "数据来源",
+            "options": ["screen", "image"],
+            "default": "screen",
+            "option_labels": {
+                "screen": "屏幕区域",
+                "image": "图片文件",
+            },
+        },
+        {
+            "name": "image_path",
+            "type": "string",
+            "label": "图片路径",
+            "default": "",
+            "placeholder": "绑定区域截图的 path",
+            "show_when": {"source_mode": "image"},
+        },
+        {
+            "name": "origin_x",
+            "type": "number",
+            "label": "屏幕原点 X",
+            "default": 0,
+            "placeholder": "绑定截图 left",
+            "show_when": {"source_mode": "image"},
+        },
+        {
+            "name": "origin_y",
+            "type": "number",
+            "label": "屏幕原点 Y",
+            "default": 0,
+            "placeholder": "绑定截图 top",
+            "show_when": {"source_mode": "image"},
+        },
+        {
             "name": "region_mode",
             "type": "select",
             "label": "区域方式",
@@ -31,41 +68,42 @@ SCHEMA = {
                 "xy": "起点+宽高",
                 "anchor": "锚点模板",
             },
+            "show_when": {"source_mode": "screen"},
         },
         {
             "name": "region",
             "type": "rect",
             "label": "识别区域",
             "default": None,
-            "show_when": {"region_mode": "rect"},
+            "show_when": {"source_mode": "screen", "region_mode": "rect"},
         },
         {
             "name": "x",
             "type": "number",
             "label": "起点 X",
             "default": 0,
-            "show_when": {"region_mode": "xy"},
+            "show_when": {"source_mode": "screen", "region_mode": "xy"},
         },
         {
             "name": "y",
             "type": "number",
             "label": "起点 Y",
             "default": 0,
-            "show_when": {"region_mode": "xy"},
+            "show_when": {"source_mode": "screen", "region_mode": "xy"},
         },
         {
             "name": "width",
             "type": "number",
             "label": "宽度",
             "default": 320,
-            "show_when": {"region_mode": "xy"},
+            "show_when": {"source_mode": "screen", "region_mode": "xy"},
         },
         {
             "name": "height",
             "type": "number",
             "label": "高度",
             "default": 80,
-            "show_when": {"region_mode": "xy"},
+            "show_when": {"source_mode": "screen", "region_mode": "xy"},
         },
         {
             "name": "anchor_template",
@@ -73,7 +111,7 @@ SCHEMA = {
             "label": "锚点模板",
             "default": "",
             "placeholder": "模板图片路径",
-            "show_when": {"region_mode": "anchor"},
+            "show_when": {"source_mode": "screen", "region_mode": "anchor"},
         },
         {
             "name": "anchor_threshold",
@@ -81,21 +119,21 @@ SCHEMA = {
             "label": "锚点阈值",
             "default": 0.8,
             "placeholder": "0~1",
-            "show_when": {"region_mode": "anchor"},
+            "show_when": {"source_mode": "screen", "region_mode": "anchor"},
         },
         {
             "name": "anchor_offset_x",
             "type": "number",
             "label": "锚点偏移 X",
             "default": 0,
-            "show_when": {"region_mode": "anchor"},
+            "show_when": {"source_mode": "screen", "region_mode": "anchor"},
         },
         {
             "name": "anchor_offset_y",
             "type": "number",
             "label": "锚点偏移 Y",
             "default": 0,
-            "show_when": {"region_mode": "anchor"},
+            "show_when": {"source_mode": "screen", "region_mode": "anchor"},
         },
         {
             "name": "anchor_ocr_width",
@@ -103,7 +141,7 @@ SCHEMA = {
             "label": "识别宽度",
             "default": 0,
             "placeholder": "0 = 模板宽",
-            "show_when": {"region_mode": "anchor"},
+            "show_when": {"source_mode": "screen", "region_mode": "anchor"},
         },
         {
             "name": "anchor_ocr_height",
@@ -111,7 +149,7 @@ SCHEMA = {
             "label": "识别高度",
             "default": 0,
             "placeholder": "0 = 模板高",
-            "show_when": {"region_mode": "anchor"},
+            "show_when": {"source_mode": "screen", "region_mode": "anchor"},
         },
         {
             "name": "lang",
@@ -300,10 +338,43 @@ def _empty_ocr_result(
     }
 
 
+def _load_ocr_image(params: dict):
+    """Load image from path; return (PIL.Image, origin_x, origin_y, region_list)."""
+    from PIL import Image
+
+    path = str(params.get("image_path") or "").strip()
+    if not path:
+        raise ValueError("请设置图片路径（可绑定区域截图的 path）")
+    p = Path(path)
+    if not p.is_file():
+        raise ValueError(f"图片文件不存在: {path}")
+    try:
+        img = Image.open(p)
+        img.load()
+    except Exception as exc:
+        raise ValueError(f"无法打开图片: {path} ({exc})") from exc
+
+    ox = int(float(params.get("origin_x") or 0))
+    oy = int(float(params.get("origin_y") or 0))
+    w, h = img.size
+    region = [ox, oy, ox + int(w), oy + int(h)]
+    return img, ox, oy, region
+
+
 def run_ocr(params: dict) -> dict:
-    (x1, y1, x2, y2), anchor = resolve_ocr_region(params)
-    region = [x1, y1, x2, y2]
-    img = grab_region(x1, y1, x2, y2)
+    source = str(params.get("source_mode") or "screen").strip().lower() or "screen"
+    # if_text_contains uses capture for live screen OCR
+    if source in ("capture", "screen", ""):
+        source = "screen"
+
+    anchor = None
+    if source == "image":
+        img, ox, oy, region = _load_ocr_image(params)
+        x1, y1 = ox, oy
+    else:
+        (x1, y1, x2, y2), anchor = resolve_ocr_region(params)
+        region = [x1, y1, x2, y2]
+        img = grab_region(x1, y1, x2, y2)
 
     engine = _get_ocr()
     import numpy as np

@@ -11,10 +11,11 @@ SCHEMA = {
             "name": "source_mode",
             "type": "select",
             "label": "数据来源",
-            "options": ["capture", "value"],
+            "options": ["capture", "image", "value"],
             "default": "capture",
             "option_labels": {
                 "capture": "现场 OCR",
+                "image": "图片文件",
                 "value": "上游文本",
             },
         },
@@ -25,6 +26,30 @@ SCHEMA = {
             "default": "",
             "show_when": {"source_mode": "value"},
             "placeholder": "要比对的文本",
+        },
+        {
+            "name": "image_path",
+            "type": "string",
+            "label": "图片路径",
+            "default": "",
+            "placeholder": "绑定区域截图的 path",
+            "show_when": {"source_mode": "image"},
+        },
+        {
+            "name": "origin_x",
+            "type": "number",
+            "label": "屏幕原点 X",
+            "default": 0,
+            "placeholder": "绑定截图 left",
+            "show_when": {"source_mode": "image"},
+        },
+        {
+            "name": "origin_y",
+            "type": "number",
+            "label": "屏幕原点 Y",
+            "default": 0,
+            "placeholder": "绑定截图 top",
+            "show_when": {"source_mode": "image"},
         },
         {
             "name": "region_mode",
@@ -127,14 +152,14 @@ SCHEMA = {
             "options": ["auto", "ch", "en"],
             "default": "auto",
             "option_labels": {"auto": "自动", "ch": "中文", "en": "英文"},
-            "show_when": {"source_mode": "capture"},
+            "show_when": {"source_mode": ["capture", "image"]},
         },
         {
             "name": "min_confidence",
             "type": "number",
             "label": "最低置信度",
             "default": 0.3,
-            "show_when": {"source_mode": "capture"},
+            "show_when": {"source_mode": ["capture", "image"]},
             "placeholder": "0~1",
         },
         {
@@ -190,7 +215,14 @@ def handler(params, context, **kwargs):
 
     from backend.blocks.ocr_recognize import run_ocr
 
-    ocr_out = run_ocr({**params, "match_text": expect, "match_mode": mode})
+    ocr_params = {**params, "match_text": expect, "match_mode": mode}
+    if source == "image":
+        ocr_params["source_mode"] = "image"
+    else:
+        # capture → screen region OCR
+        ocr_params["source_mode"] = "screen"
+
+    ocr_out = run_ocr(ocr_params)
     actual = str(ocr_out.get("text") or "")
     # Branch on full joined text (existing semantics); coords from box-level hit.
     matched = match_text(actual, expect, mode)

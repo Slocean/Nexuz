@@ -26,8 +26,11 @@ SCHEMA = {
     ],
     "outputs": [
         {"name": "path", "type": "string"},
+        {"name": "left", "type": "number"},
+        {"name": "top", "type": "number"},
         {"name": "width", "type": "number"},
         {"name": "height", "type": "number"},
+        {"name": "region", "type": "object", "canvas": False},
     ],
 }
 
@@ -53,4 +56,11 @@ def handler(params, context, **kwargs):
     if out.suffix.lower() not in (".png", ".jpg", ".jpeg", ".bmp"):
         out = out.with_suffix(".png")
     img.save(out)
-    return {"path": str(out.resolve()), "width": img.width, "height": img.height}
+    return {
+        "path": str(out.resolve()),
+        "left": int(x1),
+        "top": int(y1),
+        "width": img.width,
+        "height": img.height,
+        "region": [int(x1), int(y1), int(x2), int(y2)],
+    }

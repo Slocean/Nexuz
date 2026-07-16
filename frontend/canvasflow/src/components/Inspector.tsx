@@ -973,10 +973,14 @@ function inputVisible(input: any, config: Record<string, any> | undefined): bool
   const cfg = config || {};
   for (const [key, expect] of Object.entries(when)) {
     const actual = cfg[key];
-    // Defaults: source_mode missing → treat as "capture"
+    // Defaults: source_mode missing → screen (OCR) or capture (conditions)
     let cur = actual;
     if (cur === undefined || cur === null || cur === '') {
-      if (key === 'source_mode') cur = 'capture';
+      if (key === 'source_mode') {
+        // OCR uses screen|image; text/color conditions use capture|value|…
+        // When unset: treat as "screen" only for rules that expect screen, else capture.
+        cur = String(expect) === 'screen' ? 'screen' : 'capture';
+      }
       else if (key === 'wait_type') cur = 'text';
       else if (key === 'click_mode') cur = 'single';
       else if (key === 'key_mode') cur = 'single';
