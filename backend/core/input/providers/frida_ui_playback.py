@@ -36,14 +36,10 @@ class FridaUiPlaybackProvider(PlaybackProvider):
         if not ok:
             raise RuntimeError(f"{ERROR_STABLE_ID_RESOLVE_FAILED}: {msg}")
 
-        use_cache = True
         if isinstance(context, dict) and context.get("frida_clear_cache"):
             mgr.clear_resolve_cache()
-        try:
-            mgr.resolve_ptr(stable, use_cache=use_cache)
-        except Exception as exc:
-            raise RuntimeError(f"{ERROR_STABLE_ID_RESOLVE_FAILED}: {exc}") from exc
 
+        # Single RPC: script invokeClick does one findByPath + press (no Python pre-resolve).
         try:
             result = mgr.call_export("invokeClick", stable, target.button or "left")
         except Exception as exc:

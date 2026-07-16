@@ -452,12 +452,15 @@ export default function SettingsPage({
   }, []);
 
   useEffect(() => {
+    if (fridaBusy) return;
     void refreshFrida();
+    // Attached: poll every 3s (backend status is a fast path). Detached: 10s.
+    const intervalMs = fridaStatus.attached ? 3000 : 10000;
     const t = setInterval(() => {
       void refreshFrida();
-    }, 3000);
+    }, intervalMs);
     return () => clearInterval(t);
-  }, [refreshFrida]);
+  }, [refreshFrida, fridaBusy, fridaStatus.attached]);
 
   useEffect(() => {
     void refreshProcesses(onlyWithWindow);
@@ -941,7 +944,7 @@ export default function SettingsPage({
           colors={colors}
           headerRight={
             <HelpHint
-              text="默认只列出有可见窗口的进程，避免同名辅助进程干扰。选中后按 PID 连接。"
+              text="默认只列出有可见窗口的进程，避免同名辅助进程干扰。选中后按 PID 连接。用完请断开；空闲约 10 分钟将自动断开，以降低游戏卡顿风险。"
               colors={colors}
               themeMode={themeMode}
             />
@@ -959,6 +962,9 @@ export default function SettingsPage({
                 }${fridaStatus.hooked ? ' · Hook 就绪' : ' · Hook 未就绪'}`
               : '未连接'}
           </div>
+          <p className="text-xs leading-relaxed opacity-80" style={{ color: colors.secondaryText }}>
+            用完请断开；空闲约 10 分钟将自动断开，以降低游戏卡顿风险。
+          </p>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">

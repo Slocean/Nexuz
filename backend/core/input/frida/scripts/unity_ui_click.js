@@ -18,7 +18,13 @@ var state = {
   // TBH-style: never call Button.Press from Frida RPC thread — queue for EventSystem.Update
   pressJobs: [],
   resolveJobs: [],
+  // Capable of main-thread scheduling (EventSystem.Update found); listener attached on demand
+  mainThreadCapable: false,
   mainThreadHooked: false,
+  mainThreadListener: null,
+  // OnPointerClick interceptors — only while recording
+  recordListeners: [],
+  recordHooksAttached: false,
 };
 
 var il2cpp = {
@@ -708,11 +714,16 @@ function captureFromClick(component, eventData, kind) {
   return info;
 }
 
-function hookOnPointerClick(classNs, className, kind) {
+function canFindOnPointerClick(classNs, className) {
+  var info = findMethodInfo(classNs, className, 'OnPointerClick', 1);
+  return !!methodPointerOrNull(info);
+}
+
+function attachOneRecordHook(classNs, className, kind) {
   var info = findMethodInfo(classNs, className, 'OnPointerClick', 1);
   var impl = methodPointerOrNull(info);
   if (!impl) return false;
-  Interceptor.attach(impl, {
+  var listener = Interceptor.attach(impl, {
     onEnter: function (args) {
       try {
         if (args[1] && !args[1].isNull()) replay.lastPointerEvent = args[1];
@@ -730,26 +741,84 @@ function hookOnPointerClick(classNs, className, kind) {
       }
     },
   });
+  state.recordListeners.push(listener);
   return true;
 }
 
+function attachRecordHooks() {
+  if (state.recordHooksAttached) return true;
+  detachRecordHooks();
+  var okAny = false;
+  okAny = attachOneRecordHook('UnityEngine.UI', 'Button', 'button') || okAny;
+  okAny = attachOneRecordHook('UnityEngine.UI', 'Toggle', 'toggle') || okAny;
+  okAny = attachOneRecordHook('UnityEngine.UI', 'Dropdown', 'dropdown') || okAny;
+  okAny = attachOneRecordHook('TMPro', 'TMP_Dropdown', 'dropdown') || okAny;
+  state.recordHooksAttached = okAny;
+  if (!okAny) {
+    state.lastError = '未能挂载 OnPointerClick 录制钩（可能不是 uGUI）';
+  }
+  return okAny;
+}
+
+function detachRecordHooks() {
+  var listeners = state.recordListeners.slice();
+  state.recordListeners = [];
+  state.recordHooksAttached = false;
+  for (var i = 0; i < listeners.length; i++) {
+    try {
+      listeners[i].detach();
+    } catch (e) {}
+  }
+}
+
+function ensureMainThreadHook() {
+  if (state.mainThreadListener) {
+    state.mainThreadHooked = true;
+    return true;
+  }
+  if (!replay.eventSystemUpdatePtr) {
+    state.lastError = '未找到 EventSystem.Update（回放无法安全切主线程）';
+    return false;
+  }
+  try {
+    state.mainThreadListener = Interceptor.attach(replay.eventSystemUpdatePtr, {
+      onEnter: function () {
+        if (!state.resolveJobs.length && !state.pressJobs.length) return;
+        drainResolveJobs();
+        drainPressJobs();
+      },
+    });
+    state.mainThreadHooked = true;
+    return true;
+  } catch (eEs) {
+    state.mainThreadListener = null;
+    state.mainThreadHooked = false;
+    state.lastError = 'EventSystem.Update Hook 失败: ' + eEs;
+    return false;
+  }
+}
+
+function releaseMainThreadHookIfIdle() {
+  if (state.resolveJobs.length || state.pressJobs.length) return;
+  if (!state.mainThreadListener) {
+    state.mainThreadHooked = false;
+    return;
+  }
+  try {
+    state.mainThreadListener.detach();
+  } catch (e) {}
+  state.mainThreadListener = null;
+  state.mainThreadHooked = false;
+}
+
 function setupReplayNatives() {
-  // Proven TBH approach: call native methodPointer(this, MethodInfo*) directly
+  // Bind NativeFunctions only — no long-lived Interceptors (attached on demand).
   var pressInfo = findMethodInfo('UnityEngine.UI', 'Button', 'Press', 0);
   var pressPtr = methodPointerOrNull(pressInfo);
   if (pressPtr) {
     replay.buttonPressPtr = pressPtr;
     replay.buttonPress = new NativeFunction(pressPtr, 'void', ['pointer', 'pointer']);
     replay.buttonPressInfo = pressInfo;
-    try {
-      Interceptor.attach(pressPtr, {
-        onEnter: function (args) {
-          try {
-            if (args[1] && !args[1].isNull()) replay.buttonPressInfo = args[1];
-          } catch (e0) {}
-        },
-      });
-    } catch (eHookPress) {}
   }
   var opcInfo = findMethodInfo('UnityEngine.UI', 'Button', 'OnPointerClick', 1);
   var opcPtr = methodPointerOrNull(opcInfo);
@@ -757,7 +826,6 @@ function setupReplayNatives() {
     replay.buttonOnPointerClick = new NativeFunction(opcPtr, 'void', ['pointer', 'pointer', 'pointer']);
     replay.buttonOnPointerClickInfo = opcInfo;
   }
-  // Helpers: TBH uses single-arg this for Unity getters
   var namePtr = methodNativePtr('UnityEngine', 'Object', 'get_name', 0);
   if (namePtr && !namePtr.isNull()) {
     try {
@@ -777,29 +845,18 @@ function setupReplayNatives() {
     } catch (e5) {}
   }
 
-  // Drain press jobs on Unity main thread (EventSystem.Update) — required to avoid AV@0x0
   var esUpdateInfo = findMethodInfo('UnityEngine.EventSystems', 'EventSystem', 'Update', 0);
   var esUpdatePtr = methodPointerOrNull(esUpdateInfo);
   if (esUpdatePtr) {
     replay.eventSystemUpdatePtr = esUpdatePtr;
-    try {
-      Interceptor.attach(esUpdatePtr, {
-        onEnter: function () {
-          drainResolveJobs();
-          drainPressJobs();
-        },
-      });
-      state.mainThreadHooked = true;
-    } catch (eEs) {
-      state.mainThreadHooked = false;
-      state.lastError = 'EventSystem.Update Hook 失败: ' + eEs;
-    }
+    state.mainThreadCapable = true;
   } else {
-    state.mainThreadHooked = false;
+    replay.eventSystemUpdatePtr = null;
+    state.mainThreadCapable = false;
     state.lastError = '未找到 EventSystem.Update（回放无法安全切主线程）';
   }
 
-  return !!(replay.buttonPress && replay.buttonPressInfo && state.mainThreadHooked);
+  return !!(replay.buttonPress && replay.buttonPressInfo && state.mainThreadCapable);
 }
 
 function attachHooks() {
@@ -812,20 +869,21 @@ function attachHooks() {
       );
     }
     initUnityHelpers();
-    var okAny = false;
-    okAny = hookOnPointerClick('UnityEngine.UI', 'Button', 'button') || okAny;
-    okAny = hookOnPointerClick('UnityEngine.UI', 'Toggle', 'toggle') || okAny;
-    okAny = hookOnPointerClick('UnityEngine.UI', 'Dropdown', 'dropdown') || okAny;
-    okAny = hookOnPointerClick('TMPro', 'TMP_Dropdown', 'dropdown') || okAny;
+    // Capability probe only — do not attach long-lived click / Update interceptors.
+    var canRecord = false;
+    canRecord = canFindOnPointerClick('UnityEngine.UI', 'Button') || canRecord;
+    canRecord = canFindOnPointerClick('UnityEngine.UI', 'Toggle') || canRecord;
+    canRecord = canFindOnPointerClick('UnityEngine.UI', 'Dropdown') || canRecord;
+    canRecord = canFindOnPointerClick('TMPro', 'TMP_Dropdown') || canRecord;
     var replayOk = setupReplayNatives();
-    state.hooked = okAny;
-    if (!okAny) {
-      return fail('未能 Hook OnPointerClick（可能不是 uGUI，或程序集名不同）');
+    state.hooked = canRecord;
+    if (!canRecord) {
+      return fail('未能找到 OnPointerClick（可能不是 uGUI，或程序集名不同）');
     }
     if (!replayOk) {
       state.lastError =
         state.lastError ||
-        '已 Hook 录制，但主线程回放未就绪（缺少 Button.Press 或 EventSystem.Update）';
+        '录制可用，但主线程回放未就绪（缺少 Button.Press 或 EventSystem.Update）';
       return ok({ hooked: true, il2cpp: true, replay: false, warning: state.lastError });
     }
     return ok({ hooked: true, il2cpp: true, replay: true, mainThread: true });
@@ -847,8 +905,8 @@ function findByPath(hierarchyPath, componentType, siblingIndex) {
 
   // Cross-session: re-scan live UI tree by hierarchy_path (on Unity main thread).
   var found = NULL;
-  if (state.mainThreadHooked) {
-    found = queueResolveOnMainThread(hierarchyPath, componentType, siblingIndex, 4000);
+  if (replay.eventSystemUpdatePtr) {
+    found = queueResolveOnMainThread(hierarchyPath, componentType, siblingIndex, 2500);
   } else {
     try {
       found = findByPathLive(hierarchyPath, componentType, siblingIndex);
@@ -867,6 +925,10 @@ function findByPath(hierarchyPath, componentType, siblingIndex) {
 }
 
 function queueResolveOnMainThread(hierarchyPath, componentType, siblingIndex, timeoutMs) {
+  if (!ensureMainThreadHook()) {
+    state.lastError = state.lastError || '主线程调度未就绪';
+    return NULL;
+  }
   var job = {
     hierarchyPath: hierarchyPath,
     componentType: componentType,
@@ -876,7 +938,7 @@ function queueResolveOnMainThread(hierarchyPath, componentType, siblingIndex, ti
     error: null,
   };
   state.resolveJobs.push(job);
-  var deadline = Date.now() + (timeoutMs || 4000);
+  var deadline = Date.now() + (timeoutMs || 2500);
   while (!job.done && Date.now() < deadline) {
     Thread.sleep(0.01);
   }
@@ -886,8 +948,10 @@ function queueResolveOnMainThread(hierarchyPath, componentType, siblingIndex, ti
       if (idx >= 0) state.resolveJobs.splice(idx, 1);
     } catch (e0) {}
     state.lastError = '路径重解析超时（请保持游戏前台运行）';
+    releaseMainThreadHookIfIdle();
     return NULL;
   }
+  releaseMainThreadHookIfIdle();
   if (job.error) {
     state.lastError = job.error;
     return NULL;
@@ -980,8 +1044,10 @@ function drainPressJobs() {
 }
 
 function queuePressOnMainThread(component, timeoutMs) {
-  if (!state.mainThreadHooked) {
-    return fail('主线程回放未就绪（EventSystem.Update 未 Hook），请重新连接 Frida');
+  if (!ensureMainThreadHook()) {
+    return fail(
+      state.lastError || '主线程回放未就绪（EventSystem.Update 不可用），请重新连接 Frida'
+    );
   }
   if (!isAliveObject(component)) {
     return fail('目标组件指针已失效，请重新录入');
@@ -994,7 +1060,7 @@ function queuePressOnMainThread(component, timeoutMs) {
     invoked: null,
   };
   state.pressJobs.push(job);
-  var deadline = Date.now() + (timeoutMs || 3000);
+  var deadline = Date.now() + (timeoutMs || 2000);
   while (!job.done && Date.now() < deadline) {
     Thread.sleep(0.01);
   }
@@ -1003,25 +1069,33 @@ function queuePressOnMainThread(component, timeoutMs) {
       var idx = state.pressJobs.indexOf(job);
       if (idx >= 0) state.pressJobs.splice(idx, 1);
     } catch (e0) {}
+    releaseMainThreadHookIfIdle();
     return fail('主线程回放超时（游戏可能已暂停/卡死）。请保持游戏前台运行后重试');
   }
+  releaseMainThreadHookIfIdle();
   if (!job.ok) return fail(job.error || '回放失败');
   return ok({ invoked: job.invoked || 'Button.Press' });
 }
 
 function invokeClick(stableId, button) {
   try {
-    var r = resolve(stableId || {});
-    if (!r.ok) return r;
+    var path = stableId && stableId.hierarchy_path;
+    if (!path) return fail('hierarchy_path 为空');
+    if (path === 'Unknown') return fail('录制路径无效(Unknown)，请重新录入该点击');
+    // Single path resolve — avoid resolve() + findByPath double scan.
     var component = findByPath(
-      stableId.hierarchy_path,
-      stableId.component_type || 'UnityEngine.UI.Button',
-      stableId.sibling_index || 0
+      path,
+      (stableId && stableId.component_type) || 'UnityEngine.UI.Button',
+      (stableId && stableId.sibling_index) || 0
     );
-    if (!isAliveObject(component)) {
-      return fail('目标组件指针已失效，请重新录入该节点');
+    if (!component || component.isNull() || !isAliveObject(component)) {
+      return fail(
+        '无法解析 UI 路径: ' +
+          path +
+          '（请确认 Frida 已连接、游戏停在录入时的界面，且控件层级未改动）'
+      );
     }
-    var pressed = queuePressOnMainThread(component, 3000);
+    var pressed = queuePressOnMainThread(component, 2000);
     if (pressed.ok) {
       pressed.button = button || 'left';
     }
@@ -1036,6 +1110,9 @@ rpc.exports = {
     return JSON.stringify(attachHooks());
   },
   startsequencerecord: function () {
+    if (!attachRecordHooks()) {
+      return JSON.stringify(fail(state.lastError || '无法挂载录制钩'));
+    }
     state.sequence = true;
     state.recording = true;
     state.queue = [];
@@ -1046,12 +1123,22 @@ rpc.exports = {
     state.sequence = false;
     var q = state.queue.slice();
     state.queue = [];
+    detachRecordHooks();
     return JSON.stringify(ok({ items: q }));
   },
   setrecordtarget: function (active) {
     state.sequence = false;
-    state.recording = !!active;
-    if (active) state.queue = [];
+    if (active) {
+      if (!attachRecordHooks()) {
+        state.recording = false;
+        return JSON.stringify(fail(state.lastError || '无法挂载录制钩'));
+      }
+      state.recording = true;
+      state.queue = [];
+    } else {
+      state.recording = false;
+      detachRecordHooks();
+    }
     return JSON.stringify(ok({ recording: state.recording, sequence: false }));
   },
   drainrecorded: function () {
@@ -1083,7 +1170,9 @@ rpc.exports = {
       queueLength: state.queue.length,
       lastError: state.lastError,
       il2cppReady: state.il2cppReady,
+      mainThreadCapable: state.mainThreadCapable,
       mainThreadHooked: state.mainThreadHooked,
+      recordHooksAttached: state.recordHooksAttached,
       pressJobs: state.pressJobs.length,
       resolveJobs: state.resolveJobs.length,
       cachedPtrs: Object.keys(state.ptrByKey).length,

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Any, Callable
 
 from backend.core.input.frida.script_loader import load_unity_ui_click_script
@@ -15,10 +18,32 @@ from backend.core.input.types import (
     api_ok,
 )
 
+_log = logging.getLogger(__name__)
+
+# Hard timeouts for exports_sync (seconds)
+_CALL_TIMEOUTS: dict[str, float] = {
+    "attachhooks": 12.0,
+    "status": 2.0,
+    "invokeclick": 6.0,
+    "resolve": 6.0,
+    "startsequencerecord": 5.0,
+    "stopsequencerecord": 5.0,
+    "setrecordtarget": 5.0,
+    "drainrecorded": 3.0,
+}
+_CALL_TIMEOUT_DEFAULT = 8.0
+
+# Idle auto-detach (seconds)
+_IDLE_DETACH_S = 10 * 60
+# How often status() may probe the script over RPC when probe=False
+_STATUS_PROBE_INTERVAL_S = 30.0
+
 
 class FridaSessionManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        # Serializes Frida exports_sync; separate from _lock so status fast-path is not blocked
+        self._rpc_lock = threading.Lock()
         self._session = None
         self._script = None
         self._device = None
@@ -26,30 +51,96 @@ class FridaSessionManager:
         self._process_name: str | None = None
         self._attached = False
         self._hooked = False
+        self._recording = False
         self._last_error: str | None = None
         self._on_detached: Callable[[], None] | None = None
         # run-local resolve cache: stable_id_key -> ptr string
         self._resolve_cache: dict[str, str] = {}
+        self._last_used_at = 0.0
+        self._last_script_probe_at = 0.0
+        self._call_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="frida-rpc")
 
     def set_detached_callback(self, cb: Callable[[], None] | None) -> None:
         self._on_detached = cb
 
-    def status(self) -> dict[str, Any]:
+    def _touch(self) -> None:
+        self._last_used_at = time.monotonic()
+
+    def _maybe_idle_detach_locked(self) -> bool:
+        """Detach if idle too long and not recording. Caller holds lock. Returns True if detached."""
+        if not self._attached:
+            return False
+        if self._recording:
+            return False
+        if not self._last_used_at:
+            return False
+        idle = time.monotonic() - self._last_used_at
+        if idle < _IDLE_DETACH_S:
+            return False
+        _log.info(
+            "Frida idle %.0fs (>= %ss) — auto detach from %s",
+            idle,
+            _IDLE_DETACH_S,
+            self._process_name or self._pid,
+        )
+        self._last_error = f"空闲超过 {_IDLE_DETACH_S // 60} 分钟，已自动断开"
+        self._cleanup_locked()
+        return True
+
+    def status(self, *, probe: bool = False) -> dict[str, Any]:
         with self._lock:
+            if self._maybe_idle_detach_locked():
+                return {
+                    "ok": True,
+                    "attached": False,
+                    "hooked": False,
+                    "recording": False,
+                    "process_name": None,
+                    "pid": None,
+                    "last_error": self._last_error,
+                    "script": {},
+                    "auto_detached": True,
+                }
+
             script_status: dict[str, Any] = {}
-            if self._script and self._attached:
-                try:
-                    script_status = self._call("status") or {}
-                except Exception as exc:
-                    script_status = {"error": str(exc)}
+            should_probe = bool(probe)
+            if (
+                not should_probe
+                and self._script
+                and self._attached
+                and self._last_script_probe_at
+                and (time.monotonic() - self._last_script_probe_at) >= _STATUS_PROBE_INTERVAL_S
+            ):
+                should_probe = True
+
+            script = self._script if (should_probe and self._attached) else None
+
+        if script is not None:
+            try:
+                script_status = self._invoke_export(script, "status") or {}
+                with self._lock:
+                    self._last_script_probe_at = time.monotonic()
+                    if isinstance(script_status, dict):
+                        if "hooked" in script_status:
+                            self._hooked = bool(script_status.get("hooked"))
+                        if "recording" in script_status:
+                            self._recording = bool(script_status.get("recording"))
+                        err = script_status.get("lastError")
+                        if err:
+                            self._last_error = str(err)
+            except Exception as exc:
+                script_status = {"error": str(exc)}
+
+        with self._lock:
             return {
                 "ok": True,
                 "attached": bool(self._attached and self._script),
-                "hooked": bool(script_status.get("hooked", self._hooked)),
-                "recording": bool(script_status.get("recording")),
+                "hooked": bool(self._hooked),
+                "recording": bool(self._recording),
                 "process_name": self._process_name,
                 "pid": self._pid,
-                "last_error": self._last_error or script_status.get("lastError"),
+                "last_error": self._last_error
+                or (script_status.get("lastError") if isinstance(script_status, dict) else None),
                 "script": script_status,
             }
 
@@ -110,8 +201,15 @@ class FridaSessionManager:
 
         with self._lock:
             if self._attached and self._script:
-                st = {k: v for k, v in self.status().items() if k != "ok"}
-                return api_ok(**st)
+                self._touch()
+                return api_ok(
+                    attached=True,
+                    hooked=bool(self._hooked),
+                    recording=bool(self._recording),
+                    process_name=self._process_name,
+                    pid=self._pid,
+                    last_error=self._last_error,
+                )
 
             session = None
             script = None
@@ -144,7 +242,6 @@ class FridaSessionManager:
                 source = load_unity_ui_click_script()
                 script = session.create_script(source)
 
-                # Surface script runtime errors into last_error
                 def on_message(message, _data):
                     if isinstance(message, dict) and message.get("type") == "error":
                         self._last_error = str(
@@ -162,56 +259,64 @@ class FridaSessionManager:
                 self._session = session
                 self._script = script
                 self._attached = True
+                self._recording = False
                 self._resolve_cache.clear()
+                self._touch()
+                script_ref = script
 
-                # Soft-fail hooks: process attach success != Unity UI hook success
-                hook_warning = None
-                try:
-                    hook_result = self._call("attachHooks")
-                except Exception as hook_exc:
-                    hook_result = {"ok": False, "error": str(hook_exc)}
-                if isinstance(hook_result, dict) and not hook_result.get("ok", True):
-                    self._hooked = False
-                    hook_warning = str(
-                        hook_result.get("error")
-                        or hook_result.get("message")
-                        or "UI Hook 未就绪"
-                    )
-                    self._last_error = hook_warning
-                else:
-                    self._hooked = True
-                    self._last_error = None
-                    # Soft warning: recording ok but main-thread replay may be unavailable
-                    if isinstance(hook_result, dict) and hook_result.get("warning"):
-                        hook_warning = str(hook_result.get("warning"))
-                        self._last_error = hook_warning
-                    if isinstance(hook_result, dict) and hook_result.get("replay") is False:
-                        if not hook_warning:
-                            hook_warning = "录制可用，但主线程回放未就绪"
-                            self._last_error = hook_warning
-
-                st = {k: v for k, v in self.status().items() if k != "ok"}
-                st["attached"] = True
-                st["hooked"] = bool(self._hooked)
-                if isinstance(hook_result, dict):
-                    if "replay" in hook_result:
-                        st["replay"] = bool(hook_result.get("replay"))
-                    if "mainThread" in hook_result:
-                        st["main_thread"] = bool(hook_result.get("mainThread"))
-                if hook_warning:
-                    st["warning"] = hook_warning
-                    # Do not also put the same text into message — UI/log would triple it
-                    st.pop("message", None)
-                else:
-                    st.pop("warning", None)
-                return api_ok(**st)
             except Exception as exc:
-                # Clean partial session
                 self._script = script
                 self._session = session
                 self._cleanup_locked()
                 self._last_error = str(exc)
                 return api_error(ERROR_FRIDA_NOT_ATTACHED, f"Frida attach 失败: {exc}")
+
+        # Soft-fail hooks outside state lock so UI status polls are not blocked
+        hook_warning = None
+        try:
+            hook_result = self._invoke_export(script_ref, "attachHooks")
+        except Exception as hook_exc:
+            hook_result = {"ok": False, "error": str(hook_exc)}
+
+        with self._lock:
+            if not self._attached or self._script is not script_ref:
+                return api_error(ERROR_FRIDA_NOT_ATTACHED, "Frida 在 Hook 过程中已断开")
+            if isinstance(hook_result, dict) and not hook_result.get("ok", True):
+                self._hooked = False
+                hook_warning = str(
+                    hook_result.get("error")
+                    or hook_result.get("message")
+                    or "UI Hook 未就绪"
+                )
+                self._last_error = hook_warning
+            else:
+                self._hooked = True
+                self._last_error = None
+                if isinstance(hook_result, dict) and hook_result.get("warning"):
+                    hook_warning = str(hook_result.get("warning"))
+                    self._last_error = hook_warning
+                if isinstance(hook_result, dict) and hook_result.get("replay") is False:
+                    if not hook_warning:
+                        hook_warning = "录制可用，但主线程回放未就绪"
+                        self._last_error = hook_warning
+
+            st = {
+                "attached": True,
+                "hooked": bool(self._hooked),
+                "recording": bool(self._recording),
+                "process_name": self._process_name,
+                "pid": self._pid,
+                "last_error": self._last_error,
+                "script": {},
+            }
+            if isinstance(hook_result, dict):
+                if "replay" in hook_result:
+                    st["replay"] = bool(hook_result.get("replay"))
+                if "mainThread" in hook_result:
+                    st["main_thread"] = bool(hook_result.get("mainThread"))
+            if hook_warning:
+                st["warning"] = hook_warning
+            return api_ok(**st)
 
     def detach(self) -> dict[str, Any]:
         with self._lock:
@@ -226,7 +331,20 @@ class FridaSessionManager:
         with self._lock:
             if not self._attached or not self._script:
                 raise RuntimeError("Frida 未连接")
-            return self._call(name, *args)
+            self._touch()
+            script = self._script
+
+        result = self._invoke_export(script, name, *args)
+
+        with self._lock:
+            lname = name.lower().replace("_", "")
+            if lname == "startsequencerecord":
+                self._recording = True
+            elif lname == "stopsequencerecord":
+                self._recording = False
+            elif lname == "setrecordtarget":
+                self._recording = bool(args[0]) if args else False
+        return result
 
     def resolve_ptr(self, stable_id: dict[str, Any], *, use_cache: bool = True) -> str:
         from backend.core.input.frida.stable_id import stable_id_key, validate_stable_id
@@ -237,36 +355,63 @@ class FridaSessionManager:
         key = stable_id_key(stable_id)
         with self._lock:
             if use_cache and key in self._resolve_cache:
+                self._touch()
                 return self._resolve_cache[key]
-            result = self._call("resolve", stable_id)
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except Exception:
-                    pass
-            if not isinstance(result, dict) or not result.get("ok"):
-                err = (result or {}).get("error") if isinstance(result, dict) else "resolve failed"
-                raise RuntimeError(str(err))
-            ptr = str(result.get("ptr") or "")
-            if not ptr:
-                raise RuntimeError("resolve 返回空指针")
-            self._resolve_cache[key] = ptr
-            return ptr
+            if not self._attached or not self._script:
+                raise RuntimeError("Frida 未连接")
+            self._touch()
+            script = self._script
 
-    def _call(self, name: str, *args: Any) -> Any:
-        script = self._script
-        if not script:
-            raise RuntimeError("Frida 脚本未加载")
+        result = self._invoke_export(script, "resolve", stable_id)
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except Exception:
+                pass
+        if not isinstance(result, dict) or not result.get("ok"):
+            err = (result or {}).get("error") if isinstance(result, dict) else "resolve failed"
+            raise RuntimeError(str(err))
+        ptr = str(result.get("ptr") or "")
+        if not ptr:
+            raise RuntimeError("resolve 返回空指针")
+        with self._lock:
+            self._resolve_cache[key] = ptr
+        return ptr
+
+    def _call_timeout(self, name: str) -> float:
+        key = name.lower().replace("_", "")
+        return _CALL_TIMEOUTS.get(key, _CALL_TIMEOUT_DEFAULT)
+
+    def _invoke_export(self, script: Any, name: str, *args: Any) -> Any:
+        """Run a Frida export with hard timeout. Does not hold _lock."""
         exports = getattr(script, "exports_sync", None) or getattr(script, "exports", None)
         if not exports:
             raise RuntimeError("Frida exports 不可用")
         fn = getattr(exports, name, None)
         if fn is None:
-            # try lowercase (Frida often lowercases export names)
             fn = getattr(exports, name.lower(), None)
         if fn is None:
             raise RuntimeError(f"缺少 Frida export: {name}")
-        raw = fn(*args) if args else fn()
+
+        timeout = self._call_timeout(name)
+
+        def _invoke() -> Any:
+            return fn(*args) if args else fn()
+
+        with self._rpc_lock:
+            try:
+                fut = self._call_pool.submit(_invoke)
+                raw = fut.result(timeout=timeout)
+            except FuturesTimeout:
+                msg = f"Frida RPC 超时 ({name}, {timeout:.0f}s)"
+                with self._lock:
+                    self._last_error = msg
+                raise RuntimeError(msg)
+            except Exception as exc:
+                with self._lock:
+                    self._last_error = str(exc)
+                raise
+
         if isinstance(raw, str):
             try:
                 return json.loads(raw)
@@ -292,7 +437,10 @@ class FridaSessionManager:
         self._session = None
         self._attached = False
         self._hooked = False
+        self._recording = False
         self._resolve_cache.clear()
+        self._last_used_at = 0.0
+        self._last_script_probe_at = 0.0
         if script:
             try:
                 script.unload()
