@@ -23,6 +23,18 @@ SCHEMA = {
             "option_labels": {"single": "单点", "multi": "多点"},
         },
         {
+            "name": "coordinate_mode",
+            "type": "select",
+            "label": "坐标基准",
+            "options": ["screen_abs", "window_client", "virtual_norm"],
+            "default": "screen_abs",
+            "option_labels": {
+                "screen_abs": "屏幕绝对坐标",
+                "window_client": "目标窗口相对（推荐）",
+                "virtual_norm": "虚拟桌面比例",
+            },
+        },
+        {
             "name": "x",
             "type": "number",
             "label": "X",
@@ -142,8 +154,12 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
         one = {
             "x": pt.get("x", 0),
             "y": pt.get("y", 0),
+            "coordinate_mode": params.get("coordinate_mode")
+            or pt.get("coordinate_mode")
+            or "screen_abs",
             "point_norm": pt.get("point_norm"),
             "coord_space": pt.get("coord_space") or params.get("coord_space"),
+            "window_target": pt.get("window_target") or params.get("window_target"),
         }
         last_x, last_y = _hover_at(
             one,

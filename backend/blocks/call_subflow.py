@@ -108,7 +108,12 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
             flow_vars[nk] = resolved
             flow_vars[nk.lstrip("$")] = resolved
 
-    flow = {**flow, "variables": flow_vars}
+    parent_flow = kwargs.get("flow") or {}
+    flow = {
+        **flow,
+        "variables": flow_vars,
+        "__global_node_interval_ms": parent_flow.get("__global_node_interval_ms", 0),
+    }
 
     sub_ctx = interp._execute(flow)
 

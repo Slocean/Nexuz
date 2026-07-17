@@ -73,8 +73,8 @@ export function useScreenshotPick({ hideWindow = true }: { hideWindow?: boolean 
       if (raw.kind === 'point') {
         const packed = await bridge.packScreenPoint(raw.x, raw.y, raw.color);
         const space =
-          packed?.coord_space ||
-          current.capture.coord_space || {
+          current.capture.coord_space ||
+          packed?.coord_space || {
             w: current.capture.width,
             h: current.capture.height,
             left: current.capture.left,
@@ -84,15 +84,22 @@ export function useScreenshotPick({ hideWindow = true }: { hideWindow?: boolean 
         const h = Number((space as any).h) || current.capture.height || 1;
         const left = Number((space as any).left) ?? current.capture.left;
         const top = Number((space as any).top) ?? current.capture.top;
-        const x = packed?.ok ? packed.x : raw.x;
-        const y = packed?.ok ? packed.y : raw.y;
-        const point_norm =
-          packed?.point_norm || [(raw.x - left) / w, (raw.y - top) / h];
-        const color = packed?.color ?? raw.color;
-        const coord = { x, y, point_norm, coord_space: space };
+        const x = Math.round(raw.x);
+        const y = Math.round(raw.y);
+        const point_norm = [(x - left) / w, (y - top) / h];
+        const color = raw.color ?? packed?.color;
+        const coord = {
+          x,
+          y,
+          coordinate_mode: 'screen_abs',
+          point_norm,
+          coord_space: space,
+          window_target: packed?.window_target,
+        };
         // Match pick_click(coord) shape so applyClickCapture / applyPointPick both work
         const params = {
           capture_mode: 'coord',
+          coordinate_mode: 'screen_abs',
           button: 'left',
           click_type: 'single',
           move_duration: 0,
@@ -101,6 +108,7 @@ export function useScreenshotPick({ hideWindow = true }: { hideWindow?: boolean 
           y,
           point_norm,
           coord_space: space,
+          window_target: packed?.window_target,
         };
         current.resolve({
           ok: true,
@@ -116,33 +124,28 @@ export function useScreenshotPick({ hideWindow = true }: { hideWindow?: boolean 
       }
 
       if (raw.kind === 'region') {
-        const packed = await bridge.packScreenRegion(raw.region);
-        if (packed?.ok) {
-          current.resolve(packed);
-        } else {
-          const space = current.capture.coord_space || {
-            w: current.capture.width,
-            h: current.capture.height,
-            left: current.capture.left,
-            top: current.capture.top,
-          };
-          const w = Number((space as any).w) || current.capture.width || 1;
-          const h = Number((space as any).h) || current.capture.height || 1;
-          const left = Number((space as any).left) ?? current.capture.left;
-          const top = Number((space as any).top) ?? current.capture.top;
-          const [x1, y1, x2, y2] = raw.region;
-          current.resolve({
-            ok: true,
-            region: raw.region,
-            region_norm: [
-              (x1 - left) / w,
-              (y1 - top) / h,
-              (x2 - left) / w,
-              (y2 - top) / h,
-            ],
-            coord_space: space,
-          });
-        }
+        const space = current.capture.coord_space || {
+          w: current.capture.width,
+          h: current.capture.height,
+          left: current.capture.left,
+          top: current.capture.top,
+        };
+        const w = Number((space as any).w) || current.capture.width || 1;
+        const h = Number((space as any).h) || current.capture.height || 1;
+        const left = Number((space as any).left) ?? current.capture.left;
+        const top = Number((space as any).top) ?? current.capture.top;
+        const [x1, y1, x2, y2] = raw.region;
+        current.resolve({
+          ok: true,
+          region: raw.region.map(Math.round),
+          region_norm: [
+            (x1 - left) / w,
+            (y1 - top) / h,
+            (x2 - left) / w,
+            (y2 - top) / h,
+          ],
+          coord_space: space,
+        });
         return;
       }
 

@@ -17,6 +17,7 @@ from backend.core.input.session import get_recording_session
 from backend.core.interpreter import get_interpreter
 from backend.core.recorder import get_recorder
 from backend.core.registry import get_schemas, register_all_blocks
+from backend.core.runtime_log import get_runtime_log_manager
 from backend.core.run_hotkeys import PAUSE_LABEL, STOP_LABEL, get_run_hotkeys
 from backend.core.run_overlay import hide_run_overlay, show_run_overlay
 from backend.paths import (
@@ -43,6 +44,16 @@ class Api:
         self._pick_event = threading.Event()
         self._recording_hidden = False
         self._run_hidden = False
+        self._runtime_logs = get_runtime_log_manager()
+        self._emit_lock = threading.RLock()
+        self._emit_queue: list[dict[str, Any]] = []
+        self._emit_stop = threading.Event()
+        self._last_ui_node_event_at = 0.0
+        self._last_memory_sample_at = 0.0
+        self._emit_thread = threading.Thread(
+            target=self._emit_worker, daemon=True, name="nexuz-ui-events"
+        )
+        self._emit_thread.start()
 
     def set_window(self, window: webview.Window) -> None:
         self._window = window
@@ -105,14 +116,96 @@ class Api:
         get_run_hotkeys().stop()
         hide_run_overlay()
 
-    def _emit(self, event: str, payload: dict) -> None:
-        if not self._window:
-            return
+    def _emit_worker(self) -> None:
+        while not self._emit_stop.wait(0.25):
+            self._flush_emit_queue()
+            now = time.monotonic()
+            if now - self._last_memory_sample_at >= 60.0:
+                self._last_memory_sample_at = now
+                self._record_memory_sample()
+
+    def _record_memory_sample(self) -> None:
         try:
-            data = json.dumps({"event": event, "payload": payload}, ensure_ascii=False)
-            self._window.evaluate_js(f"window.__nexuzEmit && window.__nexuzEmit({data})")
+            import psutil
+
+            proc = psutil.Process(os.getpid())
+
+            def private_bytes(p) -> int:
+                info = p.memory_info()
+                return int(getattr(info, "private", getattr(info, "rss", 0)) or 0)
+
+            children = proc.children(recursive=True)
+            self._runtime_logs.write(
+                "memory_sample",
+                {
+                    "python_private_bytes": private_bytes(proc),
+                    "children_private_bytes": sum(private_bytes(p) for p in children),
+                    "child_count": len(children),
+                    "ui_queue": len(self._emit_queue),
+                },
+            )
         except Exception:
             pass
+
+    def _dispatch_events(self, messages: list[dict[str, Any]]) -> None:
+        if not messages or not self._window:
+            return
+        try:
+            data = json.dumps(messages, ensure_ascii=False)
+            self._window.evaluate_js(
+                "(function(messages){"
+                "if(window.__nexuzEmitBatch){window.__nexuzEmitBatch(messages);}"
+                "else{messages.forEach(function(m){"
+                "window.__nexuzEmit && window.__nexuzEmit(m);"
+                "});}"
+                f"}})({data})"
+            )
+        except Exception:
+            pass
+
+    def _flush_emit_queue(self) -> None:
+        with self._emit_lock:
+            if not self._emit_queue:
+                return
+            messages = self._emit_queue
+            self._emit_queue = []
+        self._dispatch_events(messages)
+
+    def _emit(self, event: str, payload: dict) -> None:
+        event_payload = dict(payload or {})
+        self._runtime_logs.write(event, event_payload)
+        if (
+            self._run_hidden
+            and event in {"node_start", "node_end"}
+            and bool(event_payload.get("ok", True))
+        ):
+            now = time.monotonic()
+            if now - self._last_ui_node_event_at < 0.5:
+                return
+            self._last_ui_node_event_at = now
+        if event == "flow_finished":
+            log_info = self._runtime_logs.finish(event_payload)
+            if log_info:
+                event_payload["run_log"] = log_info
+        message = {"event": event, "payload": event_payload}
+        critical = event in {
+            "flow_finished",
+            "flow_stopping",
+            "flow_paused",
+            "flow_resumed",
+            "flow_breakpoint",
+            "force_reset",
+            "recording_stopped",
+        } or (event == "node_end" and not bool(event_payload.get("ok", True)))
+        if critical:
+            self._flush_emit_queue()
+            self._dispatch_events([message])
+        else:
+            with self._emit_lock:
+                # Complete history is already on disk. Bound only the transient UI queue.
+                if len(self._emit_queue) >= 500:
+                    del self._emit_queue[:250]
+                self._emit_queue.append(message)
         # After run ends, show window again (was hidden so OS clicks wouldn't hit Nexuz UI)
         if event in ("flow_finished", "flow_stopped"):
             self._stop_run_controls()
@@ -432,6 +525,7 @@ class Api:
         # Keep visible in debug / step mode so the user can use debug controls.
         in_debug = bool(debug_mode) or bool(step_mode)
         do_hide = bool(hide_window) and not in_debug
+        log_session = self._runtime_logs.start(flow)
         self._run_hidden = do_hide
         if do_hide:
             self._set_window_visible(False)
@@ -460,8 +554,10 @@ class Api:
                 "resumed": resumed,
                 "hide_window": do_hide,
                 "debug_mode": in_debug,
+                "run_log": log_session.info(),
             }
         except Exception as exc:
+            self._runtime_logs.finish({"ok": False, "error": str(exc)})
             self._stop_run_controls()
             if do_hide:
                 self._set_window_visible(True)
@@ -543,10 +639,13 @@ class Api:
         self._run_hidden = False
         self._recording_hidden = False
 
-        self._emit(
-            "force_reset",
-            {"cleared": cleared},
+        forced_log = self._runtime_logs.finish(
+            {"ok": False, "forced": True, "error": "流程状态已强制重置"}
         )
+        force_payload: dict[str, Any] = {"cleared": cleared}
+        if forced_log:
+            force_payload["run_log"] = forced_log
+        self._emit("force_reset", force_payload)
         return {
             "ok": True,
             "cleared": cleared,
@@ -1217,6 +1316,32 @@ class Api:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(raw, encoding="utf-8")
         return {"ok": True, "path": str(path)}
+
+    def get_run_log_info(self) -> dict:
+        info = self._runtime_logs.info()
+        return {"ok": True, "run_log": info}
+
+    def export_run_log(self) -> dict:
+        """Export the active/latest run log, already scoped to one flow and run."""
+        exported = self._runtime_logs.export_text()
+        if exported is None:
+            return {"ok": False, "error": "当前没有可导出的流程运行日志"}
+        text, info = exported
+        flow_name = str(info.get("flow_name") or "未命名流程")
+        run_id = str(info.get("run_id") or "run")
+        stamp = time.strftime(
+            "%Y%m%d_%H%M%S", time.localtime(float(info.get("started_at") or time.time()))
+        )
+        safe_flow = "".join(
+            ch if ch not in '<>:"/\\|?*' else "_" for ch in flow_name
+        ).strip(" ._") or "未命名流程"
+        result = self.export_text(
+            text, f"nexuz-{safe_flow[:48]}-{stamp}-{run_id}.txt"
+        )
+        if result.get("ok"):
+            result["run_log"] = info
+            result["count"] = int(info.get("record_count") or 0)
+        return result
 
     def load_flow(self, filepath: str | None = None) -> dict:
         """Load a flow from the user data library by path."""

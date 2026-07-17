@@ -88,12 +88,18 @@ class CoordCaptureProvider(CaptureProvider):
                     packed = pack_point(params["x"], params["y"])
                     params["point_norm"] = packed["point_norm"]
                     params["coord_space"] = packed["coord_space"]
+                    params["coordinate_mode"] = "screen_abs"
+                    if packed.get("window_target"):
+                        params["window_target"] = packed["window_target"]
                     params["coord"] = {
                         "x": packed["x"],
                         "y": packed["y"],
+                        "coordinate_mode": "screen_abs",
                         "point_norm": packed["point_norm"],
                         "coord_space": packed["coord_space"],
                     }
+                    if packed.get("window_target"):
+                        params["coord"]["window_target"] = packed["window_target"]
                 except Exception:
                     pass
                 upgraded.append({**n, "params": params})
@@ -125,6 +131,7 @@ class CoordCaptureProvider(CaptureProvider):
                     y=packed["y"],
                     point_norm=packed["point_norm"],
                     coord_space=packed["coord_space"],
+                    window_target=packed.get("window_target"),
                 )
                 result = api_ok(params=params, button=btn, color=color, **packed)
             except Exception as exc:

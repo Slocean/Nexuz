@@ -53,7 +53,7 @@ def _as_int(value: Any, default: int = 0) -> int:
     if value is None or value == "":
         return default
     try:
-        return int(float(value))
+        return int(round(float(value)))
     except (TypeError, ValueError):
         return default
 
@@ -64,14 +64,27 @@ def _coord_from_params(params: dict[str, Any]) -> CoordTarget:
         return CoordTarget(
             x=_as_int(nested.get("x", params.get("x", 0)), 0),
             y=_as_int(nested.get("y", params.get("y", 0)), 0),
+            coordinate_mode=str(
+                nested.get(
+                    "coordinate_mode",
+                    params.get("coordinate_mode", params.get("coord_mode", "screen_abs")),
+                )
+                or "screen_abs"
+            ),
             point_norm=nested.get("point_norm", params.get("point_norm")),
             coord_space=nested.get("coord_space", params.get("coord_space")),
+            window_target=nested.get("window_target", params.get("window_target")),
         )
     return CoordTarget(
         x=_as_int(params.get("x", 0), 0),
         y=_as_int(params.get("y", 0), 0),
+        coordinate_mode=str(
+            params.get("coordinate_mode", params.get("coord_mode", "screen_abs"))
+            or "screen_abs"
+        ),
         point_norm=params.get("point_norm"),
         coord_space=params.get("coord_space"),
+        window_target=params.get("window_target"),
     )
 
 
@@ -136,9 +149,11 @@ def recorded_click_to_node_params(
     y: int | None = None,
     point_norm: list[float] | None = None,
     coord_space: dict[str, Any] | None = None,
+    window_target: dict[str, Any] | None = None,
     frida_ui: dict[str, Any] | None = None,
     click_type: str = "single",
     move_duration: float = 0,
+    coordinate_mode: str = "screen_abs",
 ) -> dict[str, Any]:
     """Build FlowModel click params from a single recorded action."""
     if mode == "frida_ui":
@@ -161,8 +176,10 @@ def recorded_click_to_node_params(
     coord = CoordTarget(
         x=int(x or 0),
         y=int(y or 0),
+        coordinate_mode=coordinate_mode or "screen_abs",
         point_norm=point_norm,
         coord_space=coord_space,
+        window_target=window_target,
     )
     target = ClickTarget(
         capture_mode="coord",

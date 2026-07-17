@@ -23,15 +23,23 @@ ERROR_FRIDA_SCRIPT = "FRIDA_SCRIPT_ERROR"
 class CoordTarget:
     x: int = 0
     y: int = 0
+    coordinate_mode: str = "screen_abs"
     point_norm: list[float] | None = None
     coord_space: dict[str, Any] | None = None
+    window_target: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"x": int(self.x), "y": int(self.y)}
+        out: dict[str, Any] = {
+            "x": int(self.x),
+            "y": int(self.y),
+            "coordinate_mode": self.coordinate_mode or "screen_abs",
+        }
         if self.point_norm is not None:
             out["point_norm"] = list(self.point_norm)
         if self.coord_space is not None:
             out["coord_space"] = dict(self.coord_space)
+        if self.window_target is not None:
+            out["window_target"] = dict(self.window_target)
         return out
 
 
@@ -82,10 +90,13 @@ class ClickTarget:
             # Flat aliases for older UI / resolve_point
             params["x"] = c["x"]
             params["y"] = c["y"]
+            params["coordinate_mode"] = c["coordinate_mode"]
             if "point_norm" in c:
                 params["point_norm"] = c["point_norm"]
             if "coord_space" in c:
                 params["coord_space"] = c["coord_space"]
+            if "window_target" in c:
+                params["window_target"] = c["window_target"]
         if self.frida_ui is not None:
             params["frida_ui"] = self.frida_ui.to_dict()
         return params

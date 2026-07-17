@@ -259,8 +259,13 @@ export default function SettingsPage({
   const setDefaultCaptureMode = useFlowStore((s) => s.setDefaultCaptureMode);
   const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
   const setDefaultPickMethod = useFlowStore((s) => s.setDefaultPickMethod);
+  const defaultCoordinateMode = useFlowStore((s) => s.defaultCoordinateMode);
+  const setDefaultCoordinateMode = useFlowStore((s) => s.setDefaultCoordinateMode);
+  const defaultNodeIntervalMs = useFlowStore((s) => s.defaultNodeIntervalMs);
+  const setDefaultNodeIntervalMs = useFlowStore((s) => s.setDefaultNodeIntervalMs);
   const syncAllPickMethods = useFlowStore((s) => s.syncAllPickMethods);
   const syncAllClickCaptureModes = useFlowStore((s) => s.syncAllClickCaptureModes);
+  const syncAllClickCoordinateModes = useFlowStore((s) => s.syncAllClickCoordinateModes);
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
 
   const handleDefaultCaptureModeChange = async (next: string) => {
@@ -308,6 +313,38 @@ export default function SettingsPage({
     }
 
     setDefaultPickMethod(method);
+  };
+
+  const handleDefaultCoordinateModeChange = async (next: string) => {
+    const mode =
+      next === 'window_client' || next === 'virtual_norm' ? next : 'screen_abs';
+    if (mode === defaultCoordinateMode) return;
+
+    const differing = Object.values(flowNodes).filter((n: any) => {
+      if (n?.type !== 'click' || (n.params?.capture_mode || 'coord') !== 'coord') return false;
+      const cur =
+        n.params?.coord?.coordinate_mode ||
+        n.params?.coordinate_mode ||
+        defaultCoordinateMode;
+      return cur !== mode;
+    });
+
+    if (differing.length > 0) {
+      const labels: Record<string, string> = {
+        screen_abs: '屏幕绝对坐标',
+        window_client: '目标窗口相对',
+        virtual_norm: '虚拟桌面比例',
+      };
+      const ok = await confirm({
+        title: '修改默认坐标基准',
+        description: `当前有 ${differing.length} 个坐标点击节点的坐标基准与「${labels[mode]}」不同。确认后将把这些节点全部改为「${labels[mode]}」，之后新建点击节点也会默认选中此基准。`,
+        confirmText: '全部修改',
+      });
+      if (!ok) return;
+      syncAllClickCoordinateModes(mode);
+    }
+
+    setDefaultCoordinateMode(mode);
   };
 
   const [processes, setProcesses] = useState<ProcRow[]>([]);
@@ -971,6 +1008,59 @@ export default function SettingsPage({
                 <SelectItem value="live">实地取点（全屏叠加实时点选）</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
+                默认坐标基准
+              </Label>
+              <HelpHint
+                text="新建坐标点击节点默认选中此基准。修改时若当前画布已有不同设置的坐标点击节点，将先提示并同步这些节点。"
+                colors={colors}
+                themeMode={themeMode}
+              />
+            </div>
+            <Select
+              value={defaultCoordinateMode || 'screen_abs'}
+              onValueChange={(v) => {
+                void handleDefaultCoordinateModeChange(v);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="screen_abs">屏幕绝对坐标</SelectItem>
+                <SelectItem value="window_client">目标窗口相对（推荐）</SelectItem>
+                <SelectItem value="virtual_norm">虚拟桌面比例</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label
+                htmlFor="default-node-interval"
+                className="text-sm font-medium normal-case tracking-normal"
+                style={{ color: colors.text }}
+              >
+                节点间延时（毫秒）
+              </Label>
+              <HelpHint
+                text="每次进入后续节点前等待此时长；首个节点默认不等待。节点检查器可为单个节点设置独立的进入前延时，填写 0 可明确取消该节点等待。"
+                colors={colors}
+                themeMode={themeMode}
+              />
+            </div>
+            <Input
+              id="default-node-interval"
+              type="number"
+              min={0}
+              step={10}
+              value={defaultNodeIntervalMs ?? 0}
+              onChange={(e) => setDefaultNodeIntervalMs(e.target.value)}
+            />
           </div>
         </SettingsSection>
 

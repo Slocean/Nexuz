@@ -484,4 +484,31 @@ export function applyDefaultCaptureMode(flow: any, defaultCaptureMode: string = 
   return changed ? { ...flow, nodes } : flow;
 }
 
+/** Inject the global coordinate default into coordinate click nodes that omit it. */
+export function applyDefaultCoordinateMode(flow: any, defaultCoordinateMode: string = 'screen_abs') {
+  if (!flow?.nodes || typeof flow.nodes !== 'object') return flow;
+  const mode =
+    defaultCoordinateMode === 'window_client' || defaultCoordinateMode === 'virtual_norm'
+      ? defaultCoordinateMode
+      : 'screen_abs';
+  let changed = false;
+  const nodes: Record<string, any> = {};
+  for (const [id, node] of Object.entries(flow.nodes)) {
+    const n: any = node;
+    const params = n?.params || {};
+    if (
+      n?.type === 'click' &&
+      (params.capture_mode || 'coord') === 'coord' &&
+      !params.coordinate_mode &&
+      !params.coord?.coordinate_mode
+    ) {
+      changed = true;
+      nodes[id] = { ...n, params: { ...params, coordinate_mode: mode } };
+    } else {
+      nodes[id] = n;
+    }
+  }
+  return changed ? { ...flow, nodes } : flow;
+}
+
 export { formatNodeRef };

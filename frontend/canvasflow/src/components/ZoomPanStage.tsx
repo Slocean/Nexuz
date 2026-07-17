@@ -249,9 +249,10 @@ export function ZoomPanStage({
     }
 
     if (mode === 'point' && !wasPan && e.button === 0 && start) {
+      const image = imgRef.current;
       onPickPoint?.({
-        ix: Math.floor(start.ix),
-        iy: Math.floor(start.iy),
+        ix: Math.max(0, Math.min((image?.naturalWidth || 1) - 1, Math.round(start.ix))),
+        iy: Math.max(0, Math.min((image?.naturalHeight || 1) - 1, Math.round(start.iy))),
       });
     }
   };

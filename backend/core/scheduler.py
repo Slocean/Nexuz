@@ -86,15 +86,27 @@ class FlowScheduler:
         def _run():
             try:
                 from backend.core.interpreter import get_interpreter
+                from backend.core.runtime_log import get_runtime_log_manager
 
                 # Prefer file on disk if present (fresh)
                 payload = snapshot
                 if file_path and Path(file_path).is_file():
                     payload = json.loads(Path(file_path).read_text(encoding="utf-8"))
-                get_interpreter().run_flow(payload, step_mode=False)
+                payload = dict(payload)
+                if file_path:
+                    payload["__file_path__"] = file_path
+                interp = get_interpreter()
+                if interp.running:
+                    raise RuntimeError("已有流程正在执行，跳过本次定时任务")
+                get_runtime_log_manager().start(payload)
+                interp.run_flow(payload, step_mode=False)
                 if self._emit:
                     self._emit("schedule_fired", {"job_id": job_id})
             except Exception as exc:
+                try:
+                    get_runtime_log_manager().finish({"ok": False, "error": str(exc)})
+                except Exception:
+                    pass
                 if self._emit:
                     self._emit("schedule_error", {"job_id": job_id, "error": str(exc)})
 

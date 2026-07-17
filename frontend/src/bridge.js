@@ -44,6 +44,19 @@ export const MOCK_SCHEMAS = [
         options: ['coord', 'frida_ui'],
         default: 'coord',
       },
+      {
+        name: 'coordinate_mode',
+        type: 'select',
+        label: '坐标基准',
+        options: ['screen_abs', 'window_client', 'virtual_norm'],
+        default: 'screen_abs',
+        option_labels: {
+          screen_abs: '屏幕绝对坐标',
+          window_client: '目标窗口相对（推荐）',
+          virtual_norm: '虚拟桌面比例',
+        },
+        show_when: { capture_mode: 'coord' },
+      },
       { name: 'x', type: 'number', label: 'X', default: 0, show_when: { click_mode: 'single' } },
       { name: 'y', type: 'number', label: 'Y', default: 0, show_when: { click_mode: 'single' } },
       {
@@ -1248,6 +1261,8 @@ export const bridge = {
   pickTemplateImage: () => call('pick_template_image'),
   saveTemplateImage: (dataUrl, filename = null) => call('save_template_image', dataUrl, filename),
   exportText: (text, filename = null) => call('export_text', text, filename),
+  getRunLogInfo: () => call('get_run_log_info'),
+  exportRunLog: () => call('export_run_log'),
   windowMinimize: () => call('window_minimize'),
   windowToggleMaximize: () => call('window_toggle_maximize'),
   windowClose: () => call('window_close'),

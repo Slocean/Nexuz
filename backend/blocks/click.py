@@ -43,6 +43,19 @@ SCHEMA = {
             "option_labels": {"coord": "坐标", "frida_ui": "Frida UI"},
         },
         {
+            "name": "coordinate_mode",
+            "type": "select",
+            "label": "坐标基准",
+            "options": ["screen_abs", "window_client", "virtual_norm"],
+            "default": "screen_abs",
+            "option_labels": {
+                "screen_abs": "屏幕绝对坐标",
+                "window_client": "目标窗口相对（推荐）",
+                "virtual_norm": "虚拟桌面比例",
+            },
+            "show_when": {"capture_mode": "coord"},
+        },
+        {
             "name": "x",
             "type": "number",
             "label": "X",
@@ -150,8 +163,12 @@ def _point_to_click_params(pt: dict, base: dict) -> dict:
         "capture_mode": "coord",
         "x": pt.get("x", 0),
         "y": pt.get("y", 0),
+        "coordinate_mode": base.get("coordinate_mode")
+        or pt.get("coordinate_mode")
+        or "screen_abs",
         "point_norm": pt.get("point_norm"),
         "coord_space": pt.get("coord_space") or base.get("coord_space"),
+        "window_target": pt.get("window_target") or base.get("window_target"),
         "button": pt.get("button") or button,
         "click_type": click_type,
         "move_duration": 0,

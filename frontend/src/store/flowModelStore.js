@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 
-const MAX_LOGS = 200;
-/** Keep a full run archive for export; soft-cap to avoid unbounded RAM. */
-const MAX_LOG_ARCHIVE = 50000;
+// UI memory is deliberately bounded. Complete per-run logs are streamed by
+// Python to flow-scoped rolling files and exported through the bridge.
+const MAX_LOGS = 300;
 const HEAVY_KEYS = new Set(['boxes', 'box', 'image', 'bitmap', 'pixels', 'raw', 'screenshot']);
 
 function uid(prefix = 'node') {
@@ -140,6 +140,25 @@ function loadDefaultPickMethod() {
   }
 }
 
+function loadDefaultCoordinateMode() {
+  try {
+    const v = localStorage.getItem('nexuz.defaultCoordinateMode');
+    if (v === 'window_client' || v === 'virtual_norm' || v === 'screen_abs') return v;
+    return 'screen_abs';
+  } catch {
+    return 'screen_abs';
+  }
+}
+
+function loadDefaultNodeIntervalMs() {
+  try {
+    const value = Number(localStorage.getItem('nexuz.defaultNodeIntervalMs'));
+    return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function loadTheme() {
   try {
     return {
@@ -170,6 +189,8 @@ export const useFlowStore = create((set, get) => ({
   hideWindowOnRecord: loadHideWindowOnRecord(),
   defaultCaptureMode: loadDefaultCaptureMode(),
   defaultPickMethod: loadDefaultPickMethod(),
+  defaultCoordinateMode: loadDefaultCoordinateMode(),
+  defaultNodeIntervalMs: loadDefaultNodeIntervalMs(),
 
   // run history for sidebar
   runHistory: [],
@@ -180,8 +201,7 @@ export const useFlowStore = create((set, get) => ({
   execNodeStates: {}, // id -> running|done|error
   debugMode: false,
   logs: [],
-  /** Full session log archive (not capped at display MAX_LOGS); used for export. */
-  logArchive: [],
+  runLog: null,
 
   setHideWindowOnRecord: (hideWindowOnRecord) => {
     try {
@@ -210,6 +230,30 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ defaultPickMethod: method });
+  },
+
+  setDefaultCoordinateMode: (defaultCoordinateMode) => {
+    const mode =
+      defaultCoordinateMode === 'window_client' || defaultCoordinateMode === 'virtual_norm'
+        ? defaultCoordinateMode
+        : 'screen_abs';
+    try {
+      localStorage.setItem('nexuz.defaultCoordinateMode', mode);
+    } catch {
+      /* ignore */
+    }
+    set({ defaultCoordinateMode: mode });
+  },
+
+  setDefaultNodeIntervalMs: (defaultNodeIntervalMs) => {
+    const value = Number(defaultNodeIntervalMs);
+    const interval = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+    try {
+      localStorage.setItem('nexuz.defaultNodeIntervalMs', String(interval));
+    } catch {
+      /* ignore */
+    }
+    set({ defaultNodeIntervalMs: interval });
   },
 
   /** Force all nodes with an explicit pick_method to the given value */
@@ -247,6 +291,35 @@ export const useFlowStore = create((set, get) => ({
         nodes[id] = {
           ...node,
           params: { ...(node.params || {}), capture_mode: m },
+        };
+      }
+      if (!changed) return state;
+      return { flow: { ...state.flow, nodes } };
+    }),
+
+  /** Force all coordinate-based click nodes to use the given coordinate_mode. */
+  syncAllClickCoordinateModes: (mode) =>
+    set((state) => {
+      const m =
+        mode === 'window_client' || mode === 'virtual_norm' ? mode : 'screen_abs';
+      const nodes = { ...state.flow.nodes };
+      let changed = false;
+      for (const [id, node] of Object.entries(nodes)) {
+        if (node?.type !== 'click') continue;
+        if ((node.params?.capture_mode || 'coord') !== 'coord') continue;
+        const nestedMode =
+          node.params?.coord && typeof node.params.coord === 'object'
+            ? node.params.coord.coordinate_mode
+            : null;
+        if (node.params?.coordinate_mode === m && (!nestedMode || nestedMode === m)) continue;
+        changed = true;
+        const params = { ...(node.params || {}), coordinate_mode: m };
+        if (params.coord && typeof params.coord === 'object') {
+          params.coord = { ...params.coord, coordinate_mode: m };
+        }
+        nodes[id] = {
+          ...node,
+          params,
         };
       }
       if (!changed) return state;
@@ -409,6 +482,7 @@ export const useFlowStore = create((set, get) => ({
     if (type === 'click') {
       const mode = get().defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
       params.capture_mode = mode;
+      params.coordinate_mode = get().defaultCoordinateMode || 'screen_abs';
     }
     const node = {
       type,
@@ -460,9 +534,17 @@ export const useFlowStore = create((set, get) => ({
       for (const item of recorded) {
         const id = item.id || uid('node');
         if (!firstId) firstId = id;
+        let params = cloneValue(item.params || {});
+        if (item.type === 'click' && (params.capture_mode || 'coord') === 'coord') {
+          const coordinateMode = state.defaultCoordinateMode || 'screen_abs';
+          params = { ...params, coordinate_mode: coordinateMode };
+          if (params.coord && typeof params.coord === 'object') {
+            params.coord = { ...params.coord, coordinate_mode: coordinateMode };
+          }
+        }
         nodes[id] = {
           type: item.type,
-          params: item.params || {},
+          params,
           next: null,
           position: { x, y },
         };
@@ -778,7 +860,7 @@ export const useFlowStore = create((set, get) => ({
 
   // execution UI
   nodeOutputs: {}, // nodeId -> last summarized result (UI only)
-  clearLogs: () => set({ logs: [], logArchive: [] }),
+  clearLogs: () => set({ logs: [], runLog: null }),
   appendLog: (entry) =>
     set((state) => {
       const row = {
@@ -788,7 +870,6 @@ export const useFlowStore = create((set, get) => ({
       };
       return {
         logs: [...state.logs.slice(-(MAX_LOGS - 1)), row],
-        logArchive: [...state.logArchive.slice(-(MAX_LOG_ARCHIVE - 1)), row],
       };
     }),
   onRuntimeEvent: (event, payload) => {
@@ -920,6 +1001,7 @@ export const useFlowStore = create((set, get) => ({
           execNodeId: null,
           execNodeStates: payload.stopped ? {} : nextStates,
           nodeOutputs: slim,
+          runLog: payload?.run_log || state.runLog,
         };
       });
       // flow_stopped/stopping already logged when user clicked stop; avoid duplicate.
@@ -946,6 +1028,7 @@ export const useFlowStore = create((set, get) => ({
         execStatus: 'idle',
         execNodeId: null,
         execNodeStates: {},
+        runLog: payload?.run_log || get().runLog,
       });
     } else if (event === 'recording_stopped') {
       if (payload?.ok && payload.nodes?.length && !payload.forced) {

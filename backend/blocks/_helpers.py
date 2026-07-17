@@ -129,12 +129,22 @@ def pack_coord_space() -> dict[str, Any]:
 def pack_point(x: int, y: int) -> dict[str, Any]:
     left, top, width, height = virtual_screen_size()
     x, y = validate_point(x, y)
-    return {
+    packed = {
         "x": int(x),
         "y": int(y),
+        "coordinate_mode": "screen_abs",
         "point_norm": [(x - left) / width, (y - top) / height],
         "coord_space": pack_coord_space(),
     }
+    try:
+        from backend.core.window_coords import capture_window_target
+
+        target = capture_window_target(x, y)
+        if target:
+            packed["window_target"] = target
+    except Exception:
+        pass
+    return packed
 
 
 def pack_region(region: list | tuple) -> dict[str, Any]:
@@ -171,7 +181,7 @@ def _as_coord_int(value, default: int = 0) -> int:
     if value is None or value == "":
         return default
     try:
-        return int(float(value))
+        return int(round(float(value)))
     except (TypeError, ValueError):
         return default
 
@@ -204,34 +214,46 @@ def resolve_point(params: dict, x_key: str = "x", y_key: str = "y") -> tuple[int
     Prefer absolute x/y when present; point_norm is a fallback for resolution changes.
     """
     left, top, vw, vh = virtual_screen_size()
-    space = params.get("coord_space") if isinstance(params.get("coord_space"), dict) else {}
-    ox, oy, sw, sh, has_origin = _space_origin_size(space)
+    mode = str(
+        params.get("coordinate_mode", params.get("coord_mode", "screen_abs"))
+        or "screen_abs"
+    ).strip()
 
     raw_x = params.get(x_key)
     raw_y = params.get(y_key)
     has_abs = raw_x is not None and raw_x != "" and raw_y is not None and raw_y != ""
-
-    if has_abs:
-        x = int(float(raw_x))
-        y = int(float(raw_y))
-        if has_origin and sw > 0 and sh > 0 and (sw != vw or sh != vh or ox != left or oy != top):
-            x = int(round(left + (x - ox) * (vw / sw)))
-            y = int(round(top + (y - oy) * (vh / sh)))
-        return validate_point(x, y)
-
     norm = params.get("point_norm")
-    if (
+    has_norm = (
         isinstance(norm, (list, tuple))
         and len(norm) == 2
         and all(isinstance(v, (int, float)) for v in norm)
-    ):
-        x = int(round(ox + float(norm[0]) * sw))
-        y = int(round(oy + float(norm[1]) * sh))
-        # Legacy packs (no left/top) stored abs-derived norms against primary size;
-        # reconstructed x/y are already desktop absolute — do not remap to virtual size.
-        if has_origin and (sw != vw or sh != vh or ox != left or oy != top):
-            x = int(round(left + (x - ox) * (vw / sw)))
-            y = int(round(top + (y - oy) * (vh / sh)))
+    )
+
+    if mode == "window_client":
+        target = params.get("window_target")
+        if not isinstance(target, dict):
+            nested = params.get("coord")
+            if isinstance(nested, dict):
+                target = nested.get("window_target")
+        from backend.core.window_coords import resolve_window_point
+
+        x, y, _hwnd = resolve_window_point(target)
+        return validate_point(x, y)
+
+    if mode == "virtual_norm" and has_norm:
+        x = int(round(left + float(norm[0]) * vw))
+        y = int(round(top + float(norm[1]) * vh))
+        return validate_point(x, y)
+
+    # Existing flows are screen-absolute. Never silently rescale an absolute
+    # desktop point when monitor geometry changes.
+    if has_abs:
+        return validate_point(int(round(float(raw_x))), int(round(float(raw_y))))
+
+    # Legacy fallback for records that only contain point_norm.
+    if has_norm:
+        x = int(round(left + float(norm[0]) * vw))
+        y = int(round(top + float(norm[1]) * vh))
         return validate_point(x, y)
 
     return validate_point(0, 0)

@@ -25,9 +25,16 @@ def _enable_dpi_awareness() -> None:
         import ctypes
 
         try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2. Must run before
+            # importing webview/input libraries so all coordinates are physical pixels.
+            ok = ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+            if not ok:
+                raise OSError("SetProcessDpiAwarenessContext failed")
         except Exception:
-            ctypes.windll.user32.SetProcessDPIAware()
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            except Exception:
+                ctypes.windll.user32.SetProcessDPIAware()
     except Exception:
         pass
 

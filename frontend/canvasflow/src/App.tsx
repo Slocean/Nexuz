@@ -20,6 +20,7 @@ import { useScreenshotPick } from './hooks/useScreenshotPick';
 import { getThemeColors } from './theme';
 import {
   applyDefaultCaptureMode,
+  applyDefaultCoordinateMode,
   dataOutField,
   formatNodeRef,
   flowToCanvas,
@@ -127,13 +128,15 @@ function AppShell() {
   const toggleBreakpoint = useFlowStore((s) => s.toggleBreakpoint);
   const nodeOutputs = useFlowStore((s) => s.nodeOutputs);
   const logs = useFlowStore((s) => s.logs);
-  const logArchive = useFlowStore((s) => s.logArchive);
+  const runLog = useFlowStore((s) => s.runLog);
   const runHistory = useFlowStore((s) => s.runHistory);
   const clearRunHistory = useFlowStore((s) => s.clearRunHistory);
   const filePath = useFlowStore((s) => s.filePath);
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
   const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
+  const defaultCoordinateMode = useFlowStore((s) => s.defaultCoordinateMode);
+  const defaultNodeIntervalMs = useFlowStore((s) => s.defaultNodeIntervalMs);
   const {
     pickPoint: screenshotPickPoint,
     pickRegion: screenshotPickRegion,
@@ -286,7 +289,7 @@ function AppShell() {
 
   // Bridge boot + runtime events
   useEffect(() => {
-    (window as any).__nexuzEmit = (msg: any) => {
+    const handleRuntimeMessage = (msg: any) => {
       if (!msg) return;
       if (msg.event === 'update_download_progress') {
         window.dispatchEvent(
@@ -294,6 +297,11 @@ function AppShell() {
         );
       }
       onRuntimeEvent(msg.event, msg.payload || {});
+    };
+    (window as any).__nexuzEmit = handleRuntimeMessage;
+    (window as any).__nexuzEmitBatch = (messages: any[]) => {
+      if (!Array.isArray(messages)) return;
+      for (const msg of messages) handleRuntimeMessage(msg);
     };
     let cancelled = false;
     (async () => {
@@ -386,6 +394,7 @@ function AppShell() {
     return () => {
       cancelled = true;
       delete (window as any).__nexuzEmit;
+      delete (window as any).__nexuzEmitBatch;
     };
   }, [onRuntimeEvent, setBridgeReady, setSchemas, appendLog, alert, openUpdate, setViewMode]);
 
@@ -433,10 +442,15 @@ function AppShell() {
           ? '开始运行流程（已隐藏窗口，避免点击落到本程序上）…'
           : '开始运行流程…',
     });
-    const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
-    const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
+    const prepared = applyDefaultCoordinateMode(
+      applyDefaultCaptureMode(flow, defaultCaptureMode),
+      defaultCoordinateMode,
+    );
+    const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
+    const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
     const hide = hideWindowOnRecord && !useDebug;
     const res = await bridge.runFlow(payload, false, hide, useDebug, bps);
+    if (res?.run_log) useFlowStore.setState({ runLog: res.run_log });
     if (res?.resumed) {
       appendLog({ level: 'info', message: '已继续暂停中的流程' });
       return;
@@ -564,8 +578,12 @@ function AppShell() {
     }
     clearLogs();
     appendLog({ level: 'info', message: '调试单步启动：将在首个节点暂停…' });
-    const prepared = applyDefaultCaptureMode(flow, defaultCaptureMode);
-    const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
+    const prepared = applyDefaultCoordinateMode(
+      applyDefaultCaptureMode(flow, defaultCaptureMode),
+      defaultCoordinateMode,
+    );
+    const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
+    const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
     const res = await bridge.runFlow(payload, true, false, true, bps);
     if (!res?.ok) {
       useFlowStore.setState({ execStatus: 'idle' });
@@ -1080,8 +1098,12 @@ function AppShell() {
         level: 'info',
         message: `单节点运行 [${nodeId}] ${src.type || ''}…`,
       });
-      const prepared = applyDefaultCaptureMode(soloFlow, defaultCaptureMode);
-      const payload = filePath ? { ...prepared, __file_path__: filePath } : prepared;
+      const prepared = applyDefaultCoordinateMode(
+        applyDefaultCaptureMode(soloFlow, defaultCaptureMode),
+        defaultCoordinateMode,
+      );
+      const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
+      const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
       const hide = hideWindowOnRecord && !debugMode;
       const res = await bridge.runFlow(payload, false, hide, false, []);
       if (!res?.ok) {
@@ -1094,6 +1116,8 @@ function AppShell() {
       appendLog,
       clearLogs,
       defaultCaptureMode,
+      defaultCoordinateMode,
+      defaultNodeIntervalMs,
       filePath,
       hideWindowOnRecord,
       debugMode,
@@ -1207,7 +1231,7 @@ function AppShell() {
           themeMode={themeMode as any}
           logs={canvasLogs}
           rawLogs={logs}
-          fullLogs={logArchive}
+          runLog={runLog}
           schemaMap={schemaMap}
           bindIssues={bindIssues}
           onPickPoint={(method?: string) => runCoordPick('point', method)}
@@ -1225,6 +1249,8 @@ function AppShell() {
           onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
           defaultCaptureMode={defaultCaptureMode}
           defaultPickMethod={defaultPickMethod}
+          defaultCoordinateMode={defaultCoordinateMode}
+          defaultNodeIntervalMs={defaultNodeIntervalMs}
         />
 
         {screenPickDialog}

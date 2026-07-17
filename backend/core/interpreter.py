@@ -14,6 +14,19 @@ from .runtime_payload import compact_context_value, summarize_params, summarize_
 from .variable_resolver import resolve_value, resolve_variables
 
 
+def node_pre_delay_ms(index: int, item_delay: Any, default_interval: Any = 0) -> int:
+    """Resolve the wait before a node: explicit override wins, first global wait is skipped."""
+    value = item_delay
+    if value is None or value == "":
+        if int(index) <= 0:
+            return 0
+        value = default_interval
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
 class FlowInterpreter:
     def __init__(self, emit: Callable[[str, dict], None] | None = None):
         self._emit = emit or (lambda _event, _payload: None)
@@ -163,6 +176,14 @@ class FlowInterpreter:
                         self._debug_mode = False
                         self._break_next = False
                         self._thread = None
+                # Runs may create many short-lived payload/container objects. Collect once
+                # at the run boundary; never collect inside the hot loop.
+                try:
+                    import gc
+
+                    gc.collect()
+                except Exception:
+                    pass
 
         thread = threading.Thread(target=worker, daemon=True)
         with self._lock:
@@ -328,6 +349,8 @@ class FlowInterpreter:
 
         loop_stack: list[str] = []
         node_id: str | None = entry
+        node_index = 0
+        global_node_interval = flow.get("__global_node_interval_ms", 0)
 
         while node_id:
             self._wait_controls(node_id)
@@ -341,6 +364,20 @@ class FlowInterpreter:
                 raise ValueError(f"未知 Block 类型: {block_type}")
 
             params = resolve_variables(node.get("params") or {}, context)
+            wait_ms = node_pre_delay_ms(
+                node_index,
+                params.get("node_delay_ms"),
+                global_node_interval,
+            )
+            if wait_ms > 0:
+                from backend.blocks._helpers import interruptible_sleep
+
+                interruptible_sleep(
+                    wait_ms / 1000.0,
+                    should_stop=self._is_stop_requested,
+                    cooperate=self._cooperate_wait,
+                )
+            node_index += 1
             self._emit(
                 "node_start",
                 {

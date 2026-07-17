@@ -59,10 +59,20 @@ interface InspectorProps {
   defaultCaptureMode?: string;
   /** Global default: screenshot | live */
   defaultPickMethod?: string;
+  /** Global coordinate basis for coordinate click nodes. */
+  defaultCoordinateMode?: string;
+  /** Global delay before subsequent nodes; node_delay_ms overrides it. */
+  defaultNodeIntervalMs?: number;
   /** Display-capped store logs */
   rawLogs?: { ts?: number; level?: string; message?: string; detail?: any }[];
-  /** Full session archive for export */
-  fullLogs?: { ts?: number; level?: string; message?: string; detail?: any }[];
+  /** Flow-scoped backend log metadata for the active/latest run. */
+  runLog?: {
+    run_id?: string;
+    flow_id?: string;
+    flow_name?: string;
+    record_count?: number;
+    folder?: string;
+  } | null;
   bindIssues?: BindIssue[];
 }
 
@@ -313,8 +323,10 @@ function PointListEditor({
     }
     if (p?.frida_ui && typeof p.frida_ui === 'object') out.frida_ui = p.frida_ui;
     if (p?.button) out.button = p.button;
+    if (p?.coordinate_mode) out.coordinate_mode = p.coordinate_mode;
     if (p?.point_norm) out.point_norm = p.point_norm;
     if (p?.coord_space) out.coord_space = p.coord_space;
+    if (p?.window_target) out.window_target = p.window_target;
     return out;
   };
 
@@ -351,6 +363,12 @@ function PointListEditor({
     if (params.point_norm || res.point_norm) patch.point_norm = params.point_norm || res.point_norm;
     if (params.coord_space || res.coord_space) {
       patch.coord_space = params.coord_space || res.coord_space;
+    }
+    if (params.coordinate_mode || res.coordinate_mode) {
+      patch.coordinate_mode = params.coordinate_mode || res.coordinate_mode;
+    }
+    if (params.window_target || res.window_target) {
+      patch.window_target = params.window_target || res.window_target;
     }
     if (params.button || res.button) patch.button = params.button || res.button;
     if (params.frida_ui) patch.frida_ui = params.frida_ui;
@@ -1038,8 +1056,10 @@ export default function Inspector({
   onSetEntry,
   defaultCaptureMode = 'coord',
   defaultPickMethod = 'screenshot',
+  defaultCoordinateMode = 'screen_abs',
+  defaultNodeIntervalMs = 0,
   rawLogs = [],
-  fullLogs = [],
+  runLog = null,
   bindIssues = []
 }: InspectorProps) {
   const { alert } = useAppDialog();
@@ -1108,15 +1128,8 @@ export default function Inspector({
     }
   };
 
-  const logsAsText = (source: 'display' | 'full' = 'full') => {
-    const rows =
-      source === 'full'
-        ? fullLogs.length
-          ? fullLogs
-          : rawLogs
-        : rawLogs.length
-          ? rawLogs
-          : null;
+  const logsAsText = () => {
+    const rows = rawLogs.length ? rawLogs : null;
     if (rows && rows.length) {
       return logsToText(
         rows.map((l: any) => ({
@@ -1137,27 +1150,38 @@ export default function Inspector({
   };
 
   const exportLogs = async (source: 'display' | 'full' = 'full') => {
-    const text = logsAsText(source);
+    if (source === 'full') {
+      const res = await bridge.exportRunLog();
+      if (res?.cancelled) return;
+      if (!res?.ok) {
+        await alert({ title: '导出失败', description: res?.error || '无法保存完整日志' });
+        return;
+      }
+      await alert({
+        title: '已导出',
+        description: res.path
+          ? `已导出流程“${res.run_log?.flow_name || runLog?.flow_name || '未命名流程'}”本次运行的 ${res.count || runLog?.record_count || 0} 条日志到\n${res.path}`
+          : '完整运行日志已导出'
+      });
+      return;
+    }
+    const text = logsAsText();
     if (!text.trim()) {
       await alert({ title: '导出日志', description: '暂无日志可导出' });
       return;
     }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const tag = source === 'full' ? 'full' : 'recent';
-    const res = await bridge.exportText(text, `nexuz-logs-${tag}-${stamp}.txt`);
+    const res = await bridge.exportText(text, `nexuz-logs-recent-${stamp}.txt`);
     if (res?.cancelled) return;
     if (!res?.ok) {
       await alert({ title: '导出失败', description: res?.error || '无法保存日志文件' });
       return;
     }
-    const count =
-      source === 'full'
-        ? fullLogs.length || rawLogs.length || logs.length
-        : rawLogs.length || logs.length;
+    const count = rawLogs.length || logs.length;
     await alert({
       title: '已导出',
       description: res.path
-        ? `已保存 ${count} 条（${source === 'full' ? '完整' : '当前显示'}）到\n${res.path}`
+        ? `已保存 ${count} 条（当前显示）到\n${res.path}`
         : `已导出 ${count} 条`
     });
   };
@@ -1172,7 +1196,7 @@ export default function Inspector({
 
   const copySelectedOrAllLogs = async () => {
     const selected = (logSelectionRef.current || window.getSelection?.()?.toString?.() || '').trim();
-    const text = selected || logsAsText('full');
+    const text = selected || logsAsText();
     if (!text.trim()) {
       showLogCopyHint('暂无内容');
       return;
@@ -1230,7 +1254,7 @@ export default function Inspector({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[11rem]">
               <DropdownMenuItem onClick={() => exportLogs('full')}>
-                完整日志（{fullLogs.length || rawLogs.length || 0}）
+                完整日志（{runLog?.flow_name || '当前流程'} · {runLog?.record_count || 0}）
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => exportLogs('display')}>
                 当前显示（{rawLogs.length || logs.length}）
@@ -1283,7 +1307,10 @@ export default function Inspector({
     const params = res.params || {};
     patch[xKey] = params.x ?? res.x;
     patch[yKey] = params.y ?? res.y;
+    patch.coordinate_mode =
+      params.coordinate_mode || res.coordinate_mode || patch.coordinate_mode || 'screen_abs';
     patch.coord_space = params.coord_space || res.coord_space || patch.coord_space;
+    patch.window_target = params.window_target || res.window_target || patch.window_target;
     if (xKey === 'from_x') patch.from_point_norm = params.point_norm || res.point_norm;
     else if (xKey === 'to_x') patch.to_point_norm = params.point_norm || res.point_norm;
     else patch.point_norm = params.point_norm || res.point_norm;
@@ -1306,6 +1333,16 @@ export default function Inspector({
     if (!selectedNode || !res?.ok) return;
     const params = res.params || {};
     const patch: any = { ...selectedNode.config, ...params };
+    if (
+      selectedNode.config?.coordinate_mode === 'window_client' &&
+      (params.window_target || params.coord?.window_target)
+    ) {
+      patch.coordinate_mode = 'window_client';
+      if (patch.coord) patch.coord = { ...patch.coord, coordinate_mode: 'window_client' };
+    } else if (selectedNode.config?.coordinate_mode === 'virtual_norm') {
+      patch.coordinate_mode = 'virtual_norm';
+      if (patch.coord) patch.coord = { ...patch.coord, coordinate_mode: 'virtual_norm' };
+    }
     onUpdateNodeConfig(selectedNode.id, patch);
   };
 
@@ -1461,6 +1498,9 @@ export default function Inspector({
     };
     if (key === 'pick_method' && (value == null || value === 'inherit')) {
       delete patch.pick_method;
+    }
+    if (key === 'coordinate_mode' && patch.coord && typeof patch.coord === 'object') {
+      patch.coord = { ...patch.coord, coordinate_mode: value };
     }
     // 取色：单点 / 区域 / 多点互斥，切换时清空另一侧残留
     if (key === 'sample_mode' && selectedNode.subType === 'color_detect') {
@@ -1694,6 +1734,14 @@ export default function Inspector({
                             }
                             return raw;
                           })()
+                        : input.name === 'coordinate_mode'
+                          ? String(
+                              value ??
+                                selectedNode.config?.coord?.coordinate_mode ??
+                                defaultCoordinateMode ??
+                                input.default ??
+                                'screen_abs',
+                            )
                         : String(value ?? input.default ?? '')
                     }
                     onValueChange={v => handleFieldChange(input.name, v)}>
@@ -2176,6 +2224,24 @@ export default function Inspector({
 
           <div className="space-y-3">
             <h4 className="font-medium text-sm opacity-70">参数</h4>
+            <Field label="节点前延时">
+              <Input
+                type="number"
+                min={0}
+                step={10}
+                className="h-8 w-full"
+                value={selectedNode.config?.node_delay_ms ?? ''}
+                placeholder={`空=全局 ${defaultNodeIntervalMs || 0} 毫秒`}
+                title="进入本节点前等待；留空使用全局节点间延时，填写 0 表示本节点不等待"
+                onChange={e => {
+                  const raw = e.target.value.trim();
+                  handleFieldChange(
+                    'node_delay_ms',
+                    raw === '' ? undefined : Math.max(0, Number(raw) || 0),
+                  );
+                }}
+              />
+            </Field>
             {nodeIssues.length > 0 && (
               <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 space-y-1">
                 <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
