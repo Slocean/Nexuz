@@ -225,6 +225,7 @@ export function categoryToNodeType(category?: string): NodeType {
   if (category === '动作类') return 'Logic';
   if (category === '识别类') return 'HTTP';
   if (category === '控制类') return 'Condition';
+  if (category === '系统类') return 'Database';
   return 'Logic';
 }
 

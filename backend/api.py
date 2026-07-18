@@ -1348,19 +1348,12 @@ class Api:
 
     def clipboard_write(self, text: str) -> dict:
         """Copy text to system clipboard (pywebview often blocks navigator.clipboard)."""
-        raw = "" if text is None else str(text)
-        try:
-            import tkinter as tk
+        from backend.blocks._system_io import clipboard_write as _clipboard_write
 
-            root = tk.Tk()
-            root.withdraw()
-            root.clipboard_clear()
-            root.clipboard_append(raw)
-            root.update()
-            root.destroy()
+        res = _clipboard_write("" if text is None else str(text))
+        if res.get("ok"):
             return {"ok": True}
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": res.get("error") or "剪贴板写入失败"}
 
     def read_local_image(self, filepath: str) -> dict:
         """Read a local image as data URL for Inspector preview (size-capped)."""
