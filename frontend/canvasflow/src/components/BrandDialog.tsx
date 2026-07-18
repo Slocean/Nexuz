@@ -36,18 +36,18 @@ export function BrandDialogChrome({
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      <div className="relative flex items-start gap-3 mb-3.5 pr-6">
+      <div className="relative flex items-center gap-2.5 mb-2 pr-6">
         <img
           src={`${import.meta.env.BASE_URL}logo.png`}
           alt=""
-          className="h-11 w-11 object-contain shrink-0"
+          className="h-8 w-8 object-contain shrink-0"
           draggable={false}
         />
-        <div className="min-w-0 flex-1 pt-0.5 flex items-center gap-2">
+        <div className="min-w-0 flex-1 flex items-center gap-2">
           <img
             src={`${import.meta.env.BASE_URL}logo2.png`}
             alt="Nexuz"
-            className="h-5 w-auto max-w-[8.5rem] object-contain object-left shrink-0"
+            className="h-4 w-auto max-w-[7.5rem] object-contain object-left shrink-0"
             draggable={false}
           />
           {(eyebrow || icon) && (
@@ -63,7 +63,7 @@ export function BrandDialogChrome({
       </div>
 
       <div
-        className="relative h-px w-full mb-3.5"
+        className="relative h-px w-full mb-2.5"
         style={{
           background: dark
             ? 'linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent)'
@@ -118,7 +118,7 @@ export default function BrandDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showClose={!dismissLocked}
-        className={brandDialogContentClass(themeMode) + ' p-5'}
+        className={brandDialogContentClass(themeMode) + ' p-4'}
         onPointerDownOutside={(e) => {
           if (dismissLocked) e.preventDefault();
         }}

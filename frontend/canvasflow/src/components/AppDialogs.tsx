@@ -213,7 +213,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
           if (!open && confirmResolver.current) finishConfirm(false);
         }}
       >
-        <AlertDialogContent className={brandDialogContentClass(themeMode) + ' p-5'}>
+        <AlertDialogContent className={brandDialogContentClass(themeMode) + ' p-4'}>
           <BrandDialogChrome eyebrow="Confirm" icon={<Bell className="w-3 h-3" />}>
             <AlertDialogHeader className="p-0 space-y-2 text-left">
               <AlertDialogTitle className="text-base font-semibold tracking-tight">
