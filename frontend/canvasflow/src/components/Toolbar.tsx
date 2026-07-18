@@ -361,7 +361,7 @@ export default function Toolbar({
       }}
       className="relative flex flex-col border-b z-40 shrink-0">
       {/* Top/bottom padding strips — frameless window drag handle */}
-      <div className="pywebview-drag-region h-1.5 w-full shrink-0" title="拖动窗口" aria-hidden />
+      <div className="pywebview-drag-region h-1 w-full shrink-0" title="拖动窗口" aria-hidden />
       <div className="relative h-14">
         {/* True-centered primary actions */}
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
@@ -551,22 +551,20 @@ export default function Toolbar({
                   主程序
                 </Button>
               )}
-              <div className="h-14 w-14 shrink-0 flex items-center justify-center">
+              <div className="flex flex-col items-center justify-center gap-0 shrink-0 -my-0.5" title="Nexuz">
                 <img
                   src={`${import.meta.env.BASE_URL}logo.png`}
                   alt=""
-                  title="Nexuz"
-                  className="max-h-full max-w-full object-contain select-none"
+                  className="h-12 w-12 object-contain select-none"
+                  draggable={false}
+                />
+                <img
+                  src={`${import.meta.env.BASE_URL}logo2.png`}
+                  alt="Nexuz"
+                  className="h-5 w-auto max-w-[5.5rem] object-contain select-none -mt-3.5"
                   draggable={false}
                 />
               </div>
-              <img
-                src={`${import.meta.env.BASE_URL}logo2.png`}
-                alt="Nexuz"
-                title="Nexuz"
-                className="h-8 w-auto max-w-[7.5rem] object-contain object-left select-none"
-                draggable={false}
-              />
             </div>
 
             {onViewModeChange && (
@@ -827,7 +825,7 @@ export default function Toolbar({
           </div>
         </div>
       </div>
-      <div className="pywebview-drag-region h-1.5 w-full shrink-0" title="拖动窗口" aria-hidden />
+      <div className="pywebview-drag-region h-1 w-full shrink-0" title="拖动窗口" aria-hidden />
     </header>
   );
 }
