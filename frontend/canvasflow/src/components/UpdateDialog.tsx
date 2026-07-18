@@ -13,17 +13,11 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { bridge } from '@/bridge';
 import { ArrowUpCircle, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 import { useFlowStore } from '@/store/flowModelStore';
-import BrandDialogChrome, { brandDialogContentClass } from './BrandDialogChrome';
+import BrandDialog from './BrandDialog';
 
 export type UpdateCheckInfo = {
   ok?: boolean;
@@ -115,7 +109,6 @@ function ProgressBlock({
 }
 
 export function UpdateDialogProvider({ children }: { children: React.ReactNode }) {
-  const themeName = useFlowStore((s) => s.themeName);
   const themeMode = useFlowStore((s) => s.themeMode);
   const dark = themeMode === 'dark';
 
@@ -345,117 +338,101 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
     <UpdateCtx.Provider value={api}>
       {children}
 
-      <Dialog
+      <BrandDialog
         open={open}
         onOpenChange={(v) => {
           if (!v) close();
         }}
+        dismissLocked={busy}
+        a11yTitle={title}
+        a11yDescription={statusText || title}
+        eyebrow="Update Channel"
+        icon={<ArrowUpCircle className="w-3 h-3" />}
+        footer={footer}
       >
-        <DialogContent
-          showClose={!busy}
-          className={brandDialogContentClass(themeMode) + ' p-5'}
-          onPointerDownOutside={(e) => {
-            if (busy) e.preventDefault();
-          }}
-          onEscapeKeyDown={(e) => {
-            if (busy) e.preventDefault();
-          }}
-        >
-          <DialogTitle className="sr-only">{title}</DialogTitle>
-          <DialogDescription className="sr-only">{statusText || title}</DialogDescription>
+        <div className="flex items-start gap-2">
+          {phase === 'uptodate' ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+          ) : phase === 'error' ? null : (
+            <Sparkles className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
+          )}
+          <h3 className="text-base font-semibold tracking-tight leading-snug">{title}</h3>
+        </div>
 
-          <BrandDialogChrome
-            themeName={themeName}
-            themeMode={themeMode}
-            eyebrow="Update Channel"
-            icon={<ArrowUpCircle className="w-3 h-3" />}
-            footer={footer}
+        {info?.current_version && info?.latest_version && phase !== 'error' && phase !== 'uptodate' ? (
+          <div
+            className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 font-mono text-xs ${
+              dark ? 'border-white/10 bg-white/[0.04] text-slate-200' : 'border-slate-200 bg-white/80 text-slate-700'
+            }`}
           >
-            <div className="flex items-start gap-2">
-              {phase === 'uptodate' ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-              ) : phase === 'error' ? null : (
-                <Sparkles className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
-              )}
-              <h3 className="text-base font-semibold tracking-tight leading-snug">{title}</h3>
-            </div>
+            <span className="opacity-60">{info.current_version}</span>
+            <span className="text-sky-400">→</span>
+            <span className="text-fuchsia-400">{info.latest_version}</span>
+          </div>
+        ) : null}
 
-            {info?.current_version && info?.latest_version && phase !== 'error' && phase !== 'uptodate' ? (
-              <div
-                className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 font-mono text-xs ${
-                  dark ? 'border-white/10 bg-white/[0.04] text-slate-200' : 'border-slate-200 bg-white/80 text-slate-700'
-                }`}
-              >
-                <span className="opacity-60">{info.current_version}</span>
-                <span className="text-sky-400">→</span>
-                <span className="text-fuchsia-400">{info.latest_version}</span>
-              </div>
-            ) : null}
+        {phase === 'uptodate' ? (
+          <p className={`text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+            当前版本{' '}
+            <span className="font-mono text-sky-500">{info?.current_version || '?'}</span>
+            ，已是最新。
+          </p>
+        ) : null}
 
-            {phase === 'uptodate' ? (
-              <p className={`text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
-                当前版本{' '}
-                <span className="font-mono text-sky-500">{info?.current_version || '?'}</span>
-                ，已是最新。
-              </p>
-            ) : null}
+        {notes && (phase === 'info' || phase === 'ready') ? (
+          <div
+            className={`whitespace-pre-wrap max-h-40 overflow-y-auto rounded-xl border px-3 py-2.5 text-xs leading-relaxed ${
+              dark
+                ? 'border-white/10 bg-black/25 text-slate-300'
+                : 'border-slate-200/80 bg-white/70 text-slate-600'
+            }`}
+          >
+            {notes}
+          </div>
+        ) : null}
 
-            {notes && (phase === 'info' || phase === 'ready') ? (
-              <div
-                className={`whitespace-pre-wrap max-h-40 overflow-y-auto rounded-xl border px-3 py-2.5 text-xs leading-relaxed ${
-                  dark
-                    ? 'border-white/10 bg-black/25 text-slate-300'
-                    : 'border-slate-200/80 bg-white/70 text-slate-600'
-                }`}
-              >
-                {notes}
-              </div>
-            ) : null}
+        {phase === 'info' && info?.update_available && info.asset_ready === false ? (
+          <p className="text-amber-500 text-xs leading-relaxed">
+            {info.asset_error ||
+              '安装包还在发布中（或上次发版失败）。此时下载会拿到旧包，请等 Release 上传完成后再更新。'}
+          </p>
+        ) : null}
 
-            {phase === 'info' && info?.update_available && info.asset_ready === false ? (
-              <p className="text-amber-500 text-xs leading-relaxed">
-                {info.asset_error ||
-                  '安装包还在发布中（或上次发版失败）。此时下载会拿到旧包，请等 Release 上传完成后再更新。'}
-              </p>
-            ) : null}
+        {showProgress ? (
+          <div
+            className={`rounded-xl border px-3 py-2.5 ${
+              dark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200/80 bg-white/70'
+            }`}
+          >
+            <ProgressBlock
+              dark={dark}
+              statusText={
+                statusText ||
+                (phase === 'checking'
+                  ? '正在检查更新…'
+                  : phase === 'ready'
+                    ? '下载完成'
+                    : phase === 'applying'
+                      ? '正在重启…'
+                      : '下载中…')
+              }
+              percent={phase === 'checking' ? null : percent}
+              spinning={busy}
+              hint={
+                phase === 'ready'
+                  ? '更新包已就绪。请先保存流程，然后点「立即更新」：程序会退出，用新 exe 替换旧文件并自动重启。'
+                  : phase === 'applying'
+                    ? '请勿手动结束进程。若失败会弹窗提示，日志在程序目录 nexuz_update.log。'
+                    : undefined
+              }
+            />
+          </div>
+        ) : null}
 
-            {showProgress ? (
-              <div
-                className={`rounded-xl border px-3 py-2.5 ${
-                  dark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200/80 bg-white/70'
-                }`}
-              >
-                <ProgressBlock
-                  dark={dark}
-                  statusText={
-                    statusText ||
-                    (phase === 'checking'
-                      ? '正在检查更新…'
-                      : phase === 'ready'
-                        ? '下载完成'
-                        : phase === 'applying'
-                          ? '正在重启…'
-                          : '下载中…')
-                  }
-                  percent={phase === 'checking' ? null : percent}
-                  spinning={busy}
-                  hint={
-                    phase === 'ready'
-                      ? '更新包已就绪。请先保存流程，然后点「立即更新」：程序会退出，用新 exe 替换旧文件并自动重启。'
-                      : phase === 'applying'
-                        ? '请勿手动结束进程。若失败会弹窗提示，日志在程序目录 nexuz_update.log。'
-                        : undefined
-                  }
-                />
-              </div>
-            ) : null}
-
-            {phase === 'error' && error ? (
-              <p className="whitespace-pre-wrap text-sm text-rose-400 leading-relaxed">{error}</p>
-            ) : null}
-          </BrandDialogChrome>
-        </DialogContent>
-      </Dialog>
+        {phase === 'error' && error ? (
+          <p className="whitespace-pre-wrap text-sm text-rose-400 leading-relaxed">{error}</p>
+        ) : null}
+      </BrandDialog>
 
       <style>{`
         @keyframes nexuz-indeterminate {
