@@ -1525,7 +1525,7 @@ export default function SettingsPage({
               type="number"
               min={0}
               step={10}
-              value={defaultNodeIntervalMs ?? 0}
+              value={defaultNodeIntervalMs ?? 100}
               onChange={(e) => setDefaultNodeIntervalMs(e.target.value)}
             />
           </div>
@@ -1717,7 +1717,7 @@ export default function SettingsPage({
                 <Type className="w-3.5 h-3.5 opacity-70" />
                 显示顶部按钮文字
                 <HelpHint
-                  text="开启后，顶部运行/保存/录制等按钮会显示文字；关闭后只显示图标，界面更紧凑。"
+                  text="开启后，窗口较宽时顶部按钮显示文字；关闭后始终只显示图标。窗口变窄时会自动隐藏文字（优先于本开关）。"
                   colors={colors}
                   themeMode={themeMode}
                 />

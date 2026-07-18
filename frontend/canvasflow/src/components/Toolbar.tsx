@@ -123,8 +123,9 @@ export default function Toolbar({
   const { openUpdate } = useUpdateDialog();
   const pluginModeRemote = useFlowStore((s) => s.pluginModeRemote);
   const showToolbarLabels = useFlowStore((s) => !!s.showToolbarLabels);
-  const labelCls = showToolbarLabels ? 'inline' : 'hidden';
-  const btnPad = showToolbarLabels ? 'px-3' : 'px-2';
+  // Priority: viewport < xl always hides labels; when wide enough, settings decide.
+  const labelCls = showToolbarLabels ? 'hidden xl:inline' : 'hidden';
+  const btnPad = showToolbarLabels ? 'px-2 xl:px-3' : 'px-2';
   const [isSaved, setIsSaved] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [onTop, setOnTop] = useState(false);
@@ -372,7 +373,7 @@ export default function Toolbar({
       className="relative flex flex-col border-b z-40 shrink-0">
       {/* Top/bottom padding strips — frameless window drag handle */}
       <div
-        className="pywebview-drag-region h-3 w-full shrink-0"
+        className="pywebview-drag-region h-1.5 w-full shrink-0"
         title="拖动窗口"
         aria-hidden
       />
@@ -679,14 +680,42 @@ export default function Toolbar({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" title="主题色">
+              <Button variant="ghost" size="icon" className="h-8 w-8" title="主题">
                 <Palette className="w-4 h-4 opacity-80" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>深浅主题</DropdownMenuLabel>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setThemeMode('light');
+                }}
+              >
+                <Sun className="w-3.5 h-3.5 opacity-80" />
+                <span className="flex-1">浅色</span>
+                {themeMode === 'light' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : null}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setThemeMode('dark');
+                }}
+              >
+                <Moon className="w-3.5 h-3.5 opacity-80" />
+                <span className="flex-1">深色</span>
+                {themeMode === 'dark' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : null}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuLabel>主题色</DropdownMenuLabel>
               {themes.map(t => (
-                <DropdownMenuItem key={t} onClick={() => setThemeName(t)}>
+                <DropdownMenuItem
+                  key={t}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setThemeName(t);
+                  }}
+                >
                   <span
                     style={{ backgroundColor: getThemeColors(t, themeMode).primary }}
                     className="w-3 h-3 rounded-full border border-black/20 dark:border-white/20"
@@ -697,19 +726,6 @@ export default function Toolbar({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 px-0"
-            onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}
-            title={themeMode === 'light' ? '切换暗色' : '切换亮色'}>
-            {themeMode === 'light' ? (
-              <Moon className="w-4 h-4 opacity-80" />
-            ) : (
-              <Sun className="w-4 h-4 opacity-80" />
-            )}
-          </Button>
 
           <div className="flex items-center ml-1 pl-1 border-l border-black/10 dark:border-white/10">
             <DropdownMenu>
@@ -847,7 +863,7 @@ export default function Toolbar({
       </div>
       </div>
       <div
-        className="pywebview-drag-region h-3 w-full shrink-0"
+        className="pywebview-drag-region h-1.5 w-full shrink-0"
         title="拖动窗口"
         aria-hidden
       />

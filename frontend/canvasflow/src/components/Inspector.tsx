@@ -1064,7 +1064,7 @@ export default function Inspector({
   defaultPickMethod = 'screenshot',
   defaultCoordinateMode = 'screen_abs',
   defaultOutputCoordinateMode = 'screen_abs',
-  defaultNodeIntervalMs = 0,
+  defaultNodeIntervalMs = 100,
   rawLogs = [],
   runLog = null,
   bindIssues = []

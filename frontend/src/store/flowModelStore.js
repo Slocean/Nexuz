@@ -331,9 +331,11 @@ const OUTPUT_COORD_NODE_TYPES = new Set(['ocr_recognize', 'find_image']);
 function loadDefaultNodeIntervalMs() {
   try {
     const value = Number(localStorage.getItem('nexuz.defaultNodeIntervalMs'));
-    return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+    // Default 100ms between nodes when unset
+    if (!Number.isFinite(value)) return 100;
+    return Math.max(0, Math.round(value));
   } catch {
-    return 0;
+    return 100;
   }
 }
 
