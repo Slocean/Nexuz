@@ -26,6 +26,7 @@ import TemplateImageField from './TemplateImageField';
 import JsonTreeView from './JsonTreeView';
 import PythonScriptEditor from './PythonScriptEditor';
 import FlowPathField from './FlowPathField';
+import WindowPickField from './WindowPickField';
 import { listFlowVariableNames } from '../bindValue';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
@@ -1313,13 +1314,29 @@ export default function Inspector({
     const params = res.params || {};
     patch[xKey] = params.x ?? res.x;
     patch[yKey] = params.y ?? res.y;
-    patch.coordinate_mode =
-      params.coordinate_mode || res.coordinate_mode || patch.coordinate_mode || 'screen_abs';
+    const windowTarget = params.window_target || res.window_target || patch.window_target;
+    const preferred =
+      selectedNode.config?.coordinate_mode ||
+      params.coordinate_mode ||
+      res.coordinate_mode ||
+      defaultCoordinateMode ||
+      'screen_abs';
+    const useWindow =
+      preferred === 'window_client' && !!windowTarget;
+    patch.coordinate_mode = useWindow
+      ? 'window_client'
+      : preferred === 'virtual_norm'
+        ? 'virtual_norm'
+        : params.coordinate_mode || res.coordinate_mode || patch.coordinate_mode || 'screen_abs';
     patch.coord_space = params.coord_space || res.coord_space || patch.coord_space;
-    patch.window_target = params.window_target || res.window_target || patch.window_target;
-    if (xKey === 'from_x') patch.from_point_norm = params.point_norm || res.point_norm;
-    else if (xKey === 'to_x') patch.to_point_norm = params.point_norm || res.point_norm;
-    else patch.point_norm = params.point_norm || res.point_norm;
+    patch.window_target = windowTarget;
+    if (xKey === 'from_x') {
+      patch.from_point_norm = params.point_norm || res.point_norm;
+      if (windowTarget) patch.from_window_target = windowTarget;
+    } else if (xKey === 'to_x') {
+      patch.to_point_norm = params.point_norm || res.point_norm;
+      if (windowTarget) patch.to_window_target = windowTarget;
+    } else patch.point_norm = params.point_norm || res.point_norm;
     if (params.button || res.button) patch.button = params.button || res.button;
     if (params.capture_mode) patch.capture_mode = params.capture_mode;
     if (params.coord) patch.coord = params.coord;
@@ -1692,6 +1709,8 @@ export default function Inspector({
           .filter((input: any) => {
             if (input.name === 'pick_method') return false;
             if (!inputVisible(input, selectedNode.config)) return false;
+            // Filled by WindowPickField — don't show raw process/class text boxes
+            if (input.ui === 'window_pick_meta') return false;
             if (!isClick) return true;
             // Handled in the click panel above / nested object not edited as text
             if (input.name === 'capture_mode' || input.name === 'frida_ui') return false;
@@ -1724,6 +1743,7 @@ export default function Inspector({
               input.type === 'textarea' ||
               input.ui === 'file_path' ||
               input.ui === 'flow_path' ||
+              input.ui === 'window_pick' ||
               input.name === 'subflow_path' ||
               input.name === 'expression' ||
               input.name === 'exit_condition';
@@ -1840,6 +1860,22 @@ export default function Inspector({
                     }}
                     currentNodeId={selectedNode.id}
                     schemaMap={schemaMap}
+                  />
+                ) : input.ui === 'window_pick' ? (
+                  <WindowPickField
+                    value={{
+                      title: selectedNode.config?.title || '',
+                      process_name: selectedNode.config?.process_name || '',
+                      class_name: selectedNode.config?.class_name || '',
+                    }}
+                    onChange={(next) => {
+                      onUpdateNodeConfig(selectedNode.id, {
+                        ...selectedNode.config,
+                        title: next.title || '',
+                        process_name: next.process_name || '',
+                        class_name: next.class_name || '',
+                      });
+                    }}
                   />
                 ) : input.ui === 'flow_path' || input.name === 'subflow_path' ? (
                   <FlowPathField

@@ -918,6 +918,9 @@ export const useFlowStore = create((set, get) => ({
       params.capture_mode = mode;
       params.coordinate_mode = get().defaultCoordinateMode || 'screen_abs';
     }
+    if (type === 'drag' || type === 'mouse_hover') {
+      params.coordinate_mode = get().defaultCoordinateMode || 'screen_abs';
+    }
     if (OUTPUT_COORD_NODE_TYPES.has(type)) {
       params.output_coordinate_mode = get().defaultOutputCoordinateMode || 'screen_abs';
     }

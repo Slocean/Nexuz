@@ -190,6 +190,18 @@ export const MOCK_SCHEMAS = [
     label: '鼠标拖拽',
     category: '动作类',
     inputs: [
+      {
+        name: 'coordinate_mode',
+        type: 'select',
+        label: '坐标基准',
+        options: ['screen_abs', 'window_client', 'virtual_norm'],
+        default: 'screen_abs',
+        option_labels: {
+          screen_abs: '屏幕绝对坐标',
+          window_client: '目标窗口相对（推荐）',
+          virtual_norm: '虚拟桌面比例',
+        },
+      },
       { name: 'from_x', type: 'number', label: '起点X', default: 0 },
       { name: 'from_y', type: 'number', label: '起点Y', default: 0 },
       { name: 'to_x', type: 'number', label: '终点X', default: 0 },
@@ -1145,6 +1157,132 @@ export const MOCK_SCHEMAS = [
     ],
   },
   {
+    type: 'window_wait',
+    label: '等待窗口',
+    category: '系统类',
+    inputs: [
+      {
+        name: 'title',
+        type: 'string',
+        label: '目标窗口',
+        default: '',
+        placeholder: '点「选取窗口」或从列表选，不用手填',
+        ui: 'window_pick',
+        bindable: true,
+      },
+      {
+        name: 'process_name',
+        type: 'string',
+        label: '进程',
+        default: '',
+        ui: 'window_pick_meta',
+        bindable: true,
+      },
+      {
+        name: 'class_name',
+        type: 'string',
+        label: '类名',
+        default: '',
+        ui: 'window_pick_meta',
+        bindable: true,
+      },
+      { name: 'timeout_sec', type: 'number', label: '超时秒数', default: 30 },
+      { name: 'poll_ms', type: 'number', label: '轮询间隔毫秒', default: 200 },
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'found', type: 'boolean' },
+      { name: 'title', type: 'string' },
+      { name: 'pid', type: 'number' },
+      { name: 'process_name', type: 'string' },
+      { name: 'error', type: 'string' },
+    ],
+  },
+  {
+    type: 'window_activate',
+    label: '激活窗口',
+    category: '系统类',
+    inputs: [
+      {
+        name: 'title',
+        type: 'string',
+        label: '目标窗口',
+        default: '',
+        placeholder: '点「选取窗口」或从列表选，不用手填',
+        ui: 'window_pick',
+        bindable: true,
+      },
+      {
+        name: 'process_name',
+        type: 'string',
+        label: '进程',
+        default: '',
+        ui: 'window_pick_meta',
+        bindable: true,
+      },
+      {
+        name: 'class_name',
+        type: 'string',
+        label: '类名',
+        default: '',
+        ui: 'window_pick_meta',
+        bindable: true,
+      },
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'title', type: 'string' },
+      { name: 'pid', type: 'number' },
+      { name: 'error', type: 'string' },
+    ],
+  },
+  {
+    type: 'window_close',
+    label: '关闭窗口',
+    category: '系统类',
+    inputs: [
+      {
+        name: 'title',
+        type: 'string',
+        label: '目标窗口',
+        default: '',
+        placeholder: '点「选取窗口」或从列表选，不用手填',
+        ui: 'window_pick',
+        bindable: true,
+      },
+      {
+        name: 'process_name',
+        type: 'string',
+        label: '进程',
+        default: '',
+        ui: 'window_pick_meta',
+        bindable: true,
+      },
+      {
+        name: 'class_name',
+        type: 'string',
+        label: '类名',
+        default: '',
+        ui: 'window_pick_meta',
+        bindable: true,
+      },
+      {
+        name: 'force',
+        type: 'select',
+        label: '强制结束进程',
+        options: ['false', 'true'],
+        default: 'false',
+        option_labels: { false: '否（发送关闭消息）', true: '是（TerminateProcess）' },
+      },
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'title', type: 'string' },
+      { name: 'pid', type: 'number' },
+      { name: 'error', type: 'string' },
+    ],
+  },
+  {
     type: 'python_script',
     label: 'Python 脚本',
     category: '系统类',
@@ -1500,6 +1638,8 @@ function mockCall(method, ...args) {
     case 'stop_recording':
     case 'pick_point':
     case 'pick_click':
+    case 'pick_window':
+    case 'list_windows':
     case 'pick_region':
     case 'capture_template':
     case 'capture_desktop':
@@ -1574,11 +1714,19 @@ export const bridge = {
   setBreakpoints: (nodeIds) => call('set_breakpoints', nodeIds || []),
   isRunning: () => call('is_running'),
   validateFlow: (flow) => call('validate_flow', JSON.stringify(flow)),
-  startRecording: (minIntervalMs = 50, hideWindow = false, mode = 'coord') =>
-    call('start_recording', minIntervalMs, hideWindow, mode),
+  startRecording: (
+    minIntervalMs = 50,
+    hideWindow = false,
+    mode = 'coord',
+    coordinateMode = 'screen_abs',
+  ) => call('start_recording', minIntervalMs, hideWindow, mode, coordinateMode),
   stopRecording: () => call('stop_recording'),
-  pickPoint: (hideWindow = true) => call('pick_point', hideWindow),
-  pickClick: (mode = 'coord', hideWindow = true) => call('pick_click', mode, hideWindow),
+  pickPoint: (hideWindow = true, coordinateMode = 'screen_abs') =>
+    call('pick_point', hideWindow, coordinateMode),
+  pickClick: (mode = 'coord', hideWindow = true, coordinateMode = 'screen_abs') =>
+    call('pick_click', mode, hideWindow, coordinateMode),
+  listWindows: () => call('list_windows'),
+  pickWindow: (hideWindow = true) => call('pick_window', hideWindow),
   pickRegion: (hideWindow = true) => call('pick_region', hideWindow),
   captureTemplate: (hideWindow = true, filename = null) =>
     call('capture_template', hideWindow, filename),

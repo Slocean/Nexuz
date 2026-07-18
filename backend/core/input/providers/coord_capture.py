@@ -8,7 +8,11 @@ from typing import Any
 from pynput import mouse
 
 from backend.core.input.provider_base import CaptureProvider
-from backend.core.input.resolve import recorded_click_to_node_params
+from backend.core.input.resolve import (
+    apply_preferred_coordinate_mode,
+    normalize_preferred_coordinate_mode,
+    recorded_click_to_node_params,
+)
 from backend.core.input.types import (
     ERROR_CANCELLED,
     ProviderCapabilities,
@@ -58,16 +62,24 @@ class CoordCaptureProvider(CaptureProvider):
         from backend.core.recorder import get_recorder
 
         self._recorder = get_recorder()
+        self._preferred_coordinate_mode = "screen_abs"
 
     def is_available(self) -> tuple[bool, str | None]:
         return True, None
 
-    def start_sequence(self, *, min_interval_ms: int = 50) -> None:
+    def start_sequence(
+        self,
+        *,
+        min_interval_ms: int = 50,
+        coordinate_mode: str = "screen_abs",
+    ) -> None:
+        self._preferred_coordinate_mode = normalize_preferred_coordinate_mode(coordinate_mode)
         self._recorder.min_interval_ms = int(min_interval_ms)
         self._recorder.start()
 
     def stop_sequence(self) -> list[dict[str, Any]]:
         nodes = self._recorder.stop()
+        preferred = self._preferred_coordinate_mode
         # Upgrade click params to ClickTarget shape
         upgraded: list[dict[str, Any]] = []
         for n in nodes:
@@ -88,7 +100,6 @@ class CoordCaptureProvider(CaptureProvider):
                     packed = pack_point(params["x"], params["y"])
                     params["point_norm"] = packed["point_norm"]
                     params["coord_space"] = packed["coord_space"]
-                    params["coordinate_mode"] = "screen_abs"
                     if packed.get("window_target"):
                         params["window_target"] = packed["window_target"]
                     params["coord"] = {
@@ -102,12 +113,19 @@ class CoordCaptureProvider(CaptureProvider):
                         params["coord"]["window_target"] = packed["window_target"]
                 except Exception:
                     pass
+                apply_preferred_coordinate_mode(params, preferred)
                 upgraded.append({**n, "params": params})
             else:
                 upgraded.append(n)
         return upgraded
 
-    def pick_single(self, *, timeout_s: float = 120) -> dict[str, Any]:
+    def pick_single(
+        self,
+        *,
+        timeout_s: float = 120,
+        coordinate_mode: str = "screen_abs",
+    ) -> dict[str, Any]:
+        preferred = normalize_preferred_coordinate_mode(coordinate_mode)
         result: dict[str, Any] | None = None
         done = threading.Event()
 
@@ -133,6 +151,7 @@ class CoordCaptureProvider(CaptureProvider):
                     coord_space=packed["coord_space"],
                     window_target=packed.get("window_target"),
                 )
+                apply_preferred_coordinate_mode(params, preferred)
                 result = api_ok(params=params, button=btn, color=color, **packed)
             except Exception as exc:
                 result = api_error("PICK_FAILED", str(exc))

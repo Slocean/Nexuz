@@ -6,7 +6,7 @@ import threading
 from typing import Any, Callable
 
 from backend.core.input.provider_registry import get_provider_registry
-from backend.core.input.resolve import coerce_mode
+from backend.core.input.resolve import coerce_mode, normalize_preferred_coordinate_mode
 from backend.core.input.types import (
     ERROR_NOT_RECORDING,
     ERROR_RECORDING_ACTIVE,
@@ -25,6 +25,7 @@ class RecordingSession:
         self._lock = threading.Lock()
         self._active = False
         self._mode: str = "coord"
+        self._coordinate_mode: str = "screen_abs"
         self._hidden = False
         self._set_window_visible = set_window_visible
         self._emit = emit
@@ -55,8 +56,10 @@ class RecordingSession:
         *,
         min_interval_ms: int = 50,
         hide_window: bool = False,
+        coordinate_mode: str = "screen_abs",
     ) -> dict[str, Any]:
         mode = coerce_mode(mode)
+        coordinate_mode = normalize_preferred_coordinate_mode(coordinate_mode)
         with self._lock:
             if self._active:
                 return api_error(ERROR_RECORDING_ACTIVE, "已在录制中")
@@ -79,7 +82,13 @@ class RecordingSession:
                 hide_stop_overlay()
 
             try:
-                provider.start_sequence(min_interval_ms=int(min_interval_ms))
+                try:
+                    provider.start_sequence(
+                        min_interval_ms=int(min_interval_ms),
+                        coordinate_mode=coordinate_mode,
+                    )
+                except TypeError:
+                    provider.start_sequence(min_interval_ms=int(min_interval_ms))
             except Exception as exc:
                 if self._hidden and self._set_window_visible:
                     self._set_window_visible(True)
@@ -89,8 +98,10 @@ class RecordingSession:
 
             self._active = True
             self._mode = mode
+            self._coordinate_mode = coordinate_mode
             return api_ok(
                 mode=mode,
+                coordinate_mode=coordinate_mode,
                 hide_window=self._hidden,
                 stop_hotkey=stop_label,
             )
@@ -126,8 +137,16 @@ class RecordingSession:
                 return api_error("RECORD_STOP_FAILED", err, nodes=nodes, mode=mode)
             return api_ok(nodes=nodes, mode=mode)
 
-    def pick_click(self, mode: str = "coord", *, hide_window: bool = True, timeout_s: float = 120) -> dict[str, Any]:
+    def pick_click(
+        self,
+        mode: str = "coord",
+        *,
+        hide_window: bool = True,
+        timeout_s: float = 120,
+        coordinate_mode: str = "screen_abs",
+    ) -> dict[str, Any]:
         mode = coerce_mode(mode)
+        coordinate_mode = normalize_preferred_coordinate_mode(coordinate_mode)
         registry = get_provider_registry()
         provider_or_err = registry.require_capture(mode)
         if isinstance(provider_or_err, dict):
@@ -138,7 +157,13 @@ class RecordingSession:
         if do_hide:
             self._set_window_visible(False)
         try:
-            return provider.pick_single(timeout_s=timeout_s)
+            try:
+                return provider.pick_single(
+                    timeout_s=timeout_s,
+                    coordinate_mode=coordinate_mode,
+                )
+            except TypeError:
+                return provider.pick_single(timeout_s=timeout_s)
         finally:
             if do_hide:
                 self._set_window_visible(True)

@@ -1764,6 +1764,7 @@ class Api:
         min_interval_ms: int = 50,
         hide_window: bool = False,
         mode: str = "coord",
+        coordinate_mode: str = "screen_abs",
     ) -> dict:
         """Start capture provider sequence recording."""
         session = get_recording_session(
@@ -1774,6 +1775,7 @@ class Api:
             mode=mode or "coord",
             min_interval_ms=int(min_interval_ms),
             hide_window=bool(hide_window),
+            coordinate_mode=coordinate_mode or "screen_abs",
         )
         if result.get("ok"):
             get_record_stop_hotkeys().start(on_stop=self._on_record_stop_hotkey)
@@ -1799,7 +1801,12 @@ class Api:
             return {"ok": True, "nodes": nodes, "mode": "coord"}
         return {"ok": False, "error_code": "NOT_RECORDING", "error": "当前未在录制", "nodes": []}
 
-    def pick_click(self, mode: str = "coord", hide_window: bool = True) -> dict:
+    def pick_click(
+        self,
+        mode: str = "coord",
+        hide_window: bool = True,
+        coordinate_mode: str = "screen_abs",
+    ) -> dict:
         """Single click capture routed by mode (auto-detect mouse button)."""
         if not self._window:
             return {"ok": False, "error": "窗口未就绪", "error_code": "WINDOW_NOT_READY"}
@@ -1807,7 +1814,73 @@ class Api:
             set_window_visible=self._set_window_visible,
             emit=self._emit,
         )
-        return session.pick_click(mode=mode or "coord", hide_window=bool(hide_window))
+        return session.pick_click(
+            mode=mode or "coord",
+            hide_window=bool(hide_window),
+            coordinate_mode=coordinate_mode or "screen_abs",
+        )
+
+    def list_windows(self) -> dict:
+        """List visible top-level windows for the window-block picker."""
+        from backend.core.window_coords import list_top_level_windows
+
+        try:
+            windows = list_top_level_windows()
+            return {"ok": True, "windows": windows, "count": len(windows)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "windows": []}
+
+    def pick_window(self, hide_window: bool = True) -> dict:
+        """Click any window on screen; return title/process/class for window blocks."""
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪", "error_code": "WINDOW_NOT_READY"}
+
+        import threading
+
+        from pynput import mouse
+
+        from backend.core.input.types import ERROR_CANCELLED, api_error, api_ok
+        from backend.core.window_coords import capture_window_under_point
+
+        result: dict | None = None
+        done = threading.Event()
+
+        def on_click(x, y, button, pressed):
+            nonlocal result
+            if not pressed:
+                return True
+            info = capture_window_under_point(int(x), int(y))
+            if not info:
+                result = api_error("PICK_FAILED", "未点到可用窗口，请点程序标题栏或客户区")
+            else:
+                result = api_ok(
+                    title=info.get("title") or "",
+                    process_name=info.get("process_name") or "",
+                    class_name=info.get("class_name") or "",
+                    pid=info.get("pid") or 0,
+                    label=info.get("label") or "",
+                    window=info,
+                )
+            done.set()
+            return False
+
+        do_hide = bool(hide_window)
+        if do_hide:
+            self._set_window_visible(False)
+        listener = mouse.Listener(on_click=on_click)
+        try:
+            listener.start()
+            finished = done.wait(timeout=120)
+            try:
+                listener.stop()
+            except Exception:
+                pass
+            if not finished or result is None:
+                return api_error(ERROR_CANCELLED, "已取消或超时", cancelled=True)
+            return result
+        finally:
+            if do_hide:
+                self._set_window_visible(True)
 
     # --- Frida session ---
     def frida_list_processes(self, options=None) -> dict:
@@ -2041,9 +2114,17 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def pick_point(self, hide_window: bool = True) -> dict:
+    def pick_point(
+        self,
+        hide_window: bool = True,
+        coordinate_mode: str = "screen_abs",
+    ) -> dict:
         """Compat alias → pick_click(coord); captures real mouse button."""
-        result = self.pick_click(mode="coord", hide_window=hide_window)
+        result = self.pick_click(
+            mode="coord",
+            hide_window=hide_window,
+            coordinate_mode=coordinate_mode or "screen_abs",
+        )
         if not result.get("ok"):
             return result
         # Preserve legacy flat fields expected by Inspector applyPointPick
@@ -2055,6 +2136,8 @@ class Api:
             "button": params.get("button", result.get("button")),
             "point_norm": params.get("point_norm", result.get("point_norm")),
             "coord_space": params.get("coord_space", result.get("coord_space")),
+            "coordinate_mode": params.get("coordinate_mode", result.get("coordinate_mode")),
+            "window_target": params.get("window_target", result.get("window_target")),
             "color": result.get("color"),
         }
 

@@ -141,6 +141,44 @@ def normalize_click_params(params: dict[str, Any] | None) -> ClickTarget:
     )
 
 
+def normalize_preferred_coordinate_mode(mode: str | None) -> str:
+    m = str(mode or "screen_abs").strip().lower()
+    if m in ("window_client", "virtual_norm", "screen_abs"):
+        return m
+    return "screen_abs"
+
+
+def apply_preferred_coordinate_mode(
+    params: dict[str, Any],
+    preferred: str | None,
+) -> dict[str, Any]:
+    """Stamp coordinate_mode onto recorded/picked click params.
+
+    ``window_client`` is only applied when a ``window_target`` was captured.
+    """
+    if not isinstance(params, dict):
+        return params
+    mode = normalize_preferred_coordinate_mode(preferred)
+    window_target = params.get("window_target")
+    nested = params.get("coord") if isinstance(params.get("coord"), dict) else None
+    if not isinstance(window_target, dict) and nested:
+        window_target = nested.get("window_target")
+
+    if mode == "window_client" and not isinstance(window_target, dict):
+        mode = "screen_abs"
+
+    params["coordinate_mode"] = mode
+    if nested is not None:
+        coord = {**nested, "coordinate_mode": mode}
+        if isinstance(window_target, dict):
+            coord["window_target"] = window_target
+            params["window_target"] = window_target
+        params["coord"] = coord
+    elif isinstance(window_target, dict):
+        params["window_target"] = window_target
+    return params
+
+
 def recorded_click_to_node_params(
     *,
     mode: CaptureMode,

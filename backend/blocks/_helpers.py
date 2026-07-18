@@ -193,6 +193,11 @@ def point_looks_unconfigured(params: dict, x_key: str = "x", y_key: str = "y") -
     frida = params.get("frida_ui")
     if isinstance(frida, dict) and frida.get("hierarchy_path"):
         return False
+    window_target = params.get("window_target")
+    if isinstance(window_target, dict):
+        wnorm = window_target.get("point_norm")
+        if isinstance(wnorm, (list, tuple)) and len(wnorm) == 2:
+            return False
     return _as_coord_int(params.get(x_key), 0) == 0 and _as_coord_int(params.get(y_key), 0) == 0
 
 
