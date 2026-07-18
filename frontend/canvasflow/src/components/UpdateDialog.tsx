@@ -350,14 +350,16 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
         icon={<ArrowUpCircle className="w-3 h-3" />}
         footer={footer}
       >
-        <div className="flex items-start gap-2">
-          {phase === 'uptodate' ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-          ) : phase === 'error' ? null : (
-            <Sparkles className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
-          )}
-          <h3 className="text-base font-semibold tracking-tight leading-snug">{title}</h3>
-        </div>
+        {phase !== 'checking' ? (
+          <div className="flex items-start gap-2">
+            {phase === 'uptodate' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            ) : phase === 'error' ? null : (
+              <Sparkles className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
+            )}
+            <h3 className="text-base font-semibold tracking-tight leading-snug">{title}</h3>
+          </div>
+        ) : null}
 
         {info?.current_version && info?.latest_version && phase !== 'error' && phase !== 'uptodate' ? (
           <div
