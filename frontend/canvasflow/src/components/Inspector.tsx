@@ -1475,6 +1475,12 @@ export default function Inspector({
       <div className="space-y-2 p-3 border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text min-w-0 max-w-full overflow-hidden">
         <div className="flex items-center justify-between gap-2 select-none min-w-0">
           <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5 shrink-0">
+            <img
+              src={`${import.meta.env.BASE_URL}logo2.png`}
+              alt=""
+              className="h-3.5 w-auto max-w-[4.5rem] object-contain opacity-90"
+              draggable={false}
+            />
             <Terminal className="w-3.5 h-3.5" /> 日志
           </h4>
           {logToolbar({ showExpand: true })}
@@ -1495,6 +1501,12 @@ export default function Inspector({
           <DialogHeader className="shrink-0">
             <div className="flex items-center justify-between gap-2 pr-8">
               <DialogTitle className="flex items-center gap-1.5 text-sm font-medium">
+                <img
+                  src={`${import.meta.env.BASE_URL}logo2.png`}
+                  alt=""
+                  className="h-3.5 w-auto max-w-[4.5rem] object-contain opacity-90"
+                  draggable={false}
+                />
                 <Terminal className="w-3.5 h-3.5" /> 日志
               </DialogTitle>
               {logToolbar({ showExpand: false })}
