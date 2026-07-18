@@ -9,14 +9,17 @@ export default function RecordingBanner({
   open,
   onStop,
   mode = 'coord',
+  stopHotkeyLabel = 'X+F10',
 }: {
   open: boolean;
   onStop: () => void;
   mode?: 'coord' | 'frida_ui' | string;
+  stopHotkeyLabel?: string;
 }) {
   if (!open) return null;
 
   const isFrida = mode === 'frida_ui';
+  const stopLabel = stopHotkeyLabel || 'X+F10';
 
   return (
     <div
@@ -39,7 +42,7 @@ export default function RecordingBanner({
                 : '正在记录：点击、按键、延迟、滚轮。不含拖拽 / 悬停 / 文本输入（请手动加节点）。'}{' '}
               点下方停止，或顶栏「停止录制」，或按{' '}
               <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-xs">
-                X+F10
+                {stopLabel}
               </kbd>
             </p>
           </div>

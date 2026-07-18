@@ -2,7 +2,7 @@
  * CanvasFlow UI shell wired to Nexuz store + bridge.
  * Unused design-only UI (AI Assistant, demo templates) kept as-is.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Canvas from './components/Canvas';
@@ -34,7 +34,7 @@ import {
 } from './nexuzAdapter';
 import { parseNodeRef } from './bindValue';
 import { collectFlowBindIssues } from './bindValidate';
-import { useFlowStore } from '../../src/store/flowModelStore';
+import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '../../src/store/flowModelStore';
 import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
 import WindowResizeHandles from './components/WindowResizeHandles';
 
@@ -163,6 +163,17 @@ function AppShell() {
   const clearRunHistory = useFlowStore((s) => s.clearRunHistory);
   const filePath = useFlowStore((s) => s.filePath);
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
+  const hotkeys = useFlowStore((s) => s.hotkeys);
+  const hotkeyLabels = useMemo(() => {
+    const h = hotkeys || DEFAULT_HOTKEYS;
+    return {
+      start_run: formatHotkeyLabel(h.start_run) || 'X+F3',
+      stop_run: formatHotkeyLabel(h.stop_run) || 'X+F4',
+      pause_run: formatHotkeyLabel(h.pause_run) || 'X+F5',
+      record_stop: formatHotkeyLabel(h.record_stop) || 'X+F10',
+    };
+  }, [hotkeys]);
+  const recordStopLabel = hotkeyLabels.record_stop;
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
   const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
   const defaultCoordinateMode = useFlowStore((s) => s.defaultCoordinateMode);
@@ -318,6 +329,8 @@ function AppShell() {
     [logs],
   );
 
+  const handleRunWorkflowRef = useRef<() => void>(() => {});
+
   // Bridge boot + runtime events
   useEffect(() => {
     const handleRuntimeMessage = (msg: any) => {
@@ -326,6 +339,13 @@ function AppShell() {
         window.dispatchEvent(
           new CustomEvent('nexuz-update-progress', { detail: msg.payload || {} }),
         );
+      }
+      if (msg.event === 'hotkey_run') {
+        if (msg.payload?.message) {
+          appendLog({ level: 'info', message: String(msg.payload.message) });
+        }
+        void handleRunWorkflowRef.current?.();
+        return;
       }
       onRuntimeEvent(msg.event, msg.payload || {});
     };
@@ -339,6 +359,12 @@ function AppShell() {
       await waitForBridge(8000);
       if (cancelled) return;
       setBridgeReady(true);
+      try {
+        const keys = useFlowStore.getState().hotkeys || DEFAULT_HOTKEYS;
+        await bridge.setHotkeys?.(keys);
+      } catch {
+        /* ignore */
+      }
       try {
         const ping = await bridge.ping();
         appendLog({
@@ -481,6 +507,9 @@ function AppShell() {
       return;
     }
     if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
+  };
+  handleRunWorkflowRef.current = () => {
+    void handleRunWorkflow();
   };
 
   const handleStop = async () => {
@@ -791,11 +820,11 @@ function AppShell() {
         description:
           mode === 'frida_ui'
             ? hide
-              ? `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。主窗口将隐藏，用外部浮窗或 X+F10 停止。\n需先在设置页连接 Frida。`
-              : `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。右上角会出现停止浮层，也可按 X+F10。\n需先在设置页连接 Frida。`
+              ? `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。主窗口将隐藏，用外部浮窗或 ${recordStopLabel} 停止。\n需先在设置页连接 Frida。`
+              : `模式：${modeLabel}\n\n请在游戏内点击 UI 控件。右上角会出现停止浮层，也可按 ${recordStopLabel}。\n需先在设置页连接 Frida。`
             : hide
-              ? `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n\n已开启隐藏窗口：用右上角浮窗或 X+F10 停止。`
-              : `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n右上角浮层或 X+F10 停止。`,
+              ? `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n\n已开启隐藏窗口：用右上角浮窗或 ${recordStopLabel} 停止。`
+              : `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n右上角浮层或 ${recordStopLabel} 停止。`,
         confirmText: '开始录制',
       });
       if (!ok) return;
@@ -804,11 +833,12 @@ function AppShell() {
       if (res?.ok) {
         setRecording(true);
         setRecordingMode(mode);
+        const stopHint = String(res?.stop_hotkey || recordStopLabel);
         appendLog({
           level: 'info',
           message: hide
-            ? `开始录制 [${modeLabel}]（窗口已隐藏）。停止：外部浮窗 或 X+F10`
-            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 X+F10`,
+            ? `开始录制 [${modeLabel}]（窗口已隐藏）。停止：外部浮窗 或 ${stopHint}`
+            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 ${stopHint}`,
         });
       } else {
         appendLog({
@@ -1167,6 +1197,7 @@ function AppShell() {
         setThemeName={handleSetThemeName as any}
         themeMode={themeMode as any}
         setThemeMode={handleSetThemeMode as any}
+        hotkeyLabels={hotkeyLabels}
         onRunWorkflow={handleRunWorkflow}
         isExecuting={isExecuting}
         onToggleAssistant={() => setIsAssistantOpen(!isAssistantOpen)}
@@ -1303,6 +1334,7 @@ function AppShell() {
       <RecordingBanner
         open={recording && !hideWindowOnRecord}
         mode={recordingMode}
+        stopHotkeyLabel={recordStopLabel}
         onStop={() => {
           void stopRecordingNow();
         }}
@@ -1311,6 +1343,8 @@ function AppShell() {
       <RunningBanner
         open={isExecuting && !recording}
         execStatus={execStatus}
+        pauseHotkeyLabel={hotkeyLabels.pause_run}
+        stopHotkeyLabel={hotkeyLabels.stop_run}
         onPause={() => {
           void handlePause();
         }}

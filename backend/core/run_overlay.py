@@ -5,8 +5,6 @@ from __future__ import annotations
 import threading
 from typing import Callable
 
-from backend.core.run_hotkeys import PAUSE_LABEL, STOP_LABEL
-
 _overlay_thread: threading.Thread | None = None
 _close_fn: Callable[[], None] | None = None
 
@@ -17,6 +15,10 @@ def show_run_overlay(
 ) -> None:
     """Top-right panel: pause / stop + hotkey hints."""
     hide_run_overlay()
+    from backend.core.hotkey_prefs import get_pause_run_label, get_stop_run_label
+
+    pause_label = get_pause_run_label()
+    stop_label = get_stop_run_label()
 
     def _run() -> None:
         global _close_fn
@@ -55,7 +57,7 @@ def show_run_overlay(
 
         tk.Label(
             frame,
-            text=f"暂停  {PAUSE_LABEL}\n结束  {STOP_LABEL}",
+            text=f"暂停  {pause_label}\n结束  {stop_label}",
             fg="#94A3B8",
             bg="#121623",
             font=("Segoe UI", 9),

@@ -215,6 +215,92 @@ function loadDefaultNodeIntervalMs() {
   }
 }
 
+export const DEFAULT_HOTKEYS = {
+  start_run: ['x', 'f3'],
+  stop_run: ['x', 'f4'],
+  pause_run: ['x', 'f5'],
+  record_stop: ['x', 'f10'],
+};
+
+/** @deprecated use DEFAULT_HOTKEYS.record_stop */
+export const DEFAULT_RECORD_STOP_HOTKEY = DEFAULT_HOTKEYS.record_stop;
+
+export const HOTKEY_SLOTS = ['start_run', 'stop_run', 'pause_run', 'record_stop'];
+
+export function formatHotkeyLabel(keys) {
+  const arr = Array.isArray(keys) ? keys : [];
+  const modLabel = { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', win: 'Win' };
+  return arr
+    .map((k) => {
+      const s = String(k || '').toLowerCase();
+      if (modLabel[s]) return modLabel[s];
+      if (/^f\d{1,2}$/.test(s)) return s.toUpperCase();
+      if (s.length === 1) return s.toUpperCase();
+      return s;
+    })
+    .filter(Boolean)
+    .join('+');
+}
+
+function normalizeHotkey(keys, fallback) {
+  const mods = ['ctrl', 'alt', 'shift', 'win'];
+  const items = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(keys) ? keys : []) {
+    const k = String(raw || '')
+      .trim()
+      .toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    items.push(k);
+  }
+  const fb = Array.isArray(fallback) ? [...fallback] : [...DEFAULT_HOTKEYS.record_stop];
+  if (!items.length) return fb;
+  const modPart = mods.filter((m) => items.includes(m));
+  const others = items.filter((k) => !mods.includes(k));
+  if (!others.length) return fb;
+  const trigger = others[others.length - 1];
+  const held = others.slice(0, -1);
+  return [...modPart, ...held, trigger];
+}
+
+function loadHotkeys() {
+  const out = {};
+  for (const slot of HOTKEY_SLOTS) {
+    out[slot] = [...DEFAULT_HOTKEYS[slot]];
+  }
+  try {
+    const raw = localStorage.getItem('nexuz.hotkeys');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        for (const slot of HOTKEY_SLOTS) {
+          if (parsed[slot] != null) {
+            out[slot] = normalizeHotkey(parsed[slot], DEFAULT_HOTKEYS[slot]);
+          }
+        }
+      }
+    } else {
+      // Migrate previous single-key setting.
+      const legacy = localStorage.getItem('nexuz.recordStopHotkey');
+      if (legacy) {
+        out.record_stop = normalizeHotkey(JSON.parse(legacy), DEFAULT_HOTKEYS.record_stop);
+      }
+    }
+  } catch {
+    /* keep defaults */
+  }
+  return out;
+}
+
+function persistHotkeys(hotkeys) {
+  try {
+    localStorage.setItem('nexuz.hotkeys', JSON.stringify(hotkeys));
+  } catch {
+    /* ignore */
+  }
+}
+
 function loadTheme() {
   try {
     return {
@@ -248,6 +334,7 @@ export const useFlowStore = create((set, get) => ({
   defaultCoordinateMode: loadDefaultCoordinateMode(),
   defaultOutputCoordinateMode: loadDefaultOutputCoordinateMode(),
   defaultNodeIntervalMs: loadDefaultNodeIntervalMs(),
+  hotkeys: loadHotkeys(),
 
   // run history for sidebar
   runHistory: [],
@@ -267,6 +354,64 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ hideWindowOnRecord: !!hideWindowOnRecord });
+  },
+
+  setHotkey: (slot, keys) => {
+    const key = String(slot || '');
+    if (!HOTKEY_SLOTS.includes(key)) return get().hotkeys;
+    const fallback = DEFAULT_HOTKEYS[key];
+    const nextKeys = normalizeHotkey(keys, fallback);
+    const prev = get().hotkeys || loadHotkeys();
+    const next = { ...prev, [key]: nextKeys };
+    // Reject duplicate combos against other slots.
+    const sig = nextKeys.join('+');
+    for (const other of HOTKEY_SLOTS) {
+      if (other === key) continue;
+      if ((next[other] || []).join('+') === sig) {
+        return { ok: false, error: `与「${other}」快捷键冲突`, hotkeys: prev };
+      }
+    }
+    persistHotkeys(next);
+    set({ hotkeys: next });
+    return { ok: true, hotkeys: next, keys: nextKeys };
+  },
+
+  setHotkeys: (prefs) => {
+    const prev = get().hotkeys || loadHotkeys();
+    const next = { ...prev };
+    for (const slot of HOTKEY_SLOTS) {
+      if (prefs && prefs[slot] != null) {
+        next[slot] = normalizeHotkey(prefs[slot], DEFAULT_HOTKEYS[slot]);
+      }
+    }
+    const seen = new Map();
+    for (const slot of HOTKEY_SLOTS) {
+      const sig = (next[slot] || []).join('+');
+      if (seen.has(sig)) {
+        return {
+          ok: false,
+          error: `快捷键冲突：${formatHotkeyLabel(next[slot])}`,
+          hotkeys: prev,
+        };
+      }
+      seen.set(sig, slot);
+    }
+    persistHotkeys(next);
+    set({ hotkeys: next });
+    return { ok: true, hotkeys: next };
+  },
+
+  resetHotkeys: () => {
+    const next = {};
+    for (const slot of HOTKEY_SLOTS) next[slot] = [...DEFAULT_HOTKEYS[slot]];
+    persistHotkeys(next);
+    set({ hotkeys: next });
+    return next;
+  },
+
+  setRecordStopHotkey: (keys) => {
+    const res = get().setHotkey('record_stop', keys);
+    return res?.keys || get().hotkeys.record_stop;
   },
 
   setDefaultCaptureMode: (defaultCaptureMode) => {

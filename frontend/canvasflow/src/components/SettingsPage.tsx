@@ -35,10 +35,100 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFlowStore } from '@/store/flowModelStore';
+import {
+  DEFAULT_HOTKEYS,
+  formatHotkeyLabel,
+  useFlowStore,
+} from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
+
+function eventToHotkeyKey(e: KeyboardEvent): string | null {
+  const k = e.key;
+  if (k === 'Control') return 'ctrl';
+  if (k === 'Shift') return 'shift';
+  if (k === 'Alt') return 'alt';
+  if (k === 'Meta') return 'win';
+  if (/^F\d{1,2}$/i.test(k)) return k.toLowerCase();
+  if (k.length === 1) return k.toLowerCase();
+  if (e.code?.startsWith('Key')) return e.code.slice(3).toLowerCase();
+  return null;
+}
+
+/** Capture a global-style combo for settings (e.g. x+f10). */
+function HotkeyCaptureField({
+  value,
+  onChange,
+  colors,
+}: {
+  value: string[];
+  onChange: (keys: string[]) => void;
+  colors: ThemeColors;
+}) {
+  const [listening, setListening] = useState(false);
+  const heldRef = useRef<string[]>([]);
+  const display = formatHotkeyLabel(value) || '未设置';
+
+  useEffect(() => {
+    if (!listening) return;
+    heldRef.current = [];
+    const onDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const name = eventToHotkeyKey(e);
+      if (!name) return;
+      if (!heldRef.current.includes(name)) {
+        heldRef.current = [...heldRef.current, name];
+      }
+    };
+    const onUp = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (heldRef.current.length) {
+        const mods = ['ctrl', 'alt', 'shift', 'win'];
+        const ordered = [
+          ...mods.filter((m) => heldRef.current.includes(m)),
+          ...heldRef.current.filter((k) => !mods.includes(k)),
+        ];
+        onChange(ordered);
+      }
+      setListening(false);
+    };
+    window.addEventListener('keydown', onDown, true);
+    window.addEventListener('keyup', onUp, true);
+    return () => {
+      window.removeEventListener('keydown', onDown, true);
+      window.removeEventListener('keyup', onUp, true);
+    };
+  }, [listening, onChange]);
+
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <div
+        className="flex-1 min-w-0 h-8 px-2 rounded-md border flex items-center font-mono text-xs truncate"
+        style={{ borderColor: colors.border, backgroundColor: 'rgba(0,0,0,0.04)' }}
+      >
+        {listening ? (
+          <span className="text-amber-500 animate-pulse">按下组合键…</span>
+        ) : (
+          <span title={display}>{display}</span>
+        )}
+      </div>
+      <Button
+        type="button"
+        variant={listening ? 'default' : 'outline'}
+        size="sm"
+        className="h-8 shrink-0 px-2"
+        onClick={() => setListening((v) => !v)}
+        title="点击后按下新的停止录制快捷键"
+      >
+        <Keyboard className="w-3.5 h-3.5" />
+        {listening ? '取消' : '改键'}
+      </Button>
+    </div>
+  );
+}
 
 type ThemeColors = ReturnType<typeof getThemeColors>;
 
@@ -251,10 +341,13 @@ export default function SettingsPage({
   themeMode: ThemeMode;
 }) {
   const colors = getThemeColors(themeName, themeMode);
-  const { confirm } = useAppDialog();
+  const { confirm, alert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
+  const hotkeys = useFlowStore((s) => s.hotkeys);
+  const setHotkey = useFlowStore((s) => s.setHotkey);
+  const resetHotkeys = useFlowStore((s) => s.resetHotkeys);
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
   const setDefaultCaptureMode = useFlowStore((s) => s.setDefaultCaptureMode);
   const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
@@ -1284,7 +1377,7 @@ export default function SettingsPage({
                   <>
                     开启后，录制、运行、取点、框选时会暂时隐藏 Nexuz，避免点到本程序。
                     <br />
-                    录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。录制快捷键 X+F10（支持点击/按键/延迟/滚轮，不含拖拽/悬停/打字）。运行中可全局 X+F5 暂停、X+F4 结束。
+                    录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。全局快捷键（运行/暂停/停止/停止录制）均可在下方「快捷键」中重新录制。
                   </>
                 }
                 colors={colors}
@@ -1303,7 +1396,7 @@ export default function SettingsPage({
         >
           <div className="space-y-3 pt-1 text-sm" style={{ color: colors.text }}>
             <p className="text-xs opacity-70 leading-relaxed">
-              在输入框中打字时，下列画布快捷键不会触发，以免误删或打断输入。
+              在输入框中打字时，下列画布快捷键不会触发，以免误删或打断输入。全局快捷键在窗口隐藏时仍可用，可点「改键」重新录制。
             </p>
             <div className="rounded-lg border px-3 py-2.5 space-y-2" style={{ borderColor: colors.border }}>
               <p className="text-xs font-medium opacity-80">画布与节点</p>
@@ -1345,28 +1438,88 @@ export default function SettingsPage({
                 </li>
               </ul>
             </div>
-            <div className="rounded-lg border px-3 py-2.5 space-y-2" style={{ borderColor: colors.border }}>
-              <p className="text-xs font-medium opacity-80">录制与运行（全局）</p>
-              <ul className="space-y-1.5 text-xs leading-relaxed opacity-90">
-                <li>
-                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">X</kbd>
-                  {'+'}
-                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">F10</kbd>
-                  ：停止录制
-                </li>
-                <li>
-                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">X</kbd>
-                  {'+'}
-                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">F5</kbd>
-                  ：运行中暂停 / 继续
-                </li>
-                <li>
-                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">X</kbd>
-                  {'+'}
-                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">F4</kbd>
-                  ：结束运行
-                </li>
-              </ul>
+            <div className="rounded-lg border px-3 py-2.5 space-y-3" style={{ borderColor: colors.border }}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium opacity-80">录制与运行（全局，可改）</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs opacity-70"
+                  onClick={async () => {
+                    const next = resetHotkeys();
+                    try {
+                      await bridge.setHotkeys?.(next);
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  title="恢复全部全局快捷键为默认"
+                >
+                  全部恢复默认
+                </Button>
+              </div>
+              {(
+                [
+                  { slot: 'start_run', label: '开始 / 继续运行' },
+                  { slot: 'pause_run', label: '运行中暂停' },
+                  { slot: 'stop_run', label: '结束运行' },
+                  { slot: 'record_stop', label: '停止录制' },
+                ] as const
+              ).map((row) => (
+                <div key={row.slot} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-xs opacity-80 shrink-0 w-[7.5rem]">{row.label}</Label>
+                    <div className="flex-1 max-w-[16rem]">
+                      <HotkeyCaptureField
+                        value={hotkeys?.[row.slot] || DEFAULT_HOTKEYS[row.slot]}
+                        colors={colors}
+                        onChange={async (keys) => {
+                          const res = setHotkey(row.slot, keys);
+                          if (res?.ok === false) {
+                            await alert({
+                              title: '快捷键冲突',
+                              description: res.error || '与其它快捷键重复，请换一组',
+                            });
+                            return;
+                          }
+                          try {
+                            const sync = await bridge.setHotkeys?.(res.hotkeys || hotkeys);
+                            if (sync?.ok === false) {
+                              await alert({
+                                title: '快捷键冲突',
+                                description: sync.error || '与其它快捷键重复',
+                              });
+                            }
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      className="text-[11px] opacity-50 hover:opacity-80"
+                      onClick={async () => {
+                        const res = setHotkey(row.slot, DEFAULT_HOTKEYS[row.slot]);
+                        if (res?.ok === false) return;
+                        try {
+                          await bridge.setHotkeys?.(res.hotkeys);
+                        } catch {
+                          /* ignore */
+                        }
+                      }}
+                    >
+                      默认 {formatHotkeyLabel(DEFAULT_HOTKEYS[row.slot])}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <p className="text-[11px] opacity-55 leading-relaxed">
+                建议使用「字母/修饰键 + 功能键」。四组快捷键不能互相重复。
+              </p>
             </div>
           </div>
         </SettingsSection>

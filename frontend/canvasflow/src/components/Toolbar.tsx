@@ -66,6 +66,12 @@ interface ToolbarProps {
   execStatus?: string;
   viewMode?: 'canvas' | 'code' | 'settings';
   onViewModeChange?: (mode: 'canvas' | 'code' | 'settings') => void;
+  hotkeyLabels?: {
+    start_run?: string;
+    stop_run?: string;
+    pause_run?: string;
+    record_stop?: string;
+  };
 }
 
 export default function Toolbar({
@@ -92,8 +98,13 @@ export default function Toolbar({
   debugMode = false,
   execStatus = 'idle',
   viewMode = 'canvas',
-  onViewModeChange
+  onViewModeChange,
+  hotkeyLabels,
 }: ToolbarProps) {
+  const runKey = hotkeyLabels?.start_run || 'X+F3';
+  const pauseKey = hotkeyLabels?.pause_run || 'X+F5';
+  const stopKey = hotkeyLabels?.stop_run || 'X+F4';
+  const recordStopKey = hotkeyLabels?.record_stop || 'X+F10';
   const { openAlert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
   const [isSaved, setIsSaved] = useState(false);
@@ -261,8 +272,8 @@ export default function Toolbar({
                 : execStatus === 'running'
                   ? '运行中'
                   : execStatus === 'paused' || execStatus === 'breakpoint'
-                    ? '继续'
-                    : '运行'
+                    ? `继续（${runKey}）`
+                    : `运行（${runKey}）`
             }
             disabled={
               isExecuting &&
@@ -301,7 +312,7 @@ export default function Toolbar({
               className="px-2 xl:px-3"
               onClick={onPause}
               disabled={execStatus !== 'running'}
-              title="暂停（X+F5）"
+              title={`暂停（${pauseKey}）`}
             >
               <Pause className="w-3.5 h-3.5" />
               <span className="hidden xl:inline">暂停</span>
@@ -314,7 +325,7 @@ export default function Toolbar({
             className="px-2 xl:px-3"
             onClick={onStop}
             disabled={execStatus === 'idle' && !recording}
-            title="停止（X+F4）"
+            title={`停止（${stopKey}）`}
           >
             <Square className="w-3 h-3" />
             <span className="hidden xl:inline">{execStatus === 'stopping' ? '停止中' : '停止'}</span>
@@ -387,7 +398,11 @@ export default function Toolbar({
               className="px-2 xl:px-3"
               onClick={onToggleRecord}
               style={{ color: recording ? colors.danger : undefined }}
-              title={recording ? '停止录制' : '录制操作：把鼠标/键盘转成流程节点'}>
+              title={
+                recording
+                  ? `停止录制（${recordStopKey}）`
+                  : `录制操作：把鼠标/键盘转成流程节点；停止：${recordStopKey}`
+              }>
               <CircleDot className={`w-3.5 h-3.5 ${recording ? 'animate-pulse' : ''}`} />
               <span className="hidden xl:inline">{recording ? '停止录制' : '录制'}</span>
             </Button>

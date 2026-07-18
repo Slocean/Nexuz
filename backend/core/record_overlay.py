@@ -8,9 +8,10 @@ _overlay_thread: threading.Thread | None = None
 _close_fn: Callable[[], None] | None = None
 
 
-def show_stop_overlay(on_stop: Callable[[], None]) -> None:
+def show_stop_overlay(on_stop: Callable[[], None], *, stop_hotkey_label: str = "X+F10") -> None:
     """Show a small topmost panel. Clicking stop calls on_stop once."""
     hide_stop_overlay()
+    label = str(stop_hotkey_label or "X+F10").strip() or "X+F10"
 
     def _run() -> None:
         global _close_fn
@@ -51,7 +52,7 @@ def show_stop_overlay(on_stop: Callable[[], None]) -> None:
 
         desc = tk.Label(
             frame,
-            text="记录：点击 / 按键 / 延迟 / 滚轮。\n不含拖拽、悬停、打字。\n停止：按钮 或 X+F10",
+            text=f"记录：点击 / 按键 / 延迟 / 滚轮。\n不含拖拽、悬停、打字。\n停止：按钮 或 {label}",
             fg="#94A3B8",
             bg="#121623",
             font=("Segoe UI", 9),

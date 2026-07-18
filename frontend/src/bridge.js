@@ -1127,6 +1127,33 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: true, on_top: false });
     case 'window_begin_resize':
       return Promise.resolve({ ok: true, edge: args[0] || 'se' });
+    case 'get_hotkeys':
+    case 'set_hotkeys': {
+      const defaults = {
+        start_run: ['x', 'f3'],
+        stop_run: ['x', 'f4'],
+        pause_run: ['x', 'f5'],
+        record_stop: ['x', 'f10'],
+      };
+      const prefs = args[0] && typeof args[0] === 'object' ? args[0] : {};
+      const hotkeys = { ...defaults };
+      for (const slot of Object.keys(defaults)) {
+        if (Array.isArray(prefs[slot])) hotkeys[slot] = prefs[slot];
+      }
+      const label = (keys) =>
+        (keys || []).map((k) => String(k).toUpperCase()).join('+');
+      const labels = Object.fromEntries(
+        Object.entries(hotkeys).map(([k, v]) => [k, label(v)]),
+      );
+      return Promise.resolve({
+        ok: true,
+        ...hotkeys,
+        ...Object.fromEntries(Object.entries(labels).map(([k, v]) => [`${k}_label`, v])),
+        hotkeys,
+        labels,
+        defaults,
+      });
+    }
     case 'get_notice_read_id': {
       try {
         return Promise.resolve({
@@ -1318,4 +1345,6 @@ export const bridge = {
   windowToggleOnTop: () => call('window_toggle_on_top'),
   windowIsOnTop: () => call('window_is_on_top'),
   windowBeginResize: (edge = 'se') => call('window_begin_resize', edge),
+  getHotkeys: () => call('get_hotkeys'),
+  setHotkeys: (prefs = {}) => call('set_hotkeys', prefs),
 };

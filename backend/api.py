@@ -18,7 +18,18 @@ from backend.core.interpreter import get_interpreter
 from backend.core.recorder import get_recorder
 from backend.core.registry import get_schemas, register_all_blocks
 from backend.core.runtime_log import get_runtime_log_manager
-from backend.core.run_hotkeys import PAUSE_LABEL, STOP_LABEL, get_run_hotkeys
+from backend.core.app_hotkeys import get_app_hotkeys
+from backend.core.hotkey_prefs import (
+    apply_hotkeys,
+    get_all_hotkey_labels,
+    get_all_hotkeys,
+    get_defaults,
+    get_pause_run_label,
+    get_start_run_label,
+    get_stop_run_label,
+)
+from backend.core.record_hotkeys import get_record_stop_hotkeys
+from backend.core.run_hotkeys import get_run_hotkeys
 from backend.core.run_overlay import hide_run_overlay, show_run_overlay
 from backend.paths import (
     default_data_dir,
@@ -77,6 +88,18 @@ class Api:
                     pass
 
         get_frida_session_manager().set_detached_callback(on_frida_detached)
+        get_app_hotkeys().start(on_run=self._on_hotkey_run)
+
+    def _on_hotkey_run(self) -> None:
+        """Global start-run hotkey → ask UI to start / continue the current flow."""
+        session = get_recording_session()
+        if session.active or get_recorder().recording:
+            return
+        label = get_start_run_label()
+        self._emit(
+            "hotkey_run",
+            {"hotkey": label, "message": f"快捷键开始运行（{label}）"},
+        )
 
     def _on_record_stop_hotkey(self) -> None:
         session = get_recording_session()
@@ -85,11 +108,50 @@ class Api:
         result = self.stop_recording()
         self._emit("recording_stopped", result)
 
+    def get_hotkeys(self) -> dict:
+        hotkeys = get_all_hotkeys()
+        labels = get_all_hotkey_labels()
+        return {
+            "ok": True,
+            **{slot: keys for slot, keys in hotkeys.items()},
+            **{f"{slot}_label": label for slot, label in labels.items()},
+            "hotkeys": hotkeys,
+            "labels": labels,
+            "defaults": get_defaults(),
+        }
+
+    def set_hotkeys(self, prefs: dict | None = None) -> dict:
+        result = apply_hotkeys(prefs if isinstance(prefs, dict) else {})
+        if not result.get("ok"):
+            return result
+        # Rebind live watchers when prefs change.
+        try:
+            get_app_hotkeys().restart()
+        except Exception:
+            pass
+        try:
+            get_run_hotkeys().restart()
+        except Exception:
+            pass
+        if get_record_stop_hotkeys().active:
+            get_record_stop_hotkeys().start(on_stop=self._on_record_stop_hotkey)
+        hotkeys = result.get("hotkeys") or get_all_hotkeys()
+        labels = result.get("labels") or get_all_hotkey_labels()
+        return {
+            "ok": True,
+            **{slot: keys for slot, keys in hotkeys.items()},
+            **{f"{slot}_label": label for slot, label in labels.items()},
+            "hotkeys": hotkeys,
+            "labels": labels,
+            "defaults": get_defaults(),
+        }
+
     def _on_run_hotkey_stop(self) -> None:
         interp = get_interpreter()
         if not interp.running:
             return
-        self._emit("log", {"level": "warn", "message": f"快捷键结束流程（{STOP_LABEL}）"})
+        label = get_stop_run_label()
+        self._emit("log", {"level": "warn", "message": f"快捷键结束流程（{label}）"})
         self.stop_flow()
 
     def _on_run_hotkey_pause(self) -> None:
@@ -98,7 +160,8 @@ class Api:
             return
         if getattr(interp, "paused", False):
             return
-        self._emit("log", {"level": "warn", "message": f"快捷键暂停流程（{PAUSE_LABEL}）"})
+        label = get_pause_run_label()
+        self._emit("log", {"level": "warn", "message": f"快捷键暂停流程（{label}）"})
         self.pause_flow()
 
     def _start_run_controls(self, *, show_overlay: bool) -> None:
@@ -688,7 +751,9 @@ class Api:
                     "log",
                     {
                         "level": "info",
-                        "message": f"运行热键：暂停 {PAUSE_LABEL} · 结束 {STOP_LABEL}",
+                        "message": (
+                            f"运行热键：暂停 {get_pause_run_label()} · 结束 {get_stop_run_label()}"
+                        ),
                     },
                 )
             return {
@@ -747,6 +812,10 @@ class Api:
         except Exception:
             pass
 
+        try:
+            get_record_stop_hotkeys().stop()
+        except Exception:
+            pass
         try:
             session = get_recording_session(
                 set_window_visible=self._set_window_visible,
@@ -1572,13 +1641,17 @@ class Api:
             set_window_visible=self._set_window_visible,
             emit=self._emit,
         )
-        return session.start(
+        result = session.start(
             mode=mode or "coord",
             min_interval_ms=int(min_interval_ms),
             hide_window=bool(hide_window),
         )
+        if result.get("ok"):
+            get_record_stop_hotkeys().start(on_stop=self._on_record_stop_hotkey)
+        return result
 
     def stop_recording(self) -> dict:
+        get_record_stop_hotkeys().stop()
         session = get_recording_session(
             set_window_visible=self._set_window_visible,
             emit=self._emit,

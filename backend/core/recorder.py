@@ -139,8 +139,9 @@ class Recorder:
                 return "shift"
             if key in (keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r, keyboard.Key.alt_gr):
                 return "alt"
-            if key == keyboard.Key.f10:
-                return "f10"
+            fname = getattr(key, "name", None)
+            if isinstance(fname, str) and fname.startswith("f") and fname[1:].isdigit():
+                return fname.lower()
             if isinstance(key, keyboard.KeyCode):
                 ch = key.char
                 # With Ctrl held, char is often a control code / None — prefer vk for letters.
@@ -171,15 +172,31 @@ class Recorder:
                 "tab": "tab",
                 "esc": "esc",
                 "backspace": "backspace",
-                "f10": "f10",
             }
+            if name.startswith("f") and name[1:].isdigit():
+                return name.lower()
             return mapping.get(name, name)
         except Exception:
             return None
 
+    def _held_names(self) -> set[str]:
+        with self._lock:
+            held = set(self._pressed_keys)
+        for mod, on in self._mods.items():
+            if on:
+                held.add(mod)
+        return held
+
     def _is_stop_hotkey(self, name: str) -> bool:
-        # X+F10（与运行热键 X+F4/F5 统一前缀）
-        return name == "f10" and "x" in self._pressed_keys
+        from backend.core.hotkey_prefs import record_stop_matches
+
+        return record_stop_matches(name, self._held_names())
+
+    def _stop_trigger_key(self) -> str:
+        from backend.core.hotkey_prefs import get_record_stop_hotkey
+
+        keys = get_record_stop_hotkey()
+        return keys[-1] if keys else "f10"
 
     def _on_press(self, key):
         if not self._recording:
@@ -190,10 +207,13 @@ class Recorder:
         if name in ("ctrl", "shift", "alt"):
             self._mods[name] = True
             return
-        # X+F10 → stop recording, do not record this key
+        # Configurable stop combo (default X+F10) → stop, do not record
         if self._is_stop_hotkey(name):
+            from backend.core.hotkey_prefs import get_record_stop_hotkey
+
             with self._lock:
-                self._pressed_keys.discard("x")
+                for k in get_record_stop_hotkey()[:-1]:
+                    self._pressed_keys.discard(k)
             cb = self._on_stop_hotkey
             if cb:
                 threading.Thread(target=cb, daemon=True).start()
@@ -210,7 +230,7 @@ class Recorder:
         if name in ("ctrl", "shift", "alt"):
             self._mods[name] = False
             return
-        if name == "f10":
+        if name == self._stop_trigger_key():
             return
         with self._lock:
             keys = [k for k in self._pressed_keys if k]

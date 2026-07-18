@@ -10,11 +10,15 @@ export default function RunningBanner({
   execStatus,
   onPause,
   onStop,
+  pauseHotkeyLabel = 'X+F5',
+  stopHotkeyLabel = 'X+F4',
 }: {
   open: boolean;
   execStatus: string;
   onPause: () => void;
   onStop: () => void;
+  pauseHotkeyLabel?: string;
+  stopHotkeyLabel?: string;
 }) {
   if (!open) return null;
 
@@ -25,6 +29,8 @@ export default function RunningBanner({
 
   const canPause = execStatus === 'running';
   const canStop = execStatus !== 'idle' && execStatus !== 'stopping';
+  const pauseKey = pauseHotkeyLabel || 'X+F5';
+  const stopKey = stopHotkeyLabel || 'X+F4';
 
   return (
     <div
@@ -43,13 +49,13 @@ export default function RunningBanner({
               <span className="block">
                 暂停{' '}
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-[11px]">
-                  X+F5
+                  {pauseKey}
                 </kbd>
               </span>
               <span className="block">
                 结束{' '}
                 <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-mono text-[11px]">
-                  X+F4
+                  {stopKey}
                 </kbd>
               </span>
             </p>

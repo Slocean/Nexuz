@@ -68,10 +68,13 @@ class RecordingSession:
 
             from backend.core.record_overlay import hide_stop_overlay, show_stop_overlay
 
+            from backend.core.hotkey_prefs import get_record_stop_label
+
+            stop_label = get_record_stop_label()
             self._hidden = bool(hide_window)
             if self._hidden and self._set_window_visible:
                 self._set_window_visible(False)
-                show_stop_overlay(lambda: self._fire_stop_hotkey())
+                show_stop_overlay(lambda: self._fire_stop_hotkey(), stop_hotkey_label=stop_label)
             else:
                 hide_stop_overlay()
 
@@ -89,7 +92,7 @@ class RecordingSession:
             return api_ok(
                 mode=mode,
                 hide_window=self._hidden,
-                stop_hotkey="X+F10",
+                stop_hotkey=stop_label,
             )
 
     def stop(self) -> dict[str, Any]:
