@@ -23,6 +23,7 @@ import VariableSelect from './VariableSelect';
 import ExpressionField from './ExpressionField';
 import LogicTreeEditor, { normalizeLogicValue } from './LogicTreeEditor';
 import TemplateImageField from './TemplateImageField';
+import JsonTreeView from './JsonTreeView';
 import { listFlowVariableNames } from '../bindValue';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
@@ -2338,18 +2339,22 @@ export default function Inspector({
             })()}
 
             {outputText ? (
-              <pre
+              <JsonTreeView
+                data={
+                  selectedNode.outputData && typeof selectedNode.outputData === 'object'
+                    ? selectedNode.outputData
+                    : outputText
+                }
+                onCopied={() => {
+                  setOutputCopied(true);
+                  setTimeout(() => setOutputCopied(false), 2000);
+                }}
                 style={{
                   backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
                   borderColor: colors.border,
-                  overflowWrap: 'anywhere',
-                  wordBreak: 'break-word',
                 }}
-                className="rounded-xl p-2 border font-mono text-xs max-h-40 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all select-text cursor-text min-w-0 w-full max-w-full"
-                tabIndex={0}
-                title="可选中后 Ctrl+C 复制">
-                {outputText}
-              </pre>
+                className="p-2 border max-h-64 overflow-y-auto overflow-x-hidden cursor-text min-w-0 w-full max-w-full"
+              />
             ) : (
               <p className="text-xs opacity-50 py-1">运行后将显示此节点输出</p>
             )}
