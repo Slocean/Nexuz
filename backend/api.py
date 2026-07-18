@@ -33,8 +33,11 @@ from backend.core.hotkey_prefs import (
     apply_hotkeys,
     get_all_hotkey_labels,
     get_all_hotkeys,
+    get_click_through_hotkey,
+    get_click_through_label,
     get_defaults,
     get_pause_run_label,
+    get_plugin_mode_label,
     get_start_run_label,
     get_stop_run_label,
 )
@@ -98,7 +101,10 @@ class Api:
                     pass
 
         get_frida_session_manager().set_detached_callback(on_frida_detached)
-        get_app_hotkeys().start(on_run=self._on_hotkey_run)
+        get_app_hotkeys().start(
+            on_run=self._on_hotkey_run,
+            on_plugin_mode=self._on_hotkey_plugin_mode,
+        )
 
         from backend.core.scheduler import get_scheduler
 
@@ -126,6 +132,22 @@ class Api:
         self._emit(
             "hotkey_run",
             {"hotkey": label, "message": f"快捷键开始运行（{label}）"},
+        )
+
+    def _on_hotkey_plugin_mode(self) -> None:
+        """Global hotkey → toggle plugin / overlay mode."""
+        if not self._window:
+            return
+        label = get_plugin_mode_label()
+        result = self.set_plugin_mode({})
+        if not result.get("ok"):
+            return
+        on = bool(result.get("enabled"))
+        self._log(
+            "info",
+            f"快捷键{'开启' if on else '关闭'}插件模式（{label}）",
+            category="system",
+            scope="app",
         )
 
     def _on_record_stop_hotkey(self) -> None:
@@ -162,6 +184,11 @@ class Api:
             pass
         if get_record_stop_hotkeys().active:
             get_record_stop_hotkeys().start(on_stop=self._on_record_stop_hotkey)
+        try:
+            # Always restart click-through binding when plugin mode is on.
+            self._sync_plugin_escape_hotkey(force=True)
+        except Exception:
+            pass
         hotkeys = result.get("hotkeys") or get_all_hotkeys()
         labels = result.get("labels") or get_all_hotkey_labels()
         return {
@@ -1070,7 +1097,7 @@ class Api:
             pass
 
     def _start_plugin_escape_hotkey(self) -> None:
-        """X+F9 toggles click-through while plugin mode is on (escape from mouse-transparent)."""
+        """Toggle click-through while plugin mode is on (default X+F7, user-configurable)."""
         self._stop_plugin_escape_hotkey()
         try:
             from pynput import keyboard
@@ -1078,7 +1105,8 @@ class Api:
             return
         from backend.core.hotkey_prefs import to_pynput_hotkey
 
-        binding = to_pynput_hotkey(("x", "f9"), default=("x", "f9"))
+        binding = to_pynput_hotkey(get_click_through_hotkey(), default=("x", "f7"))
+        ct_label = get_click_through_label()
 
         def on_toggle() -> None:
             if not getattr(self, "_plugin_mode", False):
@@ -1098,7 +1126,9 @@ class Api:
             )
             self._log(
                 "info",
-                "快捷键打开点击穿透（X+F9）" if nxt else "快捷键关闭点击穿透（X+F9）",
+                f"快捷键打开点击穿透（{ct_label}）"
+                if nxt
+                else f"快捷键关闭点击穿透（{ct_label}）",
             )
 
         try:
@@ -1108,9 +1138,9 @@ class Api:
         except Exception:
             self._plugin_hotkey_listener = None
 
-    def _sync_plugin_escape_hotkey(self) -> None:
+    def _sync_plugin_escape_hotkey(self, force: bool = False) -> None:
         if getattr(self, "_plugin_mode", False):
-            if getattr(self, "_plugin_hotkey_listener", None) is None:
+            if force or getattr(self, "_plugin_hotkey_listener", None) is None:
                 self._start_plugin_escape_hotkey()
         else:
             self._stop_plugin_escape_hotkey()
@@ -1122,7 +1152,7 @@ class Api:
         options: {enabled?, opacity? (0.25–1), click_through?}
         Uses Win32 layered window + topmost(NOACTIVATE). Best with borderless
         fullscreen; exclusive fullscreen may still minimize when you focus Nexuz.
-        While enabled, X+F9 toggles click-through.
+        While enabled, the click_through hotkey (default X+F7) toggles pass-through.
         """
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
@@ -1136,6 +1166,8 @@ class Api:
             opacity = 0.85
         opacity = max(0.25, min(1.0, opacity))
         click_through = bool(opts.get("click_through", getattr(self, "_plugin_click_through", False)))
+        ct_label = get_click_through_label()
+        pm_label = get_plugin_mode_label()
 
         if enabled:
             if not getattr(self, "_plugin_mode", False):
@@ -1186,18 +1218,20 @@ class Api:
             self._plugin_opacity = opacity
             self._plugin_click_through = False
 
-        self._sync_plugin_escape_hotkey()
+        self._sync_plugin_escape_hotkey(force=True)
         result = {
             "ok": True,
             "enabled": bool(self._plugin_mode),
             "opacity": float(getattr(self, "_plugin_opacity", opacity)),
             "click_through": bool(getattr(self, "_plugin_click_through", False)),
             "on_top": bool(getattr(self, "_ui_on_top", False)),
-            "escape_hotkey": "X+F9",
+            "escape_hotkey": ct_label,
+            "plugin_mode_hotkey": pm_label,
             "hint": (
                 "插件模式已开启：窗口浮在最前且半透明。"
                 "无边框全屏游戏通常可用；独占全屏在点到本窗口时仍可能退出全屏。"
-                "需要操作游戏时请打开「点击穿透」；按 X+F9 可开关穿透。"
+                f"需要操作游戏时请打开「点击穿透」；按 {ct_label} 可开关穿透。"
+                f"（开关插件模式：{pm_label}）"
                 if self._plugin_mode
                 else "已退出插件模式"
             ),
@@ -1217,7 +1251,8 @@ class Api:
             "opacity": float(getattr(self, "_plugin_opacity", 0.85)),
             "click_through": bool(getattr(self, "_plugin_click_through", False)),
             "on_top": bool(getattr(self, "_ui_on_top", False)),
-            "escape_hotkey": "X+F9",
+            "escape_hotkey": get_click_through_label(),
+            "plugin_mode_hotkey": get_plugin_mode_label(),
         }
 
     # --- flow execution ---

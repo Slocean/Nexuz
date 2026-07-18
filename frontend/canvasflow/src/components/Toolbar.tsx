@@ -43,7 +43,11 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { bridge } from '@/bridge';
-import { useFlowStore } from '../../../src/store/flowModelStore';
+import {
+  DEFAULT_HOTKEYS,
+  formatHotkeyLabel,
+  useFlowStore,
+} from '../../../src/store/flowModelStore';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
 import ResourceMonitorHud from './ResourceMonitorHud';
@@ -123,8 +127,13 @@ export default function Toolbar({
   const { openAlert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
   const pluginModeRemote = useFlowStore(s => s.pluginModeRemote);
+  const hotkeys = useFlowStore(s => s.hotkeys);
   const showToolbarLabels = useFlowStore(s => !!s.showToolbarLabels);
   const resourceHudEnabled = useFlowStore(s => !!s.resourceHudEnabled);
+  const pluginModeKey = formatHotkeyLabel(hotkeys?.plugin_mode || DEFAULT_HOTKEYS.plugin_mode);
+  const clickThroughKey = formatHotkeyLabel(
+    hotkeys?.click_through || DEFAULT_HOTKEYS.click_through,
+  );
   // Priority: viewport < xl always hides labels; when wide enough, settings decide.
   const labelCls = showToolbarLabels ? 'hidden xl:inline' : 'hidden';
   const btnPad = showToolbarLabels ? 'px-2 xl:px-3' : 'px-2';
@@ -316,8 +325,7 @@ export default function Toolbar({
             /* ignore */
           }
         }
-        if (String(n.id) !== readId) setAnnDot(true);
-      } catch {
+x      } catch {
         /* ignore */
       }
     })();
@@ -808,8 +816,8 @@ export default function Toolbar({
                 <DropdownMenuContent align="end" className="w-64 z-[200]">
                   <DropdownMenuLabel>插件模式</DropdownMenuLabel>
                   <p className="px-2 pb-2 text-[11px] leading-relaxed opacity-60">
-                    浮在无边框全屏游戏之上，背景半透明。独占全屏点到本窗口时仍可能退出全屏。开启点击穿透后按 X+F9
-                    可开关穿透。
+                    浮在无边框全屏游戏之上，背景半透明。独占全屏点到本窗口时仍可能退出全屏。快捷键{' '}
+                    {pluginModeKey} 开关插件模式；开启后按 {clickThroughKey} 可开关穿透。
                   </p>
                   <DropdownMenuItem
                     onSelect={e => {
@@ -884,7 +892,11 @@ export default function Toolbar({
                     <span className="flex-1">点击穿透（操作游戏）</span>
                     {pluginClickThrough ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : null}
                   </DropdownMenuItem>
-                  {pluginMode ? <p className="px-2 pb-2 text-[10px] opacity-50">穿透开关快捷键：X+F9</p> : null}
+                  {pluginMode ? (
+                    <p className="px-2 pb-2 text-[10px] opacity-50">
+                      穿透开关快捷键：{clickThroughKey}
+                    </p>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
               <button

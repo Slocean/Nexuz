@@ -10,6 +10,8 @@ DEFAULTS: dict[str, tuple[str, ...]] = {
     "stop_run": ("x", "f4"),
     "pause_run": ("x", "f5"),
     "record_stop": ("x", "f10"),
+    "plugin_mode": ("x", "f6"),
+    "click_through": ("x", "f7"),
 }
 
 # Back-compat aliases
@@ -220,6 +222,22 @@ def get_pause_run_hotkey() -> tuple[str, ...]:
 
 def get_pause_run_label() -> str:
     return get_hotkey_label("pause_run")
+
+
+def get_plugin_mode_hotkey() -> tuple[str, ...]:
+    return get_hotkey("plugin_mode")
+
+
+def get_plugin_mode_label() -> str:
+    return get_hotkey_label("plugin_mode")
+
+
+def get_click_through_hotkey() -> tuple[str, ...]:
+    return get_hotkey("click_through")
+
+
+def get_click_through_label() -> str:
+    return get_hotkey_label("click_through")
 
 
 def record_stop_matches(pressed_name: str, held: set[str]) -> bool:

@@ -111,13 +111,13 @@ function HotkeyCaptureField({
   }, [listening, onChange]);
 
   return (
-    <div className="flex items-center gap-1.5 min-w-0">
+    <div className="flex items-center gap-1.5 shrink-0">
       <div
-        className="flex-1 min-w-0 h-8 px-2 rounded-md border flex items-center font-mono text-xs truncate"
+        className="w-[6.5rem] h-8 px-2 rounded-md border flex items-center justify-center font-mono text-xs truncate"
         style={{ borderColor: colors.border, backgroundColor: 'rgba(0,0,0,0.04)' }}
       >
         {listening ? (
-          <span className="text-amber-500 animate-pulse">按下组合键…</span>
+          <span className="text-amber-500 animate-pulse text-[11px]">按下…</span>
         ) : (
           <span title={display}>{display}</span>
         )}
@@ -128,7 +128,7 @@ function HotkeyCaptureField({
         size="sm"
         className="h-8 shrink-0 px-2"
         onClick={() => setListening((v) => !v)}
-        title="点击后按下新的停止录制快捷键"
+        title="点击后按下新的快捷键组合"
       >
         <Keyboard className="w-3.5 h-3.5" />
         {listening ? '取消' : '改键'}
@@ -1806,7 +1806,11 @@ export default function SettingsPage({
             </div>
           </div>
           <p className="text-xs leading-relaxed opacity-60 pt-3" style={{ color: colors.text }}>
-            标题栏「插件模式」可让窗口浮在无边框全屏游戏之上并调节透明度；开启点击穿透后可用 X+F9 开关穿透。独占全屏游戏在点到本窗口时仍可能退出全屏。
+            标题栏「插件模式」可让窗口浮在无边框全屏游戏之上并调节透明度。默认快捷键：
+            {formatHotkeyLabel(hotkeys?.plugin_mode || DEFAULT_HOTKEYS.plugin_mode)}{' '}
+            开关插件模式、
+            {formatHotkeyLabel(hotkeys?.click_through || DEFAULT_HOTKEYS.click_through)}{' '}
+            开关点击穿透（可在下方「快捷键」中改键）。独占全屏游戏在点到本窗口时仍可能退出全屏。
           </p>
         </SettingsSection>
 
@@ -1968,43 +1972,17 @@ export default function SettingsPage({
                   { slot: 'pause_run', label: '运行中暂停' },
                   { slot: 'stop_run', label: '结束运行' },
                   { slot: 'record_stop', label: '停止录制' },
+                  { slot: 'plugin_mode', label: '开关插件模式' },
+                  { slot: 'click_through', label: '开关点击穿透' },
                 ] as const
               ).map((row) => (
-                <div key={row.slot} className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label className="text-xs opacity-80 shrink-0 w-[7.5rem]">{row.label}</Label>
-                    <div className="flex-1 max-w-[16rem]">
-                      <HotkeyCaptureField
-                        value={hotkeys?.[row.slot] || DEFAULT_HOTKEYS[row.slot]}
-                        colors={colors}
-                        onChange={async (keys) => {
-                          const res = setHotkey(row.slot, keys);
-                          if (res?.ok === false) {
-                            await alert({
-                              title: '快捷键冲突',
-                              description: res.error || '与其它快捷键重复，请换一组',
-                            });
-                            return;
-                          }
-                          try {
-                            const sync = await bridge.setHotkeys?.(res.hotkeys || hotkeys);
-                            if (sync?.ok === false) {
-                              await alert({
-                                title: '快捷键冲突',
-                                description: sync.error || '与其它快捷键重复',
-                              });
-                            }
-                          } catch {
-                            /* ignore */
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
+                <div key={row.slot} className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <Label className="text-xs opacity-80 shrink-0">{row.label}</Label>
                     <button
                       type="button"
-                      className="text-[11px] opacity-50 hover:opacity-80"
+                      className="text-[11px] opacity-50 hover:opacity-80 shrink-0 whitespace-nowrap"
+                      title={`恢复为默认 ${formatHotkeyLabel(DEFAULT_HOTKEYS[row.slot])}`}
                       onClick={async () => {
                         const res = setHotkey(row.slot, DEFAULT_HOTKEYS[row.slot]);
                         if (res?.ok === false) return;
@@ -2018,10 +1996,35 @@ export default function SettingsPage({
                       默认 {formatHotkeyLabel(DEFAULT_HOTKEYS[row.slot])}
                     </button>
                   </div>
+                  <HotkeyCaptureField
+                    value={hotkeys?.[row.slot] || DEFAULT_HOTKEYS[row.slot]}
+                    colors={colors}
+                    onChange={async (keys) => {
+                      const res = setHotkey(row.slot, keys);
+                      if (res?.ok === false) {
+                        await alert({
+                          title: '快捷键冲突',
+                          description: res.error || '与其它快捷键重复，请换一组',
+                        });
+                        return;
+                      }
+                      try {
+                        const sync = await bridge.setHotkeys?.(res.hotkeys || hotkeys);
+                        if (sync?.ok === false) {
+                          await alert({
+                            title: '快捷键冲突',
+                            description: sync.error || '与其它快捷键重复',
+                          });
+                        }
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  />
                 </div>
               ))}
               <p className="text-[11px] opacity-55 leading-relaxed">
-                建议使用「字母/修饰键 + 功能键」。四组快捷键不能互相重复。
+                建议使用「字母/修饰键 + 功能键」。各组全局快捷键不能互相重复。点击穿透快捷键在插件模式开启时生效。
               </p>
             </div>
           </div>

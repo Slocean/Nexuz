@@ -457,12 +457,21 @@ export const DEFAULT_HOTKEYS = {
   stop_run: ['x', 'f4'],
   pause_run: ['x', 'f5'],
   record_stop: ['x', 'f10'],
+  plugin_mode: ['x', 'f6'],
+  click_through: ['x', 'f7'],
 };
 
 /** @deprecated use DEFAULT_HOTKEYS.record_stop */
 export const DEFAULT_RECORD_STOP_HOTKEY = DEFAULT_HOTKEYS.record_stop;
 
-export const HOTKEY_SLOTS = ['start_run', 'stop_run', 'pause_run', 'record_stop'];
+export const HOTKEY_SLOTS = [
+  'start_run',
+  'stop_run',
+  'pause_run',
+  'record_stop',
+  'plugin_mode',
+  'click_through',
+];
 
 export function formatHotkeyLabel(keys) {
   const arr = Array.isArray(keys) ? keys : [];

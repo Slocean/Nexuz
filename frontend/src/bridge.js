@@ -1590,6 +1590,8 @@ function mockCall(method, ...args) {
         stop_run: ['x', 'f4'],
         pause_run: ['x', 'f5'],
         record_stop: ['x', 'f10'],
+        plugin_mode: ['x', 'f6'],
+        click_through: ['x', 'f7'],
       };
       const prefs = args[0] && typeof args[0] === 'object' ? args[0] : {};
       const hotkeys = { ...defaults };
