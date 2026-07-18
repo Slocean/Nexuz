@@ -1690,11 +1690,17 @@ export default function Inspector({
         }}
         className="w-[21.8rem] max-w-[21.8rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0">
-          <div className="w-12 h-12 mx-auto flex items-center justify-center">
+          <div className="flex flex-col items-center justify-center gap-0 shrink-0">
             <img
               src={`${import.meta.env.BASE_URL}logo.png`}
+              alt=""
+              className="h-12 w-12 object-contain select-none"
+              draggable={false}
+            />
+            <img
+              src={`${import.meta.env.BASE_URL}logo2.png`}
               alt="Nexuz"
-              className="max-h-full max-w-full object-contain select-none"
+              className="h-5 w-auto max-w-[5.5rem] object-contain select-none -mt-3.5"
               draggable={false}
             />
           </div>
