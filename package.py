@@ -16,9 +16,7 @@ Usage (from repo root):
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -253,45 +251,22 @@ def finalize_windows_exe_icon(exe_path: Path) -> None:
 
 
 def read_channel_version() -> str | None:
-    path = ROOT / "app_update.json"
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, dict) and isinstance(data.get("history"), list) and data["history"]:
-            first = data["history"][0]
-            if isinstance(first, dict):
-                ver = str(first.get("version") or "").strip().lstrip("v")
-                if ver:
-                    return ver
-        # Legacy flat format
-        if isinstance(data, dict):
-            ver = str(data.get("version") or "").strip().lstrip("v")
-            return ver or None
-        return None
-    except Exception:
-        return None
+    from backend.version_sync import read_channel_version as _read
+
+    return _read(ROOT)
 
 
 def inject_version(version: str) -> None:
     """Bake version into backend/version.py only (do not rewrite app_update history)."""
-    ver = str(version or "").strip().lstrip("v")
-    if not ver:
-        raise SystemExit("empty --version")
+    from backend.version_sync import inject_version as _inject
 
-    path = ROOT / "backend" / "version.py"
-    text = path.read_text(encoding="utf-8")
-    updated, n = re.subn(
-        r'^__version__\s*=\s*["\'].*?["\']',
-        f'__version__ = "{ver}"',
-        text,
-        count=1,
-        flags=re.M,
-    )
-    if n != 1:
-        raise SystemExit(f"failed to patch __version__ in {path}")
-    path.write_text(updated, encoding="utf-8")
-    print(f"OK: injected version {ver} -> {path}")
+    try:
+        ver = _inject(version, root=ROOT)
+    except ValueError:
+        raise SystemExit("empty --version") from None
+    except Exception as exc:
+        raise SystemExit(str(exc)) from exc
+    print(f"OK: injected version {ver} -> {ROOT / 'backend' / 'version.py'}")
 
 
 def main() -> None:
@@ -316,11 +291,15 @@ def main() -> None:
     if sys.platform != "win32":
         print("warning: packaging is intended for Windows (WebView2)")
 
+    from backend.version_sync import sync_version_from_app_update
+
     version = args.version or read_channel_version()
-    if version:
+    if args.version:
         inject_version(version)
     else:
-        print("! no version from --version / NEXUZ_VERSION / app_update.json")
+        synced = sync_version_from_app_update(root=ROOT)
+        if not synced:
+            print("! no version from --version / NEXUZ_VERSION / app_update.json")
 
     if not args.skip_frontend:
         build_frontend()

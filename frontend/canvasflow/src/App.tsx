@@ -163,6 +163,9 @@ function AppShell() {
   const clearRunHistory = useFlowStore((s) => s.clearRunHistory);
   const filePath = useFlowStore((s) => s.filePath);
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
+  const autoSaveEnabled = useFlowStore((s) => s.autoSaveEnabled);
+  const autoSaveIntervalSec = useFlowStore((s) => s.autoSaveIntervalSec);
+  const saveAfterRun = useFlowStore((s) => s.saveAfterRun);
   const hotkeys = useFlowStore((s) => s.hotkeys);
   const hotkeyLabels = useMemo(() => {
     const h = hotkeys || DEFAULT_HOTKEYS;
@@ -670,22 +673,102 @@ function AppShell() {
     [toggleBreakpoint, appendLog],
   );
 
-  const handleSave = async () => {
-    if (filePath) {
-      const res = await bridge.saveFlow(flow, filePath, flow.name || null);
+  const buildAutoFlowName = (curFlow: { name?: string; nodes?: Record<string, unknown> }) => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const nodeCount = Object.keys(curFlow?.nodes || {}).length;
+    return `${stamp}_${nodeCount}节点`;
+  };
+
+  const saveCurrentFlow = useCallback(
+    async (mode: 'manual' | 'auto' | 'after_run' = 'manual') => {
+      const state = useFlowStore.getState();
+      const curFlow = state.flow;
+      const path = state.filePath;
+      if (!path) {
+        if (mode === 'manual') {
+          setSaveDialogOpen(true);
+          return false;
+        }
+        if (mode === 'auto') {
+          // Timed autosave still requires an existing file.
+          return false;
+        }
+        // after_run: first-time save with auto name (time + node count)
+        const autoName = buildAutoFlowName(curFlow);
+        const payload = { ...curFlow, name: autoName };
+        const res = await bridge.saveFlow(payload, null, autoName);
+        if (res?.ok) {
+          useFlowStore.setState({ filePath: res.path || null });
+          updateFlowMeta({ name: res.name || autoName });
+          setFlowsRefreshToken((n) => n + 1);
+          appendLog({
+            level: 'ok',
+            message: `运行后已自动保存: ${res.name || autoName}`,
+          });
+          return true;
+        }
+        if (!res?.cancelled) {
+          appendLog({ level: 'error', message: res?.error || '自动保存失败' });
+        }
+        return false;
+      }
+      const res = await bridge.saveFlow(curFlow, path, curFlow.name || null);
       if (res?.ok) {
-        useFlowStore.setState({ filePath: res.path });
+        useFlowStore.setState({ filePath: res.path || path });
         if (res.name) updateFlowMeta({ name: res.name });
         setFlowsRefreshToken((n) => n + 1);
-        appendLog({ level: 'ok', message: `已保存: ${res.name || flow.name || '流程'}` });
+        if (mode === 'manual') {
+          appendLog({ level: 'ok', message: `已保存: ${res.name || curFlow.name || '流程'}` });
+        } else if (mode === 'after_run') {
+          appendLog({
+            level: 'ok',
+            message: `运行后已自动保存: ${res.name || curFlow.name || '流程'}`,
+          });
+        } else {
+          appendLog({
+            level: 'info',
+            message: `自动保存: ${res.name || curFlow.name || '流程'}`,
+          });
+        }
         return true;
       }
-      if (!res?.cancelled) appendLog({ level: 'error', message: res?.error || '保存失败' });
+      if (!res?.cancelled) {
+        appendLog({
+          level: 'error',
+          message: res?.error || (mode === 'manual' ? '保存失败' : '自动保存失败'),
+        });
+      }
       return false;
-    }
-    setSaveDialogOpen(true);
-    return false;
-  };
+    },
+    [appendLog, updateFlowMeta],
+  );
+
+  const handleSave = async () => saveCurrentFlow('manual');
+
+  // Timed auto-save (only when flow already has a file path)
+  useEffect(() => {
+    if (!autoSaveEnabled) return;
+    const sec = Math.min(3600, Math.max(10, Number(autoSaveIntervalSec) || 60));
+    const timer = window.setInterval(() => {
+      const path = useFlowStore.getState().filePath;
+      if (!path) return;
+      void saveCurrentFlow('auto');
+    }, sec * 1000);
+    return () => window.clearInterval(timer);
+  }, [autoSaveEnabled, autoSaveIntervalSec, saveCurrentFlow]);
+
+  // Save after a run session ends
+  const prevExecStatusRef = useRef(execStatus);
+  useEffect(() => {
+    const prev = prevExecStatusRef.current;
+    prevExecStatusRef.current = execStatus;
+    if (!saveAfterRun) return;
+    if (execStatus !== 'idle') return;
+    if (!['running', 'stopping', 'paused', 'breakpoint'].includes(prev)) return;
+    void saveCurrentFlow('after_run');
+  }, [execStatus, saveAfterRun, saveCurrentFlow]);
 
   const handleSaveWithName = async (name: string) => {
     setSaveDialogOpen(false);

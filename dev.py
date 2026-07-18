@@ -47,6 +47,15 @@ def main() -> int:
         print("找不到 frontend/package.json，请在项目根目录运行。")
         return 1
 
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    try:
+        from backend.version_sync import sync_version_from_app_update
+
+        sync_version_from_app_update(root=ROOT)
+    except Exception as exc:
+        print(f"[Nexuz] 版本同步跳过: {exc}")
+
     env = os.environ.copy()
     env["NEXUZ_DEV_URL"] = DEV_URL
 

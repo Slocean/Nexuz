@@ -163,6 +163,36 @@ function loadHideWindowOnRecord() {
   }
 }
 
+function loadAutoSaveEnabled() {
+  try {
+    const v = localStorage.getItem('nexuz.autoSaveEnabled');
+    if (v === null) return false;
+    return v === '1' || v === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function loadAutoSaveIntervalSec() {
+  try {
+    const value = Number(localStorage.getItem('nexuz.autoSaveIntervalSec'));
+    if (!Number.isFinite(value)) return 60;
+    return Math.min(3600, Math.max(10, Math.round(value)));
+  } catch {
+    return 60;
+  }
+}
+
+function loadSaveAfterRun() {
+  try {
+    const v = localStorage.getItem('nexuz.saveAfterRun');
+    if (v === null) return false;
+    return v === '1' || v === 'true';
+  } catch {
+    return false;
+  }
+}
+
 function loadDefaultCaptureMode() {
   try {
     const v = localStorage.getItem('nexuz.defaultCaptureMode');
@@ -329,6 +359,9 @@ export const useFlowStore = create((set, get) => ({
 
   // app settings
   hideWindowOnRecord: loadHideWindowOnRecord(),
+  autoSaveEnabled: loadAutoSaveEnabled(),
+  autoSaveIntervalSec: loadAutoSaveIntervalSec(),
+  saveAfterRun: loadSaveAfterRun(),
   defaultCaptureMode: loadDefaultCaptureMode(),
   defaultPickMethod: loadDefaultPickMethod(),
   defaultCoordinateMode: loadDefaultCoordinateMode(),
@@ -354,6 +387,35 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ hideWindowOnRecord: !!hideWindowOnRecord });
+  },
+
+  setAutoSaveEnabled: (autoSaveEnabled) => {
+    try {
+      localStorage.setItem('nexuz.autoSaveEnabled', autoSaveEnabled ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    set({ autoSaveEnabled: !!autoSaveEnabled });
+  },
+
+  setAutoSaveIntervalSec: (autoSaveIntervalSec) => {
+    const value = Number(autoSaveIntervalSec);
+    const sec = Number.isFinite(value) ? Math.min(3600, Math.max(10, Math.round(value))) : 60;
+    try {
+      localStorage.setItem('nexuz.autoSaveIntervalSec', String(sec));
+    } catch {
+      /* ignore */
+    }
+    set({ autoSaveIntervalSec: sec });
+  },
+
+  setSaveAfterRun: (saveAfterRun) => {
+    try {
+      localStorage.setItem('nexuz.saveAfterRun', saveAfterRun ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    set({ saveAfterRun: !!saveAfterRun });
   },
 
   setHotkey: (slot, keys) => {

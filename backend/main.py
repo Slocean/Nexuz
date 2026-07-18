@@ -41,6 +41,13 @@ def _enable_dpi_awareness() -> None:
 
 _enable_dpi_awareness()
 
+try:
+    from backend.version_sync import sync_version_from_app_update
+
+    sync_version_from_app_update(quiet=True)
+except Exception:
+    pass
+
 import webview
 
 from backend.api import Api

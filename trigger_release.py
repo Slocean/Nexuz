@@ -43,6 +43,15 @@ def main() -> None:
     if not version:
         raise SystemExit("没有版本号：请在 app_update.json 的 history[0].version 填写，或传参")
 
+    try:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from backend.version_sync import sync_version_from_app_update
+
+        sync_version_from_app_update(root=ROOT)
+    except Exception as exc:
+        print(f"! version sync skipped: {exc}")
+
     tag = f"v{version}"
     print(f"打 tag {tag} 并推送到 origin -> 自动触发 Release Action")
 

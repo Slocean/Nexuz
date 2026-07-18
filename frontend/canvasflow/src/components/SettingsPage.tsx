@@ -14,6 +14,7 @@ import {
   Monitor,
   MousePointer2,
   RefreshCw,
+  Save,
   Settings2,
   Trash2,
   Unplug,
@@ -21,6 +22,7 @@ import {
   ChevronRight,
   CircleHelp,
   Keyboard,
+  Save,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -328,6 +330,7 @@ const SETTINGS_SECTION_IDS = [
   'click',
   'frida',
   'window',
+  'save',
   'shortcuts',
 ] as const;
 
@@ -345,6 +348,12 @@ export default function SettingsPage({
   const { openUpdate } = useUpdateDialog();
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
+  const autoSaveEnabled = useFlowStore((s) => s.autoSaveEnabled);
+  const setAutoSaveEnabled = useFlowStore((s) => s.setAutoSaveEnabled);
+  const autoSaveIntervalSec = useFlowStore((s) => s.autoSaveIntervalSec);
+  const setAutoSaveIntervalSec = useFlowStore((s) => s.setAutoSaveIntervalSec);
+  const saveAfterRun = useFlowStore((s) => s.saveAfterRun);
+  const setSaveAfterRun = useFlowStore((s) => s.setSaveAfterRun);
   const hotkeys = useFlowStore((s) => s.hotkeys);
   const setHotkey = useFlowStore((s) => s.setHotkey);
   const resetHotkeys = useFlowStore((s) => s.resetHotkeys);
@@ -1384,6 +1393,78 @@ export default function SettingsPage({
                 themeMode={themeMode}
               />
             </Label>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          title="保存"
+          icon={<Save className="w-4 h-4" />}
+          open={openSections.save}
+          onToggle={() => toggleSection('save')}
+          colors={colors}
+          headerRight={
+            <HelpHint
+              text="定时自动保存仅对已有文件路径的流程生效。「运行后自动保存」即使从未保存过，也会按「时间_节点数」自动命名并写入流程库。"
+              colors={colors}
+              themeMode={themeMode}
+            />
+          }
+        >
+          <div className="space-y-4 pt-1">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="setting-auto-save"
+                checked={autoSaveEnabled}
+                onCheckedChange={(v) => setAutoSaveEnabled(!!v)}
+              />
+              <Label
+                htmlFor="setting-auto-save"
+                className="text-sm font-medium normal-case tracking-normal cursor-pointer"
+                style={{ color: colors.text }}
+              >
+                启用自动保存
+              </Label>
+            </div>
+            <div className="flex items-center gap-3 pl-0.5">
+              <Label
+                htmlFor="setting-auto-save-interval"
+                className="text-sm font-medium normal-case tracking-normal shrink-0"
+                style={{ color: colors.text }}
+              >
+                自动保存间隔（秒）
+              </Label>
+              <Input
+                id="setting-auto-save-interval"
+                type="number"
+                min={10}
+                max={3600}
+                step={10}
+                className="h-8 w-28"
+                disabled={!autoSaveEnabled}
+                value={autoSaveIntervalSec}
+                onChange={(e) => setAutoSaveIntervalSec(e.target.value)}
+                title="范围 10～3600 秒"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="setting-save-after-run"
+                checked={saveAfterRun}
+                onCheckedChange={(v) => setSaveAfterRun(!!v)}
+              />
+              <Label
+                htmlFor="setting-save-after-run"
+                className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
+                style={{ color: colors.text }}
+              >
+                运行结束后自动保存流程
+                <HelpHint
+                  text="流程运行完成或停止后自动保存。若尚未保存过，将自动命名为「年月日_时分秒_N节点」并写入流程库。"
+                  colors={colors}
+                  themeMode={themeMode}
+                />
+              </Label>
+            </div>
           </div>
         </SettingsSection>
 
