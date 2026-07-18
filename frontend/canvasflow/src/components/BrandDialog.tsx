@@ -43,16 +43,16 @@ export function BrandDialogChrome({
           className="h-11 w-11 object-contain shrink-0"
           draggable={false}
         />
-        <div className="min-w-0 flex-1 pt-0.5">
+        <div className="min-w-0 flex-1 pt-0.5 flex items-center gap-2">
           <img
             src={`${import.meta.env.BASE_URL}logo2.png`}
             alt="Nexuz"
-            className="h-5 w-auto max-w-[8.5rem] object-contain object-left"
+            className="h-5 w-auto max-w-[8.5rem] object-contain object-left shrink-0"
             draggable={false}
           />
           {(eyebrow || icon) && (
             <div
-              className="mt-1.5 flex items-center gap-1.5 text-[11px] tracking-[0.14em] uppercase"
+              className="ml-auto flex items-center gap-1.5 text-[11px] tracking-[0.14em] uppercase shrink-0"
               style={{ color: dark ? 'rgba(148,163,184,0.95)' : colors.secondaryText }}
             >
               {icon}
