@@ -122,6 +122,9 @@ export default function Toolbar({
   const { openAlert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
   const pluginModeRemote = useFlowStore((s) => s.pluginModeRemote);
+  const showToolbarLabels = useFlowStore((s) => !!s.showToolbarLabels);
+  const labelCls = showToolbarLabels ? 'inline' : 'hidden';
+  const btnPad = showToolbarLabels ? 'px-3' : 'px-2';
   const [isSaved, setIsSaved] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [onTop, setOnTop] = useState(false);
@@ -366,13 +369,20 @@ export default function Toolbar({
         borderColor: colors.border,
         color: colors.text
       }}
-      className="relative h-14 border-b z-40 shrink-0">
-      {/* True-centered primary actions — labels hide below xl to avoid crowding */}
+      className="relative flex flex-col border-b z-40 shrink-0">
+      {/* Top padding strip — frameless window drag handle */}
+      <div
+        className="pywebview-drag-region h-3 w-full shrink-0"
+        title="拖动窗口"
+        aria-hidden
+      />
+      <div className="relative h-14">
+      {/* True-centered primary actions */}
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
-        <div className="flex items-center gap-0.5 xl:gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-black/10 dark:border-white/10">
+        <div className="flex items-center gap-0.5 bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-black/10 dark:border-white/10">
           <Button
             size="sm"
-            className="px-2 xl:px-3"
+            className={btnPad}
             onClick={onRunWorkflow}
             title={
               execStatus === 'stopping'
@@ -402,7 +412,7 @@ export default function Toolbar({
             ) : (
               <Play className="w-3.5 h-3.5 fill-current" />
             )}
-            <span className="hidden xl:inline">
+            <span className={labelCls}>
               {execStatus === 'stopping'
                 ? '停止中'
                 : execStatus === 'running'
@@ -417,39 +427,39 @@ export default function Toolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="px-2 xl:px-3"
+              className={btnPad}
               onClick={onPause}
               disabled={execStatus !== 'running'}
               title={`暂停（${pauseKey}）`}
             >
               <Pause className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">暂停</span>
+              <span className={labelCls}>暂停</span>
             </Button>
           )}
 
           <Button
             variant="ghost"
             size="sm"
-            className="px-2 xl:px-3"
+            className={btnPad}
             onClick={onStop}
             disabled={execStatus === 'idle' && !recording}
             title={`停止（${stopKey}）`}
           >
             <Square className="w-3 h-3" />
-            <span className="hidden xl:inline">{execStatus === 'stopping' ? '停止中' : '停止'}</span>
+            <span className={labelCls}>{execStatus === 'stopping' ? '停止中' : '停止'}</span>
           </Button>
 
           {onForceReset ? (
             <Button
               variant="ghost"
               size="sm"
-              className="px-2 xl:px-3"
+              className={btnPad}
               onClick={onForceReset}
               title="卡住时点这里：强制清运行/录制状态，回到可运行"
               style={{ color: colors.danger }}
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">重置</span>
+              <span className={labelCls}>重置</span>
             </Button>
           ) : null}
 
@@ -457,7 +467,7 @@ export default function Toolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="px-2 xl:px-3"
+              className={btnPad}
               onClick={onToggleDebug}
               disabled={execStatus === 'stopping'}
               title={debugMode ? '关闭调试模式' : '开启调试模式（断点 / 单步）'}
@@ -468,34 +478,34 @@ export default function Toolbar({
               }
             >
               <Bug className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">{debugMode ? '调试中' : '调试'}</span>
+              <span className={labelCls}>{debugMode ? '调试中' : '调试'}</span>
             </Button>
           )}
 
           <div className="w-px h-5 bg-black/15 dark:bg-white/15 mx-0.5" />
 
-          <Button variant="ghost" size="sm" className="px-2 xl:px-3" onClick={handleSave} title="保存">
+          <Button variant="ghost" size="sm" className={btnPad} onClick={handleSave} title="保存">
             {isSaved ? (
               <Check className="w-3.5 h-3.5 text-emerald-500" />
             ) : (
               <Save className="w-3.5 h-3.5 opacity-80" />
             )}
-            <span className={`hidden xl:inline ${isSaved ? 'text-emerald-500' : ''}`}>
+            <span className={`${labelCls} ${isSaved ? 'text-emerald-500' : ''}`}>
               {isSaved ? '已保存' : '保存'}
             </span>
           </Button>
 
           {onImport && (
-            <Button variant="ghost" size="sm" className="px-2 xl:px-3" onClick={onImport} title="从文件导入流程">
+            <Button variant="ghost" size="sm" className={btnPad} onClick={onImport} title="从文件导入流程">
               <Upload className="w-3.5 h-3.5 opacity-80" />
-              <span className="hidden xl:inline">导入</span>
+              <span className={labelCls}>导入</span>
             </Button>
           )}
 
           {onExport && (
-            <Button variant="ghost" size="sm" className="px-2 xl:px-3" onClick={onExport} title="导出流程到文件">
+            <Button variant="ghost" size="sm" className={btnPad} onClick={onExport} title="导出流程到文件">
               <Download className="w-3.5 h-3.5 opacity-80" />
-              <span className="hidden xl:inline">导出</span>
+              <span className={labelCls}>导出</span>
             </Button>
           )}
 
@@ -503,7 +513,7 @@ export default function Toolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="px-2 xl:px-3"
+              className={btnPad}
               onClick={onToggleRecord}
               style={{ color: recording ? colors.danger : undefined }}
               title={
@@ -512,7 +522,7 @@ export default function Toolbar({
                   : `录制操作：把鼠标/键盘转成流程节点；停止：${recordStopKey}`
               }>
               <CircleDot className={`w-3.5 h-3.5 ${recording ? 'animate-pulse' : ''}`} />
-              <span className="hidden xl:inline">{recording ? '停止录制' : '录制'}</span>
+              <span className={labelCls}>{recording ? '停止录制' : '录制'}</span>
             </Button>
           )}
 
@@ -520,13 +530,13 @@ export default function Toolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="px-2 xl:px-3"
+              className={btnPad}
               onClick={onUndo}
               disabled={!canUndo}
               title="撤销（Ctrl+Z）"
             >
               <Undo2 className="w-3.5 h-3.5 opacity-80" />
-              <span className="hidden xl:inline">撤销</span>
+              <span className={labelCls}>撤销</span>
             </Button>
           )}
 
@@ -534,25 +544,25 @@ export default function Toolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="px-2 xl:px-3"
+              className={btnPad}
               onClick={onRedo}
               disabled={!canRedo}
               title="重做（Ctrl+Y）"
             >
               <Redo2 className="w-3.5 h-3.5 opacity-80" />
-              <span className="hidden xl:inline">重做</span>
+              <span className={labelCls}>重做</span>
             </Button>
           )}
 
           <Button
             variant="ghost"
             size="sm"
-            className="px-2 xl:px-3"
+            className={btnPad}
             onClick={onClearCanvas}
             style={{ color: colors.danger }}
             title="清空画布">
             <Trash2 className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">清空</span>
+            <span className={labelCls}>清空</span>
           </Button>
         </div>
       </div>
@@ -834,6 +844,7 @@ export default function Toolbar({
             </button>
           </div>
         </div>
+      </div>
       </div>
     </header>
   );

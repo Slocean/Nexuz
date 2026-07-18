@@ -23,6 +23,7 @@ import {
   CircleHelp,
   Keyboard,
   Puzzle,
+  Type,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -351,6 +352,8 @@ export default function SettingsPage({
   const { openUpdate } = useUpdateDialog();
   const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
+  const showToolbarLabels = useFlowStore((s) => !!s.showToolbarLabels);
+  const setShowToolbarLabels = useFlowStore((s) => s.setShowToolbarLabels);
   const autoSaveEnabled = useFlowStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useFlowStore((s) => s.setAutoSaveEnabled);
   const autoSaveIntervalSec = useFlowStore((s) => s.autoSaveIntervalSec);
@@ -1673,31 +1676,53 @@ export default function SettingsPage({
           onToggle={() => toggleSection('window')}
           colors={colors}
         >
-          <div className="flex items-center gap-3 pt-1">
-            <Checkbox
-              id="setting-hide-window"
-              checked={hideWindowOnRecord}
-              onCheckedChange={(v) => setHideWindowOnRecord(!!v)}
-            />
-            <Label
-              htmlFor="setting-hide-window"
-              className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
-              style={{ color: colors.text }}
-            >
-              <EyeOff className="w-3.5 h-3.5 opacity-70" />
-              操作时隐藏主窗口
-              <HelpHint
-                text={
-                  <>
-                    开启后，录制、运行、取点、框选时会暂时隐藏 Nexuz，避免点到本程序。
-                    <br />
-                    录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。全局快捷键（运行/暂停/停止/停止录制）均可在下方「快捷键」中重新录制。
-                  </>
-                }
-                colors={colors}
-                themeMode={themeMode}
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="setting-hide-window"
+                checked={hideWindowOnRecord}
+                onCheckedChange={(v) => setHideWindowOnRecord(!!v)}
               />
-            </Label>
+              <Label
+                htmlFor="setting-hide-window"
+                className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
+                style={{ color: colors.text }}
+              >
+                <EyeOff className="w-3.5 h-3.5 opacity-70" />
+                操作时隐藏主窗口
+                <HelpHint
+                  text={
+                    <>
+                      开启后，录制、运行、取点、框选时会暂时隐藏 Nexuz，避免点到本程序。
+                      <br />
+                      录制隐藏时使用屏幕右上角外部「停止录制」浮窗；未隐藏时使用应用内浮层。全局快捷键（运行/暂停/停止/停止录制）均可在下方「快捷键」中重新录制。
+                    </>
+                  }
+                  colors={colors}
+                  themeMode={themeMode}
+                />
+              </Label>
+            </div>
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="setting-toolbar-labels"
+                checked={showToolbarLabels}
+                onCheckedChange={(v) => setShowToolbarLabels(!!v)}
+              />
+              <Label
+                htmlFor="setting-toolbar-labels"
+                className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
+                style={{ color: colors.text }}
+              >
+                <Type className="w-3.5 h-3.5 opacity-70" />
+                显示顶部按钮文字
+                <HelpHint
+                  text="开启后，顶部运行/保存/录制等按钮会显示文字；关闭后只显示图标，界面更紧凑。"
+                  colors={colors}
+                  themeMode={themeMode}
+                />
+              </Label>
+            </div>
           </div>
           <p className="text-xs leading-relaxed opacity-60 pt-3" style={{ color: colors.text }}>
             标题栏「插件模式」可让窗口浮在无边框全屏游戏之上并调节透明度；开启点击穿透后可用 X+F9 开关穿透。独占全屏游戏在点到本窗口时仍可能退出全屏。

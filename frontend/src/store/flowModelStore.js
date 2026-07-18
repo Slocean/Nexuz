@@ -244,6 +244,17 @@ function loadHideWindowOnRecord() {
   }
 }
 
+function loadShowToolbarLabels() {
+  try {
+    const v = localStorage.getItem('nexuz.showToolbarLabels');
+    // Default ON: show text next to top toolbar icons
+    if (v === null) return true;
+    return v === '1' || v === 'true';
+  } catch {
+    return true;
+  }
+}
+
 function loadAutoSaveEnabled() {
   try {
     const v = localStorage.getItem('nexuz.autoSaveEnabled');
@@ -442,6 +453,7 @@ export const useFlowStore = create((set, get) => ({
 
   // app settings
   hideWindowOnRecord: loadHideWindowOnRecord(),
+  showToolbarLabels: loadShowToolbarLabels(),
   autoSaveEnabled: loadAutoSaveEnabled(),
   autoSaveIntervalSec: loadAutoSaveIntervalSec(),
   saveAfterRun: loadSaveAfterRun(),
@@ -474,6 +486,15 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ hideWindowOnRecord: !!hideWindowOnRecord });
+  },
+
+  setShowToolbarLabels: (showToolbarLabels) => {
+    try {
+      localStorage.setItem('nexuz.showToolbarLabels', showToolbarLabels ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    set({ showToolbarLabels: !!showToolbarLabels });
   },
 
   setAutoSaveEnabled: (autoSaveEnabled) => {
