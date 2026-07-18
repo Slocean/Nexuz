@@ -404,6 +404,49 @@ class Api:
     def ping(self) -> dict:
         return {"ok": True, "message": "pong", "dpi_scale": get_dpi_scale()}
 
+    def get_resource_stats(self) -> dict:
+        """Live process / host resource snapshot for the toolbar HUD."""
+        try:
+            import psutil
+
+            proc = psutil.Process(os.getpid())
+            with proc.oneshot():
+                mem = proc.memory_info()
+                rss = int(getattr(mem, "rss", 0) or 0)
+                private = int(getattr(mem, "private", rss) or rss)
+                cpu = float(proc.cpu_percent(interval=None) or 0.0)
+                threads = int(proc.num_threads() or 0)
+                create_time = float(proc.create_time() or 0.0)
+            children = proc.children(recursive=True)
+            child_rss = 0
+            for child in children:
+                try:
+                    child_rss += int(child.memory_info().rss or 0)
+                except Exception:
+                    pass
+            vm = psutil.virtual_memory()
+            uptime_s = max(0.0, time.time() - create_time) if create_time else 0.0
+            return {
+                "ok": True,
+                "pid": int(proc.pid),
+                "cpu_percent": round(cpu, 1),
+                "rss_bytes": rss,
+                "private_bytes": private,
+                "child_count": len(children),
+                "children_rss_bytes": child_rss,
+                "threads": threads,
+                "uptime_s": round(uptime_s, 1),
+                "system_cpu_percent": round(float(psutil.cpu_percent(interval=None) or 0.0), 1),
+                "system_mem_percent": round(float(vm.percent or 0.0), 1),
+                "system_mem_total_bytes": int(vm.total or 0),
+                "system_mem_used_bytes": int(vm.used or 0),
+                "ui_queue": len(self._emit_queue),
+                "exec_running": bool(get_interpreter().running),
+                "ts": time.time(),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def get_block_registry(self) -> list[dict]:
         # Re-scan so newly added blocks appear without restarting the process
         register_all_blocks()

@@ -1359,6 +1359,25 @@ function mockCall(method, ...args) {
         github: 'Slocean/Nexuz',
         releases_url: 'https://github.com/Slocean/Nexuz/releases',
       });
+    case 'get_resource_stats':
+      return Promise.resolve({
+        ok: true,
+        pid: 0,
+        cpu_percent: 4.2,
+        rss_bytes: 180 * 1024 * 1024,
+        private_bytes: 160 * 1024 * 1024,
+        child_count: 0,
+        children_rss_bytes: 0,
+        threads: 12,
+        uptime_s: 3600,
+        system_cpu_percent: 18.5,
+        system_mem_percent: 52.0,
+        system_mem_total_bytes: 16 * 1024 * 1024 * 1024,
+        system_mem_used_bytes: 8 * 1024 * 1024 * 1024,
+        ui_queue: 0,
+        exec_running: false,
+        ts: Date.now() / 1000,
+      });
     case 'check_for_update':
       return Promise.resolve({
         ok: true,
@@ -1727,6 +1746,7 @@ function mockCall(method, ...args) {
 export const bridge = {
   ping: () => call('ping'),
   getAppInfo: () => call('get_app_info'),
+  getResourceStats: () => call('get_resource_stats'),
   checkForUpdate: () => call('check_for_update'),
   fetchAnnouncement: () => call('fetch_announcement'),
   fetchNotice: () => call('fetch_notice'),
