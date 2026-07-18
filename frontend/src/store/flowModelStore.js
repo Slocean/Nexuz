@@ -28,6 +28,42 @@ function cloneValue(value) {
   }
 }
 
+const MAX_UNDO = 50;
+let historyCoalesce = false;
+let historyCoalesceTimer = null;
+
+function resetHistoryCoalesce() {
+  historyCoalesce = false;
+  if (historyCoalesceTimer != null) {
+    clearTimeout(historyCoalesceTimer);
+    historyCoalesceTimer = null;
+  }
+}
+
+/** Snapshot current flow into past and clear future. coalesce merges rapid edits into one step. */
+function takeFlowHistory(state, { coalesce = false } = {}) {
+  if (coalesce) {
+    if (historyCoalesce) {
+      if (historyCoalesceTimer != null) clearTimeout(historyCoalesceTimer);
+      historyCoalesceTimer = setTimeout(resetHistoryCoalesce, 500);
+      return {};
+    }
+    historyCoalesce = true;
+    historyCoalesceTimer = setTimeout(resetHistoryCoalesce, 500);
+  } else {
+    resetHistoryCoalesce();
+  }
+  return {
+    past: [...(state.past || []), cloneValue(state.flow)].slice(-MAX_UNDO),
+    future: [],
+  };
+}
+
+function clearFlowHistory() {
+  resetHistoryCoalesce();
+  return { past: [], future: [] };
+}
+
 function compactOcrItem(item, asBox) {
   const entry = {};
   if ('text' in item || asBox) entry.text = String(item.text || '').slice(0, 120);
@@ -346,6 +382,8 @@ const initialTheme = loadTheme();
 
 export const useFlowStore = create((set, get) => ({
   flow: createEmptyFlow(),
+  past: [],
+  future: [],
   schemas: [],
   schemaMap: {},
   selectedNodeId: null,
@@ -548,7 +586,7 @@ export const useFlowStore = create((set, get) => ({
         };
       }
       if (!changed) return state;
-      return { flow: { ...state.flow, nodes } };
+      return { ...takeFlowHistory(state), flow: { ...state.flow, nodes } };
     }),
 
   /** Force all click nodes to use the given capture_mode */
@@ -568,7 +606,7 @@ export const useFlowStore = create((set, get) => ({
         };
       }
       if (!changed) return state;
-      return { flow: { ...state.flow, nodes } };
+      return { ...takeFlowHistory(state), flow: { ...state.flow, nodes } };
     }),
 
   /** Force all coordinate-based click nodes to use the given coordinate_mode. */
@@ -597,7 +635,7 @@ export const useFlowStore = create((set, get) => ({
         };
       }
       if (!changed) return state;
-      return { flow: { ...state.flow, nodes } };
+      return { ...takeFlowHistory(state), flow: { ...state.flow, nodes } };
     }),
 
   /** Force OCR / find_image nodes to use the given output_coordinate_mode. */
@@ -616,7 +654,7 @@ export const useFlowStore = create((set, get) => ({
         };
       }
       if (!changed) return state;
-      return { flow: { ...state.flow, nodes } };
+      return { ...takeFlowHistory(state), flow: { ...state.flow, nodes } };
     }),
 
   setThemeName: (themeName) => {
@@ -680,31 +718,75 @@ export const useFlowStore = create((set, get) => ({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return { flow: { ...state.flow, breakpoints: [...next] } };
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, breakpoints: [...next] },
+      };
     });
   },
 
   setBreakpoints: (nodeIds) => {
     const breakpoints = [...new Set((nodeIds || []).map(String).filter(Boolean))];
-    set((state) => ({ flow: { ...state.flow, breakpoints } }));
+    set((state) => ({
+      ...takeFlowHistory(state),
+      flow: { ...state.flow, breakpoints },
+    }));
   },
 
-  setFlow: (flow, filePath = undefined) =>
-    set((state) => ({
-      flow: {
-        ...createEmptyFlow(),
-        ...flow,
-        nodes: flow.nodes || {},
-        breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : [],
-      },
-      selectedNodeId: null,
-      filePath: filePath === undefined ? state.filePath : filePath,
-      execNodeStates: {},
-      execNodeId: null,
-    })),
+  /**
+   * Replace the whole flow.
+   * @param {object} [options]
+   * @param {boolean} [options.recordHistory] - push current flow onto undo stack (e.g. JSON apply)
+   */
+  setFlow: (flow, filePath = undefined, options = {}) =>
+    set((state) => {
+      const next = {
+        flow: {
+          ...createEmptyFlow(),
+          ...flow,
+          nodes: flow.nodes || {},
+          breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : [],
+        },
+        selectedNodeId: null,
+        filePath: filePath === undefined ? state.filePath : filePath,
+        execNodeStates: {},
+        execNodeId: null,
+      };
+      if (options?.recordHistory) {
+        return { ...next, ...takeFlowHistory(state, { coalesce: !!options.coalesce }) };
+      }
+      return { ...next, ...clearFlowHistory() };
+    }),
+
+  undo: () =>
+    set((state) => {
+      if (!state.past?.length) return state;
+      resetHistoryCoalesce();
+      const previous = state.past[state.past.length - 1];
+      const past = state.past.slice(0, -1);
+      const future = [cloneValue(state.flow), ...(state.future || [])].slice(0, MAX_UNDO);
+      const selectedNodeId =
+        state.selectedNodeId && previous.nodes?.[state.selectedNodeId]
+          ? state.selectedNodeId
+          : null;
+      return { flow: previous, past, future, selectedNodeId };
+    }),
+
+  redo: () =>
+    set((state) => {
+      if (!state.future?.length) return state;
+      resetHistoryCoalesce();
+      const next = state.future[0];
+      const future = state.future.slice(1);
+      const past = [...(state.past || []), cloneValue(state.flow)].slice(-MAX_UNDO);
+      const selectedNodeId =
+        state.selectedNodeId && next.nodes?.[state.selectedNodeId] ? state.selectedNodeId : null;
+      return { flow: next, past, future, selectedNodeId };
+    }),
 
   updateFlowMeta: (patch) =>
     set((state) => ({
+      ...takeFlowHistory(state, { coalesce: true }),
       flow: { ...state.flow, ...patch },
     })),
 
@@ -717,7 +799,10 @@ export const useFlowStore = create((set, get) => ({
       if (schema && typeof schema === 'object') {
         variable_schemas[key] = schema;
       }
-      return { flow: { ...state.flow, variables, variable_schemas } };
+      return {
+        ...takeFlowHistory(state, { coalesce: true }),
+        flow: { ...state.flow, variables, variable_schemas },
+      };
     }),
 
   setVariableSchema: (name, schema) =>
@@ -732,7 +817,10 @@ export const useFlowStore = create((set, get) => ({
       } else {
         variable_schemas[key] = schema;
       }
-      return { flow: { ...state.flow, variable_schemas } };
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, variable_schemas },
+      };
     }),
 
   deleteVariable: (name) =>
@@ -747,7 +835,10 @@ export const useFlowStore = create((set, get) => ({
       delete variable_schemas[name];
       delete variable_schemas[bare];
       delete variable_schemas[dollar];
-      return { flow: { ...state.flow, variables, variable_schemas } };
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, variables, variable_schemas },
+      };
     }),
 
   renameVariable: (oldName, newName) =>
@@ -764,7 +855,10 @@ export const useFlowStore = create((set, get) => ({
         variable_schemas[to] = variable_schemas[from];
         delete variable_schemas[from];
       }
-      return { flow: { ...state.flow, variables, variable_schemas } };
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, variables, variable_schemas },
+      };
     }),
 
   addNodeFromSchema: (type, position = { x: 120, y: 120 }) => {
@@ -799,6 +893,7 @@ export const useFlowStore = create((set, get) => ({
       const nodes = { ...state.flow.nodes, [id]: node };
       const entry = state.flow.entry || id;
       return {
+        ...takeFlowHistory(state),
         flow: { ...state.flow, nodes, entry },
         selectedNodeId: id,
       };
@@ -853,6 +948,7 @@ export const useFlowStore = create((set, get) => ({
         nodes[lastId] = { ...nodes[lastId], next: firstId };
       }
       return {
+        ...takeFlowHistory(state),
         flow: {
           ...state.flow,
           nodes,
@@ -880,6 +976,7 @@ export const useFlowStore = create((set, get) => ({
         patch.next = params.default || null;
       }
       return {
+        ...takeFlowHistory(state, { coalesce: true }),
         flow: {
           ...state.flow,
           nodes: {
@@ -899,6 +996,7 @@ export const useFlowStore = create((set, get) => ({
       if (raw.trim()) nextNode.name = raw;
       else delete nextNode.name;
       return {
+        ...takeFlowHistory(state, { coalesce: true }),
         flow: {
           ...state.flow,
           nodes: {
@@ -917,6 +1015,7 @@ export const useFlowStore = create((set, get) => ({
       if (collapsed) nextNode.collapsed = true;
       else delete nextNode.collapsed;
       return {
+        ...takeFlowHistory(state),
         flow: {
           ...state.flow,
           nodes: {
@@ -932,6 +1031,7 @@ export const useFlowStore = create((set, get) => ({
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
       return {
+        ...takeFlowHistory(state),
         flow: {
           ...state.flow,
           nodes: {
@@ -951,7 +1051,7 @@ export const useFlowStore = create((set, get) => ({
         if (!node) continue;
         nodes[u.id] = { ...node, position: { x: u.x, y: u.y } };
       }
-      return { flow: { ...state.flow, nodes } };
+      return { ...takeFlowHistory(state), flow: { ...state.flow, nodes } };
     }),
 
   setNodeLink: (sourceId, handle, targetId) =>
@@ -976,6 +1076,7 @@ export const useFlowStore = create((set, get) => ({
           node_id: targetId,
         };
         return {
+          ...takeFlowHistory(state),
           flow: {
             ...state.flow,
             nodes: {
@@ -990,6 +1091,7 @@ export const useFlowStore = create((set, get) => ({
       }
       if (node.type === 'switch' && field === 'default') {
         return {
+          ...takeFlowHistory(state),
           flow: {
             ...state.flow,
             nodes: {
@@ -1005,6 +1107,7 @@ export const useFlowStore = create((set, get) => ({
       }
 
       return {
+        ...takeFlowHistory(state),
         flow: {
           ...state.flow,
           nodes: {
@@ -1029,6 +1132,7 @@ export const useFlowStore = create((set, get) => ({
           : [];
         if (cases[idx]) cases[idx] = { ...cases[idx], node_id: '' };
         return {
+          ...takeFlowHistory(state),
           flow: {
             ...state.flow,
             nodes: {
@@ -1043,6 +1147,7 @@ export const useFlowStore = create((set, get) => ({
       }
       if (node.type === 'switch' && field === 'default') {
         return {
+          ...takeFlowHistory(state),
           flow: {
             ...state.flow,
             nodes: {
@@ -1058,6 +1163,7 @@ export const useFlowStore = create((set, get) => ({
       }
 
       return {
+        ...takeFlowHistory(state),
         flow: {
           ...state.flow,
           nodes: {
@@ -1071,29 +1177,51 @@ export const useFlowStore = create((set, get) => ({
   deleteNodes: (ids) =>
     set((state) => {
       const idSet = new Set(ids);
+      if (!idSet.size) return state;
+      let removed = 0;
+      for (const id of idSet) {
+        if (state.flow.nodes[id]) removed += 1;
+      }
+      if (!removed) return state;
+      // Snapshot before mutating node link fields
+      const hist = takeFlowHistory(state);
       const nodes = { ...state.flow.nodes };
       for (const id of idSet) delete nodes[id];
-      for (const n of Object.values(nodes)) {
+      for (const id of Object.keys(nodes)) {
+        const prev = nodes[id];
+        let nextNode = prev;
         for (const key of ['next', 'then', 'else', 'body']) {
-          if (n[key] && idSet.has(n[key])) n[key] = null;
+          if (prev[key] && idSet.has(prev[key])) {
+            if (nextNode === prev) nextNode = { ...prev };
+            nextNode[key] = null;
+          }
         }
-        // Clear switch case / default refs pointing at deleted nodes
-        if (n.type === 'switch' && n.params) {
-          const params = { ...n.params };
+        if (prev.type === 'switch' && prev.params) {
+          const params = { ...prev.params };
+          let paramsChanged = false;
           if (Array.isArray(params.cases)) {
             params.cases = params.cases.map((c) =>
               c?.node_id && idSet.has(c.node_id) ? { ...c, node_id: '' } : c,
             );
+            paramsChanged = true;
           }
-          if (params.default && idSet.has(params.default)) params.default = '';
-          n.params = params;
+          if (params.default && idSet.has(params.default)) {
+            params.default = '';
+            paramsChanged = true;
+          }
+          if (paramsChanged) {
+            if (nextNode === prev) nextNode = { ...prev };
+            nextNode.params = params;
+          }
         }
+        if (nextNode !== prev) nodes[id] = nextNode;
       }
       let entry = state.flow.entry;
       if (entry && idSet.has(entry)) {
         entry = Object.keys(nodes)[0] || null;
       }
       return {
+        ...hist,
         flow: { ...state.flow, nodes, entry },
         selectedNodeId: idSet.has(state.selectedNodeId) ? null : state.selectedNodeId,
       };
@@ -1142,6 +1270,7 @@ export const useFlowStore = create((set, get) => ({
         nodes[newId] = copy;
       }
       return {
+        ...takeFlowHistory(s),
         flow: { ...s.flow, nodes },
         selectedNodeId: idMap[ids[ids.length - 1]] || s.selectedNodeId,
       };
@@ -1151,6 +1280,7 @@ export const useFlowStore = create((set, get) => ({
 
   setEntry: (entry) =>
     set((state) => ({
+      ...takeFlowHistory(state),
       flow: { ...state.flow, entry },
     })),
 

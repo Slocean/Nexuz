@@ -27,6 +27,7 @@ import MiniMap from "./MiniMap";
 import { Button } from "@/components/ui/button";
 import { useAppDialog } from "./AppDialogs";
 import { computeAutoLayout } from "../autoLayout";
+import { useFlowStore } from "@/store/flowModelStore";
 
 interface CanvasProps {
   nodes: WorkflowNode[];
@@ -626,7 +627,7 @@ function Canvas({
     };
   }, [screenToCanvas, applyWorldTransform]);
 
-  // Keyboard: Delete, Ctrl+C/V, Ctrl+A (capture so it works while Inspector buttons focused)
+  // Keyboard: Delete, Ctrl+C/V/Z/Y, Ctrl+A (capture so it works while Inspector buttons focused)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -635,6 +636,16 @@ function Canvas({
       }
       if ((e.target as HTMLElement)?.closest?.('[role="dialog"]')) return;
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        e.preventDefault();
+        useFlowStore.getState().undo();
+        return;
+      }
+      if (mod && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
+        e.preventDefault();
+        useFlowStore.getState().redo();
+        return;
+      }
       if (mod && e.key.toLowerCase() === "a") {
         e.preventDefault();
         const ids = nodesRef.current.map((n) => n.id);

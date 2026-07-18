@@ -224,6 +224,10 @@ function AppShell() {
   const duplicateNodes = useFlowStore((s) => s.duplicateNodes);
   const updateNodePositions = useFlowStore((s) => s.updateNodePositions);
   const setFlow = useFlowStore((s) => s.setFlow);
+  const undo = useFlowStore((s) => s.undo);
+  const redo = useFlowStore((s) => s.redo);
+  const canUndo = useFlowStore((s) => (s.past?.length || 0) > 0);
+  const canRedo = useFlowStore((s) => (s.future?.length || 0) > 0);
   const clearLogs = useFlowStore((s) => s.clearLogs);
   const appendLog = useFlowStore((s) => s.appendLog);
   const onRuntimeEvent = useFlowStore((s) => s.onRuntimeEvent);
@@ -857,7 +861,7 @@ function AppShell() {
   const handleClearCanvas = async () => {
     const ok = await confirm({
       title: '清空画布',
-      description: '确定清空当前画布上的全部节点？此操作不可撤销。',
+      description: '确定清空当前画布上的全部节点？可用撤销恢复。',
       confirmText: '清空',
       destructive: true,
     });
@@ -1286,6 +1290,10 @@ function AppShell() {
         onToggleAssistant={() => setIsAssistantOpen(!isAssistantOpen)}
         isAssistantOpen={isAssistantOpen}
         onClearCanvas={handleClearCanvas}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
         onSave={handleSave}
         onImport={handleImport}
         onExport={handleExport}

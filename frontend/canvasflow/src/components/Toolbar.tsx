@@ -14,6 +14,8 @@ import {
   Pause,
   Square,
   Trash2,
+  Undo2,
+  Redo2,
   RotateCcw,
   Bug,
   FileCode2,
@@ -51,6 +53,10 @@ interface ToolbarProps {
   onToggleAssistant: () => void;
   isAssistantOpen: boolean;
   onClearCanvas: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
   onBackToMain?: () => void;
   onSave?: () => Promise<boolean> | boolean | void;
   onImport?: () => void;
@@ -84,6 +90,10 @@ export default function Toolbar({
   onToggleAssistant,
   isAssistantOpen,
   onClearCanvas,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
   onBackToMain,
   onSave,
   onImport,
@@ -405,6 +415,34 @@ export default function Toolbar({
               }>
               <CircleDot className={`w-3.5 h-3.5 ${recording ? 'animate-pulse' : ''}`} />
               <span className="hidden xl:inline">{recording ? '停止录制' : '录制'}</span>
+            </Button>
+          )}
+
+          {onUndo && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="px-2 xl:px-3"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="撤销（Ctrl+Z）"
+            >
+              <Undo2 className="w-3.5 h-3.5 opacity-80" />
+              <span className="hidden xl:inline">撤销</span>
+            </Button>
+          )}
+
+          {onRedo && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="px-2 xl:px-3"
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="重做（Ctrl+Y）"
+            >
+              <Redo2 className="w-3.5 h-3.5 opacity-80" />
+              <span className="hidden xl:inline">重做</span>
             </Button>
           )}
 

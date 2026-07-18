@@ -1508,6 +1508,14 @@ export default function SettingsPage({
                   ：复制 / 粘贴节点
                 </li>
                 <li>
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Ctrl</kbd>
+                  {'+'}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Z</kbd>
+                  {' / '}
+                  <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Y</kbd>
+                  ：撤销 / 重做流程编辑
+                </li>
+                <li>
                   顶栏「框选」工具，或{' '}
                   <kbd className="font-mono px-1 rounded bg-black/5 dark:bg-white/10">Shift</kbd>
                   +拖动画布空白：框选多个节点

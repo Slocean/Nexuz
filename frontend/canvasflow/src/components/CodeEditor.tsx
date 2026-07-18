@@ -64,7 +64,7 @@ export default function CodeEditor({ themeName, themeMode }: CodeEditorProps) {
           return;
         }
         const next = flowToJson(parsed);
-        setFlow(parsed, filePath);
+        setFlow(parsed, filePath, { recordHistory: true, coalesce: true });
         setText(next);
         lastAppliedRef.current = next;
         setError(null);
@@ -120,7 +120,7 @@ export default function CodeEditor({ themeName, themeMode }: CodeEditorProps) {
         return;
       }
       const next = flowToJson(parsed);
-      setFlow(parsed, filePath);
+      setFlow(parsed, filePath, { recordHistory: true });
       setText(next);
       lastAppliedRef.current = next;
       setError(null);
