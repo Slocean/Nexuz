@@ -10,7 +10,9 @@ import {
   Check,
   Download,
   Trash2,
-  Keyboard
+  Keyboard,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
@@ -1072,6 +1074,7 @@ export default function Inspector({
   const { alert } = useAppDialog();
   const [copied, setCopied] = React.useState(false);
   const [outputCopied, setOutputCopied] = React.useState(false);
+  const [logsExpanded, setLogsExpanded] = React.useState(false);
   const [logCopyHint, setLogCopyHint] = React.useState<string | null>(null);
   const logCopyHintTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const logSelectionRef = React.useRef('');
@@ -1221,12 +1224,26 @@ export default function Inspector({
   }, [logs]);
 
   const logsPanel = (
-    <div className="space-y-2 p-3 border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text min-w-0 max-w-full overflow-hidden">
+    <div
+      className={`space-y-2 p-3 border-t border-black/10 dark:border-white/10 select-text min-w-0 max-w-full overflow-hidden ${
+        logsExpanded ? 'flex-1 min-h-0 flex flex-col max-h-none' : 'shrink-0 max-h-[40%]'
+      }`}
+    >
       <div className="flex items-center justify-between gap-2 select-none min-w-0">
         <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5 shrink-0">
           <Terminal className="w-3.5 h-3.5" /> 运行日志
         </h4>
         <div className="flex items-center gap-0.5 shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+            onClick={() => setLogsExpanded((v) => !v)}
+            title={logsExpanded ? '还原日志区域' : '放大日志区域'}
+          >
+            {logsExpanded ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+            {logsExpanded ? '还原' : '放大'}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -1270,7 +1287,11 @@ export default function Inspector({
           </DropdownMenu>
         </div>
       </div>
-      <div className="h-36 min-w-0 max-w-full overflow-y-auto overflow-x-hidden">
+      <div
+        className={`min-w-0 max-w-full overflow-y-auto overflow-x-hidden ${
+          logsExpanded ? 'flex-1 min-h-0' : 'h-36'
+        }`}
+      >
         <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed min-w-0 w-full max-w-full">
           {logs.length === 0 && (
             <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
@@ -1488,7 +1509,11 @@ export default function Inspector({
           color: colors.text
         }}
         className="w-[21.8rem] max-w-[21.8rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0">
+        <div
+          className={`flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0 ${
+            logsExpanded ? 'hidden' : ''
+          }`}
+        >
           <div className="w-12 h-12 mx-auto flex items-center justify-center">
             <img
               src={`${import.meta.env.BASE_URL}logo.png`}
@@ -2271,7 +2296,11 @@ export default function Inspector({
         color: colors.text
       }}
       className="w-[24rem] max-w-[24rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
-      <div className="px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0">
+      <div
+        className={`px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0 ${
+          logsExpanded ? 'hidden' : ''
+        }`}
+      >
         <div className="flex items-center gap-1.5 min-w-0">
           <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <h3 className="font-semibold text-sm truncate">节点</h3>
@@ -2281,7 +2310,7 @@ export default function Inspector({
         </Button>
       </div>
 
-      <ScrollArea className="flex-1 min-w-0">
+      <ScrollArea className={logsExpanded ? 'hidden' : 'flex-1 min-w-0'}>
         <div className="p-3 space-y-4 min-w-0 max-w-full overflow-x-hidden">
           <div className="bg-black/5 dark:bg-white/5 rounded-xl px-3 py-2 border border-black/10 dark:border-white/10 space-y-2">
             <div className="flex justify-between items-center gap-2">

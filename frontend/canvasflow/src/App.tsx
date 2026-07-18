@@ -3,6 +3,12 @@
  * Unused design-only UI (AI Assistant, demo templates) kept as-is.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-react';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Canvas from './components/Canvas';
@@ -38,6 +44,22 @@ import { collectFlowBindIssues } from './bindValidate';
 import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '../../src/store/flowModelStore';
 import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
 import WindowResizeHandles from './components/WindowResizeHandles';
+
+function loadPanelCollapsed(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function persistPanelCollapsed(key: string, collapsed: boolean) {
+  try {
+    localStorage.setItem(key, collapsed ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
 
 async function readNoticeReadId(): Promise<string> {
   try {
@@ -183,6 +205,26 @@ function AppShell() {
   const defaultCoordinateMode = useFlowStore((s) => s.defaultCoordinateMode);
   const defaultOutputCoordinateMode = useFlowStore((s) => s.defaultOutputCoordinateMode);
   const defaultNodeIntervalMs = useFlowStore((s) => s.defaultNodeIntervalMs);
+  const [leftCollapsed, setLeftCollapsed] = useState(() =>
+    loadPanelCollapsed('nexuz.leftPanelCollapsed'),
+  );
+  const [rightCollapsed, setRightCollapsed] = useState(() =>
+    loadPanelCollapsed('nexuz.rightPanelCollapsed'),
+  );
+  const toggleLeftPanel = useCallback(() => {
+    setLeftCollapsed((prev) => {
+      const next = !prev;
+      persistPanelCollapsed('nexuz.leftPanelCollapsed', next);
+      return next;
+    });
+  }, []);
+  const toggleRightPanel = useCallback(() => {
+    setRightCollapsed((prev) => {
+      const next = !prev;
+      persistPanelCollapsed('nexuz.rightPanelCollapsed', next);
+      return next;
+    });
+  }, []);
   const {
     pickPoint: screenshotPickPoint,
     pickRegion: screenshotPickRegion,
@@ -1329,106 +1371,149 @@ function AppShell() {
       />
 
       <div className="flex-1 flex overflow-hidden relative">
-        <Sidebar
-          themeName={themeName as any}
-          themeMode={themeMode as any}
-          onAddNode={handleAddDemoNode}
-          onAddNexuzNode={handleAddNexuzNode}
-          nexuzSchemas={schemas}
-          onLoadTemplate={handleLoadTemplate}
-          runHistory={runHistory}
-          onClearHistory={clearRunHistory}
-          interactionLocked={isExecuting}
-          currentFlowPath={filePath}
-          onOpenFlowPath={handleOpenFlowPath}
-          onRenameFlow={handleRenameFlow}
-          onNewFlow={handleNewFlow}
-          onImportFlow={handleImport}
-          onExportFlow={handleExport}
-          flowsRefreshToken={flowsRefreshToken}
-        />
+        {!leftCollapsed ? (
+          <Sidebar
+            themeName={themeName as any}
+            themeMode={themeMode as any}
+            onAddNode={handleAddDemoNode}
+            onAddNexuzNode={handleAddNexuzNode}
+            nexuzSchemas={schemas}
+            onLoadTemplate={handleLoadTemplate}
+            runHistory={runHistory}
+            onClearHistory={clearRunHistory}
+            interactionLocked={isExecuting}
+            currentFlowPath={filePath}
+            onOpenFlowPath={handleOpenFlowPath}
+            onRenameFlow={handleRenameFlow}
+            onNewFlow={handleNewFlow}
+            onImportFlow={handleImport}
+            onExportFlow={handleExport}
+            flowsRefreshToken={flowsRefreshToken}
+          />
+        ) : null}
 
-        {viewMode === 'settings' ? (
-          <SettingsPage themeName={themeName as any} themeMode={themeMode as any} />
-        ) : viewMode === 'code' ? (
-          <CodeEditor themeName={themeName as any} themeMode={themeMode as any} />
-        ) : (
-          <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
-            {debugMode ? (
-              <DebugBar
+        <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
+          <button
+            type="button"
+            onClick={toggleLeftPanel}
+            title={leftCollapsed ? '展开左侧' : '收起左侧'}
+            aria-label={leftCollapsed ? '展开左侧' : '收起左侧'}
+            className="absolute left-2 top-1/2 -translate-y-1/2 z-30 h-8 w-8 rounded-lg border shadow-sm flex items-center justify-center transition-colors hover:opacity-100 opacity-80"
+            style={{
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              color: colors.text,
+            }}
+          >
+            {leftCollapsed ? (
+              <PanelLeftOpen className="w-3.5 h-3.5" />
+            ) : (
+              <PanelLeftClose className="w-3.5 h-3.5" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={toggleRightPanel}
+            title={rightCollapsed ? '展开右侧' : '收起右侧'}
+            aria-label={rightCollapsed ? '展开右侧' : '收起右侧'}
+            className="absolute right-2 top-1/2 -translate-y-1/2 z-30 h-8 w-8 rounded-lg border shadow-sm flex items-center justify-center transition-colors hover:opacity-100 opacity-80"
+            style={{
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              color: colors.text,
+            }}
+          >
+            {rightCollapsed ? (
+              <PanelRightOpen className="w-3.5 h-3.5" />
+            ) : (
+              <PanelRightClose className="w-3.5 h-3.5" />
+            )}
+          </button>
+
+          {viewMode === 'settings' ? (
+            <SettingsPage themeName={themeName as any} themeMode={themeMode as any} />
+          ) : viewMode === 'code' ? (
+            <CodeEditor themeName={themeName as any} themeMode={themeMode as any} />
+          ) : (
+            <>
+              {debugMode ? (
+                <DebugBar
+                  themeName={themeName as any}
+                  themeMode={themeMode as any}
+                  execStatus={execStatus}
+                  breakpointCount={(flow.breakpoints || []).length}
+                  onContinue={handleResume}
+                  onStep={handleDebugStep}
+                  onStop={handleStop}
+                  onForceReset={handleForceReset}
+                  onPause={handlePause}
+                />
+              ) : null}
+              {debugMode ? (
+                <DebugWatchPanel themeName={themeName as any} themeMode={themeMode as any} />
+              ) : null}
+              <Canvas
+                nodes={nodes}
+                connections={connections}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={selectNode}
+                onUpdateNodePosition={handleUpdateNodePosition}
+                onUpdateNodePositions={handleUpdateNodePositions}
+                onAddConnection={handleAddConnection}
+                onRemoveConnection={handleRemoveConnection}
+                onRemoveNode={handleRemoveNode}
+                onRemoveNodes={handleRemoveNodes}
+                onDuplicateNodes={handleDuplicateNodes}
+                onDropBlock={handleDropBlock}
+                onRunSingleNode={handleRunSingleNode}
+                onToggleBreakpoint={handleToggleBreakpoint}
+                onUpdateNodeName={handleUpdateNodeName}
+                onToggleNodeCollapsed={handleToggleNodeCollapsed}
                 themeName={themeName as any}
                 themeMode={themeMode as any}
+                isExecuting={isExecuting}
                 execStatus={execStatus}
-                breakpointCount={(flow.breakpoints || []).length}
-                onContinue={handleResume}
-                onStep={handleDebugStep}
-                onStop={handleStop}
-                onForceReset={handleForceReset}
-                onPause={handlePause}
+                executingNodeId={execNodeId}
+                debugMode={debugMode}
+                breakpoints={flow.breakpoints || []}
               />
-            ) : null}
-            {debugMode ? (
-              <DebugWatchPanel themeName={themeName as any} themeMode={themeMode as any} />
-            ) : null}
-            <Canvas
-              nodes={nodes}
-              connections={connections}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={selectNode}
-              onUpdateNodePosition={handleUpdateNodePosition}
-              onUpdateNodePositions={handleUpdateNodePositions}
-              onAddConnection={handleAddConnection}
-              onRemoveConnection={handleRemoveConnection}
-              onRemoveNode={handleRemoveNode}
-              onRemoveNodes={handleRemoveNodes}
-              onDuplicateNodes={handleDuplicateNodes}
-              onDropBlock={handleDropBlock}
-              onRunSingleNode={handleRunSingleNode}
-              onToggleBreakpoint={handleToggleBreakpoint}
-              onUpdateNodeName={handleUpdateNodeName}
-              onToggleNodeCollapsed={handleToggleNodeCollapsed}
-              themeName={themeName as any}
-              themeMode={themeMode as any}
-              isExecuting={isExecuting}
-              execStatus={execStatus}
-              executingNodeId={execNodeId}
-              debugMode={debugMode}
-              breakpoints={flow.breakpoints || []}
-            />
-          </div>
-        )}
+            </>
+          )}
+        </div>
 
-        <Inspector
-          selectedNode={selectedNode}
-          onUpdateNodeConfig={handleUpdateNodeConfig}
-          onUpdateNodeName={handleUpdateNodeName}
-          onDeselect={() => selectNode(null)}
-          themeName={themeName as any}
-          themeMode={themeMode as any}
-          logs={canvasLogs}
-          rawLogs={logs}
-          runLog={runLog}
-          schemaMap={schemaMap}
-          bindIssues={bindIssues}
-          onPickPoint={(method?: string) => runCoordPick('point', method)}
-          onPickClick={(mode: string, method?: string) =>
-            mode === 'frida_ui'
-              ? bridge.pickClick(mode, hideWindowOnRecord, defaultCoordinateMode || 'window_client')
-              : runCoordPick('point', method)
-          }
-          onPickRegion={(method?: string) => runCoordPick('region', method)}
-          onCaptureTemplate={(method?: string) => runCoordPick('template', method)}
-          onRemoveNode={(id: string) => {
-            deleteNodes([id]);
-            appendLog({ level: 'info', message: `已删除节点 ${id}` });
-          }}
-          onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
-          defaultCaptureMode={defaultCaptureMode}
-          defaultPickMethod={defaultPickMethod}
-          defaultCoordinateMode={defaultCoordinateMode}
-          defaultOutputCoordinateMode={defaultOutputCoordinateMode}
-          defaultNodeIntervalMs={defaultNodeIntervalMs}
-        />
+        {!rightCollapsed ? (
+          <Inspector
+            selectedNode={selectedNode}
+            onUpdateNodeConfig={handleUpdateNodeConfig}
+            onUpdateNodeName={handleUpdateNodeName}
+            onDeselect={() => selectNode(null)}
+            themeName={themeName as any}
+            themeMode={themeMode as any}
+            logs={canvasLogs}
+            rawLogs={logs}
+            runLog={runLog}
+            schemaMap={schemaMap}
+            bindIssues={bindIssues}
+            onPickPoint={(method?: string) => runCoordPick('point', method)}
+            onPickClick={(mode: string, method?: string) =>
+              mode === 'frida_ui'
+                ? bridge.pickClick(mode, hideWindowOnRecord, defaultCoordinateMode || 'window_client')
+                : runCoordPick('point', method)
+            }
+            onPickRegion={(method?: string) => runCoordPick('region', method)}
+            onCaptureTemplate={(method?: string) => runCoordPick('template', method)}
+            onRemoveNode={(id: string) => {
+              deleteNodes([id]);
+              appendLog({ level: 'info', message: `已删除节点 ${id}` });
+            }}
+            onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
+            defaultCaptureMode={defaultCaptureMode}
+            defaultPickMethod={defaultPickMethod}
+            defaultCoordinateMode={defaultCoordinateMode}
+            defaultOutputCoordinateMode={defaultOutputCoordinateMode}
+            defaultNodeIntervalMs={defaultNodeIntervalMs}
+          />
+        ) : null}
 
         {screenPickDialog}
 

@@ -96,7 +96,7 @@ def main() -> None:
         title="Nexuz",
         url=url,
         js_api=api,
-        width=1540,
+        width=1400,
         height=900,
         min_size=(800, 560),
         frameless=True,
