@@ -22,7 +22,6 @@ import {
   ChevronRight,
   CircleHelp,
   Keyboard,
-  Save,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
