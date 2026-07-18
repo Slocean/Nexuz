@@ -91,7 +91,7 @@ export default function SchedulePanel({
         </Button>
       </div>
       <p style={{ color: colors.secondaryText }} className="text-xs leading-relaxed">
-        由 schedule_trigger 节点注册。运行含该节点的流程后会出现在此列表。
+        由「注册定时任务」节点写入；会保存到本机，重启软件后自动恢复。
       </p>
       {error && <p className="text-xs text-rose-400">{error}</p>}
       {jobs.length === 0 && !error && (

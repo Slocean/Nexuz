@@ -94,6 +94,17 @@ class Api:
         get_frida_session_manager().set_detached_callback(on_frida_detached)
         get_app_hotkeys().start(on_run=self._on_hotkey_run)
 
+        from backend.core.scheduler import get_scheduler
+
+        sched = get_scheduler()
+        sched.set_emit(self._emit)
+        try:
+            n = sched.restore_from_disk()
+            if n:
+                self._log("info", f"已恢复 {n} 个定时任务")
+        except Exception as exc:
+            self._log("warn", f"恢复定时任务失败: {exc}")
+
     def _on_hotkey_run(self) -> None:
         """Global start-run hotkey → ask UI to start / continue the current flow."""
         session = get_recording_session()
@@ -1367,46 +1378,74 @@ class Api:
         return {"ok": True, "path": str(path), "name": flow.get("name")}
 
     def export_flow(self, flow_json: str, filename: str | None = None) -> dict:
-        """Export flow to a user-chosen external file."""
+        """Export flow as JSON or portable .flow.zip (includes template images)."""
+        from backend.core.flow_pack import build_zip_bytes, flow_has_packable_assets, is_zip_path
+
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
         if not isinstance(flow, dict):
             return {"ok": False, "error": "无效的流程对象"}
         err = self._validate_flow(flow)
         if err:
             return {"ok": False, "error": err}
-        suggested = self._safe_flow_filename(
-            (filename or flow.get("name") or "flow").strip() or "flow"
-        )
+        base_name = (filename or flow.get("name") or "flow").strip() or "flow"
+        safe_json = self._safe_flow_filename(base_name)
+        base = safe_json.replace(".flow.json", "").replace(".json", "") or "flow"
+        prefer_zip = flow_has_packable_assets(flow)
+        suggested = f"{base}.flow.zip" if prefer_zip else safe_json
         if not self._window:
-            out = exe_dir() / "exports" / suggested
-            out.parent.mkdir(parents=True, exist_ok=True)
+            out_dir = exe_dir() / "exports"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if prefer_zip:
+                out = out_dir / f"{base}.flow.zip"
+                out.write_bytes(build_zip_bytes(flow))
+                return {"ok": True, "path": str(out), "name": flow.get("name"), "format": "zip"}
+            out = out_dir / self._safe_flow_filename(base)
             out.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
-            return {"ok": True, "path": str(out), "name": flow.get("name")}
+            return {"ok": True, "path": str(out), "name": flow.get("name"), "format": "json"}
         result = self._window.create_file_dialog(
             webview.SAVE_DIALOG,
             directory=str(exe_dir()),
             save_filename=suggested,
-            file_types=("Flow JSON (*.flow.json;*.json)",),
+            file_types=(
+                "流程包 Zip (*.flow.zip;*.zip)",
+                "Flow JSON (*.flow.json;*.json)",
+            ),
         )
         if not result:
             return {"ok": False, "cancelled": True}
         filepath = result if isinstance(result, str) else result[0]
         path = Path(filepath)
-        if not path.name.lower().endswith(".json"):
-            path = path.with_name(path.name + ".flow.json")
+        lower = path.name.lower()
+        as_zip = is_zip_path(path) or lower.endswith(".zip")
+        if not as_zip and not lower.endswith(".json"):
+            # User typed bare name: pick zip when assets exist
+            if prefer_zip:
+                path = path.with_name(path.name + ".flow.zip")
+                as_zip = True
+            else:
+                path = path.with_name(path.name + ".flow.json")
         path.parent.mkdir(parents=True, exist_ok=True)
+        if as_zip:
+            path.write_bytes(build_zip_bytes(flow))
+            return {"ok": True, "path": str(path), "name": flow.get("name"), "format": "zip"}
         path.write_text(json.dumps(flow, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {"ok": True, "path": str(path), "name": flow.get("name")}
+        return {"ok": True, "path": str(path), "name": flow.get("name"), "format": "json"}
 
     def import_flow(self) -> dict:
-        """Import external .flow.json into the user data library."""
+        """Import external .flow.json or .flow.zip into the user data library."""
+        from backend.core.flow_pack import is_zip_path, load_flow_from_zip
+
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
         result = self._window.create_file_dialog(
             webview.OPEN_DIALOG,
             directory=str(exe_dir()),
             allow_multiple=False,
-            file_types=("Flow JSON (*.flow.json;*.json)",),
+            file_types=(
+                "流程文件 (*.flow.zip;*.zip;*.flow.json;*.json)",
+                "流程包 Zip (*.flow.zip;*.zip)",
+                "Flow JSON (*.flow.json;*.json)",
+            ),
         )
         if not result:
             return {"ok": False, "cancelled": True}
@@ -1415,17 +1454,34 @@ class Api:
         if not src_path.exists():
             return {"ok": False, "error": f"文件不存在: {src}"}
         try:
-            data = json.loads(src_path.read_text(encoding="utf-8"))
+            if is_zip_path(src_path):
+                templates = self._templates_dir(create=True)
+
+                def _import_img(raw: bytes, preferred: str | None):
+                    return self._import_image_bytes_to_templates(raw, preferred)
+
+                data = load_flow_from_zip(
+                    src_path,
+                    templates_dir=templates,
+                    import_image=_import_img,
+                )
+                fmt = "zip"
+            else:
+                data = json.loads(src_path.read_text(encoding="utf-8"))
+                fmt = "json"
         except Exception as exc:
             return {"ok": False, "error": f"无法解析流程文件: {exc}"}
         err = self._validate_flow(data)
         if err:
             return {"ok": False, "error": err}
-        name = str(data.get("name") or src_path.stem.replace(".flow", "") or "导入的流程").strip()
+        stem = src_path.stem
+        if stem.lower().endswith(".flow"):
+            stem = stem[:-5]
+        name = str(data.get("name") or stem or "导入的流程").strip()
         data = {**data, "name": name}
         dest = self._unique_flow_path(name)
         dest.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {"ok": True, "flow": data, "path": str(dest), "name": name}
+        return {"ok": True, "flow": data, "path": str(dest), "name": name, "format": fmt}
 
     def clipboard_write(self, text: str) -> dict:
         """Copy text to system clipboard (pywebview often blocks navigator.clipboard)."""

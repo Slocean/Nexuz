@@ -1336,6 +1336,7 @@ export const useFlowStore = create((set, get) => ({
 
   // execution UI
   nodeOutputs: {}, // nodeId -> last summarized result (UI only)
+  debugContext: {}, // runtime context snapshot at breakpoint
   clearLogs: () => set({ logs: [], runLog: null }),
   appendLog: (entry) =>
     set((state) => {
@@ -1415,6 +1416,8 @@ export const useFlowStore = create((set, get) => ({
         execStatus: 'breakpoint',
         execNodeId: payload?.node_id || null,
         debugMode: true,
+        debugContext:
+          payload?.context && typeof payload.context === 'object' ? payload.context : {},
       });
       const reason = payload?.reason === 'step' ? '单步暂停' : '命中断点';
       appendLog({
@@ -1477,6 +1480,7 @@ export const useFlowStore = create((set, get) => ({
           execNodeId: null,
           execNodeStates: payload.stopped ? {} : nextStates,
           nodeOutputs: slim,
+          debugContext: {},
           runLog: payload?.run_log || state.runLog,
         };
       });

@@ -14,6 +14,7 @@ import RecordingBanner from './components/RecordingBanner';
 import RunningBanner from './components/RunningBanner';
 import SettingsPage from './components/SettingsPage';
 import DebugBar from './components/DebugBar';
+import DebugWatchPanel from './components/DebugWatchPanel';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
 import { UpdateDialogProvider, useUpdateDialog } from './components/UpdateDialog';
 import { useScreenshotPick } from './hooks/useScreenshotPick';
@@ -797,7 +798,11 @@ function AppShell() {
     if (res?.ok && res.flow) {
       setFlow(res.flow, res.path);
       setFlowsRefreshToken((n) => n + 1);
-      appendLog({ level: 'ok', message: `已导入: ${res.name || res.flow.name || '流程'}` });
+      const fmt = res.format === 'zip' ? '（已解压模板图片）' : '';
+      appendLog({
+        level: 'ok',
+        message: `已导入${fmt}: ${res.name || res.flow.name || '流程'}`,
+      });
     } else if (!res?.cancelled) {
       appendLog({ level: 'error', message: res?.error || '导入失败' });
     }
@@ -806,7 +811,11 @@ function AppShell() {
   const handleExport = async () => {
     const res = await bridge.exportFlow(flow, flow.name || null);
     if (res?.ok) {
-      appendLog({ level: 'ok', message: `已导出: ${res.path || flow.name || '流程'}` });
+      const fmt = res.format === 'zip' ? '（含模板图片的流程包）' : '';
+      appendLog({
+        level: 'ok',
+        message: `已导出${fmt}: ${res.path || flow.name || '流程'}`,
+      });
     } else if (!res?.cancelled) {
       appendLog({ level: 'error', message: res?.error || '导出失败' });
     }
@@ -1356,6 +1365,9 @@ function AppShell() {
                 onForceReset={handleForceReset}
                 onPause={handlePause}
               />
+            ) : null}
+            {debugMode ? (
+              <DebugWatchPanel themeName={themeName as any} themeMode={themeMode as any} />
             ) : null}
             <Canvas
               nodes={nodes}

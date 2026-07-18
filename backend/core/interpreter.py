@@ -44,6 +44,7 @@ class FlowInterpreter:
         self._break_next = False  # stop before the next node (step / step-into start)
         self._at_breakpoint = False
         self._paused_node_id: str | None = None
+        self._debug_context: dict[str, Any] = {}
         # Optional parent controls when nested (call_subflow).
         self._parent_should_stop: Callable[[], bool] | None = None
         self._parent_cooperate: Callable[[], None] | None = None
@@ -278,7 +279,30 @@ class FlowInterpreter:
         if t is not None:
             t.join(timeout=timeout)
 
-    def _wait_controls(self, node_id: str | None = None) -> None:
+    def _snapshot_debug_context(self, context: dict[str, Any] | None) -> dict[str, Any]:
+        """Compact runtime context for the debug watch panel."""
+        if not isinstance(context, dict):
+            return {}
+        from .runtime_payload import summarize_value
+
+        out: dict[str, Any] = {}
+        for key, val in context.items():
+            sk = str(key)
+            if sk.startswith("__"):
+                continue
+            # Prefer $name keys; skip bare duplicate of the same value
+            if not sk.startswith("$") and f"${sk}" in context:
+                continue
+            out[sk] = summarize_value(val, key=sk)
+            if len(out) >= 120:
+                break
+        return out
+
+    def _wait_controls(
+        self,
+        node_id: str | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
         if self._is_stop_requested():
             raise InterruptedError("流程已停止")
         if self._parent_cooperate is not None:
@@ -303,9 +327,11 @@ class FlowInterpreter:
         self._break_next = False
         self._at_breakpoint = True
         self._paused_node_id = node_id
+        snap = self._snapshot_debug_context(context)
+        self._debug_context = snap
         self._emit(
             "flow_breakpoint",
-            {"node_id": node_id, "reason": reason},
+            {"node_id": node_id, "reason": reason, "context": snap},
         )
         self._step_event.clear()
         self._step_event.wait()
@@ -353,7 +379,7 @@ class FlowInterpreter:
         global_node_interval = flow.get("__global_node_interval_ms", 0)
 
         while node_id:
-            self._wait_controls(node_id)
+            self._wait_controls(node_id, context)
             node = nodes.get(node_id)
             if not node:
                 raise ValueError(f"节点不存在: {node_id}")
