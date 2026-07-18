@@ -511,4 +511,28 @@ export function applyDefaultCoordinateMode(flow: any, defaultCoordinateMode: str
   return changed ? { ...flow, nodes } : flow;
 }
 
+const OUTPUT_COORD_NODE_TYPES = new Set(['ocr_recognize', 'find_image']);
+
+/** Inject global output-coordinate default into OCR / find_image nodes that omit it. */
+export function applyDefaultOutputCoordinateMode(
+  flow: any,
+  defaultOutputCoordinateMode: string = 'screen_abs',
+) {
+  if (!flow?.nodes || typeof flow.nodes !== 'object') return flow;
+  const mode = defaultOutputCoordinateMode === 'region_rel' ? 'region_rel' : 'screen_abs';
+  let changed = false;
+  const nodes: Record<string, any> = {};
+  for (const [id, node] of Object.entries(flow.nodes)) {
+    const n: any = node;
+    const params = n?.params || {};
+    if (OUTPUT_COORD_NODE_TYPES.has(n?.type) && !params.output_coordinate_mode) {
+      changed = true;
+      nodes[id] = { ...n, params: { ...params, output_coordinate_mode: mode } };
+    } else {
+      nodes[id] = n;
+    }
+  }
+  return changed ? { ...flow, nodes } : flow;
+}
+
 export { formatNodeRef };

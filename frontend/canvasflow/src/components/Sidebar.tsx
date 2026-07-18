@@ -1,5 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Trash2, FolderSync, Search, Workflow, Boxes } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  FolderSync,
+  Search,
+  Workflow,
+  Boxes,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react';
 import { ThemeName, ThemeMode, WorkflowNode } from '../types';
 import { getThemeColors } from '../theme';
 import { Button } from '@/components/ui/button';
@@ -137,7 +146,29 @@ export default function Sidebar({
   const colors = getThemeColors(themeName, themeMode);
   const [query, setQuery] = useState('');
   const [panel, setPanel] = useState<'flows' | 'nodes'>('nodes');
+  const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem('nexuz.sidebarCollapsedCats');
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
   const q = query.trim().toLowerCase();
+
+  const toggleCat = (cat: string) => {
+    setCollapsedCats((prev) => {
+      const next = { ...prev, [cat]: !prev[cat] };
+      try {
+        localStorage.setItem('nexuz.sidebarCollapsedCats', JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   const nexuzGrouped = useMemo(() => {
     const filtered = q
@@ -274,37 +305,58 @@ export default function Sidebar({
               </div>
             </div>
 
-            {Object.entries(nexuzGrouped).map(([cat, items]) => (
-              <div key={`nexuz-${cat}`} className="space-y-2">
-                <div className="flex items-center gap-2 px-1">
-                  <span
-                    style={{ backgroundColor: nexuzCatColor[cat] || colors.primary }}
-                    className="w-2 h-2 rounded-full shadow-sm"
-                  />
-                  <span
-                    style={{ color: colors.secondaryText }}
-                    className="text-xs font-bold uppercase tracking-wider"
+            {Object.entries(nexuzGrouped).map(([cat, items]) => {
+              const closed = !!collapsedCats[cat];
+              return (
+                <div key={`nexuz-${cat}`} className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleCat(cat)}
+                    className="flex items-center gap-1.5 px-1 w-full text-left rounded-md hover:bg-black/5 dark:hover:bg-white/5 py-0.5"
+                    title={closed ? '展开分组' : '折叠分组'}
                   >
-                    Nexuz · {cat}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {items.map((item) => (
-                    <CatalogCard
-                      key={item.type}
-                      themeMode={themeMode}
-                      borderColor={colors.border}
-                      accentColor={nexuzCatColor[cat] || colors.primary}
-                      secondaryText={colors.secondaryText}
-                      title={item.label}
-                      subtitle={item.type}
-                      dragType={item.type}
-                      onClick={() => onAddNexuzNode?.(item.type)}
+                    {closed ? (
+                      <ChevronRight className="w-3.5 h-3.5 opacity-50 shrink-0" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 opacity-50 shrink-0" />
+                    )}
+                    <span
+                      style={{ backgroundColor: nexuzCatColor[cat] || colors.primary }}
+                      className="w-2 h-2 rounded-full shadow-sm shrink-0"
                     />
-                  ))}
+                    <span
+                      style={{ color: colors.secondaryText }}
+                      className="text-xs font-bold uppercase tracking-wider flex-1 min-w-0 truncate"
+                    >
+                      Nexuz · {cat}
+                    </span>
+                    <span
+                      style={{ color: colors.secondaryText }}
+                      className="text-[10px] opacity-50 tabular-nums shrink-0"
+                    >
+                      {items.length}
+                    </span>
+                  </button>
+                  {!closed && (
+                    <div className="space-y-2">
+                      {items.map((item) => (
+                        <CatalogCard
+                          key={item.type}
+                          themeMode={themeMode}
+                          borderColor={colors.border}
+                          accentColor={nexuzCatColor[cat] || colors.primary}
+                          secondaryText={colors.secondaryText}
+                          title={item.label}
+                          subtitle={item.type}
+                          dragType={item.type}
+                          onClick={() => onAddNexuzNode?.(item.type)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
           </TabsContent>
 

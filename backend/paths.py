@@ -86,3 +86,19 @@ def set_data_dir(path: str | Path | None) -> Path:
     cfg["data_dir"] = str(resolved)
     save_app_config(cfg)
     return resolved
+
+
+def get_notice_read_id() -> str:
+    """Sticky notice dismiss id (survives onefile file:// origin changes)."""
+    return str(load_app_config().get("notice_read_id") or "")
+
+
+def set_notice_read_id(notice_id: str | None) -> str:
+    cfg = load_app_config()
+    value = str(notice_id or "").strip()
+    if value:
+        cfg["notice_read_id"] = value
+    else:
+        cfg.pop("notice_read_id", None)
+    save_app_config(cfg)
+    return value

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from backend.blocks._helpers import match_template_on_screen, resolve_region_from_params
+from backend.blocks._ocr_match import apply_output_coordinate_mode
+from backend.core.dpi import virtual_screen_size
 
 SCHEMA = {
     "type": "find_image",
@@ -26,6 +28,17 @@ SCHEMA = {
             "label": "相似度阈值",
             "default": 0.8,
             "placeholder": "0~1",
+        },
+        {
+            "name": "output_coordinate_mode",
+            "type": "select",
+            "label": "输出坐标",
+            "options": ["screen_abs", "region_rel"],
+            "default": "screen_abs",
+            "option_labels": {
+                "screen_abs": "屏幕绝对",
+                "region_rel": "区域相对",
+            },
         },
     ],
     "outputs": [
@@ -59,8 +72,18 @@ def handler(params, context, **kwargs):
         )
 
     threshold = float(params.get("threshold") if params.get("threshold") is not None else 0.8)
-    return match_template_on_screen(
+    result = match_template_on_screen(
         template_path,
         search_region=search,
         threshold=threshold,
+    )
+    if search:
+        ox, oy = int(search[0]), int(search[1])
+    else:
+        ox, oy, _, _ = virtual_screen_size()
+    return apply_output_coordinate_mode(
+        result,
+        mode=str(params.get("output_coordinate_mode") or "screen_abs"),
+        origin_x=ox,
+        origin_y=oy,
     )

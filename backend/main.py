@@ -91,15 +91,19 @@ def main() -> None:
         js_api=api,
         width=1400,
         height=900,
-        min_size=(1024, 700),
+        min_size=(800, 560),
         frameless=True,
         easy_drag=False,
         background_color="#0A0D14",
     )
-    # shadow is supported on recent pywebview (Windows); ignore if older
-    try:
-        window = webview.create_window(**window_kwargs, shadow=True)
-    except TypeError:
+    # resizable / shadow: supported on recent pywebview; ignore if older
+    for extra in ({"resizable": True, "shadow": True}, {"resizable": True}, {"shadow": True}, {}):
+        try:
+            window = webview.create_window(**window_kwargs, **extra)
+            break
+        except TypeError:
+            continue
+    else:
         window = webview.create_window(**window_kwargs)
     api.set_window(window)
     start_kwargs: dict = {"debug": "--dev" in sys.argv}

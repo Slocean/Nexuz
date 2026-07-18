@@ -261,11 +261,14 @@ export default function SettingsPage({
   const setDefaultPickMethod = useFlowStore((s) => s.setDefaultPickMethod);
   const defaultCoordinateMode = useFlowStore((s) => s.defaultCoordinateMode);
   const setDefaultCoordinateMode = useFlowStore((s) => s.setDefaultCoordinateMode);
+  const defaultOutputCoordinateMode = useFlowStore((s) => s.defaultOutputCoordinateMode);
+  const setDefaultOutputCoordinateMode = useFlowStore((s) => s.setDefaultOutputCoordinateMode);
   const defaultNodeIntervalMs = useFlowStore((s) => s.defaultNodeIntervalMs);
   const setDefaultNodeIntervalMs = useFlowStore((s) => s.setDefaultNodeIntervalMs);
   const syncAllPickMethods = useFlowStore((s) => s.syncAllPickMethods);
   const syncAllClickCaptureModes = useFlowStore((s) => s.syncAllClickCaptureModes);
   const syncAllClickCoordinateModes = useFlowStore((s) => s.syncAllClickCoordinateModes);
+  const syncAllOutputCoordinateModes = useFlowStore((s) => s.syncAllOutputCoordinateModes);
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
 
   const handleDefaultCaptureModeChange = async (next: string) => {
@@ -345,6 +348,33 @@ export default function SettingsPage({
     }
 
     setDefaultCoordinateMode(mode);
+  };
+
+  const handleDefaultOutputCoordinateModeChange = async (next: string) => {
+    const mode = next === 'region_rel' ? 'region_rel' : 'screen_abs';
+    if (mode === defaultOutputCoordinateMode) return;
+
+    const differing = Object.values(flowNodes).filter((n: any) => {
+      if (n?.type !== 'ocr_recognize' && n?.type !== 'find_image') return false;
+      const cur = n.params?.output_coordinate_mode || defaultOutputCoordinateMode || 'screen_abs';
+      return cur !== mode;
+    });
+
+    if (differing.length > 0) {
+      const labels: Record<string, string> = {
+        screen_abs: '屏幕绝对',
+        region_rel: '区域相对',
+      };
+      const ok = await confirm({
+        title: '修改默认输出坐标',
+        description: `当前有 ${differing.length} 个识别节点（OCR / 找图）的输出坐标与「${labels[mode]}」不同。确认后将把这些节点全部改为「${labels[mode]}」，之后新建识别节点也会默认选中此方式。`,
+        confirmText: '全部修改',
+      });
+      if (!ok) return;
+      syncAllOutputCoordinateModes(mode);
+    }
+
+    setDefaultOutputCoordinateMode(mode);
   };
 
   const [processes, setProcesses] = useState<ProcRow[]>([]);
@@ -1034,6 +1064,33 @@ export default function SettingsPage({
                 <SelectItem value="screen_abs">屏幕绝对坐标</SelectItem>
                 <SelectItem value="window_client">目标窗口相对（推荐）</SelectItem>
                 <SelectItem value="virtual_norm">虚拟桌面比例</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
+                默认输出坐标
+              </Label>
+              <HelpHint
+                text="OCR取字、图像模板匹配等识别节点输出的坐标格式。屏幕绝对=桌面像素；区域相对=相对识别/搜索区域左上角。「区域相对」便于在区域内做二次计算。修改时若画布上已有不同设置的识别节点，将先提示并同步。"
+                colors={colors}
+                themeMode={themeMode}
+              />
+            </div>
+            <Select
+              value={defaultOutputCoordinateMode || 'screen_abs'}
+              onValueChange={(v) => {
+                void handleDefaultOutputCoordinateModeChange(v);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="screen_abs">屏幕绝对</SelectItem>
+                <SelectItem value="region_rel">区域相对</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -124,9 +124,17 @@ export default function Toolbar({
         if (!n?.id || !n?.body) return;
         let readId = '';
         try {
-          readId = localStorage.getItem('nexuz.noticeReadId') || '';
+          const stored = await bridge.getNoticeReadId?.();
+          if (stored?.ok && stored.id) readId = String(stored.id);
         } catch {
           /* ignore */
+        }
+        if (!readId) {
+          try {
+            readId = localStorage.getItem('nexuz.noticeReadId') || '';
+          } catch {
+            /* ignore */
+          }
         }
         if (String(n.id) !== readId) setAnnDot(true);
       } catch {
@@ -166,6 +174,11 @@ export default function Toolbar({
         okText: '我知道了',
       });
       if (n.id) {
+        try {
+          await bridge.setNoticeReadId?.(String(n.id));
+        } catch {
+          /* ignore */
+        }
         try {
           localStorage.setItem('nexuz.noticeReadId', String(n.id));
         } catch {

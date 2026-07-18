@@ -520,6 +520,17 @@ export const MOCK_SCHEMAS = [
           true: '是',
         },
       },
+      {
+        name: 'output_coordinate_mode',
+        type: 'select',
+        label: '输出坐标',
+        options: ['screen_abs', 'region_rel'],
+        default: 'screen_abs',
+        option_labels: {
+          screen_abs: '屏幕绝对',
+          region_rel: '区域相对',
+        },
+      },
     ],
     outputs: [
       { name: 'found', type: 'boolean' },
@@ -530,6 +541,7 @@ export const MOCK_SCHEMAS = [
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
       { name: 'matched_text', type: 'string' },
+      { name: 'match_count', type: 'number' },
       { name: 'text', type: 'string' },
       { name: 'confidence', type: 'number' },
       { name: 'matches', type: 'array', canvas: false },
@@ -570,6 +582,7 @@ export const MOCK_SCHEMAS = [
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
       { name: 'matched_text', type: 'string' },
+      { name: 'match_count', type: 'number' },
     ],
   },
   {
@@ -672,6 +685,17 @@ export const MOCK_SCHEMAS = [
       { name: 'template_image', type: 'string', label: '模板图片', default: '' },
       { name: 'search_region', type: 'rect', label: '搜索区域', default: null },
       { name: 'threshold', type: 'number', label: '相似度阈值', default: 0.8 },
+      {
+        name: 'output_coordinate_mode',
+        type: 'select',
+        label: '输出坐标',
+        options: ['screen_abs', 'region_rel'],
+        default: 'screen_abs',
+        option_labels: {
+          screen_abs: '屏幕绝对',
+          region_rel: '区域相对',
+        },
+      },
     ],
     outputs: [
       { name: 'found', type: 'boolean' },
@@ -1101,6 +1125,28 @@ function mockCall(method, ...args) {
     case 'window_toggle_on_top':
     case 'window_is_on_top':
       return Promise.resolve({ ok: true, on_top: false });
+    case 'window_begin_resize':
+      return Promise.resolve({ ok: true, edge: args[0] || 'se' });
+    case 'get_notice_read_id': {
+      try {
+        return Promise.resolve({
+          ok: true,
+          id: localStorage.getItem('nexuz.noticeReadId') || '',
+        });
+      } catch {
+        return Promise.resolve({ ok: true, id: '' });
+      }
+    }
+    case 'set_notice_read_id': {
+      try {
+        const id = String(args[0] ?? '');
+        if (id) localStorage.setItem('nexuz.noticeReadId', id);
+        else localStorage.removeItem('nexuz.noticeReadId');
+        return Promise.resolve({ ok: true, id });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
+    }
     case 'run_flow':
       return Promise.resolve({ ok: false, error: '请在桌面客户端中运行流程（python backend/main.py --dev）' });
     case 'save_flow':
@@ -1180,6 +1226,8 @@ export const bridge = {
   checkForUpdate: () => call('check_for_update'),
   fetchAnnouncement: () => call('fetch_announcement'),
   fetchNotice: () => call('fetch_notice'),
+  getNoticeReadId: () => call('get_notice_read_id'),
+  setNoticeReadId: (noticeId = '') => call('set_notice_read_id', noticeId),
   downloadUpdate: (downloadUrl = null) => call('download_update', downloadUrl),
   applyUpdate: () => call('apply_update'),
   openReleasesPage: () => call('open_releases_page'),
@@ -1269,4 +1317,5 @@ export const bridge = {
   windowIsMaximized: () => call('window_is_maximized'),
   windowToggleOnTop: () => call('window_toggle_on_top'),
   windowIsOnTop: () => call('window_is_on_top'),
+  windowBeginResize: (edge = 'se') => call('window_begin_resize', edge),
 };

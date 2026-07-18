@@ -11,10 +11,12 @@ from backend.blocks._helpers import (
 )
 from backend.blocks._ocr_match import (
     aabb_from_polygon,
+    apply_output_coordinate_mode,
     empty_match_outputs,
     match_all_queries,
     parse_match_queries,
     primary_match_from_list,
+    total_match_count,
 )
 
 SCHEMA = {
@@ -205,6 +207,17 @@ SCHEMA = {
                 "true": "是",
             },
         },
+        {
+            "name": "output_coordinate_mode",
+            "type": "select",
+            "label": "输出坐标",
+            "options": ["screen_abs", "region_rel"],
+            "default": "screen_abs",
+            "option_labels": {
+                "screen_abs": "屏幕绝对",
+                "region_rel": "区域相对",
+            },
+        },
     ],
     "outputs": [
         {"name": "found", "type": "boolean"},
@@ -215,6 +228,7 @@ SCHEMA = {
         {"name": "width", "type": "number"},
         {"name": "height", "type": "number"},
         {"name": "matched_text", "type": "string"},
+        {"name": "match_count", "type": "number"},
         {"name": "text", "type": "string"},
         {"name": "confidence", "type": "number"},
         {"name": "matches", "type": "array", "canvas": False},
@@ -329,6 +343,7 @@ def _empty_ocr_result(
 ) -> dict:
     return {
         **empty_match_outputs(),
+        "match_count": 0,
         "text": "",
         "confidence": 0.0,
         "matches": [],
@@ -434,9 +449,11 @@ def run_ocr(params: dict) -> dict:
 
     matches = match_all_queries(boxes, queries, match_mode) if queries else []
     match_out = primary_match_from_list(matches) if matches else empty_match_outputs()
+    match_count = total_match_count(matches)
 
-    return {
+    result = {
         **match_out,
+        "match_count": match_count,
         "text": joined,
         "confidence": round(avg, 4),
         "matches": matches,
@@ -444,6 +461,12 @@ def run_ocr(params: dict) -> dict:
         "region": region,
         "anchor": anchor,
     }
+    return apply_output_coordinate_mode(
+        result,
+        mode=str(params.get("output_coordinate_mode") or "screen_abs"),
+        origin_x=x1,
+        origin_y=y1,
+    )
 
 
 def handler(params, context, **kwargs):

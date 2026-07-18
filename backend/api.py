@@ -282,6 +282,16 @@ class Api:
 
         return fetch_notice()
 
+    def get_notice_read_id(self) -> dict:
+        from backend.paths import get_notice_read_id
+
+        return {"ok": True, "id": get_notice_read_id()}
+
+    def set_notice_read_id(self, notice_id: str = "") -> dict:
+        from backend.paths import set_notice_read_id
+
+        return {"ok": True, "id": set_notice_read_id(notice_id)}
+
     def download_update(self, download_url: str | None = None) -> dict:
         from backend.core.updater import download_update
 
@@ -403,6 +413,136 @@ class Api:
             on_top = False
         return {"ok": True, "on_top": on_top}
 
+    def window_begin_resize(self, edge: str = "se") -> dict:
+        """Resize frameless window from an edge/corner hit zone.
+
+        pywebview JS API is async, so WM_NCLBUTTONDOWN usually misses the still-
+        pressed mouse button. Poll cursor + SetWindowPos while LMB is down.
+        """
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        try:
+            maximized = bool(getattr(self, "_ui_maximized", False))
+            state = getattr(self._window, "state", None)
+            if state is not None and "maximized" in str(getattr(state, "name", state)).lower():
+                maximized = True
+            if maximized:
+                return {"ok": False, "error": "最大化时不可调整大小", "maximized": True}
+        except Exception:
+            pass
+
+        hwnd = self._window_hwnd()
+        if not hwnd:
+            return {"ok": False, "error": "无法获取窗口句柄"}
+
+        edge_key = str(edge or "se").strip().lower()
+        # Which sides move with the cursor
+        move_left = edge_key in ("left", "topleft", "bottomleft", "w", "nw", "sw")
+        move_right = edge_key in ("right", "topright", "bottomright", "e", "ne", "se")
+        move_top = edge_key in ("top", "topleft", "topright", "n", "nw", "ne")
+        move_bottom = edge_key in ("bottom", "bottomleft", "bottomright", "s", "sw", "se")
+        if not (move_left or move_right or move_top or move_bottom):
+            return {"ok": False, "error": f"无效边缘: {edge}"}
+
+        try:
+            import ctypes
+            import time
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+
+            class RECT(ctypes.Structure):
+                _fields_ = [
+                    ("left", wintypes.LONG),
+                    ("top", wintypes.LONG),
+                    ("right", wintypes.LONG),
+                    ("bottom", wintypes.LONG),
+                ]
+
+            # Prefer top-level frame (WebView2 child handle breaks sizing).
+            GA_ROOT = 2
+            try:
+                root = int(user32.GetAncestor(ctypes.c_void_p(hwnd), GA_ROOT) or 0)
+                if root:
+                    hwnd = root
+            except Exception:
+                pass
+
+            rect = RECT()
+            if not user32.GetWindowRect(ctypes.c_void_p(hwnd), ctypes.byref(rect)):
+                return {"ok": False, "error": "无法读取窗口矩形"}
+
+            pt = wintypes.POINT()
+            user32.GetCursorPos(ctypes.byref(pt))
+            start_x, start_y = int(pt.x), int(pt.y)
+            orig_l, orig_t = int(rect.left), int(rect.top)
+            orig_r, orig_b = int(rect.right), int(rect.bottom)
+
+            min_w, min_h = 800, 560
+            try:
+                ms = getattr(self._window, "min_size", None) or getattr(self._window, "minsize", None)
+                if isinstance(ms, (list, tuple)) and len(ms) >= 2:
+                    min_w, min_h = max(1, int(ms[0])), max(1, int(ms[1]))
+            except Exception:
+                pass
+
+            VK_LBUTTON = 0x01
+            SWP_NOZORDER = 0x0004
+            SWP_NOACTIVATE = 0x0010
+            hwnd_p = ctypes.c_void_p(hwnd)
+
+            # Brief wait: bridge latency may arrive before LMB is observed.
+            deadline = time.perf_counter() + 0.35
+            while not (user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000):
+                if time.perf_counter() >= deadline:
+                    return {"ok": False, "error": "未检测到拖动", "edge": edge_key}
+                time.sleep(0.008)
+
+            while user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000:
+                user32.GetCursorPos(ctypes.byref(pt))
+                dx = int(pt.x) - start_x
+                dy = int(pt.y) - start_y
+                left, top, right, bottom = orig_l, orig_t, orig_r, orig_b
+                if move_left:
+                    left = min(orig_l + dx, right - min_w)
+                if move_right:
+                    right = max(orig_r + dx, left + min_w)
+                if move_top:
+                    top = min(orig_t + dy, bottom - min_h)
+                if move_bottom:
+                    bottom = max(orig_b + dy, top + min_h)
+                user32.SetWindowPos(
+                    hwnd_p,
+                    None,
+                    int(left),
+                    int(top),
+                    int(right - left),
+                    int(bottom - top),
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+                time.sleep(0.008)
+
+            # Sync pywebview cached size/position when possible.
+            try:
+                w = self._window
+                if w is not None and user32.GetWindowRect(hwnd_p, ctypes.byref(rect)):
+                    for attr, val in (
+                        ("x", int(rect.left)),
+                        ("y", int(rect.top)),
+                        ("width", int(rect.right - rect.left)),
+                        ("height", int(rect.bottom - rect.top)),
+                    ):
+                        try:
+                            object.__setattr__(w, attr, val)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            return {"ok": True, "edge": edge_key}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def _window_hwnd(self) -> int | None:
         w = self._window
         if w is None:
@@ -415,6 +555,9 @@ class Api:
                     to_int = getattr(handle, "ToInt32", None)
                     if callable(to_int):
                         return int(to_int())
+                    to_int64 = getattr(handle, "ToInt64", None)
+                    if callable(to_int64):
+                        return int(to_int64())
                     return int(handle)
             except Exception:
                 pass

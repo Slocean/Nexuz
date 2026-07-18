@@ -61,6 +61,8 @@ interface InspectorProps {
   defaultPickMethod?: string;
   /** Global coordinate basis for coordinate click nodes. */
   defaultCoordinateMode?: string;
+  /** Global output coordinate mode for OCR / find_image. */
+  defaultOutputCoordinateMode?: string;
   /** Global delay before subsequent nodes; node_delay_ms overrides it. */
   defaultNodeIntervalMs?: number;
   /** Display-capped store logs */
@@ -1057,6 +1059,7 @@ export default function Inspector({
   defaultCaptureMode = 'coord',
   defaultPickMethod = 'screenshot',
   defaultCoordinateMode = 'screen_abs',
+  defaultOutputCoordinateMode = 'screen_abs',
   defaultNodeIntervalMs = 0,
   rawLogs = [],
   runLog = null,
@@ -1659,8 +1662,9 @@ export default function Inspector({
         {isOcr && (
           <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
             <p className="text-xs leading-relaxed opacity-90">
-              多字结果：<code className="font-mono">{'{{ocr.matches.0.x}}'}</code>
-              ；多点取色：<code className="font-mono">{'{{取色.colors.0}}'}</code>
+              匹配次数：<code className="font-mono">{'{{ocr.match_count}}'}</code>
+              ；多字：<code className="font-mono">{'{{ocr.matches.0.x}}'}</code>
+              （同一字出现多次时 x/y 等为数组）
               ；或「文字定位」复用 <code className="font-mono">boxes</code>
             </p>
             {onPickRegion && (
@@ -1742,6 +1746,13 @@ export default function Inspector({
                                 input.default ??
                                 'screen_abs',
                             )
+                          : input.name === 'output_coordinate_mode'
+                            ? String(
+                                value ??
+                                  defaultOutputCoordinateMode ??
+                                  input.default ??
+                                  'screen_abs',
+                              )
                         : String(value ?? input.default ?? '')
                     }
                     onValueChange={v => handleFieldChange(input.name, v)}>

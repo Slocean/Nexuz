@@ -3,7 +3,9 @@ import { create } from 'zustand';
 // UI memory is deliberately bounded. Complete per-run logs are streamed by
 // Python to flow-scoped rolling files and exported through the bridge.
 const MAX_LOGS = 300;
-const HEAVY_KEYS = new Set(['boxes', 'box', 'image', 'bitmap', 'pixels', 'raw', 'screenshot']);
+const HEAVY_KEYS = new Set(['box', 'image', 'bitmap', 'pixels', 'raw', 'screenshot']);
+const LIGHT_LIST_KEYS = new Set(['boxes', 'matches']);
+const GEOM_KEYS = ['left', 'top', 'width', 'height', 'cx', 'cy', 'x', 'y'];
 
 function uid(prefix = 'node') {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -26,18 +28,60 @@ function cloneValue(value) {
   }
 }
 
+function compactOcrItem(item, asBox) {
+  const entry = {};
+  if ('text' in item || asBox) entry.text = String(item.text || '').slice(0, 120);
+  if ('confidence' in item) entry.confidence = item.confidence;
+  if ('query' in item) entry.query = String(item.query || '').slice(0, 120);
+  if ('matched_text' in item) {
+    const mt = item.matched_text;
+    entry.matched_text = Array.isArray(mt)
+      ? mt.slice(0, 24).map((x) => String(x || '').slice(0, 80))
+      : String(mt || '').slice(0, 120);
+  }
+  if ('found' in item) entry.found = !!item.found;
+  if ('count' in item) entry.count = item.count;
+  for (const gk of GEOM_KEYS) {
+    if (item[gk] == null) continue;
+    const val = item[gk];
+    if (Array.isArray(val)) {
+      entry[gk] = val
+        .slice(0, 24)
+        .map((x) => (typeof x === 'number' ? x : Number(x)))
+        .filter((x) => Number.isFinite(x));
+    } else if (typeof val === 'number') {
+      entry[gk] = val;
+    } else {
+      const n = Number(val);
+      if (Number.isFinite(n)) entry[gk] = n;
+    }
+  }
+  return entry;
+}
+
 /** Slim runtime values kept in UI store / logs to avoid retaining OCR polygons etc. */
 function summarizeRuntimeValue(value, depth = 0, key = null) {
-  if (depth >= 4) return '…';
-  if (key && HEAVY_KEYS.has(String(key).toLowerCase())) {
-    if (Array.isArray(value)) return { _omitted: 'boxes', count: value.length };
-    return value == null ? value : { _omitted: key };
-  }
   if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
   if (typeof value === 'string') {
     return value.length > 240 ? `${value.slice(0, 240)}…(+${value.length - 240})` : value;
   }
+
+  const leaf = key != null ? String(key).toLowerCase() : '';
+  if (LIGHT_LIST_KEYS.has(leaf) && Array.isArray(value)) {
+    return value.slice(0, 80).filter((v) => v && typeof v === 'object').map((v) => compactOcrItem(v, leaf === 'boxes'));
+  }
+  if (HEAVY_KEYS.has(leaf)) {
+    if (Array.isArray(value)) return { _omitted: leaf, count: value.length };
+    return value == null ? value : { _omitted: leaf };
+  }
+  if (depth >= 6) return '…';
+
   if (Array.isArray(value)) {
+    if (value.length && value.every((v) => v == null || typeof v === 'boolean' || typeof v === 'number')) {
+      const head = value.slice(0, 24);
+      if (value.length > 24) head.push(`…(+${value.length - 24})`);
+      return head;
+    }
     const head = value.slice(0, 24).map((v) => summarizeRuntimeValue(v, depth + 1));
     if (value.length > 24) head.push(`…(+${value.length - 24})`);
     return head;
@@ -150,6 +194,18 @@ function loadDefaultCoordinateMode() {
   }
 }
 
+function loadDefaultOutputCoordinateMode() {
+  try {
+    const v = localStorage.getItem('nexuz.defaultOutputCoordinateMode');
+    if (v === 'region_rel' || v === 'screen_abs') return v;
+    return 'screen_abs';
+  } catch {
+    return 'screen_abs';
+  }
+}
+
+const OUTPUT_COORD_NODE_TYPES = new Set(['ocr_recognize', 'find_image']);
+
 function loadDefaultNodeIntervalMs() {
   try {
     const value = Number(localStorage.getItem('nexuz.defaultNodeIntervalMs'));
@@ -190,6 +246,7 @@ export const useFlowStore = create((set, get) => ({
   defaultCaptureMode: loadDefaultCaptureMode(),
   defaultPickMethod: loadDefaultPickMethod(),
   defaultCoordinateMode: loadDefaultCoordinateMode(),
+  defaultOutputCoordinateMode: loadDefaultOutputCoordinateMode(),
   defaultNodeIntervalMs: loadDefaultNodeIntervalMs(),
 
   // run history for sidebar
@@ -243,6 +300,16 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ defaultCoordinateMode: mode });
+  },
+
+  setDefaultOutputCoordinateMode: (defaultOutputCoordinateMode) => {
+    const mode = defaultOutputCoordinateMode === 'region_rel' ? 'region_rel' : 'screen_abs';
+    try {
+      localStorage.setItem('nexuz.defaultOutputCoordinateMode', mode);
+    } catch {
+      /* ignore */
+    }
+    set({ defaultOutputCoordinateMode: mode });
   },
 
   setDefaultNodeIntervalMs: (defaultNodeIntervalMs) => {
@@ -320,6 +387,25 @@ export const useFlowStore = create((set, get) => ({
         nodes[id] = {
           ...node,
           params,
+        };
+      }
+      if (!changed) return state;
+      return { flow: { ...state.flow, nodes } };
+    }),
+
+  /** Force OCR / find_image nodes to use the given output_coordinate_mode. */
+  syncAllOutputCoordinateModes: (mode) =>
+    set((state) => {
+      const m = mode === 'region_rel' ? 'region_rel' : 'screen_abs';
+      const nodes = { ...state.flow.nodes };
+      let changed = false;
+      for (const [id, node] of Object.entries(nodes)) {
+        if (!OUTPUT_COORD_NODE_TYPES.has(node?.type)) continue;
+        if (node.params?.output_coordinate_mode === m) continue;
+        changed = true;
+        nodes[id] = {
+          ...node,
+          params: { ...(node.params || {}), output_coordinate_mode: m },
         };
       }
       if (!changed) return state;
@@ -483,6 +569,9 @@ export const useFlowStore = create((set, get) => ({
       const mode = get().defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
       params.capture_mode = mode;
       params.coordinate_mode = get().defaultCoordinateMode || 'screen_abs';
+    }
+    if (OUTPUT_COORD_NODE_TYPES.has(type)) {
+      params.output_coordinate_mode = get().defaultOutputCoordinateMode || 'screen_abs';
     }
     const node = {
       type,

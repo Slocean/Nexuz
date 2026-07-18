@@ -21,6 +21,7 @@ import { getThemeColors } from './theme';
 import {
   applyDefaultCaptureMode,
   applyDefaultCoordinateMode,
+  applyDefaultOutputCoordinateMode,
   dataOutField,
   formatNodeRef,
   flowToCanvas,
@@ -35,6 +36,35 @@ import { parseNodeRef } from './bindValue';
 import { collectFlowBindIssues } from './bindValidate';
 import { useFlowStore } from '../../src/store/flowModelStore';
 import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
+import WindowResizeHandles from './components/WindowResizeHandles';
+
+async function readNoticeReadId(): Promise<string> {
+  try {
+    const res = await bridge.getNoticeReadId?.();
+    if (res?.ok && res.id) return String(res.id);
+  } catch {
+    /* ignore */
+  }
+  try {
+    return localStorage.getItem('nexuz.noticeReadId') || '';
+  } catch {
+    return '';
+  }
+}
+
+async function writeNoticeReadId(id: string): Promise<void> {
+  const value = String(id || '');
+  try {
+    await bridge.setNoticeReadId?.(value);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.setItem('nexuz.noticeReadId', value);
+  } catch {
+    /* ignore */
+  }
+}
 
 const REQUIRED_BLOCK_TYPES = [
   'ocr_recognize',
@@ -136,6 +166,7 @@ function AppShell() {
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
   const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
   const defaultCoordinateMode = useFlowStore((s) => s.defaultCoordinateMode);
+  const defaultOutputCoordinateMode = useFlowStore((s) => s.defaultOutputCoordinateMode);
   const defaultNodeIntervalMs = useFlowStore((s) => s.defaultNodeIntervalMs);
   const {
     pickPoint: screenshotPickPoint,
@@ -344,23 +375,14 @@ function AppShell() {
           const res = await bridge.fetchNotice();
           const n = res?.notice;
           if (n?.id && n?.body) {
-            let readId = '';
-            try {
-              readId = localStorage.getItem('nexuz.noticeReadId') || '';
-            } catch {
-              /* ignore */
-            }
+            const readId = await readNoticeReadId();
             if (String(n.id) !== readId) {
               await alert({
                 title: n.title || '通知',
                 description: String(n.body),
                 okText: '我知道了',
               });
-              try {
-                localStorage.setItem('nexuz.noticeReadId', String(n.id));
-              } catch {
-                /* ignore */
-              }
+              await writeNoticeReadId(String(n.id));
             }
           }
         } catch {
@@ -442,9 +464,12 @@ function AppShell() {
           ? '开始运行流程（已隐藏窗口，避免点击落到本程序上）…'
           : '开始运行流程…',
     });
-    const prepared = applyDefaultCoordinateMode(
-      applyDefaultCaptureMode(flow, defaultCaptureMode),
-      defaultCoordinateMode,
+    const prepared = applyDefaultOutputCoordinateMode(
+      applyDefaultCoordinateMode(
+        applyDefaultCaptureMode(flow, defaultCaptureMode),
+        defaultCoordinateMode,
+      ),
+      defaultOutputCoordinateMode,
     );
     const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
     const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
@@ -578,9 +603,12 @@ function AppShell() {
     }
     clearLogs();
     appendLog({ level: 'info', message: '调试单步启动：将在首个节点暂停…' });
-    const prepared = applyDefaultCoordinateMode(
-      applyDefaultCaptureMode(flow, defaultCaptureMode),
-      defaultCoordinateMode,
+    const prepared = applyDefaultOutputCoordinateMode(
+      applyDefaultCoordinateMode(
+        applyDefaultCaptureMode(flow, defaultCaptureMode),
+        defaultCoordinateMode,
+      ),
+      defaultOutputCoordinateMode,
     );
     const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
     const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
@@ -1098,9 +1126,12 @@ function AppShell() {
         level: 'info',
         message: `单节点运行 [${nodeId}] ${src.type || ''}…`,
       });
-      const prepared = applyDefaultCoordinateMode(
-        applyDefaultCaptureMode(soloFlow, defaultCaptureMode),
-        defaultCoordinateMode,
+      const prepared = applyDefaultOutputCoordinateMode(
+        applyDefaultCoordinateMode(
+          applyDefaultCaptureMode(soloFlow, defaultCaptureMode),
+          defaultCoordinateMode,
+        ),
+        defaultOutputCoordinateMode,
       );
       const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
       const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
@@ -1117,6 +1148,7 @@ function AppShell() {
       clearLogs,
       defaultCaptureMode,
       defaultCoordinateMode,
+      defaultOutputCoordinateMode,
       defaultNodeIntervalMs,
       filePath,
       hideWindowOnRecord,
@@ -1129,6 +1161,7 @@ function AppShell() {
       style={{ backgroundColor: colors.background }}
       className="flex flex-col h-screen w-screen overflow-hidden font-sans"
     >
+      <WindowResizeHandles />
       <Toolbar
         themeName={themeName as any}
         setThemeName={handleSetThemeName as any}
@@ -1250,6 +1283,7 @@ function AppShell() {
           defaultCaptureMode={defaultCaptureMode}
           defaultPickMethod={defaultPickMethod}
           defaultCoordinateMode={defaultCoordinateMode}
+          defaultOutputCoordinateMode={defaultOutputCoordinateMode}
           defaultNodeIntervalMs={defaultNodeIntervalMs}
         />
 

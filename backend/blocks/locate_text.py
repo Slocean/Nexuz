@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from backend.blocks._ocr_match import (
     empty_match_outputs,
-    find_first_matching_box,
-    match_outputs_from_box,
+    find_all_matching_boxes,
+    match_outputs_from_boxes,
 )
 
 SCHEMA = {
@@ -48,6 +48,7 @@ SCHEMA = {
         {"name": "width", "type": "number"},
         {"name": "height", "type": "number"},
         {"name": "matched_text", "type": "string"},
+        {"name": "match_count", "type": "number"},
     ],
 }
 
@@ -72,8 +73,10 @@ def handler(params, context, **kwargs):
     expect = str(params.get("match_text") or "").strip()
     mode = str(params.get("match_mode") or "contains")
     if not expect:
-        return empty_match_outputs()
+        return {**empty_match_outputs(), "match_count": 0}
     if not boxes:
-        return empty_match_outputs()
-    hit = find_first_matching_box(boxes, expect, mode)
-    return match_outputs_from_box(hit)
+        return {**empty_match_outputs(), "match_count": 0}
+    hits = find_all_matching_boxes(boxes, expect, mode)
+    out = match_outputs_from_boxes(hits)
+    out["match_count"] = int(out.get("count") or 0)
+    return out

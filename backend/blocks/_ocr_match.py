@@ -1,4 +1,4 @@
-"""Shared OCR text-match helpers: box AABB, match modes, first-hit coords."""
+"""Shared OCR text-match helpers: box AABB, match modes, multi-hit coords."""
 
 from __future__ import annotations
 
@@ -74,6 +74,7 @@ def empty_match_outputs() -> dict[str, Any]:
         "width": 0,
         "height": 0,
         "matched_text": "",
+        "count": 0,
     }
 
 
@@ -99,6 +100,29 @@ def match_outputs_from_box(entry: dict[str, Any] | None) -> dict[str, Any]:
         "width": width,
         "height": height,
         "matched_text": str(entry.get("text") or ""),
+        "count": 1,
+    }
+
+
+def match_outputs_from_boxes(entries: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """One hit → scalar coords; multiple hits → coordinate arrays."""
+    items = [e for e in (entries or []) if isinstance(e, dict)]
+    if not items:
+        return empty_match_outputs()
+    if len(items) == 1:
+        return match_outputs_from_box(items[0])
+
+    outs = [match_outputs_from_box(e) for e in items]
+    return {
+        "found": True,
+        "count": len(outs),
+        "x": [int(o["x"]) for o in outs],
+        "y": [int(o["y"]) for o in outs],
+        "left": [int(o["left"]) for o in outs],
+        "top": [int(o["top"]) for o in outs],
+        "width": [int(o["width"]) for o in outs],
+        "height": [int(o["height"]) for o in outs],
+        "matched_text": [str(o.get("matched_text") or "") for o in outs],
     }
 
 
@@ -108,15 +132,26 @@ def find_first_matching_box(
     mode: str,
 ) -> dict[str, Any] | None:
     """Return the first box whose text matches expect, or None."""
+    hits = find_all_matching_boxes(boxes, expect, mode)
+    return hits[0] if hits else None
+
+
+def find_all_matching_boxes(
+    boxes: list[dict[str, Any]] | None,
+    expect: str,
+    mode: str,
+) -> list[dict[str, Any]]:
+    """Return all boxes whose text matches expect (scan order)."""
     expect = str(expect or "")
     if not expect:
-        return None
+        return []
+    out: list[dict[str, Any]] = []
     for item in boxes or []:
         if not isinstance(item, dict):
             continue
         if match_text(str(item.get("text") or ""), expect, mode):
-            return item
-    return None
+            out.append(item)
+    return out
 
 
 def parse_match_queries(params: dict[str, Any] | None) -> list[str]:
@@ -167,28 +202,142 @@ def match_all_queries(
     queries: list[str],
     mode: str,
 ) -> list[dict[str, Any]]:
-    """Match each query against boxes; preserve query order."""
+    """Match each query against boxes; preserve query order. Multi-hits → arrays."""
     matches: list[dict[str, Any]] = []
     for q in queries:
-        hit = find_first_matching_box(boxes, q, mode)
-        entry = match_outputs_from_box(hit)
+        hits = find_all_matching_boxes(boxes, q, mode)
+        entry = match_outputs_from_boxes(hits)
         entry["query"] = q
         matches.append(entry)
     return matches
 
 
+def _scalar_geom(value: Any, default: int = 0) -> int:
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return default
+        try:
+            return int(round(float(value[0])))
+        except (TypeError, ValueError):
+            return default
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def primary_match_from_list(matches: list[dict[str, Any]]) -> dict[str, Any]:
-    """Top-level found/x/y: first successful hit, else empty."""
+    """Top-level found/x/y: first successful hit (first element if arrays), else empty."""
     for m in matches:
         if m.get("found"):
+            matched = m.get("matched_text")
+            if isinstance(matched, list):
+                matched_text = str(matched[0] if matched else "")
+            else:
+                matched_text = str(matched or "")
             return {
                 "found": True,
-                "x": int(m.get("x") or 0),
-                "y": int(m.get("y") or 0),
-                "left": int(m.get("left") or 0),
-                "top": int(m.get("top") or 0),
-                "width": int(m.get("width") or 0),
-                "height": int(m.get("height") or 0),
-                "matched_text": str(m.get("matched_text") or ""),
+                "x": _scalar_geom(m.get("x")),
+                "y": _scalar_geom(m.get("y")),
+                "left": _scalar_geom(m.get("left")),
+                "top": _scalar_geom(m.get("top")),
+                "width": _scalar_geom(m.get("width")),
+                "height": _scalar_geom(m.get("height")),
+                "matched_text": matched_text,
+                "count": int(m.get("count") or 1),
             }
     return empty_match_outputs()
+
+
+def total_match_count(matches: list[dict[str, Any]] | None) -> int:
+    """Sum of successful hit counts across all query match entries."""
+    total = 0
+    for m in matches or []:
+        if not isinstance(m, dict) or not m.get("found"):
+            continue
+        try:
+            total += max(0, int(m.get("count") or 0))
+        except (TypeError, ValueError):
+            total += 1
+    return total
+
+
+_GEOM_KEYS = ("x", "y", "left", "top", "cx", "cy")
+
+
+def _shift_geom_value(value: Any, *, dx: int, dy: int, key: str) -> Any:
+    if value is None:
+        return value
+    if key in ("x", "left", "cx"):
+        delta = dx
+    elif key in ("y", "top", "cy"):
+        delta = dy
+    else:
+        return value
+
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            try:
+                out.append(int(round(float(item))) - delta)
+            except (TypeError, ValueError):
+                out.append(item)
+        return out
+    try:
+        return int(round(float(value))) - delta
+    except (TypeError, ValueError):
+        return value
+
+
+def shift_coordinate_fields(
+    payload: dict[str, Any] | None,
+    *,
+    origin_x: int = 0,
+    origin_y: int = 0,
+) -> dict[str, Any]:
+    """Subtract region origin from geometry fields (in-place-ish copy)."""
+    if not isinstance(payload, dict):
+        return {}
+    ox, oy = int(origin_x or 0), int(origin_y or 0)
+    if ox == 0 and oy == 0:
+        return dict(payload)
+    out = dict(payload)
+    for key in _GEOM_KEYS:
+        if key in out:
+            out[key] = _shift_geom_value(out[key], dx=ox, dy=oy, key=key)
+    return out
+
+
+def apply_output_coordinate_mode(
+    result: dict[str, Any],
+    *,
+    mode: str,
+    origin_x: int = 0,
+    origin_y: int = 0,
+) -> dict[str, Any]:
+    """
+    Transform OCR / find-image style results.
+    screen_abs: unchanged; region_rel: subtract recognition/search region origin.
+    """
+    mode_key = str(mode or "screen_abs").strip().lower() or "screen_abs"
+    if mode_key != "region_rel":
+        return result
+
+    ox, oy = int(origin_x or 0), int(origin_y or 0)
+    out = shift_coordinate_fields(result, origin_x=ox, origin_y=oy)
+
+    boxes = out.get("boxes")
+    if isinstance(boxes, list):
+        out["boxes"] = [
+            shift_coordinate_fields(b, origin_x=ox, origin_y=oy) if isinstance(b, dict) else b
+            for b in boxes
+        ]
+
+    matches = out.get("matches")
+    if isinstance(matches, list):
+        out["matches"] = [
+            shift_coordinate_fields(m, origin_x=ox, origin_y=oy) if isinstance(m, dict) else m
+            for m in matches
+        ]
+
+    return out
