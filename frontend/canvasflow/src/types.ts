@@ -70,13 +70,20 @@ export interface WorkflowTemplate {
   connections: NodeConnection[];
 }
 
+export type LogCategory = "system" | "runtime" | "audit" | "diag";
+
 export interface ExecutionLog {
   id: string;
   timestamp: string;
   type: "info" | "success" | "warning" | "error";
+  level?: string;
+  category?: LogCategory | string;
+  scope?: string;
   nodeId?: string;
   nodeName?: string;
   message: string;
+  detail?: any;
+  ts?: number;
 }
 
 export interface AIAssistantMessage {

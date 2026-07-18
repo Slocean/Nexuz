@@ -12,8 +12,9 @@ import {
   Trash2,
   Keyboard,
   Maximize2,
+  Filter,
 } from 'lucide-react';
-import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
+import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog, LogCategory } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
 import { logsToText } from '../nexuzAdapter';
@@ -39,8 +40,10 @@ import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAppDialog } from './AppDialogs';
@@ -1081,12 +1084,59 @@ export default function Inspector({
   const [outputCopied, setOutputCopied] = React.useState(false);
   const [logsExpanded, setLogsExpanded] = React.useState(false);
   const [logCopyHint, setLogCopyHint] = React.useState<string | null>(null);
+  const [expandedLogIds, setExpandedLogIds] = React.useState<Record<string, boolean>>({});
+  const [logCategories, setLogCategories] = React.useState<LogCategory[]>(() => {
+    try {
+      const raw = localStorage.getItem('nexuz.logCategories');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) {
+          return parsed.filter((c: string) =>
+            ['system', 'runtime', 'audit', 'diag'].includes(c),
+          ) as LogCategory[];
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return ['runtime'];
+  });
   const logCopyHintTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const logSelectionRef = React.useRef('');
   const logEndRef = React.useRef<HTMLDivElement | null>(null);
   const pickBusyRef = React.useRef(false);
   const clearLogs = useFlowStore(s => s.clearLogs);
   const colors = getThemeColors(themeName, themeMode);
+
+  const LOG_CAT_CHIPS: { id: LogCategory; label: string }[] = [
+    { id: 'runtime', label: '运行' },
+    { id: 'system', label: '系统' },
+    { id: 'audit', label: '操作' },
+    { id: 'diag', label: '诊断' },
+  ];
+
+  const toggleLogCategory = (id: LogCategory) => {
+    setLogCategories((prev) => {
+      const next = prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id];
+      try {
+        localStorage.setItem('nexuz.logCategories', JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  const filteredLogs = React.useMemo(() => {
+    const allow = new Set(logCategories);
+    return logs.filter((l) => allow.has((l.category as LogCategory) || 'runtime'));
+  }, [logs, logCategories]);
+
+  const filteredRawLogs = React.useMemo(() => {
+    const allow = new Set(logCategories);
+    const rows = rawLogs.length ? rawLogs : [];
+    return rows.filter((l: any) => allow.has((l.category as LogCategory) || 'runtime'));
+  }, [rawLogs, logCategories]);
 
   const showLogCopyHint = (msg: string) => {
     if (logCopyHintTimer.current) clearTimeout(logCopyHintTimer.current);
@@ -1144,27 +1194,29 @@ export default function Inspector({
   };
 
   const logsAsText = () => {
-    const rows = rawLogs.length ? rawLogs : null;
-    if (rows && rows.length) {
+    if (filteredRawLogs.length) {
       return logsToText(
-        rows.map((l: any) => ({
+        filteredRawLogs.map((l: any) => ({
           ts: l.ts,
           level: l.level,
+          category: l.category,
           message: l.message,
-          detail: l.detail
-        }))
+          detail: l.detail,
+        })),
       );
     }
     return logsToText(
-      logs.map(l => ({
-        ts: Date.now(),
-        level: l.type,
-        message: l.message
-      }))
+      filteredLogs.map((l) => ({
+        ts: (l as any).ts || Date.now(),
+        level: l.level || l.type,
+        category: l.category,
+        message: l.message,
+        detail: l.detail,
+      })),
     );
   };
 
-  const exportLogs = async (source: 'display' | 'full' = 'full') => {
+  const exportLogs = async (source: 'display' | 'full' | 'app' = 'full') => {
     if (source === 'full') {
       const res = await bridge.exportRunLog();
       if (res?.cancelled) return;
@@ -1180,6 +1232,21 @@ export default function Inspector({
       });
       return;
     }
+    if (source === 'app') {
+      const res = await bridge.exportAppLogs?.(['system', 'audit']);
+      if (res?.cancelled) return;
+      if (!res?.ok) {
+        await alert({ title: '导出失败', description: res?.error || '无法保存应用日志' });
+        return;
+      }
+      await alert({
+        title: '已导出',
+        description: res.path
+          ? `已导出应用日志（系统+操作）到\n${res.path}`
+          : '应用日志已导出',
+      });
+      return;
+    }
     const text = logsAsText();
     if (!text.trim()) {
       await alert({ title: '导出日志', description: '暂无日志可导出' });
@@ -1192,7 +1259,7 @@ export default function Inspector({
       await alert({ title: '导出失败', description: res?.error || '无法保存日志文件' });
       return;
     }
-    const count = rawLogs.length || logs.length;
+    const count = filteredRawLogs.length || filteredLogs.length;
     await alert({
       title: '已导出',
       description: res.path
@@ -1226,46 +1293,115 @@ export default function Inspector({
 
   React.useEffect(() => {
     logEndRef.current?.scrollIntoView({ block: 'end' });
-  }, [logs, logsExpanded]);
+  }, [filteredLogs, logsExpanded]);
+
+  const toggleLogExpand = (id: string) => {
+    setExpandedLogIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const logFilterActive =
+    logCategories.length !== 1 || logCategories[0] !== 'runtime';
+  const logFilterTitle =
+    logCategories.length === 0
+      ? '筛选（无）'
+      : logCategories.length === LOG_CAT_CHIPS.length
+        ? '筛选（全部）'
+        : `筛选（${logCategories
+            .map((id) => LOG_CAT_CHIPS.find((c) => c.id === id)?.label || id)
+            .join('·')}）`;
 
   const renderLogLines = (limit = 80, endRef: boolean = false) => (
     <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed min-w-0 w-full max-w-full">
-      {logs.length === 0 && (
+      {filteredLogs.length === 0 && (
         <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
-          尚无日志
+          {logs.length === 0 ? '尚无日志' : '当前过滤器下无日志'}
         </p>
       )}
-      {logs.slice(-limit).map((log) => (
-        <div
-          key={log.id}
-          className={`select-text break-all whitespace-pre-wrap py-0.5 min-w-0 w-full max-w-full ${
-            log.type === 'error'
-              ? 'text-rose-500'
-              : log.type === 'success'
-                ? 'text-emerald-500'
-                : log.type === 'warning'
-                  ? 'text-amber-500'
-                  : ''
-          }`}
-          style={{
-            overflowWrap: 'anywhere',
-            wordBreak: 'break-word',
-            ...(log.type === 'error' || log.type === 'success' || log.type === 'warning'
-              ? {}
-              : { color: colors.secondaryText }),
-          }}
-        >
-          <span className="opacity-50 mr-2">{log.timestamp}</span>
-          {log.nodeId ? <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span> : null}
-          {log.message}
-        </div>
-      ))}
+      {filteredLogs.slice(-limit).map((log) => {
+        const hasDetail = log.detail !== undefined && log.detail !== null;
+        const open = !!expandedLogIds[log.id];
+        return (
+          <div
+            key={log.id}
+            className={`select-text break-all whitespace-pre-wrap py-0.5 min-w-0 w-full max-w-full ${
+              log.type === 'error'
+                ? 'text-rose-500'
+                : log.type === 'success'
+                  ? 'text-emerald-500'
+                  : log.type === 'warning'
+                    ? 'text-amber-500'
+                    : ''
+            }`}
+            style={{
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
+              ...(log.type === 'error' || log.type === 'success' || log.type === 'warning'
+                ? {}
+                : { color: colors.secondaryText }),
+            }}
+          >
+            <div
+              className={hasDetail ? 'cursor-pointer' : undefined}
+              onClick={hasDetail ? () => toggleLogExpand(log.id) : undefined}
+              title={hasDetail ? (open ? '收起详情' : '展开详情') : undefined}
+            >
+              {hasDetail ? (
+                <span className="inline-block w-3 opacity-50 mr-0.5">
+                  {open ? '▾' : '▸'}
+                </span>
+              ) : (
+                <span className="inline-block w-3 mr-0.5" />
+              )}
+              <span className="opacity-50 mr-2">{log.timestamp}</span>
+              {log.nodeId ? (
+                <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span>
+              ) : null}
+              {log.message}
+            </div>
+            {hasDetail && open ? (
+              <div
+                className="mt-1 mb-1 ml-3 pl-2 border-l"
+                style={{ borderColor: colors.border }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <JsonTreeView data={log.detail} className="text-xs" />
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
       {endRef ? <div ref={logEndRef} /> : null}
     </div>
   );
 
   const logToolbar = (opts?: { showExpand?: boolean }) => (
     <div className="flex items-center gap-0.5 shrink-0">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`h-7 w-7 hover:opacity-100 ${logFilterActive ? 'opacity-100' : 'opacity-70'}`}
+            style={logFilterActive ? { color: colors.primary } : undefined}
+            title={logFilterTitle}
+          >
+            <Filter className="w-3.5 h-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[9rem] z-[200]">
+          <DropdownMenuLabel>显示类型</DropdownMenuLabel>
+          {LOG_CAT_CHIPS.map((chip) => (
+            <DropdownMenuCheckboxItem
+              key={chip.id}
+              checked={logCategories.includes(chip.id)}
+              onCheckedChange={() => toggleLogCategory(chip.id)}
+              onSelect={(e) => e.preventDefault()}
+            >
+              {chip.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
       {opts?.showExpand !== false ? (
         <Button
           variant="ghost"
@@ -1319,12 +1455,15 @@ export default function Inspector({
             <Download className="w-3.5 h-3.5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[11rem] z-[200]">
+        <DropdownMenuContent align="end" className="min-w-[13rem] z-[200]">
           <DropdownMenuItem onClick={() => exportLogs('full')}>
-            完整日志（{runLog?.flow_name || '当前流程'} · {runLog?.record_count || 0}）
+            完整运行日志（{runLog?.flow_name || '当前流程'} · {runLog?.record_count || 0}）
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => exportLogs('display')}>
-            当前显示（{rawLogs.length || logs.length}）
+            当前显示（{filteredRawLogs.length || filteredLogs.length}）
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => exportLogs('app')}>
+            应用日志（系统+操作）
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

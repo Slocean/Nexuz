@@ -371,13 +371,18 @@ function AppShell() {
 
   const canvasLogs = useMemo(
     () =>
-      logs.slice(-80).map((l, i) => ({
+      logs.map((l, i) => ({
         id: `${l.ts || 0}-${i}-${String(l.message || '').slice(0, 24)}`,
         timestamp: new Date(l.ts || Date.now()).toLocaleTimeString(),
         type: mapLogLevel(l.level),
+        level: l.level,
+        category: l.category || 'runtime',
+        scope: l.scope,
         message: l.message,
         nodeId: l.nodeId || undefined,
         nodeName: undefined,
+        detail: l.detail,
+        ts: l.ts,
       })),
     [logs],
   );
@@ -395,7 +400,12 @@ function AppShell() {
       }
       if (msg.event === 'hotkey_run') {
         if (msg.payload?.message) {
-          appendLog({ level: 'info', message: String(msg.payload.message) });
+          appendLog({
+            level: 'info',
+            category: 'system',
+            scope: 'app',
+            message: String(msg.payload.message),
+          });
         }
         void handleRunWorkflowRef.current?.();
         return;
@@ -419,18 +429,41 @@ function AppShell() {
         /* ignore */
       }
       try {
+        let diag = false;
+        try {
+          diag = localStorage.getItem('nexuz.diagLogging') === '1';
+        } catch {
+          /* ignore */
+        }
+        await bridge.setDiagLogging?.(diag);
+      } catch {
+        /* ignore */
+      }
+      try {
         const ping = await bridge.ping();
         appendLog({
           level: 'info',
+          category: 'system',
+          scope: 'app',
           message: `桥接: ${ping?.message || 'ok'} (DPI ${ping?.dpi_scale ?? '?'})`,
         });
       } catch (e: any) {
-        appendLog({ level: 'error', message: String(e) });
+        appendLog({
+          level: 'error',
+          category: 'system',
+          scope: 'app',
+          message: String(e),
+        });
       }
       try {
         const info = await bridge.getAppInfo();
         if (info?.version) {
-          appendLog({ level: 'info', message: `版本 ${info.version}` });
+          appendLog({
+            level: 'info',
+            category: 'system',
+            scope: 'app',
+            message: `版本 ${info.version}`,
+          });
         }
       } catch {
         /* ignore */
@@ -442,6 +475,8 @@ function AppShell() {
         const hasOcr = merged.some((s) => s.type === 'ocr_recognize');
         appendLog({
           level: 'info',
+          category: 'system',
+          scope: 'app',
           message: hasOcr
             ? `积木已加载 ${merged.length} 个（含 OCR / 找图）`
             : `积木已加载 ${merged.length} 个`,
@@ -841,12 +876,13 @@ function AppShell() {
       setFlow(res.flow, res.path);
       setFlowsRefreshToken((n) => n + 1);
       const fmt = res.format === 'zip' ? '（已解压模板图片）' : '';
-      appendLog({
-        level: 'ok',
-        message: `已导入${fmt}: ${res.name || res.flow.name || '流程'}`,
+      const name = res.name || res.flow.name || '流程';
+      useFlowStore.getState().appendAuditLog?.(`导入流程${fmt}: ${name}`, {
+        path: res.path,
+        format: res.format,
       });
     } else if (!res?.cancelled) {
-      appendLog({ level: 'error', message: res?.error || '导入失败' });
+      appendLog({ level: 'error', category: 'system', message: res?.error || '导入失败' });
     }
   };
 
@@ -854,12 +890,12 @@ function AppShell() {
     const res = await bridge.exportFlow(flow, flow.name || null);
     if (res?.ok) {
       const fmt = res.format === 'zip' ? '（含模板图片的流程包）' : '';
-      appendLog({
-        level: 'ok',
-        message: `已导出${fmt}: ${res.path || flow.name || '流程'}`,
-      });
+      useFlowStore.getState().appendAuditLog?.(
+        `导出流程${fmt}: ${res.path || flow.name || '流程'}`,
+        { path: res.path, format: res.format },
+      );
     } else if (!res?.cancelled) {
-      appendLog({ level: 'error', message: res?.error || '导出失败' });
+      appendLog({ level: 'error', category: 'system', message: res?.error || '导出失败' });
     }
   };
 

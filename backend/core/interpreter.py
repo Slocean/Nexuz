@@ -10,7 +10,12 @@ from typing import Any, Callable
 
 from .expression import evaluate_expression
 from .registry import get_handler
-from .runtime_payload import compact_context_value, summarize_params, summarize_result
+from .runtime_payload import (
+    compact_context_value,
+    summarize_node_outcome,
+    summarize_params,
+    summarize_result,
+)
 from .variable_resolver import resolve_value, resolve_variables
 
 
@@ -431,40 +436,62 @@ class FlowInterpreter:
                 for out_name, val in result.items():
                     ctx_key = f"{node_id}.{out_name}"
                     context[ctx_key] = compact_context_value(ctx_key, val)
+                summarized = summarize_result(result)
+                elapsed = round(elapsed_ms, 2)
                 self._emit(
                     "node_end",
                     {
                         "node_id": node_id,
                         "type": block_type,
-                        "result": summarize_result(result),
-                        "elapsed_ms": round(elapsed_ms, 2),
+                        "result": summarized,
+                        "elapsed_ms": elapsed,
                         "ok": True,
+                        "summary": summarize_node_outcome(
+                            block_type,
+                            ok=True,
+                            result=summarized,
+                            elapsed_ms=elapsed,
+                        ),
+                        "category": "runtime",
+                        "scope": "node",
                     },
                 )
             except InterruptedError:
                 elapsed_ms = (time.perf_counter() - t0) * 1000
+                elapsed = round(elapsed_ms, 2)
                 self._emit(
                     "node_end",
                     {
                         "node_id": node_id,
                         "type": block_type,
                         "error": "已停止",
-                        "elapsed_ms": round(elapsed_ms, 2),
+                        "elapsed_ms": elapsed,
                         "ok": False,
                         "stopped": True,
+                        "summary": summarize_node_outcome(
+                            block_type, ok=False, error="已停止", elapsed_ms=elapsed, stopped=True
+                        ),
+                        "category": "runtime",
+                        "scope": "node",
                     },
                 )
                 raise
             except Exception as exc:
                 elapsed_ms = (time.perf_counter() - t0) * 1000
+                elapsed = round(elapsed_ms, 2)
                 self._emit(
                     "node_end",
                     {
                         "node_id": node_id,
                         "type": block_type,
                         "error": str(exc),
-                        "elapsed_ms": round(elapsed_ms, 2),
+                        "elapsed_ms": elapsed,
                         "ok": False,
+                        "summary": summarize_node_outcome(
+                            block_type, ok=False, error=str(exc), elapsed_ms=elapsed
+                        ),
+                        "category": "runtime",
+                        "scope": "node",
                     },
                 )
                 raise
@@ -472,6 +499,18 @@ class FlowInterpreter:
             nxt, loop_stack = self.decide_next(
                 node, node_id, result, context, nodes, loop_stack
             )
+            if nxt and nxt != node_id:
+                self._emit(
+                    "log",
+                    {
+                        "level": "info",
+                        "category": "runtime",
+                        "scope": "node",
+                        "node_id": node_id,
+                        "message": f"下一跳 → [{nxt}]",
+                        "detail": {"from": node_id, "to": nxt, "type": block_type},
+                    },
+                )
             node_id = nxt
 
         return context
@@ -562,6 +601,17 @@ class FlowInterpreter:
             count = int(context.get(counter_key, 0))
             if count < times:
                 context[counter_key] = count + 1
+                self._emit(
+                    "log",
+                    {
+                        "level": "info",
+                        "category": "runtime",
+                        "scope": "node",
+                        "node_id": node_id,
+                        "message": f"循环 loop_n 第 {count + 1}/{times} 次",
+                        "detail": {"iteration": count + 1, "times": times},
+                    },
+                )
                 body = node.get("body")
                 if not body:
                     raise ValueError(f"loop_n 节点 {node_id} 缺少 body")
@@ -584,6 +634,17 @@ class FlowInterpreter:
             if count < len(items):
                 item = items[count]
                 context[counter_key] = count + 1
+                self._emit(
+                    "log",
+                    {
+                        "level": "info",
+                        "category": "runtime",
+                        "scope": "node",
+                        "node_id": node_id,
+                        "message": f"循环 foreach 第 {count + 1}/{len(items)} 次",
+                        "detail": {"iteration": count + 1, "total": len(items)},
+                    },
+                )
                 inject_item_var(context, _normalize_item_var(params.get("item_var")), item)
                 body = node.get("body")
                 if not body:
@@ -604,6 +665,17 @@ class FlowInterpreter:
             should = evaluate_expression(str(params.get("expression") or ""), context)
             if should and count < max_times:
                 context[counter_key] = count + 1
+                self._emit(
+                    "log",
+                    {
+                        "level": "info",
+                        "category": "runtime",
+                        "scope": "node",
+                        "node_id": node_id,
+                        "message": f"循环 while 第 {count + 1} 次",
+                        "detail": {"iteration": count + 1, "max_times": max_times},
+                    },
+                )
                 body = node.get("body")
                 if not body:
                     raise ValueError(f"loop_while 节点 {node_id} 缺少 body")

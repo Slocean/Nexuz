@@ -457,13 +457,24 @@ export function mapLogLevel(level: string): 'info' | 'success' | 'warning' | 'er
   return 'info';
 }
 
-export function logsToText(logs: { ts?: number; level?: string; message?: string; detail?: any }[]) {
+export function logsToText(
+  logs: {
+    ts?: number;
+    level?: string;
+    category?: string;
+    message?: string;
+    detail?: any;
+  }[],
+) {
   return logs
     .map((l) => {
       const t = l.ts ? new Date(l.ts).toLocaleString() : '';
+      const cat = l.category ? ` [${l.category}]` : '';
       const detail =
-        l.detail !== undefined ? `\n  detail: ${typeof l.detail === 'string' ? l.detail : JSON.stringify(l.detail)}` : '';
-      return `[${t}] [${l.level || 'info'}] ${l.message || ''}${detail}`;
+        l.detail !== undefined
+          ? `\n  detail: ${typeof l.detail === 'string' ? l.detail : JSON.stringify(l.detail)}`
+          : '';
+      return `[${t}] [${l.level || 'info'}]${cat} ${l.message || ''}${detail}`;
     })
     .join('\n');
 }

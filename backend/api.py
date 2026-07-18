@@ -22,6 +22,12 @@ from backend.core.registry import (
     register_all_blocks,
 )
 from backend.core.runtime_log import get_runtime_log_manager
+from backend.core.log_hub import (
+    enrich_payload,
+    get_app_log_manager,
+    build_log_row,
+    normalize_category,
+)
 from backend.core.app_hotkeys import get_app_hotkeys
 from backend.core.hotkey_prefs import (
     apply_hotkeys,
@@ -98,12 +104,18 @@ class Api:
 
         sched = get_scheduler()
         sched.set_emit(self._emit)
+        self._log("info", "窗口就绪，桥接已连接", category="system", scope="app")
         try:
             n = sched.restore_from_disk()
             if n:
-                self._log("info", f"已恢复 {n} 个定时任务")
+                self._log("info", f"已恢复 {n} 个定时任务", category="system", scope="app")
         except Exception as exc:
-            self._log("warn", f"恢复定时任务失败: {exc}")
+            self._log("warn", f"恢复定时任务失败: {exc}", category="system", scope="app")
+        try:
+            get_app_hotkeys()
+            self._log("info", "全局热键已注册", category="system", scope="app")
+        except Exception as exc:
+            self._log("warn", f"热键注册异常: {exc}", category="system", scope="app")
 
     def _on_hotkey_run(self) -> None:
         """Global start-run hotkey → ask UI to start / continue the current flow."""
@@ -213,15 +225,23 @@ class Api:
                 return int(getattr(info, "private", getattr(info, "rss", 0)) or 0)
 
             children = proc.children(recursive=True)
-            self._runtime_logs.write(
-                "memory_sample",
-                {
-                    "python_private_bytes": private_bytes(proc),
-                    "children_private_bytes": sum(private_bytes(p) for p in children),
-                    "child_count": len(children),
-                    "ui_queue": len(self._emit_queue),
-                },
-            )
+            sample = {
+                "category": "diag",
+                "scope": "app",
+                "level": "debug",
+                "message": "memory_sample",
+                "python_private_bytes": private_bytes(proc),
+                "children_private_bytes": sum(private_bytes(p) for p in children),
+                "child_count": len(children),
+                "ui_queue": len(self._emit_queue),
+            }
+            self._runtime_logs.write("memory_sample", sample)
+            try:
+                get_app_log_manager().write_row(
+                    build_log_row("memory_sample", sample, message="memory_sample")
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -250,12 +270,31 @@ class Api:
         self._dispatch_events(messages)
 
     def _emit(self, event: str, payload: dict) -> None:
-        event_payload = dict(payload or {})
+        event_payload = enrich_payload(event, dict(payload or {}))
+        category = str(event_payload.get("category") or "runtime")
+
+        # Disk: flow session for runtime during a run; app sinks for system/audit/diag
         self._runtime_logs.write(event, event_payload)
+        if category in ("system", "audit", "diag"):
+            try:
+                get_app_log_manager().write_row(
+                    build_log_row(
+                        event,
+                        event_payload,
+                        message=event_payload.get("message") or event,
+                    )
+                )
+            except Exception:
+                pass
+
+        # UI throttle: successful node ticks while hidden; diag never floods UI unless enabled
+        if category == "diag" and not get_app_log_manager().diag_enabled():
+            return
         if (
             self._run_hidden
             and event in {"node_start", "node_end"}
             and bool(event_payload.get("ok", True))
+            and category == "runtime"
         ):
             now = time.monotonic()
             if now - self._last_ui_node_event_at < 0.5:
@@ -294,11 +333,66 @@ class Api:
                 self._set_window_visible(True)
                 self._run_hidden = False
 
-    def _log(self, level: str, message: str, **detail) -> None:
-        payload: dict[str, Any] = {"level": level, "message": message}
+    def _log(
+        self,
+        level: str,
+        message: str,
+        *,
+        category: str = "system",
+        scope: str = "app",
+        **detail,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "level": level,
+            "message": message,
+            "category": normalize_category(category, default="system"),
+            "scope": scope,
+        }
         if detail:
+            # allow explicit category/scope overrides via kwargs already handled
+            extra = {k: v for k, v in detail.items() if k not in ("category", "scope")}
+            if extra:
+                payload["detail"] = extra
+        self._emit("log", payload)
+
+    def log_audit(self, message: str, detail=None) -> dict:
+        """Persist + emit an audit (editor operation) log line."""
+        payload: dict[str, Any] = {
+            "category": "audit",
+            "level": "info",
+            "scope": "flow",
+            "message": str(message or ""),
+        }
+        if detail is not None:
             payload["detail"] = detail
         self._emit("log", payload)
+        return {"ok": True}
+
+    def log_system(self, message: str, level: str = "info", detail=None) -> dict:
+        payload: dict[str, Any] = {
+            "category": "system",
+            "level": level,
+            "scope": "app",
+            "message": str(message or ""),
+        }
+        if detail is not None:
+            payload["detail"] = detail
+        self._emit("log", payload)
+        return {"ok": True}
+
+    def set_diag_logging(self, enabled: bool = False) -> dict:
+        get_app_log_manager().set_diag_enabled(bool(enabled))
+        return {"ok": True, "enabled": get_app_log_manager().diag_enabled()}
+
+    def get_diag_logging(self) -> dict:
+        return {"ok": True, "enabled": get_app_log_manager().diag_enabled()}
+
+    def export_app_logs(self, categories=None) -> dict:
+        """Export system/audit (and optionally diag) app-level JSONL as text."""
+        cats = categories if isinstance(categories, list) else ["system", "audit"]
+        text = get_app_log_manager().export_text([str(c) for c in cats])
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        return self.export_text(text, f"nexuz-app-logs-{stamp}.txt")
 
     def _load_flow_schema(self) -> dict | None:
         path = project_root() / "schemas" / "flow_schema.json"

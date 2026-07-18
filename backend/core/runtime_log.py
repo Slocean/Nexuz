@@ -91,14 +91,24 @@ class RuntimeLogSession:
         with self._lock:
             if self._file is None:
                 return
+            from backend.core.log_hub import enrich_payload
+
+            body = enrich_payload(event, payload if isinstance(payload, dict) else {})
             row = {
                 "ts": time.time(),
                 "run_id": self.run_id,
                 "flow_id": self.flow_id,
                 "flow_name": self.flow_name,
                 "event": str(event),
-                "payload": payload if isinstance(payload, dict) else {},
+                "category": body.get("category") or "runtime",
+                "level": body.get("level") or "info",
+                "scope": body.get("scope") or "run",
+                "payload": body,
             }
+            if body.get("message"):
+                row["message"] = body.get("message")
+            if body.get("node_id") or body.get("nodeId"):
+                row["node_id"] = body.get("node_id") or body.get("nodeId")
             line = json.dumps(row, ensure_ascii=False, separators=(",", ":"), default=str)
             if self._file.tell() + len(line.encode("utf-8")) + 1 > _MAX_PART_BYTES:
                 self._open_next_part()

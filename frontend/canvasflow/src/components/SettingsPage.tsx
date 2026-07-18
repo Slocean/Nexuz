@@ -24,6 +24,7 @@ import {
   Keyboard,
   Puzzle,
   Type,
+  Terminal,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -336,6 +337,7 @@ const SETTINGS_SECTION_IDS = [
   'window',
   'save',
   'shortcuts',
+  'logging',
 ] as const;
 
 type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -378,7 +380,48 @@ export default function SettingsPage({
   const syncAllClickCaptureModes = useFlowStore((s) => s.syncAllClickCaptureModes);
   const syncAllClickCoordinateModes = useFlowStore((s) => s.syncAllClickCoordinateModes);
   const syncAllOutputCoordinateModes = useFlowStore((s) => s.syncAllOutputCoordinateModes);
+  const appendAuditLog = useFlowStore((s) => s.appendAuditLog);
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
+
+  const [diagLogging, setDiagLogging] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await bridge.getDiagLogging?.();
+        if (!cancelled && res?.ok) {
+          setDiagLogging(!!res.enabled);
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (!cancelled) setDiagLogging(localStorage.getItem('nexuz.diagLogging') === '1');
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleDiagLoggingChange = async (enabled: boolean) => {
+    setDiagLogging(enabled);
+    try {
+      localStorage.setItem('nexuz.diagLogging', enabled ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    try {
+      await bridge.setDiagLogging?.(enabled);
+    } catch {
+      /* ignore */
+    }
+    appendAuditLog?.(enabled ? '已开启诊断日志' : '已关闭诊断日志', { diag: enabled });
+  };
 
   const handleDefaultCaptureModeChange = async (next: string) => {
     const mode = next === 'frida_ui' ? 'frida_ui' : 'coord';
@@ -402,6 +445,9 @@ export default function SettingsPage({
     }
 
     setDefaultCaptureMode(mode);
+    appendAuditLog?.(`修改默认点击录入模式 → ${mode === 'frida_ui' ? 'Frida UI' : '坐标'}`, {
+      defaultCaptureMode: mode,
+    });
   };
 
   const handleDefaultPickMethodChange = async (next: string) => {
@@ -425,6 +471,9 @@ export default function SettingsPage({
     }
 
     setDefaultPickMethod(method);
+    appendAuditLog?.(`修改默认取点方式 → ${method === 'live' ? '实地取点' : '截图取点'}`, {
+      defaultPickMethod: method,
+    });
   };
 
   const handleDefaultCoordinateModeChange = async (next: string) => {
@@ -457,6 +506,7 @@ export default function SettingsPage({
     }
 
     setDefaultCoordinateMode(mode);
+    appendAuditLog?.(`修改默认坐标基准 → ${mode}`, { defaultCoordinateMode: mode });
   };
 
   const handleDefaultOutputCoordinateModeChange = async (next: string) => {
@@ -484,6 +534,7 @@ export default function SettingsPage({
     }
 
     setDefaultOutputCoordinateMode(mode);
+    appendAuditLog?.(`修改默认输出坐标 → ${mode}`, { defaultOutputCoordinateMode: mode });
   };
 
   const [processes, setProcesses] = useState<ProcRow[]>([]);
@@ -1943,6 +1994,41 @@ export default function SettingsPage({
                 建议使用「字母/修饰键 + 功能键」。四组快捷键不能互相重复。
               </p>
             </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          title="日志"
+          icon={<Terminal className="w-4 h-4" />}
+          open={openSections.logging}
+          onToggle={() => toggleSection('logging')}
+          colors={colors}
+          headerRight={
+            <HelpHint
+              text="右侧面板默认只显示「运行」日志。系统/操作可按过滤器查看；诊断默认关闭，开启后才会落盘并出现在面板中。"
+              colors={colors}
+              themeMode={themeMode}
+            />
+          }
+        >
+          <div className="flex items-center gap-2 pt-1">
+            <Checkbox
+              id="diag-logging"
+              checked={diagLogging}
+              onCheckedChange={(v) => void handleDiagLoggingChange(v === true)}
+            />
+            <Label
+              htmlFor="diag-logging"
+              className="text-sm cursor-pointer inline-flex items-center gap-1.5"
+              style={{ color: colors.text }}
+            >
+              记录诊断日志
+              <HelpHint
+                text="包含内存采样、坐标换算中间值等细节。关闭时不推送到界面、不写入诊断落盘。"
+                colors={colors}
+                themeMode={themeMode}
+              />
+            </Label>
           </div>
         </SettingsSection>
       </div>

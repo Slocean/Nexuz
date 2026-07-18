@@ -122,6 +122,77 @@ def summarize_result(result: dict | None) -> dict[str, Any]:
     return {str(k): summarize_value(v, key=str(k)) for k, v in result.items()}
 
 
+def summarize_node_outcome(
+    block_type: str,
+    *,
+    ok: bool,
+    result: dict[str, Any] | None = None,
+    error: str | None = None,
+    elapsed_ms: float | None = None,
+    stopped: bool = False,
+) -> str:
+    """One-line human summary for runtime logs."""
+    t = str(block_type or "node")
+    if stopped:
+        return f"{t} 已停止"
+    if not ok:
+        return f"{t} 失败: {error or '未知错误'}"
+    r = result if isinstance(result, dict) else {}
+    ms = f" · {elapsed_ms}ms" if elapsed_ms is not None else ""
+
+    if t == "click":
+        x, y = r.get("x", r.get("screen_x")), r.get("y", r.get("screen_y"))
+        if x is not None and y is not None:
+            return f"点击 ({x}, {y}){ms}"
+        return f"点击完成{ms}"
+    if t == "drag":
+        return f"拖拽完成{ms}"
+    if t == "mouse_hover":
+        x, y = r.get("x"), r.get("y")
+        if x is not None and y is not None:
+            return f"悬停 ({x}, {y}){ms}"
+        return f"悬停完成{ms}"
+    if t == "find_image":
+        found = bool(r.get("found"))
+        score = r.get("score")
+        if found:
+            return f"找图命中 score={score} @ ({r.get('x')}, {r.get('y')}){ms}"
+        return f"找图未命中{ms}"
+    if t == "ocr_recognize":
+        text = r.get("text")
+        if text:
+            return f"OCR: {str(text)[:120]}{ms}"
+        return f"OCR 无文字{ms}"
+    if t in ("if_condition", "if_color_match", "if_text_contains", "if_logic"):
+        return f"条件{'成立' if r.get('matched') else '不成立'}{ms}"
+    if t == "color_detect":
+        c = r.get("color") or r.get("hex")
+        return f"取色 {c}{ms}" if c else f"取色完成{ms}"
+    if t == "switch":
+        return f"分支值={r.get('value')!r}{ms}"
+    if t.startswith("window_"):
+        found = r.get("found")
+        title = r.get("title") or r.get("matched_title")
+        if found is False:
+            return f"{t} 未找到窗口{ms}"
+        if title:
+            return f"{t} → {str(title)[:80]}{ms}"
+        return f"{t} 完成{ms}"
+    if t.startswith("loop_"):
+        return f"循环步进{ms}"
+    if t == "assign":
+        name = r.get("name") or r.get("variable")
+        return f"赋值 {name}{ms}" if name else f"赋值完成{ms}"
+    if t == "delay":
+        return f"延时完成{ms}"
+    # Generic: surface a few useful keys
+    keys = [k for k in ("found", "matched", "ok", "x", "y", "text", "value") if k in r]
+    if keys:
+        bits = ", ".join(f"{k}={r.get(k)!r}" for k in keys[:4])
+        return f"{t} {bits}{ms}"
+    return f"{t} 完成{ms}"
+
+
 def compact_context_value(key: str, value: Any) -> Any:
     """Keep context bindable but drop heavy OCR/geometry payloads."""
     k = str(key)

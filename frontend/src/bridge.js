@@ -1642,6 +1642,44 @@ function mockCall(method, ...args) {
       } catch (e) {
         return Promise.resolve({ ok: false, error: String(e) });
       }
+    case 'log_audit':
+    case 'log_system':
+      return Promise.resolve({ ok: true });
+    case 'set_diag_logging': {
+      const enabled = !!args[0];
+      try {
+        localStorage.setItem('nexuz.diagLogging', enabled ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return Promise.resolve({ ok: true, enabled });
+    }
+    case 'get_diag_logging': {
+      let enabled = false;
+      try {
+        enabled = localStorage.getItem('nexuz.diagLogging') === '1';
+      } catch {
+        /* ignore */
+      }
+      return Promise.resolve({ ok: true, enabled });
+    }
+    case 'export_app_logs': {
+      const cats = Array.isArray(args[0]) ? args[0] : ['system', 'audit'];
+      const text = `应用日志（预览模式）\ncategories: ${cats.join(', ')}\n暂无落盘内容\n`;
+      const name = `nexuz-app-logs-${Date.now()}.txt`;
+      try {
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(url);
+        return Promise.resolve({ ok: true, path: name });
+      } catch (e) {
+        return Promise.resolve({ ok: false, error: String(e) });
+      }
+    }
     case 'start_recording':
     case 'stop_recording':
     case 'pick_point':
@@ -1792,6 +1830,12 @@ export const bridge = {
   exportText: (text, filename = null) => call('export_text', text, filename),
   getRunLogInfo: () => call('get_run_log_info'),
   exportRunLog: () => call('export_run_log'),
+  exportAppLogs: (categories = null) => call('export_app_logs', categories),
+  logAudit: (message, detail = null) => call('log_audit', message, detail),
+  logSystem: (message, level = 'info', detail = null) =>
+    call('log_system', message, level, detail),
+  setDiagLogging: (enabled = false) => call('set_diag_logging', enabled),
+  getDiagLogging: () => call('get_diag_logging'),
   windowMinimize: () => call('window_minimize'),
   windowToggleMaximize: () => call('window_toggle_maximize'),
   windowClose: () => call('window_close'),

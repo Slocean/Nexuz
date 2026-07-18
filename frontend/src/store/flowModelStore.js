@@ -2,7 +2,109 @@ import { create } from 'zustand';
 
 // UI memory is deliberately bounded. Complete per-run logs are streamed by
 // Python to flow-scoped rolling files and exported through the bridge.
-const MAX_LOGS = 300;
+const MAX_LOGS = 500;
+
+const LOG_CATEGORIES = ['system', 'runtime', 'audit', 'diag'];
+
+function normalizeLogCategory(raw, fallback = 'runtime') {
+  const s = String(raw || '').trim().toLowerCase();
+  return LOG_CATEGORIES.includes(s) ? s : fallback;
+}
+
+function eventCategory(event, payload) {
+  if (payload?.category) return normalizeLogCategory(payload.category);
+  const ev = String(event || '');
+  if (ev === 'log') return normalizeLogCategory(payload?.category, 'runtime');
+  if (
+    ev.startsWith('node_') ||
+    ev.startsWith('flow_') ||
+    ev === 'schedule_fired' ||
+    ev === 'schedule_error'
+  ) {
+    return 'runtime';
+  }
+  if (ev === 'recording_stopped') return 'audit';
+  if (ev === 'plugin_mode_changed' || ev === 'force_reset' || ev === 'hotkey_run') return 'system';
+  return 'runtime';
+}
+
+function formatRuntimeNodeEnd(payload) {
+  const nid = payload?.node_id;
+  const result = payload?.result || {};
+  const type = payload?.type || 'node';
+  if (payload?.summary) {
+    return `✓ [${nid}] ${payload.summary}`;
+  }
+  if (!payload?.ok) {
+    if (payload?.stopped) return `■ [${nid}] 已停止`;
+    return `✗ [${nid}]: ${payload?.error || '失败'}`;
+  }
+  if (type === 'ocr_recognize') {
+    const t = result.text;
+    return t !== undefined && t !== ''
+      ? `✓ [${nid}] OCR 识别到: ${String(t).slice(0, 120)}`
+      : `✓ [${nid}] OCR 完成但未识别到文字`;
+  }
+  if (type === 'if_text_contains' || type === 'if_condition' || type === 'if_color_match' || type === 'if_logic') {
+    return `✓ [${nid}] 条件${result.matched ? '成立' : '不成立'}${
+      result.actual_text != null ? ` · 实际: ${String(result.actual_text).slice(0, 80)}` : ''
+    }`;
+  }
+  if (type === 'color_detect' && result.color) {
+    return `✓ [${nid}] 取色: ${result.color}`;
+  }
+  if (type === 'find_image') {
+    return result.found
+      ? `✓ [${nid}] 找图命中 score=${result.score} @ (${result.x}, ${result.y})`
+      : `✓ [${nid}] 找图未命中`;
+  }
+  if (type === 'click') {
+    const x = result.x ?? result.screen_x;
+    const y = result.y ?? result.screen_y;
+    if (x != null && y != null) return `✓ [${nid}] 点击 (${x}, ${y}) · ${payload.elapsed_ms}ms`;
+  }
+  if (type === 'switch') {
+    return `✓ [${nid}] 判断值=${JSON.stringify(result.value)} · ${payload.elapsed_ms}ms`;
+  }
+  if (String(type).startsWith('window_')) {
+    if (result.found === false) return `✓ [${nid}] ${type} 未找到窗口`;
+    if (result.title || result.matched_title) {
+      return `✓ [${nid}] ${type} → ${String(result.title || result.matched_title).slice(0, 80)}`;
+    }
+  }
+  if (type === 'assign') {
+    return `✓ [${nid}] 赋值 ${result.name || result.variable || ''}`.trim();
+  }
+  if (type === 'drag' || type === 'mouse_hover') {
+    return `✓ [${nid}] ${type === 'drag' ? '拖拽' : '悬停'}完成 · ${payload.elapsed_ms}ms`;
+  }
+  if (String(type).startsWith('loop_') || type === 'foreach' || type === 'while') {
+    const n = result.iteration ?? result.index ?? result.count;
+    return n != null
+      ? `✓ [${nid}] ${type} · 第 ${n} 次 · ${payload.elapsed_ms}ms`
+      : `✓ [${nid}] ${type} · ${payload.elapsed_ms}ms`;
+  }
+  if (String(type).startsWith('if_')) {
+    if (result.matched !== undefined) {
+      return `✓ [${nid}] 条件${result.matched ? '成立' : '不成立'} · ${payload.elapsed_ms}ms`;
+    }
+  }
+  return `✓ [${nid}] ${type} · ${payload.elapsed_ms}ms`;
+}
+
+let _auditConfigTimer = null;
+let _auditConfigPending = null;
+
+function emitAuditToBridge(message, detail) {
+  try {
+    const api = typeof window !== 'undefined' ? window.pywebview?.api : null;
+    if (api && typeof api.log_audit === 'function') {
+      void Promise.resolve(api.log_audit(message, detail || null)).catch(() => {});
+    }
+  } catch {
+    /* ignore */
+  }
+}
 const HEAVY_KEYS = new Set(['box', 'image', 'bitmap', 'pixels', 'raw', 'screenshot']);
 const LIGHT_LIST_KEYS = new Set(['boxes', 'matches']);
 const GEOM_KEYS = ['left', 'top', 'width', 'height', 'cx', 'cy', 'x', 'y'];
@@ -975,6 +1077,7 @@ export const useFlowStore = create((set, get) => ({
         selectedNodeId: id,
       };
     });
+    get().appendAuditLog?.(`添加节点 ${type}`, { node_id: id, type });
     return id;
   },
 
@@ -1035,7 +1138,7 @@ export const useFlowStore = create((set, get) => ({
     });
   },
 
-  updateNodeParams: (nodeId, params) =>
+  updateNodeParams: (nodeId, params) => {
     set((state) => {
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
@@ -1062,9 +1165,22 @@ export const useFlowStore = create((set, get) => ({
           },
         },
       };
-    }),
+    });
+    // Debounce audit for rapid param edits
+    _auditConfigPending = {
+      message: `修改节点参数 [${nodeId}]`,
+      detail: { node_id: nodeId, keys: Object.keys(params || {}) },
+    };
+    if (_auditConfigTimer) clearTimeout(_auditConfigTimer);
+    _auditConfigTimer = setTimeout(() => {
+      const pending = _auditConfigPending;
+      _auditConfigPending = null;
+      _auditConfigTimer = null;
+      if (pending) get().appendAuditLog?.(pending.message, pending.detail);
+    }, 800);
+  },
 
-  updateNodeName: (nodeId, name) =>
+  updateNodeName: (nodeId, name) => {
     set((state) => {
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
@@ -1082,7 +1198,12 @@ export const useFlowStore = create((set, get) => ({
           },
         },
       };
-    }),
+    });
+    get().appendAuditLog?.(`重命名节点 [${nodeId}]`, {
+      node_id: nodeId,
+      name: String(name ?? '').trim() || null,
+    });
+  },
 
   setNodeCollapsed: (nodeId, collapsed) =>
     set((state) => {
@@ -1131,7 +1252,9 @@ export const useFlowStore = create((set, get) => ({
       return { ...takeFlowHistory(state), flow: { ...state.flow, nodes } };
     }),
 
-  setNodeLink: (sourceId, handle, targetId) =>
+  setNodeLink: (sourceId, handle, targetId) => {
+    const prev = get().flow?.nodes?.[sourceId];
+    if (!prev || sourceId === targetId) return;
     set((state) => {
       const node = state.flow.nodes[sourceId];
       if (!node) return state;
@@ -1193,9 +1316,16 @@ export const useFlowStore = create((set, get) => ({
           },
         },
       };
-    }),
+    });
+    get().appendAuditLog?.(`连接节点`, {
+      source: sourceId,
+      handle: handle || 'next',
+      target: targetId,
+    });
+  },
 
-  removeNodeLink: (sourceId, handle) =>
+  removeNodeLink: (sourceId, handle) => {
+    if (!get().flow?.nodes?.[sourceId]) return;
     set((state) => {
       const node = state.flow.nodes[sourceId];
       if (!node) return state;
@@ -1249,11 +1379,17 @@ export const useFlowStore = create((set, get) => ({
           },
         },
       };
-    }),
+    });
+    get().appendAuditLog?.(`断开连接`, {
+      source: sourceId,
+      handle: handle || 'next',
+    });
+  },
 
-  deleteNodes: (ids) =>
+  deleteNodes: (ids) => {
+    const idList = Array.isArray(ids) ? ids : [];
     set((state) => {
-      const idSet = new Set(ids);
+      const idSet = new Set(idList);
       if (!idSet.size) return state;
       let removed = 0;
       for (const id of idSet) {
@@ -1302,7 +1438,11 @@ export const useFlowStore = create((set, get) => ({
         flow: { ...state.flow, nodes, entry },
         selectedNodeId: idSet.has(state.selectedNodeId) ? null : state.selectedNodeId,
       };
-    }),
+    });
+    if (idList.length) {
+      get().appendAuditLog?.(`删除节点 ×${idList.length}`, { node_ids: idList });
+    }
+  },
 
   duplicateNodes: (ids, offset = { x: 40, y: 40 }) => {
     if (!ids?.length) return [];
@@ -1355,11 +1495,13 @@ export const useFlowStore = create((set, get) => ({
     return mappedIds.map((id) => idMap[id]);
   },
 
-  setEntry: (entry) =>
+  setEntry: (entry) => {
     set((state) => ({
       ...takeFlowHistory(state),
       flow: { ...state.flow, entry },
-    })),
+    }));
+    get().appendAuditLog?.(`设置入口节点`, { entry });
+  },
 
   // execution UI
   nodeOutputs: {}, // nodeId -> last summarized result (UI only)
@@ -1367,17 +1509,32 @@ export const useFlowStore = create((set, get) => ({
   clearLogs: () => set({ logs: [], runLog: null }),
   appendLog: (entry) =>
     set((state) => {
+      const category = normalizeLogCategory(entry.category, 'runtime');
       const row = {
         ...entry,
+        category,
+        scope: entry.scope || (entry.nodeId ? 'node' : 'run'),
         detail: entry.detail !== undefined ? summarizeDetail(entry.detail) : undefined,
-        ts: Date.now(),
+        ts: entry.ts || Date.now(),
       };
       return {
         logs: [...state.logs.slice(-(MAX_LOGS - 1)), row],
       };
     }),
+  appendAuditLog: (message, detail) => {
+    const msg = String(message || '');
+    get().appendLog({
+      level: 'info',
+      category: 'audit',
+      scope: 'flow',
+      message: msg,
+      detail: detail !== undefined ? summarizeDetail(detail) : undefined,
+    });
+    emitAuditToBridge(msg, detail);
+  },
   onRuntimeEvent: (event, payload) => {
     const appendLog = get().appendLog;
+    const cat = eventCategory(event, payload);
     if (event === 'node_start') {
       set((state) => ({
         // Don't clobber pause/stopping if a late event races the control channel.
@@ -1387,6 +1544,8 @@ export const useFlowStore = create((set, get) => ({
       }));
       appendLog({
         level: 'info',
+        category: 'runtime',
+        scope: 'node',
         nodeId: payload.node_id,
         message: `▶ [${payload.node_id}] ${payload.type}`,
         detail: summarizeDetail(payload.params),
@@ -1411,31 +1570,12 @@ export const useFlowStore = create((set, get) => ({
             : state.nodeOutputs,
         };
       });
-      let msg = payload.ok
-        ? `✓ [${nid}] ${payload.elapsed_ms}ms`
-        : payload.stopped
-          ? `■ [${nid}] 已停止`
-          : `✗ [${nid}]: ${payload.error}`;
-      if (payload.ok && payload.type === 'ocr_recognize') {
-        const t = result.text;
-        msg =
-          t !== undefined && t !== ''
-            ? `✓ [${nid}] OCR 识别到: ${String(t).slice(0, 120)}`
-            : `✓ [${nid}] OCR 完成但未识别到文字（请确认已框选区域且区域内有清晰文字）`;
-      }
-      if (payload.ok && payload.type === 'if_text_contains') {
-        msg = `✓ [${nid}] 文字匹配 ${result.matched ? '成立' : '不成立'} · 实际: ${String(result.actual_text || '').slice(0, 80)}`;
-      }
-      if (payload.ok && payload.type === 'color_detect' && result.color) {
-        msg = `✓ [${nid}] 取色: ${result.color}`;
-      }
-      if (payload.ok && payload.type === 'switch') {
-        msg = `✓ [${nid}] 判断值=${JSON.stringify(result.value)} · ${payload.elapsed_ms}ms`;
-      }
       appendLog({
         level: payload.ok ? 'ok' : payload.stopped ? 'warn' : 'error',
+        category: 'runtime',
+        scope: 'node',
         nodeId: nid,
-        message: msg,
+        message: formatRuntimeNodeEnd({ ...payload, result }),
         detail: payload.ok ? result : summarizeDetail(payload.error),
       });
     } else if (event === 'flow_breakpoint') {
@@ -1449,26 +1589,31 @@ export const useFlowStore = create((set, get) => ({
       const reason = payload?.reason === 'step' ? '单步暂停' : '命中断点';
       appendLog({
         level: 'warn',
+        category: 'runtime',
+        scope: 'run',
         nodeId: payload?.node_id,
         message: `${reason} · 待执行 [${payload?.node_id || '?'}]`,
+        detail: payload?.context ? summarizeDetail(payload.context) : undefined,
       });
     } else if (event === 'flow_debug') {
       set({ debugMode: true });
       const n = (payload?.breakpoints || []).length;
       appendLog({
         level: 'info',
+        category: 'runtime',
+        scope: 'run',
         message: payload?.step_first
           ? '调试已启动（单步：将在首个节点暂停）'
           : `调试运行中${n ? `（${n} 个断点）` : '（无断点，可随时单步暂停）'}`,
       });
     } else if (event === 'flow_stepping') {
-      appendLog({ level: 'info', message: '将在下一节点暂停…' });
+      appendLog({ level: 'info', category: 'runtime', scope: 'run', message: '将在下一节点暂停…' });
     } else if (event === 'flow_paused') {
       set({ execStatus: 'paused' });
-      appendLog({ level: 'warn', message: '流程已暂停' });
+      appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '流程已暂停' });
     } else if (event === 'flow_resumed') {
       set({ execStatus: 'running' });
-      appendLog({ level: 'info', message: '流程已继续' });
+      appendLog({ level: 'info', category: 'runtime', scope: 'run', message: '流程已继续' });
     } else if (event === 'flow_stopping') {
       const prev = get().execStatus;
       if (prev === 'idle') {
@@ -1476,7 +1621,7 @@ export const useFlowStore = create((set, get) => ({
         return;
       }
       set({ execStatus: 'stopping' });
-      appendLog({ level: 'warn', message: '正在停止流程…' });
+      appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '正在停止流程…' });
     } else if (event === 'flow_stopped') {
       // Backend still finishing the worker thread — keep Stop/busy until flow_finished.
       set((state) => ({
@@ -1487,7 +1632,7 @@ export const useFlowStore = create((set, get) => ({
         get().execStatus !== 'idle' &&
         get().logs.slice(-1)[0]?.message !== '正在停止流程…'
       ) {
-        appendLog({ level: 'warn', message: '正在停止流程…' });
+        appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '正在停止流程…' });
       }
     } else if (event === 'flow_finished') {
       // Keep only the selected node's output for Inspector; drop the rest.
@@ -1513,14 +1658,21 @@ export const useFlowStore = create((set, get) => ({
       });
       // flow_stopped/stopping already logged when user clicked stop; avoid duplicate.
       if (payload.forced) {
-        appendLog({ level: 'warn', message: '流程状态已强制重置' });
+        appendLog({
+          level: 'warn',
+          category: 'system',
+          scope: 'app',
+          message: '流程状态已强制重置',
+        });
       } else if (!payload.stopped) {
         appendLog({
           level: payload.ok ? 'ok' : 'error',
+          category: 'runtime',
+          scope: 'run',
           message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`,
         });
       } else {
-        appendLog({ level: 'warn', message: '流程已停止' });
+        appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '流程已停止' });
       }
       if (!payload.forced) {
         get().pushRunHistory({
@@ -1542,7 +1694,12 @@ export const useFlowStore = create((set, get) => ({
         get().appendRecordedNodes(payload.nodes);
       }
       if (payload?.forced) {
-        appendLog({ level: 'warn', message: '录制已强制结束（未追加节点）' });
+        appendLog({
+          level: 'warn',
+          category: 'audit',
+          scope: 'flow',
+          message: '录制已强制结束（未追加节点）',
+        });
         return;
       }
       const nodes = payload?.nodes || [];
@@ -1559,18 +1716,25 @@ export const useFlowStore = create((set, get) => ({
           : '';
       appendLog({
         level: 'ok',
-        message: `快捷键停止录制，追加 ${nodes.length || 0} 个节点${btnHint}`,
+        category: 'audit',
+        scope: 'flow',
+        message: `停止录制，追加 ${nodes.length || 0} 个节点${btnHint}`,
+        detail: { count: nodes.length },
       });
     } else if (event === 'schedule_fired') {
       set((state) => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
       appendLog({
         level: 'ok',
+        category: 'runtime',
+        scope: 'run',
         message: `定时任务已触发：${payload?.job_id || ''}`,
       });
     } else if (event === 'schedule_error') {
       set((state) => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
       appendLog({
         level: 'error',
+        category: 'runtime',
+        scope: 'run',
         message: `定时任务失败：${payload?.job_id || ''} ${payload?.error || ''}`.trim(),
       });
     } else if (event === 'plugin_mode_changed') {
@@ -1583,9 +1747,21 @@ export const useFlowStore = create((set, get) => ({
           rev: (state.pluginModeRemote?.rev || 0) + 1,
         },
       }));
+      appendLog({
+        level: 'info',
+        category: 'system',
+        scope: 'app',
+        message: payload?.enabled ? '插件模式已开启' : '插件模式已关闭',
+        detail: summarizeDetail({
+          opacity: payload?.opacity,
+          click_through: payload?.click_through,
+        }),
+      });
     } else if (event === 'log') {
       appendLog({
         level: payload?.level || 'info',
+        category: cat,
+        scope: payload?.scope || (payload?.node_id ? 'node' : 'app'),
         nodeId: payload?.node_id || payload?.nodeId || undefined,
         message: payload?.node_id
           ? `[${payload.node_id}] ${payload?.message || ''}`
