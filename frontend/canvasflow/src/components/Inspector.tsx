@@ -4,7 +4,6 @@ import {
   ChevronRight,
   ChevronUp,
   Settings,
-  Terminal,
   X,
   Copy,
   Check,
@@ -13,6 +12,9 @@ import {
   Keyboard,
   Maximize2,
   Filter,
+  ChevronsUp,
+  ChevronsDown,
+  MousePointerClick,
 } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog, LogCategory } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
@@ -1104,6 +1106,8 @@ export default function Inspector({
   const logCopyHintTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const logSelectionRef = React.useRef('');
   const logEndRef = React.useRef<HTMLDivElement | null>(null);
+  const logListRef = React.useRef<HTMLDivElement | null>(null);
+  const logExpandedListRef = React.useRef<HTMLDivElement | null>(null);
   const pickBusyRef = React.useRef(false);
   const clearLogs = useFlowStore(s => s.clearLogs);
   const colors = getThemeColors(themeName, themeMode);
@@ -1295,6 +1299,15 @@ export default function Inspector({
     logEndRef.current?.scrollIntoView({ block: 'end' });
   }, [filteredLogs, logsExpanded]);
 
+  const scrollLogsTo = (where: 'top' | 'bottom') => {
+    const el = logsExpanded ? logExpandedListRef.current : logListRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: where === 'top' ? 0 : el.scrollHeight,
+      behavior: 'smooth',
+    });
+  };
+
   const toggleLogExpand = (id: string) => {
     setExpandedLogIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -1417,6 +1430,24 @@ export default function Inspector({
         variant="ghost"
         size="icon"
         className="h-7 w-7 opacity-70 hover:opacity-100"
+        onClick={() => scrollLogsTo('top')}
+        title="回到顶部"
+      >
+        <ChevronsUp className="w-3.5 h-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 opacity-70 hover:opacity-100"
+        onClick={() => scrollLogsTo('bottom')}
+        title="到底部"
+      >
+        <ChevronsDown className="w-3.5 h-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 opacity-70 hover:opacity-100"
         onMouseDown={(e) => {
           captureLogSelection();
           // 避免按钮抢焦点清空选区
@@ -1481,11 +1512,14 @@ export default function Inspector({
               className="h-3.5 w-auto max-w-[4.5rem] object-contain opacity-90"
               draggable={false}
             />
-            <Terminal className="w-3.5 h-3.5" /> 日志
+            日志
           </h4>
           {logToolbar({ showExpand: true })}
         </div>
-        <div className="h-36 min-w-0 max-w-full overflow-y-auto overflow-x-hidden">
+        <div
+          ref={logListRef}
+          className="h-36 min-w-0 max-w-full overflow-y-auto overflow-x-hidden"
+        >
           {renderLogLines(80, true)}
         </div>
       </div>
@@ -1507,12 +1541,15 @@ export default function Inspector({
                   className="h-3.5 w-auto max-w-[4.5rem] object-contain opacity-90"
                   draggable={false}
                 />
-                <Terminal className="w-3.5 h-3.5" /> 日志
+                日志
               </DialogTitle>
               {logToolbar({ showExpand: false })}
             </div>
           </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden select-text">
+          <div
+            ref={logExpandedListRef}
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden select-text"
+          >
             {renderLogLines(500, false)}
           </div>
         </DialogContent>
@@ -1702,19 +1739,11 @@ export default function Inspector({
         }}
         className="w-[21.8rem] max-w-[21.8rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0">
-          <div className="flex flex-col items-center justify-center gap-0 shrink-0">
-            <img
-              src={`${import.meta.env.BASE_URL}logo.png`}
-              alt=""
-              className="h-12 w-12 object-contain select-none"
-              draggable={false}
-            />
-            <img
-              src={`${import.meta.env.BASE_URL}logo2.png`}
-              alt="Nexuz"
-              className="h-5 w-auto max-w-[5.5rem] object-contain select-none -mt-3.5"
-              draggable={false}
-            />
+          <div
+            className="w-12 h-12 mx-auto rounded-2xl flex items-center justify-center border"
+            style={{ borderColor: colors.border, color: colors.secondaryText }}
+          >
+            <MousePointerClick className="w-6 h-6" />
           </div>
           <h3 className="font-semibold text-sm mt-2">未选中</h3>
           <p
