@@ -12,7 +12,6 @@ import {
   Trash2,
   Keyboard,
   Maximize2,
-  Minimize2,
 } from 'lucide-react';
 import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog } from '../types';
 import { useFlowStore } from '@/store/flowModelStore';
@@ -45,6 +44,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAppDialog } from './AppDialogs';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface InspectorProps {
   selectedNode: WorkflowNode | null;
@@ -1221,111 +1226,140 @@ export default function Inspector({
 
   React.useEffect(() => {
     logEndRef.current?.scrollIntoView({ block: 'end' });
-  }, [logs]);
+  }, [logs, logsExpanded]);
+
+  const renderLogLines = (limit = 80, endRef: boolean = false) => (
+    <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed min-w-0 w-full max-w-full">
+      {logs.length === 0 && (
+        <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
+          尚无日志
+        </p>
+      )}
+      {logs.slice(-limit).map((log) => (
+        <div
+          key={log.id}
+          className={`select-text break-all whitespace-pre-wrap py-0.5 min-w-0 w-full max-w-full ${
+            log.type === 'error'
+              ? 'text-rose-500'
+              : log.type === 'success'
+                ? 'text-emerald-500'
+                : log.type === 'warning'
+                  ? 'text-amber-500'
+                  : ''
+          }`}
+          style={{
+            overflowWrap: 'anywhere',
+            wordBreak: 'break-word',
+            ...(log.type === 'error' || log.type === 'success' || log.type === 'warning'
+              ? {}
+              : { color: colors.secondaryText }),
+          }}
+        >
+          <span className="opacity-50 mr-2">{log.timestamp}</span>
+          {log.nodeId ? <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span> : null}
+          {log.message}
+        </div>
+      ))}
+      {endRef ? <div ref={logEndRef} /> : null}
+    </div>
+  );
+
+  const logToolbar = (opts?: { showExpand?: boolean }) => (
+    <div className="flex items-center gap-0.5 shrink-0">
+      {opts?.showExpand !== false ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 opacity-70 hover:opacity-100"
+          onClick={() => setLogsExpanded(true)}
+          title="放大日志"
+        >
+          <Maximize2 className="w-3.5 h-3.5" />
+        </Button>
+      ) : null}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+        onMouseDown={(e) => {
+          captureLogSelection();
+          // 避免按钮抢焦点清空选区
+          e.preventDefault();
+        }}
+        onClick={copySelectedOrAllLogs}
+        title="复制选中；无选中则复制全部"
+      >
+        {copied || logCopyHint ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}{' '}
+        <span className={logCopyHint ? 'text-emerald-500' : undefined}>{logCopyHint || '复制选中'}</span>
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+        onClick={handleClearLogs}
+        title="清空日志"
+      >
+        <Trash2 className="w-3 h-3" /> 清空
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+            title="导出日志为 .txt"
+          >
+            <Download className="w-3 h-3" /> 导出
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[11rem] z-[200]">
+          <DropdownMenuItem onClick={() => exportLogs('full')}>
+            完整日志（{runLog?.flow_name || '当前流程'} · {runLog?.record_count || 0}）
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => exportLogs('display')}>
+            当前显示（{rawLogs.length || logs.length}）
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 
   const logsPanel = (
-    <div
-      className={`space-y-2 p-3 border-t border-black/10 dark:border-white/10 select-text min-w-0 max-w-full overflow-hidden ${
-        logsExpanded ? 'flex-1 min-h-0 flex flex-col max-h-none' : 'shrink-0 max-h-[40%]'
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2 select-none min-w-0">
-        <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5 shrink-0">
-          <Terminal className="w-3.5 h-3.5" /> 运行日志
-        </h4>
-        <div className="flex items-center gap-0.5 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
-            onClick={() => setLogsExpanded((v) => !v)}
-            title={logsExpanded ? '还原日志区域' : '放大日志区域'}
-          >
-            {logsExpanded ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
-            {logsExpanded ? '还原' : '放大'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
-            onMouseDown={e => {
-              captureLogSelection();
-              // 避免按钮抢焦点清空选区
-              e.preventDefault();
-            }}
-            onClick={copySelectedOrAllLogs}
-            title="复制选中；无选中则复制全部">
-            {copied || logCopyHint ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}{' '}
-            <span className={logCopyHint ? 'text-emerald-500' : undefined}>{logCopyHint || '复制选中'}</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
-            onClick={handleClearLogs}
-            title="清空运行日志">
-            <Trash2 className="w-3 h-3" /> 清空
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
-                title="导出日志为 .txt">
-                <Download className="w-3 h-3" /> 导出
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[11rem]">
-              <DropdownMenuItem onClick={() => exportLogs('full')}>
-                完整日志（{runLog?.flow_name || '当前流程'} · {runLog?.record_count || 0}）
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => exportLogs('display')}>
-                当前显示（{rawLogs.length || logs.length}）
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+    <>
+      <div className="space-y-2 p-3 border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text min-w-0 max-w-full overflow-hidden">
+        <div className="flex items-center justify-between gap-2 select-none min-w-0">
+          <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5 shrink-0">
+            <Terminal className="w-3.5 h-3.5" /> 日志
+          </h4>
+          {logToolbar({ showExpand: true })}
+        </div>
+        <div className="h-36 min-w-0 max-w-full overflow-y-auto overflow-x-hidden">
+          {renderLogLines(80, true)}
         </div>
       </div>
-      <div
-        className={`min-w-0 max-w-full overflow-y-auto overflow-x-hidden ${
-          logsExpanded ? 'flex-1 min-h-0' : 'h-36'
-        }`}
-      >
-        <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed min-w-0 w-full max-w-full">
-          {logs.length === 0 && (
-            <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
-              尚无日志
-            </p>
-          )}
-          {logs.slice(-80).map(log => (
-            <div
-              key={log.id}
-              className={`select-text break-all whitespace-pre-wrap py-0.5 min-w-0 w-full max-w-full ${
-                log.type === 'error'
-                  ? 'text-rose-500'
-                  : log.type === 'success'
-                    ? 'text-emerald-500'
-                    : log.type === 'warning'
-                      ? 'text-amber-500'
-                      : ''
-              }`}
-              style={{
-                overflowWrap: 'anywhere',
-                wordBreak: 'break-word',
-                ...(log.type === 'error' || log.type === 'success' || log.type === 'warning'
-                  ? {}
-                  : { color: colors.secondaryText }),
-              }}>
-              <span className="opacity-50 mr-2">{log.timestamp}</span>
-              {log.nodeId ? <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span> : null}
-              {log.message}
+      <Dialog open={logsExpanded} onOpenChange={setLogsExpanded}>
+        <DialogContent
+          className="max-w-[min(96vw,56rem)] w-[min(96vw,56rem)] h-[min(88vh,42rem)] p-4 flex flex-col gap-3"
+          style={{
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            color: colors.text,
+          }}
+        >
+          <DialogHeader className="shrink-0">
+            <div className="flex items-center justify-between gap-2 pr-8">
+              <DialogTitle className="flex items-center gap-1.5 text-sm font-medium">
+                <Terminal className="w-3.5 h-3.5" /> 日志
+              </DialogTitle>
+              {logToolbar({ showExpand: false })}
             </div>
-          ))}
-          <div ref={logEndRef} />
-        </div>
-      </div>
-    </div>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden select-text">
+            {renderLogLines(500, false)}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 
   const applyPointPick = (xKey: string, res: any) => {
@@ -1509,11 +1543,7 @@ export default function Inspector({
           color: colors.text
         }}
         className="w-[21.8rem] max-w-[21.8rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
-        <div
-          className={`flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0 ${
-            logsExpanded ? 'hidden' : ''
-          }`}
-        >
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0">
           <div className="w-12 h-12 mx-auto flex items-center justify-center">
             <img
               src={`${import.meta.env.BASE_URL}logo.png`}
@@ -2296,11 +2326,7 @@ export default function Inspector({
         color: colors.text
       }}
       className="w-[24rem] max-w-[24rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
-      <div
-        className={`px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0 ${
-          logsExpanded ? 'hidden' : ''
-        }`}
-      >
+      <div className="px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <h3 className="font-semibold text-sm truncate">节点</h3>
@@ -2310,7 +2336,7 @@ export default function Inspector({
         </Button>
       </div>
 
-      <ScrollArea className={logsExpanded ? 'hidden' : 'flex-1 min-w-0'}>
+      <ScrollArea className="flex-1 min-w-0">
         <div className="p-3 space-y-4 min-w-0 max-w-full overflow-x-hidden">
           <div className="bg-black/5 dark:bg-white/5 rounded-xl px-3 py-2 border border-black/10 dark:border-white/10 space-y-2">
             <div className="flex justify-between items-center gap-2">
@@ -2464,7 +2490,7 @@ export default function Inspector({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <h4 className="font-medium text-sm opacity-70">节点运行日志</h4>
+              <h4 className="font-medium text-sm opacity-70">节点日志</h4>
               {nodeLogs.length > 0 ? (
                 <Button
                   variant="ghost"
