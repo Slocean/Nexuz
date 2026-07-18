@@ -3,6 +3,7 @@ import { Clock, RefreshCw, Trash2 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { bridge } from '@/bridge';
+import { useFlowStore } from '@/store/flowModelStore';
 import { Button } from '@/components/ui/button';
 import { useAppDialog } from './AppDialogs';
 
@@ -26,6 +27,7 @@ export default function SchedulePanel({
 }) {
   const { confirm } = useAppDialog();
   const colors = getThemeColors(themeName, themeMode);
+  const scheduleRefreshToken = useFlowStore((s) => s.scheduleRefreshToken || 0);
   const [jobs, setJobs] = useState<ScheduleJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,8 +53,8 @@ export default function SchedulePanel({
   }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    void refresh();
+  }, [refresh, scheduleRefreshToken]);
 
   const remove = async (jobId: string) => {
     const ok = await confirm({

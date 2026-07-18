@@ -274,6 +274,8 @@ class Api:
             "flow_breakpoint",
             "force_reset",
             "recording_stopped",
+            "schedule_fired",
+            "schedule_error",
         } or (event == "node_end" and not bool(event_payload.get("ok", True)))
         if critical:
             self._flush_emit_queue()

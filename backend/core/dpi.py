@@ -1,18 +1,19 @@
-"""DPI scaling helpers for Windows logical ↔ physical pixels."""
+"""DPI scaling helpers for Windows logical ↔ physical pixels (per-monitor aware)."""
 
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import sys
+from typing import Any
 
 
 def get_dpi_scale() -> float:
-    """Return primary monitor DPI scale (e.g. 1.25 for 125%)."""
+    """Return primary / system DPI scale (e.g. 1.25 for 125%). Fallback for legacy callers."""
     if sys.platform != "win32":
         return 1.0
     try:
         user32 = ctypes.windll.user32
-        # Prefer per-monitor awareness if available
         try:
             awareness = ctypes.c_int()
             ctypes.windll.shcore.GetProcessDpiAwareness(0, ctypes.byref(awareness))
@@ -31,6 +32,90 @@ def get_dpi_scale() -> float:
                 user32.ReleaseDC(0, hdc)
     except Exception:
         return 1.0
+
+
+def get_dpi_for_point(x: int, y: int) -> int:
+    """DPI (96-based) of the monitor containing screen point (x, y)."""
+    if sys.platform != "win32":
+        return 96
+    try:
+        user32 = ctypes.windll.user32
+        point = ctypes.wintypes.POINT(int(x), int(y))
+        # MONITOR_DEFAULTTONEAREST = 2
+        hmon = user32.MonitorFromPoint(point, 2)
+        if not hmon:
+            return int(round(get_dpi_scale() * 96))
+        dpi_x = ctypes.c_uint()
+        dpi_y = ctypes.c_uint()
+        # MDT_EFFECTIVE_DPI = 0
+        hr = ctypes.windll.shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
+        if hr == 0 and dpi_x.value:
+            return int(dpi_x.value)
+    except Exception:
+        pass
+    try:
+        return int(ctypes.windll.user32.GetDpiForSystem() or 96)
+    except Exception:
+        return 96
+
+
+def get_dpi_scale_for_point(x: int, y: int) -> float:
+    return max(0.5, get_dpi_for_point(x, y) / 96.0)
+
+
+def get_dpi_for_hwnd(hwnd: int) -> int:
+    if sys.platform != "win32" or not hwnd:
+        return 96
+    try:
+        dpi = int(ctypes.windll.user32.GetDpiForWindow(int(hwnd)) or 0)
+        if dpi > 0:
+            return dpi
+    except Exception:
+        pass
+    return 96
+
+
+def monitor_info_at_point(x: int, y: int) -> dict[str, Any]:
+    """Compact monitor descriptor for coord_space / debugging."""
+    dpi = get_dpi_for_point(x, y)
+    info: dict[str, Any] = {"dpi": dpi, "dpi_scale": dpi / 96.0, "x": int(x), "y": int(y)}
+    if sys.platform != "win32":
+        return info
+    try:
+        user32 = ctypes.windll.user32
+        point = ctypes.wintypes.POINT(int(x), int(y))
+        hmon = user32.MonitorFromPoint(point, 2)
+        if not hmon:
+            return info
+
+        class RECT(ctypes.Structure):
+            _fields_ = [
+                ("left", ctypes.c_long),
+                ("top", ctypes.c_long),
+                ("right", ctypes.c_long),
+                ("bottom", ctypes.c_long),
+            ]
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_ulong),
+                ("rcMonitor", RECT),
+                ("rcWork", RECT),
+                ("dwFlags", ctypes.c_ulong),
+            ]
+
+        mi = MONITORINFO()
+        mi.cbSize = ctypes.sizeof(MONITORINFO)
+        if user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+            info["monitor"] = {
+                "left": int(mi.rcMonitor.left),
+                "top": int(mi.rcMonitor.top),
+                "right": int(mi.rcMonitor.right),
+                "bottom": int(mi.rcMonitor.bottom),
+            }
+    except Exception:
+        pass
+    return info
 
 
 def logical_to_physical(x: float, y: float, scale: float | None = None) -> tuple[int, int]:

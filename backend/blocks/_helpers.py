@@ -13,7 +13,10 @@ import pyautogui
 from PIL import Image
 
 from backend.core.dpi import (
+    get_dpi_for_point,
     get_dpi_scale,
+    get_dpi_scale_for_point,
+    monitor_info_at_point,
     screen_size_logical,
     virtual_screen_rect,
     virtual_screen_size,
@@ -112,10 +115,10 @@ def validate_region(region: list | tuple) -> tuple[int, int, int, int]:
     return x1, y1, x2, y2
 
 
-def pack_coord_space() -> dict[str, Any]:
+def pack_coord_space(x: int | None = None, y: int | None = None) -> dict[str, Any]:
     left, top, width, height = virtual_screen_size()
     pw, ph = screen_size_logical()
-    return {
+    space: dict[str, Any] = {
         "w": width,
         "h": height,
         "left": left,
@@ -124,6 +127,13 @@ def pack_coord_space() -> dict[str, Any]:
         "primary_h": ph,
         "dpi_scale": get_dpi_scale(),
     }
+    if x is not None and y is not None:
+        mon = monitor_info_at_point(int(x), int(y))
+        space["point_dpi"] = mon.get("dpi")
+        space["point_dpi_scale"] = mon.get("dpi_scale")
+        if isinstance(mon.get("monitor"), dict):
+            space["monitor"] = mon["monitor"]
+    return space
 
 
 def pack_point(x: int, y: int) -> dict[str, Any]:
@@ -134,7 +144,9 @@ def pack_point(x: int, y: int) -> dict[str, Any]:
         "y": int(y),
         "coordinate_mode": "screen_abs",
         "point_norm": [(x - left) / width, (y - top) / height],
-        "coord_space": pack_coord_space(),
+        "coord_space": pack_coord_space(x, y),
+        "monitor_dpi": get_dpi_for_point(x, y),
+        "monitor_dpi_scale": get_dpi_scale_for_point(x, y),
     }
     try:
         from backend.core.window_coords import capture_window_target
@@ -150,6 +162,8 @@ def pack_point(x: int, y: int) -> dict[str, Any]:
 def pack_region(region: list | tuple) -> dict[str, Any]:
     x1, y1, x2, y2 = validate_region(region)
     left, top, width, height = virtual_screen_size()
+    cx = (x1 + x2) // 2
+    cy = (y1 + y2) // 2
     return {
         "region": [x1, y1, x2, y2],
         "region_norm": [
@@ -158,7 +172,8 @@ def pack_region(region: list | tuple) -> dict[str, Any]:
             (x2 - left) / width,
             (y2 - top) / height,
         ],
-        "coord_space": pack_coord_space(),
+        "coord_space": pack_coord_space(cx, cy),
+        "monitor_dpi": get_dpi_for_point(cx, cy),
     }
 
 

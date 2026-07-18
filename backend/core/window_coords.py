@@ -150,6 +150,7 @@ def _find_window(target: dict[str, Any]) -> int:
 
 
 def resolve_window_point(target: dict[str, Any]) -> tuple[int, int, int]:
+    """Resolve client-normalized point to current screen coords (DPI-safe via point_norm)."""
     if not _supported() or not isinstance(target, dict):
         raise RuntimeError("窗口相对坐标仅支持 Windows")
     hwnd = _find_window(target)
@@ -165,6 +166,8 @@ def resolve_window_point(target: dict[str, Any]) -> tuple[int, int, int]:
     norm = target.get("point_norm")
     if not isinstance(norm, (list, tuple)) or len(norm) != 2:
         raise RuntimeError("窗口坐标缺少 point_norm")
+    # point_norm is relative to live client size (after restore), so window move /
+    # per-monitor DPI changes stay correct without extra scale math.
     x = int(round(left + float(norm[0]) * width))
     y = int(round(top + float(norm[1]) * height))
     return x, y, hwnd

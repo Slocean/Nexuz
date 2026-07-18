@@ -537,4 +537,126 @@ export function applyDefaultOutputCoordinateMode(
   return changed ? { ...flow, nodes } : flow;
 }
 
+export const LOOP_BLOCK_TYPES = new Set([
+  'loop_n',
+  'loop_while',
+  'loop_forever',
+  'loop_foreach',
+]);
+
+/** Flow successors from a node (excludes data edges). */
+function flowTargetsFrom(
+  sourceId: string,
+  connections: NodeConnection[],
+): string[] {
+  const out: string[] = [];
+  for (const c of connections) {
+    if (c.kind === 'data') continue;
+    if (c.sourceNodeId === sourceId) out.push(c.targetNodeId);
+  }
+  return out;
+}
+
+/**
+ * Collect node ids in a loop's body subgraph (reachable from ``body`` socket,
+ * stopping when control returns to the loop node).
+ */
+export function collectLoopBodyMemberIds(
+  loopId: string,
+  connections: NodeConnection[],
+): string[] {
+  const bodyEdge = connections.find(
+    (c) =>
+      c.kind !== 'data' &&
+      c.sourceNodeId === loopId &&
+      c.sourceSocketId === 'body',
+  );
+  if (!bodyEdge?.targetNodeId) return [];
+
+  const members = new Set<string>();
+  const queue = [bodyEdge.targetNodeId];
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (!id || id === loopId || members.has(id)) continue;
+    members.add(id);
+    for (const next of flowTargetsFrom(id, connections)) {
+      if (next !== loopId && !members.has(next)) queue.push(next);
+    }
+  }
+  return [...members];
+}
+
+export type LoopBodyFrame = {
+  loopId: string;
+  loopName: string;
+  forever: boolean;
+  memberIds: string[];
+  collapsed: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+/** Bounding frames for loop bodies (canvas overlay). */
+export function computeLoopBodyFrames(
+  nodes: WorkflowNode[],
+  connections: NodeConnection[],
+  pad = 18,
+  collapsedStripH = 28,
+): LoopBodyFrame[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const frames: LoopBodyFrame[] = [];
+
+  for (const node of nodes) {
+    if (!LOOP_BLOCK_TYPES.has(node.subType)) continue;
+    const memberIds = collectLoopBodyMemberIds(node.id, connections);
+    const forever = node.subType === 'loop_forever';
+    const collapsed = !!node.collapsed;
+
+    if (collapsed || memberIds.length === 0) {
+      const w = Math.max(node.width || 176, 160);
+      frames.push({
+        loopId: node.id,
+        loopName: node.name || node.subType,
+        forever,
+        memberIds,
+        collapsed: true,
+        x: node.x - 8,
+        y: node.y - collapsedStripH - 6,
+        width: w + 16,
+        height: collapsedStripH,
+      });
+      continue;
+    }
+
+    let minX = node.x;
+    let minY = node.y;
+    let maxX = node.x + (node.width || 176);
+    let maxY = node.y + (node.height || 96);
+    for (const mid of memberIds) {
+      const m = byId.get(mid);
+      if (!m) continue;
+      const mw = m.width || 176;
+      const mh = m.height || 96;
+      minX = Math.min(minX, m.x);
+      minY = Math.min(minY, m.y);
+      maxX = Math.max(maxX, m.x + mw);
+      maxY = Math.max(maxY, m.y + mh);
+    }
+    frames.push({
+      loopId: node.id,
+      loopName: node.name || node.subType,
+      forever,
+      memberIds,
+      collapsed: false,
+      x: minX - pad,
+      y: minY - pad - 18,
+      width: maxX - minX + pad * 2,
+      height: maxY - minY + pad * 2 + 18,
+    });
+  }
+  return frames;
+}
+
 export { formatNodeRef };

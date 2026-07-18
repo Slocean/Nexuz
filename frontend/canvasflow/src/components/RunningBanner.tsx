@@ -2,7 +2,7 @@
  * In-app tip while a flow is running / paused / at breakpoint.
  */
 import React from 'react';
-import { Pause, Square, Keyboard } from 'lucide-react';
+import { Pause, Play, Square, Keyboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function RunningBanner({
@@ -10,6 +10,7 @@ export default function RunningBanner({
   execStatus,
   onPause,
   onStop,
+  onContinue,
   pauseHotkeyLabel = 'X+F5',
   stopHotkeyLabel = 'X+F4',
 }: {
@@ -17,6 +18,7 @@ export default function RunningBanner({
   execStatus: string;
   onPause: () => void;
   onStop: () => void;
+  onContinue?: () => void;
   pauseHotkeyLabel?: string;
   stopHotkeyLabel?: string;
 }) {
@@ -27,7 +29,9 @@ export default function RunningBanner({
   else if (execStatus === 'breakpoint') status = '断点暂停';
   else if (execStatus === 'stopping') status = '停止中';
 
+  const atBreak = execStatus === 'paused' || execStatus === 'breakpoint';
   const canPause = execStatus === 'running';
+  const canContinue = atBreak && !!onContinue;
   const canStop = execStatus !== 'idle' && execStatus !== 'stopping';
   const pauseKey = pauseHotkeyLabel || 'X+F5';
   const stopKey = stopHotkeyLabel || 'X+F4';
@@ -62,17 +66,30 @@ export default function RunningBanner({
           </div>
         </div>
         <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            disabled={!canPause}
-            onClick={onPause}
-          >
-            <Pause className="w-3.5 h-3.5" />
-            暂停
-          </Button>
+          {canContinue ? (
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="flex-1"
+              onClick={onContinue}
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              继续
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              disabled={!canPause}
+              onClick={onPause}
+            >
+              <Pause className="w-3.5 h-3.5" />
+              暂停
+            </Button>
+          )}
           <Button
             type="button"
             variant="destructive"

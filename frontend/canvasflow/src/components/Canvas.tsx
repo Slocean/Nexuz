@@ -27,6 +27,7 @@ import MiniMap from "./MiniMap";
 import { Button } from "@/components/ui/button";
 import { useAppDialog } from "./AppDialogs";
 import { computeAutoLayout } from "../autoLayout";
+import { computeLoopBodyFrames } from "../nexuzAdapter";
 import { useFlowStore } from "@/store/flowModelStore";
 
 interface CanvasProps {
@@ -222,6 +223,11 @@ function Canvas({
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showDataLinks, setShowDataLinks] = useState(false);
+
+  const loopFrames = useMemo(
+    () => computeLoopBodyFrames(nodes, connections),
+    [nodes, connections],
+  );
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameValue, setEditingNameValue] = useState("");
   /** pan = 拖动画布；select = 空处拖动框选 */
@@ -1139,6 +1145,38 @@ function Canvas({
         }}
         className="absolute inset-0 pointer-events-none"
       >
+        {/* Loop body range frames (under nodes / wires) */}
+        {loopFrames.map((frame) => {
+          const accent = frame.forever ? "#FF5E57" : "#AF52DE";
+          const label = frame.collapsed
+            ? `循环 · ${frame.memberIds.length} 节点`
+            : frame.loopName;
+          return (
+            <div
+              key={`loop-frame-${frame.loopId}`}
+              className="absolute rounded-2xl border pointer-events-none"
+              style={{
+                left: frame.x,
+                top: frame.y,
+                width: frame.width,
+                height: frame.height,
+                borderColor: accent + (frame.forever ? "99" : "66"),
+                borderWidth: frame.forever ? 2 : 1,
+                backgroundColor: accent + (themeMode === "light" ? "12" : "18"),
+                boxShadow: frame.forever
+                  ? "inset 0 0 0 1px rgba(255,94,87,0.15)"
+                  : undefined,
+              }}
+            >
+              <div
+                className="absolute left-2 top-1 text-[10px] font-medium truncate max-w-[calc(100%-16px)]"
+                style={{ color: accent }}
+              >
+                {label}
+              </div>
+            </div>
+          );
+        })}
         <svg
           className="absolute left-0 top-0 overflow-visible pointer-events-none"
           width={1}
@@ -1295,12 +1333,18 @@ function Canvas({
                   onClick={(e) => {
                     e.stopPropagation();
                     void (async () => {
+                      if (isData) {
+                        await alert({
+                          title: "数据连线",
+                          description:
+                            "数据连线由参数中的 {{node.field}} 自动生成。请在右侧 Inspector 中修改或清除引用；画布上点击连线不会删除绑定。",
+                        });
+                        return;
+                      }
                       const ok = await confirm({
-                        title: isData ? "清除数据绑定" : "断开连接",
-                        description: isData
-                          ? `确定清除这条数据绑定${conn.label ? `（${conn.label}）` : ""}？`
-                          : "确定断开这条工作流连线？",
-                        confirmText: isData ? "清除" : "断开",
+                        title: "断开连接",
+                        description: "确定断开这条工作流连线？",
+                        confirmText: "断开",
                         destructive: true,
                       });
                       if (ok) onRemoveConnection(conn.id);
@@ -1324,7 +1368,7 @@ function Canvas({
                         await alert({
                           title: "数据连线",
                           description:
-                            "数据连线由参数中的 {{node.field}} 自动生成，请在 Inspector 中修改引用。",
+                            "数据连线由参数中的 {{node.field}} 自动生成。请在右侧 Inspector 中修改或清除引用；画布上点击连线不会删除绑定。",
                         });
                         return;
                       }

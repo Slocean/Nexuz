@@ -1459,6 +1459,9 @@ function AppShell() {
         onPause={() => {
           void handlePause();
         }}
+        onContinue={() => {
+          void handleResume();
+        }}
         onStop={() => {
           void handleStop();
         }}

@@ -457,6 +457,8 @@ export const useFlowStore = create((set, get) => ({
 
   // execution
   execStatus: 'idle', // idle | running | paused | stopping | breakpoint
+  /** Bumped when a scheduled job fires/errors so SchedulePanel can refresh. */
+  scheduleRefreshToken: 0,
   execNodeId: null,
   execNodeStates: {}, // id -> running|done|error
   debugMode: false,
@@ -1533,6 +1535,18 @@ export const useFlowStore = create((set, get) => ({
       appendLog({
         level: 'ok',
         message: `快捷键停止录制，追加 ${nodes.length || 0} 个节点${btnHint}`,
+      });
+    } else if (event === 'schedule_fired') {
+      set((state) => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
+      appendLog({
+        level: 'ok',
+        message: `定时任务已触发：${payload?.job_id || ''}`,
+      });
+    } else if (event === 'schedule_error') {
+      set((state) => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
+      appendLog({
+        level: 'error',
+        message: `定时任务失败：${payload?.job_id || ''} ${payload?.error || ''}`.trim(),
       });
     } else if (event === 'log') {
       appendLog({
