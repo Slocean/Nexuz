@@ -34,7 +34,7 @@ SCHEMA = {
             "type": "select",
             "label": "输出坐标",
             "options": ["screen_abs", "region_rel"],
-            "default": "screen_abs",
+            "default": "region_rel",
             "option_labels": {
                 "screen_abs": "屏幕绝对",
                 "region_rel": "区域相对",

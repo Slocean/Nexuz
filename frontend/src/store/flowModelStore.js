@@ -310,9 +310,9 @@ function loadDefaultCoordinateMode() {
   try {
     const v = localStorage.getItem('nexuz.defaultCoordinateMode');
     if (v === 'window_client' || v === 'virtual_norm' || v === 'screen_abs') return v;
-    return 'screen_abs';
+    return 'window_client';
   } catch {
-    return 'screen_abs';
+    return 'window_client';
   }
 }
 
@@ -320,9 +320,9 @@ function loadDefaultOutputCoordinateMode() {
   try {
     const v = localStorage.getItem('nexuz.defaultOutputCoordinateMode');
     if (v === 'region_rel' || v === 'screen_abs') return v;
-    return 'screen_abs';
+    return 'region_rel';
   } catch {
-    return 'screen_abs';
+    return 'region_rel';
   }
 }
 
@@ -941,13 +941,13 @@ export const useFlowStore = create((set, get) => ({
     if (type === 'click') {
       const mode = get().defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
       params.capture_mode = mode;
-      params.coordinate_mode = get().defaultCoordinateMode || 'screen_abs';
+      params.coordinate_mode = get().defaultCoordinateMode || 'window_client';
     }
     if (type === 'drag' || type === 'mouse_hover') {
-      params.coordinate_mode = get().defaultCoordinateMode || 'screen_abs';
+      params.coordinate_mode = get().defaultCoordinateMode || 'window_client';
     }
     if (OUTPUT_COORD_NODE_TYPES.has(type)) {
-      params.output_coordinate_mode = get().defaultOutputCoordinateMode || 'screen_abs';
+      params.output_coordinate_mode = get().defaultOutputCoordinateMode || 'region_rel';
     }
     const node = {
       type,
@@ -1002,7 +1002,7 @@ export const useFlowStore = create((set, get) => ({
         if (!firstId) firstId = id;
         let params = cloneValue(item.params || {});
         if (item.type === 'click' && (params.capture_mode || 'coord') === 'coord') {
-          const coordinateMode = state.defaultCoordinateMode || 'screen_abs';
+          const coordinateMode = state.defaultCoordinateMode || 'window_client';
           params = { ...params, coordinate_mode: coordinateMode };
           if (params.coord && typeof params.coord === 'object') {
             params.coord = { ...params.coord, coordinate_mode: coordinateMode };

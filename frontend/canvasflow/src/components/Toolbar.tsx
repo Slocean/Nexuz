@@ -370,7 +370,7 @@ export default function Toolbar({
         color: colors.text
       }}
       className="relative flex flex-col border-b z-40 shrink-0">
-      {/* Top padding strip — frameless window drag handle */}
+      {/* Top/bottom padding strips — frameless window drag handle */}
       <div
         className="pywebview-drag-region h-3 w-full shrink-0"
         title="拖动窗口"
@@ -846,6 +846,11 @@ export default function Toolbar({
         </div>
       </div>
       </div>
+      <div
+        className="pywebview-drag-region h-3 w-full shrink-0"
+        title="拖动窗口"
+        aria-hidden
+      />
     </header>
   );
 }

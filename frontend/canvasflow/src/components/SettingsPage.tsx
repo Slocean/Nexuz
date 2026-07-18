@@ -465,7 +465,7 @@ export default function SettingsPage({
 
     const differing = Object.values(flowNodes).filter((n: any) => {
       if (n?.type !== 'ocr_recognize' && n?.type !== 'find_image') return false;
-      const cur = n.params?.output_coordinate_mode || defaultOutputCoordinateMode || 'screen_abs';
+      const cur = n.params?.output_coordinate_mode || defaultOutputCoordinateMode || 'region_rel';
       return cur !== mode;
     });
 
@@ -1462,7 +1462,7 @@ export default function SettingsPage({
               />
             </div>
             <Select
-              value={defaultCoordinateMode || 'screen_abs'}
+              value={defaultCoordinateMode || 'window_client'}
               onValueChange={(v) => {
                 void handleDefaultCoordinateModeChange(v);
               }}
@@ -1490,7 +1490,7 @@ export default function SettingsPage({
               />
             </div>
             <Select
-              value={defaultOutputCoordinateMode || 'screen_abs'}
+              value={defaultOutputCoordinateMode || 'region_rel'}
               onValueChange={(v) => {
                 void handleDefaultOutputCoordinateModeChange(v);
               }}

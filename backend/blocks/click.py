@@ -47,7 +47,7 @@ SCHEMA = {
             "type": "select",
             "label": "坐标基准",
             "options": ["screen_abs", "window_client", "virtual_norm"],
-            "default": "screen_abs",
+            "default": "window_client",
             "option_labels": {
                 "screen_abs": "屏幕绝对坐标",
                 "window_client": "目标窗口相对（推荐）",

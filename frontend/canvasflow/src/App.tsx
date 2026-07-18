@@ -195,7 +195,7 @@ function AppShell() {
       const m = method === 'live' || method === 'screenshot' ? method : defaultPickMethod;
       if (m === 'live') {
         if (kind === 'point') {
-          return bridge.pickPoint(hideWindowOnRecord, defaultCoordinateMode || 'screen_abs');
+          return bridge.pickPoint(hideWindowOnRecord, defaultCoordinateMode || 'window_client');
         }
         if (kind === 'region') return bridge.pickRegion(hideWindowOnRecord);
         return bridge.captureTemplate(hideWindowOnRecord);
@@ -932,7 +932,7 @@ function AppShell() {
         50,
         hide,
         mode,
-        defaultCoordinateMode || 'screen_abs',
+        defaultCoordinateMode || 'window_client',
       );
       if (res?.ok) {
         setRecording(true);
@@ -1413,7 +1413,7 @@ function AppShell() {
           onPickPoint={(method?: string) => runCoordPick('point', method)}
           onPickClick={(mode: string, method?: string) =>
             mode === 'frida_ui'
-              ? bridge.pickClick(mode, hideWindowOnRecord, defaultCoordinateMode || 'screen_abs')
+              ? bridge.pickClick(mode, hideWindowOnRecord, defaultCoordinateMode || 'window_client')
               : runCoordPick('point', method)
           }
           onPickRegion={(method?: string) => runCoordPick('region', method)}
