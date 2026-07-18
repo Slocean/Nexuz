@@ -459,6 +459,8 @@ export const useFlowStore = create((set, get) => ({
   execStatus: 'idle', // idle | running | paused | stopping | breakpoint
   /** Bumped when a scheduled job fires/errors so SchedulePanel can refresh. */
   scheduleRefreshToken: 0,
+  /** Last plugin-mode snapshot from backend (hotkey / set_plugin_mode). */
+  pluginModeRemote: null,
   execNodeId: null,
   execNodeStates: {}, // id -> running|done|error
   debugMode: false,
@@ -1548,6 +1550,16 @@ export const useFlowStore = create((set, get) => ({
         level: 'error',
         message: `定时任务失败：${payload?.job_id || ''} ${payload?.error || ''}`.trim(),
       });
+    } else if (event === 'plugin_mode_changed') {
+      set((state) => ({
+        pluginModeRemote: {
+          enabled: !!payload?.enabled,
+          opacity: Number(payload?.opacity ?? 0.85),
+          click_through: !!payload?.click_through,
+          on_top: !!payload?.on_top,
+          rev: (state.pluginModeRemote?.rev || 0) + 1,
+        },
+      }));
     } else if (event === 'log') {
       appendLog({
         level: payload?.level || 'info',

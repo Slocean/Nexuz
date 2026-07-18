@@ -197,3 +197,37 @@ body {
   stroke-width: 2.5;
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--node-halo, #f59e0b) 55%, transparent));
 }
+
+/* Plugin / overlay mode — glass shell over games */
+html.plugin-mode,
+html.plugin-mode body,
+html.plugin-mode #root {
+  background: transparent !important;
+}
+
+html.plugin-mode body {
+  background-color: transparent !important;
+}
+
+html.plugin-mode .plugin-shell {
+  /* --plugin-fill set by Toolbar from opacity slider */
+  background-color: color-mix(
+    in srgb,
+    var(--background, #0a0d14) var(--plugin-fill, 60%),
+    transparent
+  ) !important;
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+
+html.plugin-mode header,
+html.plugin-mode aside,
+html.plugin-mode [data-plugin-chrome] {
+  background-color: color-mix(
+    in srgb,
+    var(--card, #181c2b) var(--plugin-chrome-fill, 72%),
+    transparent
+  ) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}

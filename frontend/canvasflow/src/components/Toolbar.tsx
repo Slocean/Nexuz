@@ -27,6 +27,8 @@ import {
   Waypoints,
   Megaphone,
   ArrowUpCircle,
+  AppWindow,
+  MousePointerClick,
   X
 } from 'lucide-react';
 import { ThemeName, ThemeMode } from '../types';
@@ -37,9 +39,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { bridge } from '@/bridge';
+import { useFlowStore } from '../../../src/store/flowModelStore';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
 
@@ -117,13 +121,87 @@ export default function Toolbar({
   const recordStopKey = hotkeyLabels?.record_stop || 'X+F10';
   const { openAlert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
+  const pluginModeRemote = useFlowStore((s) => s.pluginModeRemote);
   const [isSaved, setIsSaved] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [onTop, setOnTop] = useState(false);
+  const [pluginMode, setPluginMode] = useState(false);
+  const [pluginOpacity, setPluginOpacity] = useState(0.85);
+  const [pluginClickThrough, setPluginClickThrough] = useState(false);
   const [updateDot, setUpdateDot] = useState(false);
   const [annDot, setAnnDot] = useState(false);
   const colors = getThemeColors(themeName, themeMode);
   const themes: ThemeName[] = ['Ocean', 'Mint', 'Purple', 'Rose', 'Orange'];
+
+  const applyPluginUiClass = (enabled: boolean, opacity = pluginOpacity) => {
+    const op = Math.max(0.25, Math.min(1, Number(opacity) || 0.85));
+    document.documentElement.classList.toggle('plugin-mode', !!enabled);
+    document.documentElement.style.setProperty('--plugin-opacity', enabled ? String(op) : '1');
+    // Precompute % for color-mix (avoids calc()* in older WebView2)
+    document.documentElement.style.setProperty(
+      '--plugin-fill',
+      enabled ? `${Math.round(op * 70)}%` : '100%',
+    );
+    document.documentElement.style.setProperty(
+      '--plugin-chrome-fill',
+      enabled ? `${Math.round(op * 85)}%` : '100%',
+    );
+  };
+
+  const persistPluginPrefs = (state: {
+    enabled: boolean;
+    opacity: number;
+    click_through: boolean;
+  }) => {
+    try {
+      localStorage.setItem('nexuz.pluginMode', JSON.stringify(state));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const syncPluginMode = async (patch: {
+    enabled?: boolean;
+    opacity?: number;
+    click_through?: boolean;
+  }) => {
+    const res = await bridge.setPluginMode?.(patch);
+    if (res?.ok === false) {
+      openAlert({
+        title: '插件模式',
+        description: res.error || '设置失败',
+      });
+      return;
+    }
+    const enabled = !!res?.enabled;
+    const opacity = Number(res?.opacity ?? pluginOpacity);
+    const clickThrough = !!res?.click_through;
+    setPluginMode(enabled);
+    if (res?.opacity != null) setPluginOpacity(opacity);
+    if (res?.click_through != null) setPluginClickThrough(clickThrough);
+    if (res?.on_top != null) setOnTop(!!res.on_top);
+    applyPluginUiClass(enabled, opacity);
+    persistPluginPrefs({
+      enabled,
+      opacity,
+      click_through: clickThrough,
+    });
+  };
+
+  useEffect(() => {
+    if (!pluginModeRemote) return;
+    const op = Number(pluginModeRemote.opacity ?? 0.85);
+    setPluginMode(!!pluginModeRemote.enabled);
+    if (pluginModeRemote.opacity != null) setPluginOpacity(op);
+    setPluginClickThrough(!!pluginModeRemote.click_through);
+    if (pluginModeRemote.on_top != null) setOnTop(!!pluginModeRemote.on_top);
+    applyPluginUiClass(!!pluginModeRemote.enabled, op);
+    persistPluginPrefs({
+      enabled: !!pluginModeRemote.enabled,
+      opacity: op,
+      click_through: !!pluginModeRemote.click_through,
+    });
+  }, [pluginModeRemote?.rev]);
 
   useEffect(() => {
     bridge.windowIsMaximized?.().then((res: any) => {
@@ -132,6 +210,26 @@ export default function Toolbar({
     bridge.windowIsOnTop?.().then((res: any) => {
       if (res?.on_top != null) setOnTop(!!res.on_top);
     });
+    (async () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('nexuz.pluginMode') || 'null');
+        const remote = await bridge.getPluginMode?.();
+        if (saved?.enabled) {
+          await syncPluginMode({
+            enabled: true,
+            opacity: Number(saved.opacity ?? remote?.opacity ?? 0.85),
+            click_through: !!saved.click_through,
+          });
+        } else if (remote?.ok) {
+          setPluginMode(!!remote.enabled);
+          if (remote.opacity != null) setPluginOpacity(Number(remote.opacity));
+          setPluginClickThrough(!!remote.click_through);
+          applyPluginUiClass(!!remote.enabled, Number(remote.opacity ?? 0.85));
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
     (async () => {
       try {
         const upd = await bridge.checkForUpdate();
@@ -604,6 +702,103 @@ export default function Toolbar({
           </Button>
 
           <div className="flex items-center ml-1 pl-1 border-l border-black/10 dark:border-white/10">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  title="插件模式（浮在游戏上）"
+                  className="h-8 w-9 inline-flex items-center justify-center rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                  style={pluginMode ? { color: colors.primary } : undefined}
+                >
+                  <AppWindow className={`w-3.5 h-3.5 ${pluginMode ? 'opacity-100' : 'opacity-80'}`} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 z-[200]">
+                <DropdownMenuLabel>插件模式</DropdownMenuLabel>
+                <p className="px-2 pb-2 text-[11px] leading-relaxed opacity-60">
+                  浮在无边框全屏游戏之上，背景半透明。独占全屏点到本窗口时仍可能退出全屏。开启点击穿透后按 X+F9 可开关穿透。
+                </p>
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    void syncPluginMode({
+                      enabled: !pluginMode,
+                      opacity: pluginOpacity,
+                      click_through: pluginClickThrough,
+                    });
+                  }}
+                >
+                  <AppWindow className="w-3.5 h-3.5" />
+                  <span className="flex-1">{pluginMode ? '关闭插件模式' : '开启插件模式'}</span>
+                  {pluginMode ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : null}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <div
+                  className="px-2 py-2 space-y-1.5"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerUp={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="opacity-70">不透明度</span>
+                    <span className="font-mono opacity-60">{Math.round(pluginOpacity * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={25}
+                    max={100}
+                    step={5}
+                    disabled={!pluginMode}
+                    value={Math.round(pluginOpacity * 100)}
+                    className="w-full accent-current disabled:opacity-40"
+                    onChange={(e) => {
+                      const v = Number(e.target.value) / 100;
+                      setPluginOpacity(v);
+                      applyPluginUiClass(true, v);
+                      if (!pluginMode) return;
+                      // Debounce: apply while dragging (mouseup often lost inside dropdown)
+                      const t = (window as any).__nexuzPluginOpacityTimer as number | undefined;
+                      if (t) window.clearTimeout(t);
+                      (window as any).__nexuzPluginOpacityTimer = window.setTimeout(() => {
+                        void syncPluginMode({
+                          enabled: true,
+                          opacity: v,
+                          click_through: pluginClickThrough,
+                        });
+                      }, 120);
+                    }}
+                    onPointerUp={(e) => {
+                      if (!pluginMode) return;
+                      const v = Number((e.target as HTMLInputElement).value) / 100;
+                      const t = (window as any).__nexuzPluginOpacityTimer as number | undefined;
+                      if (t) window.clearTimeout(t);
+                      void syncPluginMode({
+                        enabled: true,
+                        opacity: v,
+                        click_through: pluginClickThrough,
+                      });
+                    }}
+                  />
+                </div>
+                <DropdownMenuItem
+                  disabled={!pluginMode}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    void syncPluginMode({
+                      enabled: true,
+                      opacity: pluginOpacity,
+                      click_through: !pluginClickThrough,
+                    });
+                  }}
+                >
+                  <MousePointerClick className="w-3.5 h-3.5" />
+                  <span className="flex-1">点击穿透（操作游戏）</span>
+                  {pluginClickThrough ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : null}
+                </DropdownMenuItem>
+                {pluginMode ? (
+                  <p className="px-2 pb-2 text-[10px] opacity-50">穿透开关快捷键：X+F9</p>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button
               type="button"
               onClick={onWinToggleOnTop}

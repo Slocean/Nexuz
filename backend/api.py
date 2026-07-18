@@ -276,6 +276,7 @@ class Api:
             "recording_stopped",
             "schedule_fired",
             "schedule_error",
+            "plugin_mode_changed",
         } or (event == "node_end" and not bool(event_payload.get("ok", True)))
         if critical:
             self._flush_emit_queue()
@@ -781,6 +782,306 @@ class Api:
             except Exception:
                 pass
 
+    def _root_hwnd(self) -> int | None:
+        """Top-level frame hwnd (WebView2 child handle breaks layered styles)."""
+        hwnd = self._window_hwnd()
+        if not hwnd:
+            return None
+        try:
+            import ctypes
+
+            GA_ROOT = 2
+            root = int(ctypes.windll.user32.GetAncestor(ctypes.c_void_p(hwnd), GA_ROOT) or 0)
+            return root or hwnd
+        except Exception:
+            return hwnd
+
+    def _layered_hwnds(self) -> list[int]:
+        """Candidate top-level hwnds for layered alpha (Form + GA_ROOT)."""
+        seen: set[int] = set()
+        out: list[int] = []
+        for hwnd in (self._root_hwnd(), self._window_hwnd()):
+            if not hwnd or hwnd in seen:
+                continue
+            seen.add(hwnd)
+            out.append(int(hwnd))
+        return out
+
+    def _apply_window_opacity(self, opacity: float) -> bool:
+        """Whole-window alpha via WS_EX_LAYERED + LWA_ALPHA (Windows).
+
+        Must run *after* any SetWindowLong(GWL_EXSTYLE) — changing exstyle
+        clears layered attributes. Also try WinForms Form.Opacity when safe.
+        """
+        try:
+            # Allow 1.0 when restoring; plugin UI clamps to >=0.25 separately.
+            opacity_f = max(0.05, min(1.0, float(opacity)))
+        except (TypeError, ValueError):
+            opacity_f = 0.85
+        alpha = max(13, min(255, int(round(opacity_f * 255))))
+
+        # Prefer Form.Opacity on the UI thread when available (WebView2-friendly).
+        applied_form = False
+        try:
+            native = getattr(self._window, "native", None) if self._window else None
+            if native is not None and hasattr(native, "Opacity"):
+
+                def _set() -> None:
+                    try:
+                        native.Opacity = float(opacity_f)
+                    except Exception:
+                        pass
+
+                try:
+                    invoke_required = bool(getattr(native, "InvokeRequired", False))
+                except Exception:
+                    invoke_required = False
+                if invoke_required and hasattr(native, "BeginInvoke"):
+                    try:
+                        from System import Action  # type: ignore
+
+                        native.BeginInvoke(Action(_set))
+                        applied_form = True
+                    except Exception:
+                        _set()
+                        applied_form = True
+                else:
+                    _set()
+                    applied_form = True
+        except Exception:
+            applied_form = False
+
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x00080000
+            LWA_ALPHA = 0x02
+            if hasattr(user32, "GetWindowLongPtrW"):
+                get_long = user32.GetWindowLongPtrW
+                set_long = user32.SetWindowLongPtrW
+            else:
+                get_long = user32.GetWindowLongW
+                set_long = user32.SetWindowLongW
+            try:
+                user32.SetLayeredWindowAttributes.argtypes = [
+                    wintypes.HWND,
+                    wintypes.COLORREF,
+                    wintypes.BYTE,
+                    wintypes.DWORD,
+                ]
+                user32.SetLayeredWindowAttributes.restype = wintypes.BOOL
+            except Exception:
+                pass
+
+            ok_any = False
+            for hwnd in self._layered_hwnds():
+                hwnd_p = ctypes.c_void_p(hwnd)
+                style = int(get_long(hwnd_p, GWL_EXSTYLE) or 0)
+                set_long(hwnd_p, GWL_EXSTYLE, style | WS_EX_LAYERED)
+                ok = bool(user32.SetLayeredWindowAttributes(hwnd_p, 0, alpha, LWA_ALPHA))
+                ok_any = ok_any or ok
+            return ok_any or applied_form
+        except Exception:
+            return applied_form
+
+    def _apply_click_through(self, enabled: bool) -> bool:
+        """WS_EX_TRANSPARENT: mouse goes to windows below (game).
+
+        Caller must re-apply window opacity afterwards — SetWindowLong on
+        GWL_EXSTYLE drops previous SetLayeredWindowAttributes alpha.
+        """
+        hwnds = self._layered_hwnds()
+        if not hwnds:
+            return False
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x00080000
+            WS_EX_TRANSPARENT = 0x00000020
+            if hasattr(user32, "GetWindowLongPtrW"):
+                get_long = user32.GetWindowLongPtrW
+                set_long = user32.SetWindowLongPtrW
+            else:
+                get_long = user32.GetWindowLongW
+                set_long = user32.SetWindowLongW
+            for hwnd in hwnds:
+                hwnd_p = ctypes.c_void_p(hwnd)
+                style = int(get_long(hwnd_p, GWL_EXSTYLE) or 0)
+                style |= WS_EX_LAYERED
+                if enabled:
+                    style |= WS_EX_TRANSPARENT
+                else:
+                    style &= ~WS_EX_TRANSPARENT
+                set_long(hwnd_p, GWL_EXSTYLE, style)
+            return True
+        except Exception:
+            return False
+
+    def _stop_plugin_escape_hotkey(self) -> None:
+        listener = getattr(self, "_plugin_hotkey_listener", None)
+        self._plugin_hotkey_listener = None
+        if listener is None:
+            return
+        try:
+            listener.stop()
+        except Exception:
+            pass
+
+    def _start_plugin_escape_hotkey(self) -> None:
+        """X+F9 toggles click-through while plugin mode is on (escape from mouse-transparent)."""
+        self._stop_plugin_escape_hotkey()
+        try:
+            from pynput import keyboard
+        except Exception:
+            return
+        from backend.core.hotkey_prefs import to_pynput_hotkey
+
+        binding = to_pynput_hotkey(("x", "f9"), default=("x", "f9"))
+
+        def on_toggle() -> None:
+            if not getattr(self, "_plugin_mode", False):
+                return
+            now = time.monotonic()
+            last = float(getattr(self, "_plugin_hotkey_last", 0.0) or 0.0)
+            if now - last < 0.4:
+                return
+            self._plugin_hotkey_last = now
+            nxt = not bool(getattr(self, "_plugin_click_through", False))
+            self.set_plugin_mode(
+                {
+                    "enabled": True,
+                    "opacity": float(getattr(self, "_plugin_opacity", 0.85)),
+                    "click_through": nxt,
+                }
+            )
+            self._log(
+                "info",
+                "快捷键打开点击穿透（X+F9）" if nxt else "快捷键关闭点击穿透（X+F9）",
+            )
+
+        try:
+            listener = keyboard.GlobalHotKeys({binding: on_toggle})
+            listener.start()
+            self._plugin_hotkey_listener = listener
+        except Exception:
+            self._plugin_hotkey_listener = None
+
+    def _sync_plugin_escape_hotkey(self) -> None:
+        if getattr(self, "_plugin_mode", False):
+            if getattr(self, "_plugin_hotkey_listener", None) is None:
+                self._start_plugin_escape_hotkey()
+        else:
+            self._stop_plugin_escape_hotkey()
+
+    def set_plugin_mode(self, options=None) -> dict:
+        """
+        Overlay / plugin mode: float above games with adjustable opacity.
+
+        options: {enabled?, opacity? (0.25–1), click_through?}
+        Uses Win32 layered window + topmost(NOACTIVATE). Best with borderless
+        fullscreen; exclusive fullscreen may still minimize when you focus Nexuz.
+        While enabled, X+F9 toggles click-through.
+        """
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        opts = options if isinstance(options, dict) else {}
+        enabled = bool(opts["enabled"]) if "enabled" in opts else not bool(
+            getattr(self, "_plugin_mode", False)
+        )
+        try:
+            opacity = float(opts.get("opacity", getattr(self, "_plugin_opacity", 0.85)))
+        except (TypeError, ValueError):
+            opacity = 0.85
+        opacity = max(0.25, min(1.0, opacity))
+        click_through = bool(opts.get("click_through", getattr(self, "_plugin_click_through", False)))
+
+        if enabled:
+            if not getattr(self, "_plugin_mode", False):
+                # Remember prior pin state
+                self._plugin_prev_on_top = bool(getattr(self, "_ui_on_top", False))
+            if not self._apply_window_topmost(True):
+                return {"ok": False, "error": "无法置顶窗口"}
+            self._ui_on_top = True
+            self._sync_pywebview_on_top_flag(True)
+            # Exstyle changes wipe layered alpha — always opacity last.
+            self._apply_click_through(click_through)
+            if not self._apply_window_opacity(opacity):
+                return {"ok": False, "error": "无法设置窗口透明度（需 Windows）"}
+            self._plugin_mode = True
+            self._plugin_opacity = opacity
+            self._plugin_click_through = click_through
+        else:
+            self._apply_click_through(False)
+            # Restore full opacity (Form.Opacity + layered alpha)
+            self._apply_window_opacity(1.0)
+            try:
+                native = getattr(self._window, "native", None) if self._window else None
+                if native is not None and hasattr(native, "Opacity"):
+                    def _reset() -> None:
+                        try:
+                            native.Opacity = 1.0
+                        except Exception:
+                            pass
+
+                    try:
+                        if bool(getattr(native, "InvokeRequired", False)) and hasattr(
+                            native, "BeginInvoke"
+                        ):
+                            from System import Action  # type: ignore
+
+                            native.BeginInvoke(Action(_reset))
+                        else:
+                            _reset()
+                    except Exception:
+                        _reset()
+            except Exception:
+                pass
+            restore_top = bool(getattr(self, "_plugin_prev_on_top", False))
+            self._apply_window_topmost(restore_top)
+            self._ui_on_top = restore_top
+            self._sync_pywebview_on_top_flag(restore_top)
+            self._plugin_mode = False
+            self._plugin_opacity = opacity
+            self._plugin_click_through = False
+
+        self._sync_plugin_escape_hotkey()
+        result = {
+            "ok": True,
+            "enabled": bool(self._plugin_mode),
+            "opacity": float(getattr(self, "_plugin_opacity", opacity)),
+            "click_through": bool(getattr(self, "_plugin_click_through", False)),
+            "on_top": bool(getattr(self, "_ui_on_top", False)),
+            "escape_hotkey": "X+F9",
+            "hint": (
+                "插件模式已开启：窗口浮在最前且半透明。"
+                "无边框全屏游戏通常可用；独占全屏在点到本窗口时仍可能退出全屏。"
+                "需要操作游戏时请打开「点击穿透」；按 X+F9 可开关穿透。"
+                if self._plugin_mode
+                else "已退出插件模式"
+            ),
+        }
+        # Avoid re-entrant emit loop when hotkey calls set_plugin_mode
+        if not bool(opts.get("_silent")):
+            try:
+                self._emit("plugin_mode_changed", {k: v for k, v in result.items() if k != "hint"})
+            except Exception:
+                pass
+        return result
+
+    def get_plugin_mode(self) -> dict:
+        return {
+            "ok": True,
+            "enabled": bool(getattr(self, "_plugin_mode", False)),
+            "opacity": float(getattr(self, "_plugin_opacity", 0.85)),
+            "click_through": bool(getattr(self, "_plugin_click_through", False)),
+            "on_top": bool(getattr(self, "_ui_on_top", False)),
+            "escape_hotkey": "X+F9",
+        }
 
     # --- flow execution ---
     def run_flow(

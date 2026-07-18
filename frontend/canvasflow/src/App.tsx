@@ -1293,7 +1293,8 @@ function AppShell() {
   return (
     <div
       style={{ backgroundColor: colors.background }}
-      className="flex flex-col h-screen w-screen overflow-hidden font-sans"
+      className="plugin-shell flex flex-col h-screen w-screen overflow-hidden font-sans"
+      data-plugin-chrome
     >
       <WindowResizeHandles />
       <Toolbar

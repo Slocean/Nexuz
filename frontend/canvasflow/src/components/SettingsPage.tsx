@@ -1699,6 +1699,9 @@ export default function SettingsPage({
               />
             </Label>
           </div>
+          <p className="text-xs leading-relaxed opacity-60 pt-3" style={{ color: colors.text }}>
+            标题栏「插件模式」可让窗口浮在无边框全屏游戏之上并调节透明度；开启点击穿透后可用 X+F9 开关穿透。独占全屏游戏在点到本窗口时仍可能退出全屏。
+          </p>
         </SettingsSection>
 
         <SettingsSection

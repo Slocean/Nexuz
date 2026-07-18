@@ -1554,6 +1554,14 @@ function mockCall(method, ...args) {
     case 'window_toggle_on_top':
     case 'window_is_on_top':
       return Promise.resolve({ ok: true, on_top: false });
+    case 'set_plugin_mode':
+    case 'get_plugin_mode':
+      return Promise.resolve({
+        ok: true,
+        enabled: false,
+        opacity: 0.85,
+        click_through: false,
+      });
     case 'window_begin_resize':
       return Promise.resolve({ ok: true, edge: args[0] || 'se' });
     case 'get_hotkeys':
@@ -1790,6 +1798,8 @@ export const bridge = {
   windowIsMaximized: () => call('window_is_maximized'),
   windowToggleOnTop: () => call('window_toggle_on_top'),
   windowIsOnTop: () => call('window_is_on_top'),
+  setPluginMode: (options = {}) => call('set_plugin_mode', options),
+  getPluginMode: () => call('get_plugin_mode'),
   windowBeginResize: (edge = 'se') => call('window_begin_resize', edge),
   getHotkeys: () => call('get_hotkeys'),
   setHotkeys: (prefs = {}) => call('set_hotkeys', prefs),
