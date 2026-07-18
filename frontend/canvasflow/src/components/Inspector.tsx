@@ -24,6 +24,7 @@ import ExpressionField from './ExpressionField';
 import LogicTreeEditor, { normalizeLogicValue } from './LogicTreeEditor';
 import TemplateImageField from './TemplateImageField';
 import JsonTreeView from './JsonTreeView';
+import PythonScriptEditor from './PythonScriptEditor';
 import { listFlowVariableNames } from '../bindValue';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
@@ -1717,6 +1718,7 @@ export default function Inspector({
               input.type === 'point_list' ||
               input.type === 'key_steps' ||
               input.ui === 'expression' ||
+              input.ui === 'python_code' ||
               input.name === 'expression' ||
               input.name === 'exit_condition';
             const placeholder =
@@ -1931,6 +1933,20 @@ export default function Inspector({
                     pickMethod={pickMethod}
                     placeholder={input.placeholder || '模板 PNG 路径'}
                   />
+                ) : input.ui === 'python_code' ? (
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <PythonScriptEditor
+                      value={String(value ?? input.default ?? '')}
+                      onChange={(v) => handleFieldChange(input.name, v)}
+                      themeMode={themeMode}
+                      mode="script"
+                      height={240}
+                    />
+                    <p className="text-[10px] opacity-50 leading-relaxed">
+                      可用 <code className="font-mono">out</code> / <code className="font-mono">inputs</code> /{' '}
+                      <code className="font-mono">context</code>；Ctrl+Space 补全；import 仅白名单模块。
+                    </p>
+                  </div>
                 ) : input.ui === 'textarea' || input.type === 'textarea' ? (
                   <BindableInput
                     value={value ?? input.default ?? ''}

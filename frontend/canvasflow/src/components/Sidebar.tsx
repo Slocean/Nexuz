@@ -45,6 +45,7 @@ const nexuzCatColor: Record<string, string> = {
   识别类: '#4F8CFF',
   控制类: '#AF52DE',
   系统类: '#0D9488',
+  自定义: '#64748B',
 };
 
 function CatalogCard({
@@ -186,7 +187,7 @@ export default function Sidebar({
       acc[cat].push(s);
       return acc;
     }, {});
-    const order = ['动作类', '识别类', '控制类', '系统类'];
+    const order = ['动作类', '识别类', '控制类', '系统类', '自定义'];
     const sorted: Record<string, typeof nexuzSchemas> = {};
     for (const cat of order) {
       if (grouped[cat]?.length) sorted[cat] = grouped[cat];

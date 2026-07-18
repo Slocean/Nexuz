@@ -1142,6 +1142,52 @@ export const MOCK_SCHEMAS = [
       { name: 'error', type: 'string' },
     ],
   },
+  {
+    type: 'python_script',
+    label: 'Python 脚本',
+    category: '系统类',
+    inputs: [
+      {
+        name: 'code',
+        type: 'string',
+        label: '脚本',
+        default: 'out["result"] = 1 + 1\nprint("sum=", out["result"])\n',
+        ui: 'python_code',
+        placeholder: '写入 out 字典，例如 out["result"] = inputs.get("x")',
+      },
+      {
+        name: 'inputs',
+        type: 'keymap',
+        label: '注入变量',
+        default: {},
+        ui: 'input_map',
+      },
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'result', type: 'any' },
+      { name: 'error', type: 'string' },
+      { name: 'printed', type: 'string', canvas: false },
+    ],
+  },
+  {
+    type: 'example_echo',
+    label: '示例：回显',
+    category: '自定义',
+    inputs: [
+      {
+        name: 'text',
+        type: 'string',
+        label: '文本',
+        default: 'hello',
+        bindable: true,
+      },
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'text', type: 'string' },
+    ],
+  },
 ];
 
 async function call(method, ...args) {
@@ -1225,6 +1271,33 @@ function mockCall(method, ...args) {
       }
     case 'get_block_registry':
       return Promise.resolve(MOCK_SCHEMAS);
+    case 'get_user_blocks_dir':
+      return Promise.resolve({
+        ok: true,
+        path: '(browser mock) user_blocks',
+        exists: true,
+      });
+    case 'open_user_blocks_dir':
+      return Promise.resolve({
+        ok: false,
+        error: '浏览器预览模式无法打开本地目录',
+        path: '',
+      });
+    case 'list_user_block_files':
+      return Promise.resolve({
+        ok: true,
+        path: '(browser mock) user_blocks',
+        files: [{ name: 'example_echo.py', path: 'example_echo.py' }],
+      });
+    case 'read_user_block_file':
+      return Promise.resolve({
+        ok: true,
+        name: args[0] || 'example_echo.py',
+        content:
+          'SCHEMA = {"type": "example_echo", "label": "示例：回显", "category": "自定义", "inputs": [], "outputs": []}\n\ndef handler(params, context, **kwargs):\n    return {"ok": True}\n',
+      });
+    case 'write_user_block_file':
+      return Promise.resolve({ ok: true, name: args[0] || 'example_echo.py', path: '' });
     case 'list_schedule_jobs':
       return Promise.resolve({ ok: true, jobs: [] });
     case 'list_flows':
@@ -1469,6 +1542,11 @@ export const bridge = {
   applyUpdate: () => call('apply_update'),
   openReleasesPage: () => call('open_releases_page'),
   getBlockRegistry: () => call('get_block_registry'),
+  getUserBlocksDir: () => call('get_user_blocks_dir'),
+  openUserBlocksDir: () => call('open_user_blocks_dir'),
+  listUserBlockFiles: () => call('list_user_block_files'),
+  readUserBlockFile: (filename) => call('read_user_block_file', filename),
+  writeUserBlockFile: (filename, content = '') => call('write_user_block_file', filename, content),
   getScreenInfo: () => call('get_screen_info'),
   runFlow: (flow, stepMode = false, hideWindow = true, debugMode = false, breakpoints = null) =>
     call(

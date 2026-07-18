@@ -16,7 +16,11 @@ from backend.core.input.provider_registry import get_provider_registry
 from backend.core.input.session import get_recording_session
 from backend.core.interpreter import get_interpreter
 from backend.core.recorder import get_recorder
-from backend.core.registry import get_schemas, register_all_blocks
+from backend.core.registry import (
+    get_schemas,
+    get_user_blocks_dir as resolve_user_blocks_dir,
+    register_all_blocks,
+)
 from backend.core.runtime_log import get_runtime_log_manager
 from backend.core.app_hotkeys import get_app_hotkeys
 from backend.core.hotkey_prefs import (
@@ -296,6 +300,83 @@ class Api:
         # Re-scan so newly added blocks appear without restarting the process
         register_all_blocks()
         return get_schemas()
+
+    def get_user_blocks_dir(self) -> dict:
+        """Return the user_blocks directory path (created on demand with example)."""
+        try:
+            path = resolve_user_blocks_dir(create=True)
+            return {
+                "ok": True,
+                "path": str(path),
+                "exists": path.is_dir(),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "path": "", "exists": False}
+
+    def open_user_blocks_dir(self) -> dict:
+        try:
+            path = resolve_user_blocks_dir(create=True)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "path": ""}
+        if not path.is_dir():
+            return {"ok": False, "error": "用户积木目录不存在", "path": str(path)}
+        try:
+            os.startfile(str(path))  # type: ignore[attr-defined]
+            return {"ok": True, "path": str(path)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "path": str(path)}
+
+    def _resolve_user_block_file(self, filename: str) -> tuple[Path | None, str | None]:
+        """Safe path under user_blocks; only simple *.py names."""
+        import re
+
+        name = str(filename or "").strip().replace("\\", "/").split("/")[-1]
+        if not re.fullmatch(r"[A-Za-z0-9_\-]+\.py", name):
+            return None, "文件名无效（仅允许字母数字_- 与 .py）"
+        if name.startswith("_"):
+            return None, "以下划线开头的文件不会被加载"
+        root = resolve_user_blocks_dir(create=True)
+        path = (root / name).resolve()
+        try:
+            path.relative_to(root.resolve())
+        except ValueError:
+            return None, "路径越界"
+        return path, None
+
+    def list_user_block_files(self) -> dict:
+        try:
+            root = resolve_user_blocks_dir(create=True)
+            files = []
+            for p in sorted(root.glob("*.py")):
+                if p.name.startswith("_"):
+                    continue
+                files.append({"name": p.name, "path": str(p)})
+            return {"ok": True, "path": str(root), "files": files}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "files": []}
+
+    def read_user_block_file(self, filename: str) -> dict:
+        path, err = self._resolve_user_block_file(filename)
+        if err or path is None:
+            return {"ok": False, "error": err or "无效路径", "content": ""}
+        if not path.is_file():
+            return {"ok": False, "error": "文件不存在", "name": path.name, "content": ""}
+        try:
+            content = path.read_text(encoding="utf-8")
+            return {"ok": True, "name": path.name, "content": content, "path": str(path)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "content": ""}
+
+    def write_user_block_file(self, filename: str, content: str = "") -> dict:
+        path, err = self._resolve_user_block_file(filename)
+        if err or path is None:
+            return {"ok": False, "error": err or "无效路径"}
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("" if content is None else str(content), encoding="utf-8", newline="\n")
+            return {"ok": True, "name": path.name, "path": str(path)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def list_schedule_jobs(self) -> dict:
         from backend.core.scheduler import get_scheduler

@@ -22,6 +22,7 @@ import {
   ChevronRight,
   CircleHelp,
   Keyboard,
+  Puzzle,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -44,6 +45,7 @@ import {
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
+import PythonScriptEditor from './PythonScriptEditor';
 
 function eventToHotkeyKey(e: KeyboardEvent): string | null {
   const k = e.key;
@@ -325,6 +327,7 @@ function SettingsSection({
 const SETTINGS_SECTION_IDS = [
   'about',
   'data',
+  'userBlocks',
   'announce',
   'click',
   'frida',
@@ -332,6 +335,31 @@ const SETTINGS_SECTION_IDS = [
   'save',
   'shortcuts',
 ] as const;
+
+const BLOCK_STARTER_TEMPLATE = `SCHEMA = {
+    "type": "my_block",
+    "label": "我的积木",
+    "category": "自定义",
+    "inputs": [
+        {
+            "name": "text",
+            "type": "string",
+            "label": "文本",
+            "default": "",
+            "bindable": True,
+        },
+    ],
+    "outputs": [
+        {"name": "ok", "type": "boolean"},
+        {"name": "text", "type": "string"},
+    ],
+}
+
+
+def handler(params, context, **kwargs):
+    text = "" if params.get("text") is None else str(params.get("text"))
+    return {"ok": True, "text": text}
+`;
 
 type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
@@ -356,6 +384,7 @@ export default function SettingsPage({
   const hotkeys = useFlowStore((s) => s.hotkeys);
   const setHotkey = useFlowStore((s) => s.setHotkey);
   const resetHotkeys = useFlowStore((s) => s.resetHotkeys);
+  const setSchemas = useFlowStore((s) => s.setSchemas);
   const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
   const setDefaultCaptureMode = useFlowStore((s) => s.setDefaultCaptureMode);
   const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
@@ -521,6 +550,15 @@ export default function SettingsPage({
   const [dataDirBusy, setDataDirBusy] = useState(false);
   const [dataDirMsg, setDataDirMsg] = useState('');
 
+  const [userBlocksPath, setUserBlocksPath] = useState('');
+  const [userBlocksBusy, setUserBlocksBusy] = useState(false);
+  const [userBlocksMsg, setUserBlocksMsg] = useState('');
+  const [userBlockFiles, setUserBlockFiles] = useState<{ name: string; path?: string }[]>([]);
+  const [userBlockFile, setUserBlockFile] = useState('');
+  const [userBlockCode, setUserBlockCode] = useState('');
+  const [userBlockDirty, setUserBlockDirty] = useState(false);
+  const [newBlockName, setNewBlockName] = useState('');
+
   const refreshDataDir = useCallback(async () => {
     try {
       const info = await bridge.getDataDirInfo();
@@ -532,6 +570,65 @@ export default function SettingsPage({
       }
     } catch {
       /* ignore */
+    }
+  }, []);
+
+  const refreshUserBlocksDir = useCallback(async () => {
+    try {
+      const info = await bridge.getUserBlocksDir();
+      if (info?.ok) {
+        setUserBlocksPath(String(info.path || ''));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const refreshUserBlockFiles = useCallback(async (preferName?: string) => {
+    try {
+      const res = await bridge.listUserBlockFiles();
+      if (!res?.ok) return;
+      const files = Array.isArray(res.files) ? res.files : [];
+      setUserBlockFiles(files);
+      if (res.path) setUserBlocksPath(String(res.path));
+      const names = files.map((f: any) => String(f.name || ''));
+      const pick =
+        (preferName && names.includes(preferName) && preferName) ||
+        (userBlockFile && names.includes(userBlockFile) && userBlockFile) ||
+        names[0] ||
+        '';
+      if (pick && pick !== userBlockFile) {
+        setUserBlockFile(pick);
+      } else if (!pick) {
+        setUserBlockFile('');
+        setUserBlockCode('');
+        setUserBlockDirty(false);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [userBlockFile]);
+
+  const loadUserBlockFile = useCallback(async (name: string) => {
+    if (!name) {
+      setUserBlockCode('');
+      setUserBlockDirty(false);
+      return;
+    }
+    setUserBlocksBusy(true);
+    try {
+      const res = await bridge.readUserBlockFile(name);
+      if (res?.ok) {
+        setUserBlockCode(String(res.content ?? ''));
+        setUserBlockDirty(false);
+        setUserBlocksMsg('');
+      } else {
+        setUserBlocksMsg(res?.error || '读取失败');
+      }
+    } catch (e: any) {
+      setUserBlocksMsg(String(e?.message || e));
+    } finally {
+      setUserBlocksBusy(false);
     }
   }, []);
 
@@ -640,7 +737,119 @@ export default function SettingsPage({
     void loadAbout();
     void loadAnnouncement();
     void refreshDataDir();
-  }, [loadAbout, loadAnnouncement, refreshDataDir]);
+    void refreshUserBlocksDir();
+    void refreshUserBlockFiles();
+  }, [loadAbout, loadAnnouncement, refreshDataDir, refreshUserBlocksDir, refreshUserBlockFiles]);
+
+  useEffect(() => {
+    if (userBlockFile) void loadUserBlockFile(userBlockFile);
+  }, [userBlockFile, loadUserBlockFile]);
+
+  const handleOpenUserBlocksDir = async () => {
+    setUserBlocksBusy(true);
+    setUserBlocksMsg('');
+    try {
+      const res = await bridge.openUserBlocksDir();
+      if (!res?.ok) setUserBlocksMsg(res?.error || '无法打开用户积木目录');
+      else {
+        await refreshUserBlocksDir();
+        await refreshUserBlockFiles(userBlockFile);
+      }
+    } catch (e: any) {
+      setUserBlocksMsg(String(e?.message || e));
+    } finally {
+      setUserBlocksBusy(false);
+    }
+  };
+
+  const handleRefreshUserBlocks = async () => {
+    setUserBlocksBusy(true);
+    setUserBlocksMsg('');
+    try {
+      await refreshUserBlockFiles(userBlockFile);
+      const list = await bridge.getBlockRegistry();
+      if (Array.isArray(list)) {
+        setSchemas(list);
+        const customCount = list.filter((s: any) => (s?.category || '') === '自定义').length;
+        setUserBlocksMsg(`已刷新积木列表（自定义 ${customCount} 个）`);
+      } else {
+        setUserBlocksMsg('刷新失败：注册表无效');
+      }
+      await refreshUserBlocksDir();
+    } catch (e: any) {
+      setUserBlocksMsg(String(e?.message || e));
+    } finally {
+      setUserBlocksBusy(false);
+    }
+  };
+
+  const handleSaveUserBlock = async () => {
+    if (!userBlockFile) {
+      setUserBlocksMsg('请先选择或新建文件');
+      return;
+    }
+    setUserBlocksBusy(true);
+    setUserBlocksMsg('');
+    try {
+      const res = await bridge.writeUserBlockFile(userBlockFile, userBlockCode);
+      if (!res?.ok) {
+        setUserBlocksMsg(res?.error || '保存失败');
+        return;
+      }
+      setUserBlockDirty(false);
+      const list = await bridge.getBlockRegistry();
+      if (Array.isArray(list)) setSchemas(list);
+      setUserBlocksMsg(`已保存 ${userBlockFile}，并刷新积木列表`);
+    } catch (e: any) {
+      setUserBlocksMsg(String(e?.message || e));
+    } finally {
+      setUserBlocksBusy(false);
+    }
+  };
+
+  const handleCreateUserBlock = async () => {
+    let name = String(newBlockName || '').trim();
+    if (!name) {
+      setUserBlocksMsg('请输入新文件名，如 my_block.py');
+      return;
+    }
+    if (!name.toLowerCase().endsWith('.py')) name = `${name}.py`;
+    if (!/^[A-Za-z0-9_\-]+\.py$/.test(name) || name.startsWith('_')) {
+      setUserBlocksMsg('文件名仅允许字母数字_-，且不能以下划线开头');
+      return;
+    }
+    if (userBlockDirty) {
+      const ok = await confirm({
+        title: '放弃未保存更改？',
+        description: '当前文件有未保存修改，新建将丢弃这些更改。',
+        confirmText: '继续新建',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    const starter =
+      BLOCK_STARTER_TEMPLATE.replace(/my_block/g, name.replace(/\.py$/i, ''));
+    setUserBlocksBusy(true);
+    try {
+      const res = await bridge.writeUserBlockFile(name, starter);
+      if (!res?.ok) {
+        setUserBlocksMsg(res?.error || '创建失败');
+        return;
+      }
+      setNewBlockName('');
+      await refreshUserBlockFiles(name);
+      setUserBlockFile(name);
+      setUserBlockCode(starter);
+      setUserBlockDirty(false);
+      const list = await bridge.getBlockRegistry();
+      if (Array.isArray(list)) setSchemas(list);
+      setUserBlocksMsg(`已创建 ${name}`);
+    } catch (e: any) {
+      setUserBlocksMsg(String(e?.message || e));
+    } finally {
+      setUserBlocksBusy(false);
+    }
+  };
 
   const handleOpenDataDir = async () => {
     setDataDirBusy(true);
@@ -1001,6 +1210,128 @@ export default function SettingsPage({
           {dataDirMsg ? (
             <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
               {dataDirMsg}
+            </p>
+          ) : null}
+        </SettingsSection>
+
+        <SettingsSection
+          title="自定义积木"
+          icon={<Puzzle className="w-4 h-4" />}
+          open={openSections.userBlocks}
+          onToggle={() => toggleSection('userBlocks')}
+          colors={colors}
+          headerRight={
+            <HelpHint
+              text="在下方编辑器编写 SCHEMA + handler，保存后点「刷新积木」出现在侧栏「自定义」。也可在外部编辑同一目录下的 .py。type 不可与内置重名。"
+              colors={colors}
+              themeMode={themeMode}
+            />
+          }
+        >
+          <div
+            className="rounded-xl border px-3 py-2.5 font-mono text-xs break-all mt-1"
+            style={{ borderColor: colors.border, color: colors.text }}
+          >
+            {userBlocksPath || '…'}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={userBlockFile || undefined}
+              onValueChange={(v) => {
+                if (userBlockDirty) {
+                  void (async () => {
+                    const ok = await confirm({
+                      title: '切换文件？',
+                      description: '当前有未保存修改，切换将丢弃更改。',
+                      confirmText: '切换',
+                      destructive: true,
+                    });
+                    if (ok) {
+                      setUserBlockDirty(false);
+                      setUserBlockFile(v);
+                    }
+                  })();
+                  return;
+                }
+                setUserBlockFile(v);
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs w-[12rem]">
+                <SelectValue placeholder="选择 .py 文件" />
+              </SelectTrigger>
+              <SelectContent>
+                {userBlockFiles.map((f) => (
+                  <SelectItem key={f.name} value={f.name} className="text-xs font-mono">
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={userBlocksBusy || !userBlockFile}
+              onClick={() => void handleSaveUserBlock()}
+            >
+              <Save className="w-3.5 h-3.5" />
+              保存{userBlockDirty ? ' *' : ''}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={userBlocksBusy}
+              onClick={() => void handleRefreshUserBlocks()}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              刷新积木
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={userBlocksBusy}
+              onClick={() => void handleOpenUserBlocksDir()}
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              打开目录
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              className="h-8 text-xs font-mono w-[12rem]"
+              placeholder="新文件 my_block.py"
+              value={newBlockName}
+              onChange={(e) => setNewBlockName(e.target.value)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={userBlocksBusy}
+              onClick={() => void handleCreateUserBlock()}
+            >
+              新建积木
+            </Button>
+          </div>
+          {userBlockFile ? (
+            <PythonScriptEditor
+              value={userBlockCode}
+              onChange={(v) => {
+                setUserBlockCode(v);
+                setUserBlockDirty(true);
+              }}
+              themeMode={themeMode}
+              mode="block"
+              height={320}
+            />
+          ) : (
+            <p className="text-xs opacity-60">暂无文件，可点「新建积木」或从示例开始。</p>
+          )}
+          {userBlocksMsg ? (
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+              {userBlocksMsg}
             </p>
           ) : null}
         </SettingsSection>
