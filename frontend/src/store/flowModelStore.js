@@ -7,7 +7,9 @@ const MAX_LOGS = 500;
 const LOG_CATEGORIES = ['system', 'runtime', 'audit', 'diag'];
 
 function normalizeLogCategory(raw, fallback = 'runtime') {
-  const s = String(raw || '').trim().toLowerCase();
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase();
   return LOG_CATEGORIES.includes(s) ? s : fallback;
 }
 
@@ -15,12 +17,7 @@ function eventCategory(event, payload) {
   if (payload?.category) return normalizeLogCategory(payload.category);
   const ev = String(event || '');
   if (ev === 'log') return normalizeLogCategory(payload?.category, 'runtime');
-  if (
-    ev.startsWith('node_') ||
-    ev.startsWith('flow_') ||
-    ev === 'schedule_fired' ||
-    ev === 'schedule_error'
-  ) {
+  if (ev.startsWith('node_') || ev.startsWith('flow_') || ev === 'schedule_fired' || ev === 'schedule_error') {
     return 'runtime';
   }
   if (ev === 'recording_stopped') return 'audit';
@@ -125,7 +122,7 @@ function cloneValue(value) {
   try {
     return JSON.parse(JSON.stringify(value));
   } catch {
-    if (Array.isArray(value)) return value.map((v) => cloneValue(v));
+    if (Array.isArray(value)) return value.map(v => cloneValue(v));
     return { ...value };
   }
 }
@@ -157,7 +154,7 @@ function takeFlowHistory(state, { coalesce = false } = {}) {
   }
   return {
     past: [...(state.past || []), cloneValue(state.flow)].slice(-MAX_UNDO),
-    future: [],
+    future: []
   };
 }
 
@@ -174,7 +171,7 @@ function compactOcrItem(item, asBox) {
   if ('matched_text' in item) {
     const mt = item.matched_text;
     entry.matched_text = Array.isArray(mt)
-      ? mt.slice(0, 24).map((x) => String(x || '').slice(0, 80))
+      ? mt.slice(0, 24).map(x => String(x || '').slice(0, 80))
       : String(mt || '').slice(0, 120);
   }
   if ('found' in item) entry.found = !!item.found;
@@ -185,8 +182,8 @@ function compactOcrItem(item, asBox) {
     if (Array.isArray(val)) {
       entry[gk] = val
         .slice(0, 24)
-        .map((x) => (typeof x === 'number' ? x : Number(x)))
-        .filter((x) => Number.isFinite(x));
+        .map(x => (typeof x === 'number' ? x : Number(x)))
+        .filter(x => Number.isFinite(x));
     } else if (typeof val === 'number') {
       entry[gk] = val;
     } else {
@@ -206,7 +203,10 @@ function summarizeRuntimeValue(value, depth = 0, key = null) {
 
   const leaf = key != null ? String(key).toLowerCase() : '';
   if (LIGHT_LIST_KEYS.has(leaf) && Array.isArray(value)) {
-    return value.slice(0, 80).filter((v) => v && typeof v === 'object').map((v) => compactOcrItem(v, leaf === 'boxes'));
+    return value
+      .slice(0, 80)
+      .filter(v => v && typeof v === 'object')
+      .map(v => compactOcrItem(v, leaf === 'boxes'));
   }
   if (HEAVY_KEYS.has(leaf)) {
     if (Array.isArray(value)) return { _omitted: leaf, count: value.length };
@@ -215,12 +215,12 @@ function summarizeRuntimeValue(value, depth = 0, key = null) {
   if (depth >= 6) return '…';
 
   if (Array.isArray(value)) {
-    if (value.length && value.every((v) => v == null || typeof v === 'boolean' || typeof v === 'number')) {
+    if (value.length && value.every(v => v == null || typeof v === 'boolean' || typeof v === 'number')) {
       const head = value.slice(0, 24);
       if (value.length > 24) head.push(`…(+${value.length - 24})`);
       return head;
     }
-    const head = value.slice(0, 24).map((v) => summarizeRuntimeValue(v, depth + 1));
+    const head = value.slice(0, 24).map(v => summarizeRuntimeValue(v, depth + 1));
     if (value.length > 24) head.push(`…(+${value.length - 24})`);
     return head;
   }
@@ -269,7 +269,7 @@ function defaultParams(schema) {
               id: 'root',
               op: 'and',
               not: false,
-              children: [{ kind: 'expr', id: 'c0', expression: '', not: false, label: '' }],
+              children: [{ kind: 'expr', id: 'c0', expression: '', not: false, label: '' }]
             };
     else if (input.type === 'keymap') params[input.name] = {};
     else params[input.name] = '';
@@ -282,23 +282,25 @@ const DEFAULT_FLOW_VARIABLES = {
   $true: true,
   $false: false,
   $empty: '',
-  $zero: 0,
+  $zero: 0
 };
 
 const DEFAULT_FLOW_VARIABLE_SCHEMAS = {
   $true: { type: 'boolean' },
   $false: { type: 'boolean' },
   $empty: { type: 'string' },
-  $zero: { type: 'number' },
+  $zero: { type: 'number' }
 };
 
 const SYSTEM_DEFAULT_VAR_BARE = new Set(
-  Object.keys(DEFAULT_FLOW_VARIABLES).map((k) => String(k).replace(/^\$/, '')),
+  Object.keys(DEFAULT_FLOW_VARIABLES).map(k => String(k).replace(/^\$/, ''))
 );
 
 /** Built-in constants ($true / $false / $empty / $zero) — not editable in the Variables panel. */
 export function isSystemDefaultVariable(name) {
-  const bare = String(name || '').trim().replace(/^\$/, '');
+  const bare = String(name || '')
+    .trim()
+    .replace(/^\$/, '');
   return !!bare && SYSTEM_DEFAULT_VAR_BARE.has(bare);
 }
 
@@ -331,7 +333,7 @@ function createEmptyFlow() {
     variable_schemas: {},
     nodes: {},
     entry: null,
-    breakpoints: [],
+    breakpoints: []
   });
 }
 
@@ -458,26 +460,19 @@ export const DEFAULT_HOTKEYS = {
   pause_run: ['x', 'f5'],
   record_stop: ['x', 'f10'],
   plugin_mode: ['x', 'f6'],
-  click_through: ['x', 'f7'],
+  click_through: ['x', 'f7']
 };
 
 /** @deprecated use DEFAULT_HOTKEYS.record_stop */
 export const DEFAULT_RECORD_STOP_HOTKEY = DEFAULT_HOTKEYS.record_stop;
 
-export const HOTKEY_SLOTS = [
-  'start_run',
-  'stop_run',
-  'pause_run',
-  'record_stop',
-  'plugin_mode',
-  'click_through',
-];
+export const HOTKEY_SLOTS = ['start_run', 'stop_run', 'pause_run', 'record_stop', 'plugin_mode', 'click_through'];
 
 export function formatHotkeyLabel(keys) {
   const arr = Array.isArray(keys) ? keys : [];
   const modLabel = { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', win: 'Win' };
   return arr
-    .map((k) => {
+    .map(k => {
       const s = String(k || '').toLowerCase();
       if (modLabel[s]) return modLabel[s];
       if (/^f\d{1,2}$/.test(s)) return s.toUpperCase();
@@ -502,8 +497,8 @@ function normalizeHotkey(keys, fallback) {
   }
   const fb = Array.isArray(fallback) ? [...fallback] : [...DEFAULT_HOTKEYS.record_stop];
   if (!items.length) return fb;
-  const modPart = mods.filter((m) => items.includes(m));
-  const others = items.filter((k) => !mods.includes(k));
+  const modPart = mods.filter(m => items.includes(m));
+  const others = items.filter(k => !mods.includes(k));
   if (!others.length) return fb;
   const trigger = others[others.length - 1];
   const held = others.slice(0, -1);
@@ -551,7 +546,7 @@ function loadTheme() {
   try {
     return {
       themeName: localStorage.getItem('nexuz.themeName') || 'Ocean',
-      themeMode: localStorage.getItem('nexuz.themeMode') || 'dark',
+      themeMode: localStorage.getItem('nexuz.themeMode') || 'dark'
     };
   } catch {
     return { themeName: 'Ocean', themeMode: 'dark' };
@@ -604,7 +599,7 @@ export const useFlowStore = create((set, get) => ({
   logs: [],
   runLog: null,
 
-  setHideWindowOnRecord: (hideWindowOnRecord) => {
+  setHideWindowOnRecord: hideWindowOnRecord => {
     try {
       localStorage.setItem('nexuz.hideWindowOnRecord', hideWindowOnRecord ? '1' : '0');
     } catch {
@@ -613,7 +608,7 @@ export const useFlowStore = create((set, get) => ({
     set({ hideWindowOnRecord: !!hideWindowOnRecord });
   },
 
-  setShowToolbarLabels: (showToolbarLabels) => {
+  setShowToolbarLabels: showToolbarLabels => {
     try {
       localStorage.setItem('nexuz.showToolbarLabels', showToolbarLabels ? '1' : '0');
     } catch {
@@ -622,7 +617,7 @@ export const useFlowStore = create((set, get) => ({
     set({ showToolbarLabels: !!showToolbarLabels });
   },
 
-  setResourceHudEnabled: (resourceHudEnabled) => {
+  setResourceHudEnabled: resourceHudEnabled => {
     try {
       localStorage.setItem('nexuz.resourceHudEnabled', resourceHudEnabled ? '1' : '0');
     } catch {
@@ -631,7 +626,7 @@ export const useFlowStore = create((set, get) => ({
     set({ resourceHudEnabled: !!resourceHudEnabled });
   },
 
-  setAutoSaveEnabled: (autoSaveEnabled) => {
+  setAutoSaveEnabled: autoSaveEnabled => {
     try {
       localStorage.setItem('nexuz.autoSaveEnabled', autoSaveEnabled ? '1' : '0');
     } catch {
@@ -640,7 +635,7 @@ export const useFlowStore = create((set, get) => ({
     set({ autoSaveEnabled: !!autoSaveEnabled });
   },
 
-  setAutoSaveIntervalSec: (autoSaveIntervalSec) => {
+  setAutoSaveIntervalSec: autoSaveIntervalSec => {
     const value = Number(autoSaveIntervalSec);
     const sec = Number.isFinite(value) ? Math.min(3600, Math.max(10, Math.round(value))) : 60;
     try {
@@ -651,7 +646,7 @@ export const useFlowStore = create((set, get) => ({
     set({ autoSaveIntervalSec: sec });
   },
 
-  setSaveAfterRun: (saveAfterRun) => {
+  setSaveAfterRun: saveAfterRun => {
     try {
       localStorage.setItem('nexuz.saveAfterRun', saveAfterRun ? '1' : '0');
     } catch {
@@ -680,7 +675,7 @@ export const useFlowStore = create((set, get) => ({
     return { ok: true, hotkeys: next, keys: nextKeys };
   },
 
-  setHotkeys: (prefs) => {
+  setHotkeys: prefs => {
     const prev = get().hotkeys || loadHotkeys();
     const next = { ...prev };
     for (const slot of HOTKEY_SLOTS) {
@@ -695,7 +690,7 @@ export const useFlowStore = create((set, get) => ({
         return {
           ok: false,
           error: `快捷键冲突：${formatHotkeyLabel(next[slot])}`,
-          hotkeys: prev,
+          hotkeys: prev
         };
       }
       seen.set(sig, slot);
@@ -713,12 +708,12 @@ export const useFlowStore = create((set, get) => ({
     return next;
   },
 
-  setRecordStopHotkey: (keys) => {
+  setRecordStopHotkey: keys => {
     const res = get().setHotkey('record_stop', keys);
     return res?.keys || get().hotkeys.record_stop;
   },
 
-  setDefaultCaptureMode: (defaultCaptureMode) => {
+  setDefaultCaptureMode: defaultCaptureMode => {
     const mode = defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
     try {
       localStorage.setItem('nexuz.defaultCaptureMode', mode);
@@ -728,7 +723,7 @@ export const useFlowStore = create((set, get) => ({
     set({ defaultCaptureMode: mode });
   },
 
-  setDefaultPickMethod: (defaultPickMethod) => {
+  setDefaultPickMethod: defaultPickMethod => {
     const method = defaultPickMethod === 'live' ? 'live' : 'screenshot';
     try {
       localStorage.setItem('nexuz.defaultPickMethod', method);
@@ -738,7 +733,7 @@ export const useFlowStore = create((set, get) => ({
     set({ defaultPickMethod: method });
   },
 
-  setDefaultCoordinateMode: (defaultCoordinateMode) => {
+  setDefaultCoordinateMode: defaultCoordinateMode => {
     const mode =
       defaultCoordinateMode === 'window_client' || defaultCoordinateMode === 'virtual_norm'
         ? defaultCoordinateMode
@@ -751,7 +746,7 @@ export const useFlowStore = create((set, get) => ({
     set({ defaultCoordinateMode: mode });
   },
 
-  setDefaultOutputCoordinateMode: (defaultOutputCoordinateMode) => {
+  setDefaultOutputCoordinateMode: defaultOutputCoordinateMode => {
     const mode = defaultOutputCoordinateMode === 'region_rel' ? 'region_rel' : 'screen_abs';
     try {
       localStorage.setItem('nexuz.defaultOutputCoordinateMode', mode);
@@ -761,7 +756,7 @@ export const useFlowStore = create((set, get) => ({
     set({ defaultOutputCoordinateMode: mode });
   },
 
-  setDefaultNodeIntervalMs: (defaultNodeIntervalMs) => {
+  setDefaultNodeIntervalMs: defaultNodeIntervalMs => {
     const value = Number(defaultNodeIntervalMs);
     const interval = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
     try {
@@ -773,8 +768,8 @@ export const useFlowStore = create((set, get) => ({
   },
 
   /** Force all nodes with an explicit pick_method to the given value */
-  syncAllPickMethods: (method) =>
-    set((state) => {
+  syncAllPickMethods: method =>
+    set(state => {
       const m = method === 'live' ? 'live' : 'screenshot';
       const nodes = { ...state.flow.nodes };
       let changed = false;
@@ -786,7 +781,7 @@ export const useFlowStore = create((set, get) => ({
         changed = true;
         nodes[id] = {
           ...node,
-          params: { ...(node.params || {}), pick_method: m },
+          params: { ...(node.params || {}), pick_method: m }
         };
       }
       if (!changed) return state;
@@ -794,8 +789,8 @@ export const useFlowStore = create((set, get) => ({
     }),
 
   /** Force all click nodes to use the given capture_mode */
-  syncAllClickCaptureModes: (mode) =>
-    set((state) => {
+  syncAllClickCaptureModes: mode =>
+    set(state => {
       const m = mode === 'frida_ui' ? 'frida_ui' : 'coord';
       const nodes = { ...state.flow.nodes };
       let changed = false;
@@ -806,7 +801,7 @@ export const useFlowStore = create((set, get) => ({
         changed = true;
         nodes[id] = {
           ...node,
-          params: { ...(node.params || {}), capture_mode: m },
+          params: { ...(node.params || {}), capture_mode: m }
         };
       }
       if (!changed) return state;
@@ -814,19 +809,16 @@ export const useFlowStore = create((set, get) => ({
     }),
 
   /** Force all coordinate-based click nodes to use the given coordinate_mode. */
-  syncAllClickCoordinateModes: (mode) =>
-    set((state) => {
-      const m =
-        mode === 'window_client' || mode === 'virtual_norm' ? mode : 'screen_abs';
+  syncAllClickCoordinateModes: mode =>
+    set(state => {
+      const m = mode === 'window_client' || mode === 'virtual_norm' ? mode : 'screen_abs';
       const nodes = { ...state.flow.nodes };
       let changed = false;
       for (const [id, node] of Object.entries(nodes)) {
         if (node?.type !== 'click') continue;
         if ((node.params?.capture_mode || 'coord') !== 'coord') continue;
         const nestedMode =
-          node.params?.coord && typeof node.params.coord === 'object'
-            ? node.params.coord.coordinate_mode
-            : null;
+          node.params?.coord && typeof node.params.coord === 'object' ? node.params.coord.coordinate_mode : null;
         if (node.params?.coordinate_mode === m && (!nestedMode || nestedMode === m)) continue;
         changed = true;
         const params = { ...(node.params || {}), coordinate_mode: m };
@@ -835,7 +827,7 @@ export const useFlowStore = create((set, get) => ({
         }
         nodes[id] = {
           ...node,
-          params,
+          params
         };
       }
       if (!changed) return state;
@@ -843,8 +835,8 @@ export const useFlowStore = create((set, get) => ({
     }),
 
   /** Force OCR / find_image nodes to use the given output_coordinate_mode. */
-  syncAllOutputCoordinateModes: (mode) =>
-    set((state) => {
+  syncAllOutputCoordinateModes: mode =>
+    set(state => {
       const m = mode === 'region_rel' ? 'region_rel' : 'screen_abs';
       const nodes = { ...state.flow.nodes };
       let changed = false;
@@ -854,14 +846,14 @@ export const useFlowStore = create((set, get) => ({
         changed = true;
         nodes[id] = {
           ...node,
-          params: { ...(node.params || {}), output_coordinate_mode: m },
+          params: { ...(node.params || {}), output_coordinate_mode: m }
         };
       }
       if (!changed) return state;
       return { ...takeFlowHistory(state), flow: { ...state.flow, nodes } };
     }),
 
-  setThemeName: (themeName) => {
+  setThemeName: themeName => {
     set({ themeName });
     const persist = () => {
       try {
@@ -874,7 +866,7 @@ export const useFlowStore = create((set, get) => ({
     else setTimeout(persist, 0);
   },
 
-  setThemeMode: (themeMode) => {
+  setThemeMode: themeMode => {
     set({ themeMode });
     const persist = () => {
       try {
@@ -888,25 +880,25 @@ export const useFlowStore = create((set, get) => ({
   },
 
   clearRunHistory: () => set({ runHistory: [] }),
-  pushRunHistory: (item) =>
-    set((state) => ({
-      runHistory: [item, ...state.runHistory].slice(0, 50),
+  pushRunHistory: item =>
+    set(state => ({
+      runHistory: [item, ...state.runHistory].slice(0, 50)
     })),
 
-  setBridgeReady: (v) => set({ bridgeReady: v }),
-  setSchemas: (schemas) => {
+  setBridgeReady: v => set({ bridgeReady: v }),
+  setSchemas: schemas => {
     const schemaMap = {};
     for (const s of schemas) schemaMap[s.type] = s;
     set({ schemas, schemaMap });
   },
 
-  setViewMode: (viewMode) => set({ viewMode }),
-  selectNode: (selectedNodeId) => set({ selectedNodeId }),
+  setViewMode: viewMode => set({ viewMode }),
+  selectNode: selectedNodeId => set({ selectedNodeId }),
 
-  setDebugMode: (debugMode) => set({ debugMode: !!debugMode }),
+  setDebugMode: debugMode => set({ debugMode: !!debugMode }),
 
   toggleDebugMode: () =>
-    set((state) => {
+    set(state => {
       const next = !state.debugMode;
       if (!next && (state.execStatus === 'breakpoint' || state.execStatus === 'stepping')) {
         // Turning off debug while stopped at BP — leave session as-is; user can Stop.
@@ -914,26 +906,26 @@ export const useFlowStore = create((set, get) => ({
       return { debugMode: next };
     }),
 
-  toggleBreakpoint: (nodeId) => {
+  toggleBreakpoint: nodeId => {
     const id = String(nodeId || '').trim();
     if (!id) return;
-    set((state) => {
+    set(state => {
       const prev = Array.isArray(state.flow.breakpoints) ? state.flow.breakpoints.map(String) : [];
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return {
         ...takeFlowHistory(state),
-        flow: { ...state.flow, breakpoints: [...next] },
+        flow: { ...state.flow, breakpoints: [...next] }
       };
     });
   },
 
-  setBreakpoints: (nodeIds) => {
+  setBreakpoints: nodeIds => {
     const breakpoints = [...new Set((nodeIds || []).map(String).filter(Boolean))];
-    set((state) => ({
+    set(state => ({
       ...takeFlowHistory(state),
-      flow: { ...state.flow, breakpoints },
+      flow: { ...state.flow, breakpoints }
     }));
   },
 
@@ -943,18 +935,18 @@ export const useFlowStore = create((set, get) => ({
    * @param {boolean} [options.recordHistory] - push current flow onto undo stack (e.g. JSON apply)
    */
   setFlow: (flow, filePath = undefined, options = {}) =>
-    set((state) => {
+    set(state => {
       const next = {
         flow: withDefaultVariables({
           ...createEmptyFlow(),
           ...flow,
           nodes: flow.nodes || {},
-          breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : [],
+          breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : []
         }),
         selectedNodeId: null,
         filePath: filePath === undefined ? state.filePath : filePath,
         execNodeStates: {},
-        execNodeId: null,
+        execNodeId: null
       };
       if (options?.recordHistory) {
         return { ...next, ...takeFlowHistory(state, { coalesce: !!options.coalesce }) };
@@ -963,21 +955,19 @@ export const useFlowStore = create((set, get) => ({
     }),
 
   undo: () =>
-    set((state) => {
+    set(state => {
       if (!state.past?.length) return state;
       resetHistoryCoalesce();
       const previous = state.past[state.past.length - 1];
       const past = state.past.slice(0, -1);
       const future = [cloneValue(state.flow), ...(state.future || [])].slice(0, MAX_UNDO);
       const selectedNodeId =
-        state.selectedNodeId && previous.nodes?.[state.selectedNodeId]
-          ? state.selectedNodeId
-          : null;
+        state.selectedNodeId && previous.nodes?.[state.selectedNodeId] ? state.selectedNodeId : null;
       return { flow: previous, past, future, selectedNodeId };
     }),
 
   redo: () =>
-    set((state) => {
+    set(state => {
       if (!state.future?.length) return state;
       resetHistoryCoalesce();
       const next = state.future[0];
@@ -988,14 +978,14 @@ export const useFlowStore = create((set, get) => ({
       return { flow: next, past, future, selectedNodeId };
     }),
 
-  updateFlowMeta: (patch) =>
-    set((state) => ({
+  updateFlowMeta: patch =>
+    set(state => ({
       ...takeFlowHistory(state, { coalesce: true }),
-      flow: { ...state.flow, ...patch },
+      flow: { ...state.flow, ...patch }
     })),
 
   setVariable: (name, value, schema) =>
-    set((state) => {
+    set(state => {
       const key = String(name || '').trim();
       if (!key || isSystemDefaultVariable(key)) return state;
       const variables = { ...(state.flow.variables || {}), [key]: value };
@@ -1005,12 +995,12 @@ export const useFlowStore = create((set, get) => ({
       }
       return {
         ...takeFlowHistory(state, { coalesce: true }),
-        flow: { ...state.flow, variables, variable_schemas },
+        flow: { ...state.flow, variables, variable_schemas }
       };
     }),
 
   setVariableSchema: (name, schema) =>
-    set((state) => {
+    set(state => {
       const key = String(name || '').trim();
       if (!key || isSystemDefaultVariable(key)) return state;
       const variable_schemas = { ...(state.flow.variable_schemas || {}) };
@@ -1023,12 +1013,12 @@ export const useFlowStore = create((set, get) => ({
       }
       return {
         ...takeFlowHistory(state),
-        flow: { ...state.flow, variable_schemas },
+        flow: { ...state.flow, variable_schemas }
       };
     }),
 
-  deleteVariable: (name) =>
-    set((state) => {
+  deleteVariable: name =>
+    set(state => {
       if (isSystemDefaultVariable(name)) return state;
       const variables = { ...(state.flow.variables || {}) };
       const variable_schemas = { ...(state.flow.variable_schemas || {}) };
@@ -1042,12 +1032,12 @@ export const useFlowStore = create((set, get) => ({
       delete variable_schemas[dollar];
       return {
         ...takeFlowHistory(state),
-        flow: { ...state.flow, variables, variable_schemas },
+        flow: { ...state.flow, variables, variable_schemas }
       };
     }),
 
   renameVariable: (oldName, newName) =>
-    set((state) => {
+    set(state => {
       const from = String(oldName || '').trim();
       const to = String(newName || '').trim();
       if (!from || !to || from === to) return state;
@@ -1063,7 +1053,7 @@ export const useFlowStore = create((set, get) => ({
       }
       return {
         ...takeFlowHistory(state),
-        flow: { ...state.flow, variables, variable_schemas },
+        flow: { ...state.flow, variables, variable_schemas }
       };
     }),
 
@@ -1087,7 +1077,7 @@ export const useFlowStore = create((set, get) => ({
       type,
       params,
       next: null,
-      position,
+      position
     };
     if (['if_condition', 'if_color_match', 'if_text_contains'].includes(type)) {
       node.then = null;
@@ -1098,22 +1088,22 @@ export const useFlowStore = create((set, get) => ({
       node.body = null;
       node.next = null;
     }
-    set((state) => {
+    set(state => {
       const nodes = { ...state.flow.nodes, [id]: node };
       const entry = state.flow.entry || id;
       return {
         ...takeFlowHistory(state),
         flow: { ...state.flow, nodes, entry },
-        selectedNodeId: id,
+        selectedNodeId: id
       };
     });
     get().appendAuditLog?.(`添加节点 ${type}`, { node_id: id, type });
     return id;
   },
 
-  appendRecordedNodes: (recorded) => {
+  appendRecordedNodes: recorded => {
     if (!recorded?.length) return;
-    set((state) => {
+    set(state => {
       const nodes = { ...state.flow.nodes };
       let lastId = null;
       // find a tail from entry for chaining, or just set entry
@@ -1147,7 +1137,7 @@ export const useFlowStore = create((set, get) => ({
           type: item.type,
           params,
           next: null,
-          position: { x, y },
+          position: { x, y }
         };
         x += 40;
         y += 90;
@@ -1162,14 +1152,14 @@ export const useFlowStore = create((set, get) => ({
         flow: {
           ...state.flow,
           nodes,
-          entry: state.flow.entry || firstId,
-        },
+          entry: state.flow.entry || firstId
+        }
       };
     });
   },
 
   updateNodeParams: (nodeId, params) => {
-    set((state) => {
+    set(state => {
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
       const nextParams = { ...node.params, ...params };
@@ -1191,15 +1181,15 @@ export const useFlowStore = create((set, get) => ({
           ...state.flow,
           nodes: {
             ...state.flow.nodes,
-            [nodeId]: patch,
-          },
-        },
+            [nodeId]: patch
+          }
+        }
       };
     });
     // Debounce audit for rapid param edits
     _auditConfigPending = {
       message: `修改节点参数 [${nodeId}]`,
-      detail: { node_id: nodeId, keys: Object.keys(params || {}) },
+      detail: { node_id: nodeId, keys: Object.keys(params || {}) }
     };
     if (_auditConfigTimer) clearTimeout(_auditConfigTimer);
     _auditConfigTimer = setTimeout(() => {
@@ -1211,7 +1201,7 @@ export const useFlowStore = create((set, get) => ({
   },
 
   updateNodeName: (nodeId, name) => {
-    set((state) => {
+    set(state => {
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
       const raw = String(name ?? '');
@@ -1224,19 +1214,19 @@ export const useFlowStore = create((set, get) => ({
           ...state.flow,
           nodes: {
             ...state.flow.nodes,
-            [nodeId]: nextNode,
-          },
-        },
+            [nodeId]: nextNode
+          }
+        }
       };
     });
     get().appendAuditLog?.(`重命名节点 [${nodeId}]`, {
       node_id: nodeId,
-      name: String(name ?? '').trim() || null,
+      name: String(name ?? '').trim() || null
     });
   },
 
   setNodeCollapsed: (nodeId, collapsed) =>
-    set((state) => {
+    set(state => {
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
       const nextNode = { ...node };
@@ -1248,14 +1238,14 @@ export const useFlowStore = create((set, get) => ({
           ...state.flow,
           nodes: {
             ...state.flow.nodes,
-            [nodeId]: nextNode,
-          },
-        },
+            [nodeId]: nextNode
+          }
+        }
       };
     }),
 
   updateNodePosition: (nodeId, position) =>
-    set((state) => {
+    set(state => {
       const node = state.flow.nodes[nodeId];
       if (!node) return state;
       return {
@@ -1264,14 +1254,14 @@ export const useFlowStore = create((set, get) => ({
           ...state.flow,
           nodes: {
             ...state.flow.nodes,
-            [nodeId]: { ...node, position },
-          },
-        },
+            [nodeId]: { ...node, position }
+          }
+        }
       };
     }),
 
-  updateNodePositions: (updates) =>
-    set((state) => {
+  updateNodePositions: updates =>
+    set(state => {
       if (!updates?.length) return state;
       const nodes = { ...state.flow.nodes };
       for (const u of updates) {
@@ -1285,7 +1275,7 @@ export const useFlowStore = create((set, get) => ({
   setNodeLink: (sourceId, handle, targetId) => {
     const prev = get().flow?.nodes?.[sourceId];
     if (!prev || sourceId === targetId) return;
-    set((state) => {
+    set(state => {
       const node = state.flow.nodes[sourceId];
       if (!node) return state;
       if (sourceId === targetId) return state; // 禁止自环
@@ -1295,15 +1285,13 @@ export const useFlowStore = create((set, get) => ({
       if (node.type === 'switch' && String(field).startsWith('case:')) {
         const idx = Number(String(field).slice(5));
         if (!Number.isFinite(idx) || idx < 0) return state;
-        const cases = Array.isArray(node.params?.cases)
-          ? node.params.cases.map((c) => ({ ...c }))
-          : [];
+        const cases = Array.isArray(node.params?.cases) ? node.params.cases.map(c => ({ ...c })) : [];
         while (cases.length <= idx) cases.push({ name: '', value: '', node_id: '' });
         cases[idx] = {
           ...cases[idx],
           name: cases[idx].name || '',
           value: cases[idx].value || '',
-          node_id: targetId,
+          node_id: targetId
         };
         return {
           ...takeFlowHistory(state),
@@ -1313,10 +1301,10 @@ export const useFlowStore = create((set, get) => ({
               ...state.flow.nodes,
               [sourceId]: {
                 ...node,
-                params: { ...(node.params || {}), cases },
-              },
-            },
-          },
+                params: { ...(node.params || {}), cases }
+              }
+            }
+          }
         };
       }
       if (node.type === 'switch' && field === 'default') {
@@ -1329,10 +1317,10 @@ export const useFlowStore = create((set, get) => ({
               [sourceId]: {
                 ...node,
                 next: targetId,
-                params: { ...(node.params || {}), default: targetId },
-              },
-            },
-          },
+                params: { ...(node.params || {}), default: targetId }
+              }
+            }
+          }
         };
       }
 
@@ -1342,21 +1330,21 @@ export const useFlowStore = create((set, get) => ({
           ...state.flow,
           nodes: {
             ...state.flow.nodes,
-            [sourceId]: { ...node, [field]: targetId },
-          },
-        },
+            [sourceId]: { ...node, [field]: targetId }
+          }
+        }
       };
     });
     get().appendAuditLog?.(`连接节点`, {
       source: sourceId,
       handle: handle || 'next',
-      target: targetId,
+      target: targetId
     });
   },
 
   removeNodeLink: (sourceId, handle) => {
     if (!get().flow?.nodes?.[sourceId]) return;
-    set((state) => {
+    set(state => {
       const node = state.flow.nodes[sourceId];
       if (!node) return state;
       const field = handle || 'next';
@@ -1364,9 +1352,7 @@ export const useFlowStore = create((set, get) => ({
       if (node.type === 'switch' && String(field).startsWith('case:')) {
         const idx = Number(String(field).slice(5));
         if (!Number.isFinite(idx) || idx < 0) return state;
-        const cases = Array.isArray(node.params?.cases)
-          ? node.params.cases.map((c) => ({ ...c }))
-          : [];
+        const cases = Array.isArray(node.params?.cases) ? node.params.cases.map(c => ({ ...c })) : [];
         if (cases[idx]) cases[idx] = { ...cases[idx], node_id: '' };
         return {
           ...takeFlowHistory(state),
@@ -1376,10 +1362,10 @@ export const useFlowStore = create((set, get) => ({
               ...state.flow.nodes,
               [sourceId]: {
                 ...node,
-                params: { ...(node.params || {}), cases },
-              },
-            },
-          },
+                params: { ...(node.params || {}), cases }
+              }
+            }
+          }
         };
       }
       if (node.type === 'switch' && field === 'default') {
@@ -1392,10 +1378,10 @@ export const useFlowStore = create((set, get) => ({
               [sourceId]: {
                 ...node,
                 next: null,
-                params: { ...(node.params || {}), default: '' },
-              },
-            },
-          },
+                params: { ...(node.params || {}), default: '' }
+              }
+            }
+          }
         };
       }
 
@@ -1405,20 +1391,20 @@ export const useFlowStore = create((set, get) => ({
           ...state.flow,
           nodes: {
             ...state.flow.nodes,
-            [sourceId]: { ...node, [field]: null },
-          },
-        },
+            [sourceId]: { ...node, [field]: null }
+          }
+        }
       };
     });
     get().appendAuditLog?.(`断开连接`, {
       source: sourceId,
-      handle: handle || 'next',
+      handle: handle || 'next'
     });
   },
 
-  deleteNodes: (ids) => {
+  deleteNodes: ids => {
     const idList = Array.isArray(ids) ? ids : [];
-    set((state) => {
+    set(state => {
       const idSet = new Set(idList);
       if (!idSet.size) return state;
       let removed = 0;
@@ -1443,9 +1429,7 @@ export const useFlowStore = create((set, get) => ({
           const params = { ...prev.params };
           let paramsChanged = false;
           if (Array.isArray(params.cases)) {
-            params.cases = params.cases.map((c) =>
-              c?.node_id && idSet.has(c.node_id) ? { ...c, node_id: '' } : c,
-            );
+            params.cases = params.cases.map(c => (c?.node_id && idSet.has(c.node_id) ? { ...c, node_id: '' } : c));
             paramsChanged = true;
           }
           if (params.default && idSet.has(params.default)) {
@@ -1466,7 +1450,7 @@ export const useFlowStore = create((set, get) => ({
       return {
         ...hist,
         flow: { ...state.flow, nodes, entry },
-        selectedNodeId: idSet.has(state.selectedNodeId) ? null : state.selectedNodeId,
+        selectedNodeId: idSet.has(state.selectedNodeId) ? null : state.selectedNodeId
       };
     });
     if (idList.length) {
@@ -1486,9 +1470,9 @@ export const useFlowStore = create((set, get) => ({
     const mappedIds = Object.keys(idMap);
     if (!mappedIds.length) return [];
 
-    const remap = (v) => (v && idMap[v] ? idMap[v] : v && mappedIds.includes(v) ? null : v);
+    const remap = v => (v && idMap[v] ? idMap[v] : v && mappedIds.includes(v) ? null : v);
 
-    set((s) => {
+    set(s => {
       const nodes = { ...s.flow.nodes };
       for (const oldId of mappedIds) {
         const src = srcNodes[oldId];
@@ -1496,7 +1480,7 @@ export const useFlowStore = create((set, get) => ({
         const pos = src.position || { x: 100, y: 100 };
         const copy = {
           ...cloneValue(src),
-          position: { x: pos.x + offset.x, y: pos.y + offset.y },
+          position: { x: pos.x + offset.x, y: pos.y + offset.y }
         };
         for (const key of ['next', 'then', 'else', 'body']) {
           if (copy[key]) copy[key] = idMap[copy[key]] || null;
@@ -1504,9 +1488,9 @@ export const useFlowStore = create((set, get) => ({
         if (copy.type === 'switch' && copy.params) {
           const params = { ...copy.params };
           if (Array.isArray(params.cases)) {
-            params.cases = params.cases.map((c) => ({
+            params.cases = params.cases.map(c => ({
               ...c,
-              node_id: c?.node_id && idMap[c.node_id] ? idMap[c.node_id] : c?.node_id || '',
+              node_id: c?.node_id && idMap[c.node_id] ? idMap[c.node_id] : c?.node_id || ''
             }));
           }
           if (params.default && idMap[params.default]) {
@@ -1519,16 +1503,16 @@ export const useFlowStore = create((set, get) => ({
       return {
         ...takeFlowHistory(s),
         flow: { ...s.flow, nodes },
-        selectedNodeId: idMap[ids[ids.length - 1]] || s.selectedNodeId,
+        selectedNodeId: idMap[ids[ids.length - 1]] || s.selectedNodeId
       };
     });
-    return mappedIds.map((id) => idMap[id]);
+    return mappedIds.map(id => idMap[id]);
   },
 
-  setEntry: (entry) => {
-    set((state) => ({
+  setEntry: entry => {
+    set(state => ({
       ...takeFlowHistory(state),
-      flow: { ...state.flow, entry },
+      flow: { ...state.flow, entry }
     }));
     get().appendAuditLog?.(`设置入口节点`, { entry });
   },
@@ -1537,18 +1521,18 @@ export const useFlowStore = create((set, get) => ({
   nodeOutputs: {}, // nodeId -> last summarized result (UI only)
   debugContext: {}, // runtime context snapshot at breakpoint
   clearLogs: () => set({ logs: [], runLog: null }),
-  appendLog: (entry) =>
-    set((state) => {
+  appendLog: entry =>
+    set(state => {
       const category = normalizeLogCategory(entry.category, 'runtime');
       const row = {
         ...entry,
         category,
         scope: entry.scope || (entry.nodeId ? 'node' : 'run'),
         detail: entry.detail !== undefined ? summarizeDetail(entry.detail) : undefined,
-        ts: entry.ts || Date.now(),
+        ts: entry.ts || Date.now()
       };
       return {
-        logs: [...state.logs.slice(-(MAX_LOGS - 1)), row],
+        logs: [...state.logs.slice(-(MAX_LOGS - 1)), row]
       };
     }),
   appendAuditLog: (message, detail) => {
@@ -1558,7 +1542,7 @@ export const useFlowStore = create((set, get) => ({
       category: 'audit',
       scope: 'flow',
       message: msg,
-      detail: detail !== undefined ? summarizeDetail(detail) : undefined,
+      detail: detail !== undefined ? summarizeDetail(detail) : undefined
     });
     emitAuditToBridge(msg, detail);
   },
@@ -1566,11 +1550,11 @@ export const useFlowStore = create((set, get) => ({
     const appendLog = get().appendLog;
     const cat = eventCategory(event, payload);
     if (event === 'node_start') {
-      set((state) => ({
+      set(state => ({
         // Don't clobber pause/stopping if a late event races the control channel.
         execStatus: state.execStatus === 'stopping' ? 'stopping' : 'running',
         execNodeId: payload.node_id,
-        execNodeStates: { ...state.execNodeStates, [payload.node_id]: 'running' },
+        execNodeStates: { ...state.execNodeStates, [payload.node_id]: 'running' }
       }));
       appendLog({
         level: 'info',
@@ -1578,12 +1562,12 @@ export const useFlowStore = create((set, get) => ({
         scope: 'node',
         nodeId: payload.node_id,
         message: `▶ [${payload.node_id}] ${payload.type}`,
-        detail: summarizeDetail(payload.params),
+        detail: summarizeDetail(payload.params)
       });
     } else if (event === 'node_end') {
       const result = summarizeDetail(payload.result || {}) || {};
       const nid = payload.node_id;
-      set((state) => {
+      set(state => {
         // Interrupted mid-node: leave idle — flow_stopped/finished clears UI; don't paint error.
         if (payload.stopped) {
           const next = { ...state.execNodeStates };
@@ -1593,11 +1577,9 @@ export const useFlowStore = create((set, get) => ({
         return {
           execNodeStates: {
             ...state.execNodeStates,
-            [nid]: payload.ok ? 'done' : 'error',
+            [nid]: payload.ok ? 'done' : 'error'
           },
-          nodeOutputs: payload.ok
-            ? { ...state.nodeOutputs, [nid]: result }
-            : state.nodeOutputs,
+          nodeOutputs: payload.ok ? { ...state.nodeOutputs, [nid]: result } : state.nodeOutputs
         };
       });
       appendLog({
@@ -1606,15 +1588,14 @@ export const useFlowStore = create((set, get) => ({
         scope: 'node',
         nodeId: nid,
         message: formatRuntimeNodeEnd({ ...payload, result }),
-        detail: payload.ok ? result : summarizeDetail(payload.error),
+        detail: payload.ok ? result : summarizeDetail(payload.error)
       });
     } else if (event === 'flow_breakpoint') {
       set({
         execStatus: 'breakpoint',
         execNodeId: payload?.node_id || null,
         debugMode: true,
-        debugContext:
-          payload?.context && typeof payload.context === 'object' ? payload.context : {},
+        debugContext: payload?.context && typeof payload.context === 'object' ? payload.context : {}
       });
       const reason = payload?.reason === 'step' ? '单步暂停' : '命中断点';
       appendLog({
@@ -1623,7 +1604,7 @@ export const useFlowStore = create((set, get) => ({
         scope: 'run',
         nodeId: payload?.node_id,
         message: `${reason} · 待执行 [${payload?.node_id || '?'}]`,
-        detail: payload?.context ? summarizeDetail(payload.context) : undefined,
+        detail: payload?.context ? summarizeDetail(payload.context) : undefined
       });
     } else if (event === 'flow_debug') {
       set({ debugMode: true });
@@ -1634,7 +1615,7 @@ export const useFlowStore = create((set, get) => ({
         scope: 'run',
         message: payload?.step_first
           ? '调试已启动（单步：将在首个节点暂停）'
-          : `调试运行中${n ? `（${n} 个断点）` : '（无断点，可随时单步暂停）'}`,
+          : `调试运行中${n ? `（${n} 个断点）` : '（无断点，可随时单步暂停）'}`
       });
     } else if (event === 'flow_stepping') {
       appendLog({ level: 'info', category: 'runtime', scope: 'run', message: '将在下一节点暂停…' });
@@ -1654,24 +1635,18 @@ export const useFlowStore = create((set, get) => ({
       appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '正在停止流程…' });
     } else if (event === 'flow_stopped') {
       // Backend still finishing the worker thread — keep Stop/busy until flow_finished.
-      set((state) => ({
-        execStatus: state.execStatus === 'idle' ? 'idle' : 'stopping',
+      set(state => ({
+        execStatus: state.execStatus === 'idle' ? 'idle' : 'stopping'
       }));
       // Avoid duplicate log if flow_stopping already arrived
-      if (
-        get().execStatus !== 'idle' &&
-        get().logs.slice(-1)[0]?.message !== '正在停止流程…'
-      ) {
+      if (get().execStatus !== 'idle' && get().logs.slice(-1)[0]?.message !== '正在停止流程…') {
         appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '正在停止流程…' });
       }
     } else if (event === 'flow_finished') {
       // Keep only the selected node's output for Inspector; drop the rest.
-      set((state) => {
+      set(state => {
         const keepId = state.selectedNodeId;
-        const slim =
-          keepId && state.nodeOutputs[keepId]
-            ? { [keepId]: state.nodeOutputs[keepId] }
-            : {};
+        const slim = keepId && state.nodeOutputs[keepId] ? { [keepId]: state.nodeOutputs[keepId] } : {};
         // Drop in-flight "running" marks so nodes don't keep spinning after stop/finish.
         const nextStates = { ...state.execNodeStates };
         for (const [id, st] of Object.entries(nextStates)) {
@@ -1683,7 +1658,7 @@ export const useFlowStore = create((set, get) => ({
           execNodeStates: payload.stopped ? {} : nextStates,
           nodeOutputs: slim,
           debugContext: {},
-          runLog: payload?.run_log || state.runLog,
+          runLog: payload?.run_log || state.runLog
         };
       });
       // flow_stopped/stopping already logged when user clicked stop; avoid duplicate.
@@ -1692,14 +1667,14 @@ export const useFlowStore = create((set, get) => ({
           level: 'warn',
           category: 'system',
           scope: 'app',
-          message: '流程状态已强制重置',
+          message: '流程状态已强制重置'
         });
       } else if (!payload.stopped) {
         appendLog({
           level: payload.ok ? 'ok' : 'error',
           category: 'runtime',
           scope: 'run',
-          message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`,
+          message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`
         });
       } else {
         appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '流程已停止' });
@@ -1709,7 +1684,7 @@ export const useFlowStore = create((set, get) => ({
           id: Math.random().toString(36).slice(2, 9),
           timestamp: new Date().toLocaleTimeString(),
           status: payload.ok ? 'completed' : payload.stopped ? 'stopped' : 'failed',
-          workflowName: get().flow.name || '未命名流程',
+          workflowName: get().flow.name || '未命名流程'
         });
       }
     } else if (event === 'force_reset') {
@@ -1717,7 +1692,7 @@ export const useFlowStore = create((set, get) => ({
         execStatus: 'idle',
         execNodeId: null,
         execNodeStates: {},
-        runLog: payload?.run_log || get().runLog,
+        runLog: payload?.run_log || get().runLog
       });
     } else if (event === 'recording_stopped') {
       if (payload?.ok && payload.nodes?.length && !payload.forced) {
@@ -1728,12 +1703,12 @@ export const useFlowStore = create((set, get) => ({
           level: 'warn',
           category: 'audit',
           scope: 'flow',
-          message: '录制已强制结束（未追加节点）',
+          message: '录制已强制结束（未追加节点）'
         });
         return;
       }
       const nodes = payload?.nodes || [];
-      const clicks = nodes.filter((n) => n?.type === 'click');
+      const clicks = nodes.filter(n => n?.type === 'click');
       const btnCount = { left: 0, right: 0, middle: 0 };
       for (const n of clicks) {
         const b = String(n?.params?.button || 'left');
@@ -1749,33 +1724,33 @@ export const useFlowStore = create((set, get) => ({
         category: 'audit',
         scope: 'flow',
         message: `停止录制，追加 ${nodes.length || 0} 个节点${btnHint}`,
-        detail: { count: nodes.length },
+        detail: { count: nodes.length }
       });
     } else if (event === 'schedule_fired') {
-      set((state) => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
+      set(state => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
       appendLog({
         level: 'ok',
         category: 'runtime',
         scope: 'run',
-        message: `定时任务已触发：${payload?.job_id || ''}`,
+        message: `定时任务已触发：${payload?.job_id || ''}`
       });
     } else if (event === 'schedule_error') {
-      set((state) => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
+      set(state => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
       appendLog({
         level: 'error',
         category: 'runtime',
         scope: 'run',
-        message: `定时任务失败：${payload?.job_id || ''} ${payload?.error || ''}`.trim(),
+        message: `定时任务失败：${payload?.job_id || ''} ${payload?.error || ''}`.trim()
       });
     } else if (event === 'plugin_mode_changed') {
-      set((state) => ({
+      set(state => ({
         pluginModeRemote: {
           enabled: !!payload?.enabled,
           opacity: Number(payload?.opacity ?? 0.85),
           click_through: !!payload?.click_through,
           on_top: !!payload?.on_top,
-          rev: (state.pluginModeRemote?.rev || 0) + 1,
-        },
+          rev: (state.pluginModeRemote?.rev || 0) + 1
+        }
       }));
       appendLog({
         level: 'info',
@@ -1784,8 +1759,8 @@ export const useFlowStore = create((set, get) => ({
         message: payload?.enabled ? '插件模式已开启' : '插件模式已关闭',
         detail: summarizeDetail({
           opacity: payload?.opacity,
-          click_through: payload?.click_through,
-        }),
+          click_through: payload?.click_through
+        })
       });
     } else if (event === 'log') {
       appendLog({
@@ -1793,13 +1768,11 @@ export const useFlowStore = create((set, get) => ({
         category: cat,
         scope: payload?.scope || (payload?.node_id ? 'node' : 'app'),
         nodeId: payload?.node_id || payload?.nodeId || undefined,
-        message: payload?.node_id
-          ? `[${payload.node_id}] ${payload?.message || ''}`
-          : payload?.message || '',
-        detail: summarizeDetail(payload?.detail),
+        message: payload?.node_id ? `[${payload.node_id}] ${payload?.message || ''}` : payload?.message || '',
+        detail: summarizeDetail(payload?.detail)
       });
     }
-  },
+  }
 }));
 
 export function flowToJson(flow) {

@@ -5,7 +5,7 @@ function getApi() {
 }
 
 export function waitForBridge(timeoutMs = 10000) {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     if (getApi()) {
       resolve(getApi());
       return;
@@ -35,14 +35,14 @@ export const MOCK_SCHEMAS = [
         label: '模式',
         options: ['single', 'multi'],
         default: 'single',
-        option_labels: { single: '单点', multi: '多点' },
+        option_labels: { single: '单点', multi: '多点' }
       },
       {
         name: 'capture_mode',
         type: 'select',
         label: '录入模式',
         options: ['coord', 'frida_ui'],
-        default: 'coord',
+        default: 'coord'
       },
       {
         name: 'coordinate_mode',
@@ -53,9 +53,9 @@ export const MOCK_SCHEMAS = [
         option_labels: {
           screen_abs: '屏幕绝对坐标',
           window_client: '目标窗口相对（推荐）',
-          virtual_norm: '虚拟桌面比例',
+          virtual_norm: '虚拟桌面比例'
         },
-        show_when: { capture_mode: 'coord' },
+        show_when: { capture_mode: 'coord' }
       },
       { name: 'x', type: 'number', label: 'X', default: 0, show_when: { click_mode: 'single' } },
       { name: 'y', type: 'number', label: 'Y', default: 0, show_when: { click_mode: 'single' } },
@@ -65,7 +65,7 @@ export const MOCK_SCHEMAS = [
         label: '点击点',
         default: [],
         bindable: false,
-        show_when: { click_mode: 'multi' },
+        show_when: { click_mode: 'multi' }
       },
       {
         name: 'interval_ms',
@@ -73,7 +73,7 @@ export const MOCK_SCHEMAS = [
         label: '点间延迟毫秒',
         default: 200,
         show_when: { click_mode: 'multi' },
-        placeholder: '相邻两点间隔',
+        placeholder: '相邻两点间隔'
       },
       { name: 'button', type: 'select', label: '按键', options: ['left', 'right', 'middle'], default: 'left' },
       { name: 'click_type', type: 'select', label: '点击类型', options: ['single', 'double'], default: 'single' },
@@ -82,23 +82,23 @@ export const MOCK_SCHEMAS = [
         type: 'number',
         label: '移动耗时毫秒',
         default: 0,
-        show_when: { click_mode: 'single' },
-      },
+        show_when: { click_mode: 'single' }
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'x', type: 'number' },
       { name: 'y', type: 'number' },
       { name: 'button', type: 'string' },
-      { name: 'count', type: 'number' },
-    ],
+      { name: 'count', type: 'number' }
+    ]
   },
   {
     type: 'delay',
     label: '延时',
     category: '动作类',
     inputs: [{ name: 'ms', type: 'number', label: '毫秒', default: 500 }],
-    outputs: [],
+    outputs: []
   },
   {
     type: 'key_press',
@@ -111,7 +111,7 @@ export const MOCK_SCHEMAS = [
         label: '模式',
         options: ['single', 'sequence'],
         default: 'single',
-        option_labels: { single: '单次', sequence: '序列' },
+        option_labels: { single: '单次', sequence: '序列' }
       },
       {
         name: 'keys',
@@ -119,7 +119,7 @@ export const MOCK_SCHEMAS = [
         label: '按键',
         default: ['enter'],
         placeholder: '点击录制',
-        show_when: { key_mode: 'single' },
+        show_when: { key_mode: 'single' }
       },
       {
         name: 'steps',
@@ -127,7 +127,7 @@ export const MOCK_SCHEMAS = [
         label: '按键序列',
         default: [],
         bindable: false,
-        show_when: { key_mode: 'sequence' },
+        show_when: { key_mode: 'sequence' }
       },
       {
         name: 'interval_ms',
@@ -135,13 +135,13 @@ export const MOCK_SCHEMAS = [
         label: '步间延迟毫秒',
         default: 100,
         show_when: { key_mode: 'sequence' },
-        placeholder: '相邻两步间隔',
-      },
+        placeholder: '相邻两步间隔'
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
-      { name: 'count', type: 'number' },
-    ],
+      { name: 'count', type: 'number' }
+    ]
   },
   {
     type: 'mouse_scroll',
@@ -156,7 +156,7 @@ export const MOCK_SCHEMAS = [
         label: '先移到焦点',
         options: ['true', 'false'],
         default: 'true',
-        option_labels: { true: '是（推荐）', false: '否（当前位置滚）' },
+        option_labels: { true: '是（推荐）', false: '否（当前位置滚）' }
       },
       {
         name: 'direction',
@@ -164,16 +164,16 @@ export const MOCK_SCHEMAS = [
         label: '方向',
         options: ['up', 'down', 'left', 'right'],
         default: 'down',
-        option_labels: { up: '向上', down: '向下', left: '向左', right: '向右' },
+        option_labels: { up: '向上', down: '向下', left: '向左', right: '向右' }
       },
-      { name: 'clicks', type: 'number', label: '滚动量', default: 3 },
+      { name: 'clicks', type: 'number', label: '滚动量', default: 3 }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'x', type: 'number' },
       { name: 'y', type: 'number' },
-      { name: 'amount', type: 'number' },
-    ],
+      { name: 'amount', type: 'number' }
+    ]
   },
   {
     type: 'type_text',
@@ -181,9 +181,9 @@ export const MOCK_SCHEMAS = [
     category: '动作类',
     inputs: [
       { name: 'text', type: 'string', label: '文本', default: '' },
-      { name: 'interval', type: 'number', label: '字符间隔毫秒', default: 0 },
+      { name: 'interval', type: 'number', label: '字符间隔毫秒', default: 0 }
     ],
-    outputs: [],
+    outputs: []
   },
   {
     type: 'drag',
@@ -199,21 +199,21 @@ export const MOCK_SCHEMAS = [
         option_labels: {
           screen_abs: '屏幕绝对坐标',
           window_client: '目标窗口相对（推荐）',
-          virtual_norm: '虚拟桌面比例',
-        },
+          virtual_norm: '虚拟桌面比例'
+        }
       },
       { name: 'from_x', type: 'number', label: '起点X', default: 0 },
       { name: 'from_y', type: 'number', label: '起点Y', default: 0 },
       { name: 'to_x', type: 'number', label: '终点X', default: 0 },
       { name: 'to_y', type: 'number', label: '终点Y', default: 0 },
-      { name: 'duration', type: 'number', label: '耗时毫秒', default: 300 },
+      { name: 'duration', type: 'number', label: '耗时毫秒', default: 300 }
     ],
     outputs: [
       { name: 'from_x', type: 'number' },
       { name: 'from_y', type: 'number' },
       { name: 'to_x', type: 'number' },
-      { name: 'to_y', type: 'number' },
-    ],
+      { name: 'to_y', type: 'number' }
+    ]
   },
   {
     type: 'mouse_hover',
@@ -226,7 +226,7 @@ export const MOCK_SCHEMAS = [
         label: '模式',
         options: ['single', 'multi'],
         default: 'single',
-        option_labels: { single: '单点', multi: '多点' },
+        option_labels: { single: '单点', multi: '多点' }
       },
       { name: 'x', type: 'number', label: 'X', default: 0, show_when: { hover_mode: 'single' } },
       { name: 'y', type: 'number', label: 'Y', default: 0, show_when: { hover_mode: 'single' } },
@@ -236,7 +236,7 @@ export const MOCK_SCHEMAS = [
         label: '悬停点',
         default: [],
         bindable: false,
-        show_when: { hover_mode: 'multi' },
+        show_when: { hover_mode: 'multi' }
       },
       {
         name: 'interval_ms',
@@ -244,7 +244,7 @@ export const MOCK_SCHEMAS = [
         label: '点间延迟毫秒',
         default: 200,
         show_when: { hover_mode: 'multi' },
-        placeholder: '相邻两点间隔',
+        placeholder: '相邻两点间隔'
       },
       { name: 'move_duration', type: 'number', label: '移动耗时毫秒', default: 0 },
       {
@@ -252,15 +252,15 @@ export const MOCK_SCHEMAS = [
         type: 'number',
         label: '悬停毫秒',
         default: 300,
-        placeholder: '到达后停留',
-      },
+        placeholder: '到达后停留'
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'x', type: 'number' },
       { name: 'y', type: 'number' },
-      { name: 'count', type: 'number' },
-    ],
+      { name: 'count', type: 'number' }
+    ]
   },
   {
     type: 'color_detect',
@@ -277,29 +277,29 @@ export const MOCK_SCHEMAS = [
           point: '单点',
           region: '区域',
           multi: '多点',
-          single: '单点',
-        },
+          single: '单点'
+        }
       },
       {
         name: 'x',
         type: 'number',
         label: 'X',
         default: 0,
-        show_when: { sample_mode: ['point', 'single'] },
+        show_when: { sample_mode: ['point', 'single'] }
       },
       {
         name: 'y',
         type: 'number',
         label: 'Y',
         default: 0,
-        show_when: { sample_mode: ['point', 'single'] },
+        show_when: { sample_mode: ['point', 'single'] }
       },
       {
         name: 'region',
         type: 'rect',
         label: '区域',
         default: null,
-        show_when: { sample_mode: 'region' },
+        show_when: { sample_mode: 'region' }
       },
       {
         name: 'points',
@@ -307,14 +307,14 @@ export const MOCK_SCHEMAS = [
         label: '取色点',
         default: [],
         bindable: false,
-        show_when: { sample_mode: 'multi' },
-      },
+        show_when: { sample_mode: 'multi' }
+      }
     ],
     outputs: [
       { name: 'color', type: 'string' },
       { name: 'colors', type: 'array', canvas: false },
-      { name: 'count', type: 'number' },
-    ],
+      { name: 'count', type: 'number' }
+    ]
   },
   {
     type: 'if_color_match',
@@ -327,14 +327,14 @@ export const MOCK_SCHEMAS = [
         label: '数据来源',
         options: ['capture', 'value'],
         default: 'capture',
-        option_labels: { capture: '现场取色', value: '上游颜色' },
+        option_labels: { capture: '现场取色', value: '上游颜色' }
       },
       {
         name: 'actual_color',
         type: 'string',
         label: '实际颜色',
         default: '',
-        show_when: { source_mode: 'value' },
+        show_when: { source_mode: 'value' }
       },
       { name: 'x', type: 'number', label: 'X', default: 0, show_when: { source_mode: 'capture' } },
       { name: 'y', type: 'number', label: 'Y', default: 0, show_when: { source_mode: 'capture' } },
@@ -343,15 +343,15 @@ export const MOCK_SCHEMAS = [
         type: 'rect',
         label: '区域',
         default: null,
-        show_when: { source_mode: 'capture' },
+        show_when: { source_mode: 'capture' }
       },
       { name: 'target_color', type: 'color', label: '目标颜色', default: '#FF0000' },
-      { name: 'tolerance', type: 'number', label: '容差', default: 10 },
+      { name: 'tolerance', type: 'number', label: '容差', default: 10 }
     ],
     outputs: [
       { name: 'matched', type: 'boolean' },
-      { name: 'color', type: 'string' },
-    ],
+      { name: 'color', type: 'string' }
+    ]
   },
   {
     type: 'if_condition',
@@ -364,10 +364,10 @@ export const MOCK_SCHEMAS = [
         label: '表达式',
         default: '',
         bindable: false,
-        ui: 'expression',
-      },
+        ui: 'expression'
+      }
     ],
-    outputs: [{ name: 'matched', type: 'boolean' }],
+    outputs: [{ name: 'matched', type: 'boolean' }]
   },
   {
     type: 'if_logic',
@@ -383,16 +383,16 @@ export const MOCK_SCHEMAS = [
           id: 'root',
           op: 'and',
           not: false,
-          children: [{ kind: 'expr', id: 'c0', expression: '', not: false, label: '' }],
+          children: [{ kind: 'expr', id: 'c0', expression: '', not: false, label: '' }]
         },
-        bindable: false,
-      },
+        bindable: false
+      }
     ],
     outputs: [
       { name: 'matched', type: 'boolean' },
       { name: 'matched_count', type: 'number' },
-      { name: 'total', type: 'number' },
-    ],
+      { name: 'total', type: 'number' }
+    ]
   },
   {
     type: 'switch',
@@ -405,18 +405,25 @@ export const MOCK_SCHEMAS = [
         type: 'cases',
         label: '分支',
         default: [],
-        description: '每条分支可设比较方式（等于/包含/大于等），自上而下首次命中即跳转',
+        description: '每条分支可设比较方式（等于/包含/大于等），自上而下首次命中即跳转'
       },
-      { name: 'default', type: 'string', label: '默认分支', default: '', bindable: false, placeholder: '未匹配时跳转' },
+      {
+        name: 'default',
+        type: 'string',
+        label: '默认分支',
+        default: '',
+        bindable: false,
+        placeholder: '未匹配时跳转'
+      }
     ],
-    outputs: [{ name: 'value', type: 'string' }],
+    outputs: [{ name: 'value', type: 'string' }]
   },
   {
     type: 'loop_n',
     label: '固定次数循环',
     category: '控制类',
     inputs: [{ name: 'times', type: 'number', label: '次数', default: 3 }],
-    outputs: [{ name: 'index', type: 'number' }],
+    outputs: [{ name: 'index', type: 'number' }]
   },
   {
     type: 'loop_foreach',
@@ -428,7 +435,7 @@ export const MOCK_SCHEMAS = [
         type: 'string',
         label: '数组',
         default: '',
-        placeholder: '$items 或 {{node.list}}',
+        placeholder: '$items 或 {{node.list}}'
       },
       {
         name: 'item_var',
@@ -436,14 +443,14 @@ export const MOCK_SCHEMAS = [
         label: '当前项变量名',
         default: '$item',
         bindable: false,
-        placeholder: '$item',
-      },
+        placeholder: '$item'
+      }
     ],
     outputs: [
       { name: 'index', type: 'number' },
       { name: 'item', type: 'any', canvas: false },
-      { name: 'length', type: 'number' },
-    ],
+      { name: 'length', type: 'number' }
+    ]
   },
   {
     type: 'loop_while',
@@ -456,11 +463,11 @@ export const MOCK_SCHEMAS = [
         label: '继续条件',
         default: '',
         bindable: false,
-        ui: 'expression',
+        ui: 'expression'
       },
-      { name: 'max_times', type: 'number', label: '最大次数', default: 10000 },
+      { name: 'max_times', type: 'number', label: '最大次数', default: 10000 }
     ],
-    outputs: [{ name: 'matched', type: 'boolean' }],
+    outputs: [{ name: 'matched', type: 'boolean' }]
   },
   {
     type: 'loop_forever',
@@ -473,12 +480,12 @@ export const MOCK_SCHEMAS = [
         label: '退出条件',
         default: '',
         bindable: false,
-        ui: 'expression',
+        ui: 'expression'
       },
       { name: 'check_interval_ms', type: 'number', label: '每轮间隔毫秒', default: 200 },
-      { name: 'max_times', type: 'number', label: '安全最大次数', default: 1000000 },
+      { name: 'max_times', type: 'number', label: '安全最大次数', default: 1000000 }
     ],
-    outputs: [],
+    outputs: []
   },
   {
     type: 'ocr_recognize',
@@ -502,7 +509,7 @@ export const MOCK_SCHEMAS = [
         name: 'match_text',
         type: 'string',
         label: '匹配文字',
-        default: '',
+        default: ''
       },
       {
         name: 'match_texts',
@@ -511,7 +518,7 @@ export const MOCK_SCHEMAS = [
         default: '',
         bindable: false,
         ui: 'textarea',
-        placeholder: '匹配值一\n匹配值二\n...',
+        placeholder: '匹配值一\n匹配值二\n...'
       },
       {
         name: 'match_mode',
@@ -519,7 +526,7 @@ export const MOCK_SCHEMAS = [
         label: '匹配模式',
         options: ['contains', 'exact', 'regex'],
         default: 'contains',
-        option_labels: { contains: '包含', exact: '完全相等', regex: '正则' },
+        option_labels: { contains: '包含', exact: '完全相等', regex: '正则' }
       },
       {
         name: 'include_box_geometry',
@@ -529,8 +536,8 @@ export const MOCK_SCHEMAS = [
         default: 'false',
         option_labels: {
           false: '否',
-          true: '是',
-        },
+          true: '是'
+        }
       },
       {
         name: 'output_coordinate_mode',
@@ -540,9 +547,9 @@ export const MOCK_SCHEMAS = [
         default: 'region_rel',
         option_labels: {
           screen_abs: '屏幕绝对',
-          region_rel: '区域相对',
-        },
-      },
+          region_rel: '区域相对'
+        }
+      }
     ],
     outputs: [
       { name: 'found', type: 'boolean' },
@@ -559,8 +566,8 @@ export const MOCK_SCHEMAS = [
       { name: 'matches', type: 'array', canvas: false },
       { name: 'boxes', type: 'array', canvas: false },
       { name: 'region', type: 'object', canvas: false },
-      { name: 'anchor', type: 'object', canvas: false },
-    ],
+      { name: 'anchor', type: 'object', canvas: false }
+    ]
   },
   {
     type: 'locate_text',
@@ -573,7 +580,7 @@ export const MOCK_SCHEMAS = [
         label: 'boxes',
         default: '',
         bindable: true,
-        placeholder: '{{ocr节点.boxes}}',
+        placeholder: '{{ocr节点.boxes}}'
       },
       { name: 'match_text', type: 'string', label: '匹配文字', default: '', placeholder: '要找的字' },
       {
@@ -582,8 +589,8 @@ export const MOCK_SCHEMAS = [
         label: '匹配模式',
         options: ['contains', 'exact', 'regex'],
         default: 'contains',
-        option_labels: { contains: '包含', exact: '完全相等', regex: '正则' },
-      },
+        option_labels: { contains: '包含', exact: '完全相等', regex: '正则' }
+      }
     ],
     outputs: [
       { name: 'found', type: 'boolean' },
@@ -594,8 +601,8 @@ export const MOCK_SCHEMAS = [
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
       { name: 'matched_text', type: 'string' },
-      { name: 'match_count', type: 'number' },
-    ],
+      { name: 'match_count', type: 'number' }
+    ]
   },
   {
     type: 'if_text_contains',
@@ -608,49 +615,49 @@ export const MOCK_SCHEMAS = [
         label: '数据来源',
         options: ['capture', 'value'],
         default: 'capture',
-        option_labels: { capture: '现场 OCR', value: '上游文本' },
+        option_labels: { capture: '现场 OCR', value: '上游文本' }
       },
       {
         name: 'actual_text',
         type: 'string',
         label: '实际文本',
         default: '',
-        show_when: { source_mode: 'value' },
+        show_when: { source_mode: 'value' }
       },
       {
         name: 'region',
         type: 'rect',
         label: '识别区域',
         default: null,
-        show_when: { source_mode: 'capture' },
+        show_when: { source_mode: 'capture' }
       },
       {
         name: 'x',
         type: 'number',
         label: '起点 X',
         default: 0,
-        show_when: { source_mode: 'capture' },
+        show_when: { source_mode: 'capture' }
       },
       {
         name: 'y',
         type: 'number',
         label: '起点 Y',
         default: 0,
-        show_when: { source_mode: 'capture' },
+        show_when: { source_mode: 'capture' }
       },
       {
         name: 'width',
         type: 'number',
         label: '宽度',
         default: 320,
-        show_when: { source_mode: 'capture' },
+        show_when: { source_mode: 'capture' }
       },
       {
         name: 'height',
         type: 'number',
         label: '高度',
         default: 80,
-        show_when: { source_mode: 'capture' },
+        show_when: { source_mode: 'capture' }
       },
       { name: 'expect_text', type: 'string', label: '期望文字', default: '' },
       {
@@ -658,7 +665,7 @@ export const MOCK_SCHEMAS = [
         type: 'select',
         label: '匹配模式',
         options: ['contains', 'exact', 'regex'],
-        default: 'contains',
+        default: 'contains'
       },
       {
         name: 'lang',
@@ -666,15 +673,15 @@ export const MOCK_SCHEMAS = [
         label: '语言',
         options: ['auto', 'ch', 'en'],
         default: 'auto',
-        show_when: { source_mode: 'capture' },
+        show_when: { source_mode: 'capture' }
       },
       {
         name: 'min_confidence',
         type: 'number',
         label: '最低置信度',
         default: 0.3,
-        show_when: { source_mode: 'capture' },
-      },
+        show_when: { source_mode: 'capture' }
+      }
     ],
     outputs: [
       { name: 'matched', type: 'boolean' },
@@ -686,8 +693,8 @@ export const MOCK_SCHEMAS = [
       { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
-      { name: 'matched_text', type: 'string' },
-    ],
+      { name: 'matched_text', type: 'string' }
+    ]
   },
   {
     type: 'find_image',
@@ -705,9 +712,9 @@ export const MOCK_SCHEMAS = [
         default: 'region_rel',
         option_labels: {
           screen_abs: '屏幕绝对',
-          region_rel: '区域相对',
-        },
-      },
+          region_rel: '区域相对'
+        }
+      }
     ],
     outputs: [
       { name: 'found', type: 'boolean' },
@@ -718,8 +725,8 @@ export const MOCK_SCHEMAS = [
       { name: 'left', type: 'number' },
       { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
-      { name: 'height', type: 'number' },
-    ],
+      { name: 'height', type: 'number' }
+    ]
   },
   {
     type: 'screenshot',
@@ -727,15 +734,15 @@ export const MOCK_SCHEMAS = [
     category: '识别类',
     inputs: [
       { name: 'region', type: 'rect', label: '截图区域', default: null },
-      { name: 'save_path', type: 'string', label: '保存路径', default: '' },
+      { name: 'save_path', type: 'string', label: '保存路径', default: '' }
     ],
     outputs: [
       { name: 'path', type: 'string' },
       { name: 'left', type: 'number' },
       { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
-      { name: 'height', type: 'number' },
-    ],
+      { name: 'height', type: 'number' }
+    ]
   },
   {
     type: 'wait_until',
@@ -751,50 +758,50 @@ export const MOCK_SCHEMAS = [
         option_labels: {
           color: '颜色出现',
           text: '文字出现',
-          expression: '表达式为真',
-        },
+          expression: '表达式为真'
+        }
       },
       {
         name: 'region',
         type: 'rect',
         label: '检测区域',
         default: null,
-        show_when: { wait_type: ['color', 'text'] },
+        show_when: { wait_type: ['color', 'text'] }
       },
       {
         name: 'x',
         type: 'number',
         label: '单点 X',
         default: 0,
-        show_when: { wait_type: 'color' },
+        show_when: { wait_type: 'color' }
       },
       {
         name: 'y',
         type: 'number',
         label: '单点 Y',
         default: 0,
-        show_when: { wait_type: 'color' },
+        show_when: { wait_type: 'color' }
       },
       {
         name: 'target_color',
         type: 'color',
         label: '目标颜色',
         default: '#FF0000',
-        show_when: { wait_type: 'color' },
+        show_when: { wait_type: 'color' }
       },
       {
         name: 'tolerance',
         type: 'number',
         label: '颜色容差',
         default: 20,
-        show_when: { wait_type: 'color' },
+        show_when: { wait_type: 'color' }
       },
       {
         name: 'expect_text',
         type: 'string',
         label: '期望文字',
         default: '',
-        show_when: { wait_type: 'text' },
+        show_when: { wait_type: 'text' }
       },
       {
         name: 'match_mode',
@@ -802,7 +809,7 @@ export const MOCK_SCHEMAS = [
         label: '匹配模式',
         options: ['contains', 'exact', 'regex'],
         default: 'contains',
-        show_when: { wait_type: 'text' },
+        show_when: { wait_type: 'text' }
       },
       {
         name: 'expression',
@@ -811,10 +818,10 @@ export const MOCK_SCHEMAS = [
         default: '',
         bindable: false,
         ui: 'expression',
-        show_when: { wait_type: 'expression' },
+        show_when: { wait_type: 'expression' }
       },
       { name: 'timeout_ms', type: 'number', label: '超时毫秒', default: 30000 },
-      { name: 'poll_interval_ms', type: 'number', label: '轮询间隔毫秒', default: 300 },
+      { name: 'poll_interval_ms', type: 'number', label: '轮询间隔毫秒', default: 300 }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
@@ -827,8 +834,8 @@ export const MOCK_SCHEMAS = [
       { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
-      { name: 'matched_text', type: 'string' },
-    ],
+      { name: 'matched_text', type: 'string' }
+    ]
   },
   {
     type: 'schedule_trigger',
@@ -842,14 +849,14 @@ export const MOCK_SCHEMAS = [
         label: '触发类型',
         options: ['interval', 'once', 'cron'],
         default: 'interval',
-        option_labels: { interval: '周期', once: '单次', cron: 'Cron' },
+        option_labels: { interval: '周期', once: '单次', cron: 'Cron' }
       },
       {
         name: 'interval_seconds',
         type: 'number',
         label: '周期秒数',
         default: 60,
-        show_when: { trigger_type: 'interval' },
+        show_when: { trigger_type: 'interval' }
       },
       {
         name: 'run_at',
@@ -857,7 +864,7 @@ export const MOCK_SCHEMAS = [
         label: '单次时间',
         placeholder: '2026-07-12 10:00:00',
         default: '',
-        show_when: { trigger_type: 'once' },
+        show_when: { trigger_type: 'once' }
       },
       {
         name: 'cron_expression',
@@ -865,7 +872,7 @@ export const MOCK_SCHEMAS = [
         label: 'Cron',
         default: '0 * * * *',
         placeholder: '分 时 日 月 周',
-        show_when: { trigger_type: 'cron' },
+        show_when: { trigger_type: 'cron' }
       },
       {
         name: 'enabled',
@@ -873,13 +880,13 @@ export const MOCK_SCHEMAS = [
         label: '启用',
         options: ['true', 'false'],
         default: 'true',
-        option_labels: { true: '启用', false: '禁用' },
-      },
+        option_labels: { true: '启用', false: '禁用' }
+      }
     ],
     outputs: [
       { name: 'registered', type: 'boolean' },
-      { name: 'job_id', type: 'string' },
-    ],
+      { name: 'job_id', type: 'string' }
+    ]
   },
   {
     type: 'call_subflow',
@@ -892,7 +899,7 @@ export const MOCK_SCHEMAS = [
         label: '子流程',
         default: '',
         placeholder: '从已保存流程中选择',
-        ui: 'flow_path',
+        ui: 'flow_path'
       },
       {
         name: 'inherit_variables',
@@ -902,29 +909,29 @@ export const MOCK_SCHEMAS = [
         default: 'true',
         option_labels: {
           true: '是',
-          false: '否',
-        },
+          false: '否'
+        }
       },
       {
         name: 'input_map',
         type: 'keymap',
         label: '传入变量',
         default: {},
-        ui: 'input_map',
+        ui: 'input_map'
       },
       {
         name: 'output_map',
         type: 'keymap',
         label: '取回变量',
         default: {},
-        ui: 'output_map',
-      },
+        ui: 'output_map'
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'context_keys', type: 'number' },
-      { name: 'keys', type: 'array', canvas: false },
-    ],
+      { name: 'keys', type: 'array', canvas: false }
+    ]
   },
   {
     type: 'assign',
@@ -936,13 +943,13 @@ export const MOCK_SCHEMAS = [
         type: 'keymap',
         label: '变量映射',
         default: {},
-        ui: 'input_map',
-      },
+        ui: 'input_map'
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
-      { name: 'written', type: 'array', canvas: false },
-    ],
+      { name: 'written', type: 'array', canvas: false }
+    ]
   },
   {
     type: 'http_request',
@@ -954,7 +961,7 @@ export const MOCK_SCHEMAS = [
         type: 'select',
         label: '方法',
         options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-        default: 'GET',
+        default: 'GET'
       },
       {
         name: 'url',
@@ -963,14 +970,14 @@ export const MOCK_SCHEMAS = [
         default: '',
         placeholder: 'https://example.com/api',
         ui: 'textarea',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'headers',
         type: 'keymap',
         label: '请求头',
         default: {},
-        ui: 'input_map',
+        ui: 'input_map'
       },
       {
         name: 'body',
@@ -979,7 +986,7 @@ export const MOCK_SCHEMAS = [
         default: '',
         ui: 'textarea',
         bindable: true,
-        show_when: { method: ['POST', 'PUT', 'PATCH'] },
+        show_when: { method: ['POST', 'PUT', 'PATCH'] }
       },
       { name: 'timeout_sec', type: 'number', label: '超时秒数', default: 30 },
       {
@@ -988,16 +995,16 @@ export const MOCK_SCHEMAS = [
         label: '响应编码',
         default: 'utf-8',
         placeholder: 'utf-8（空则自动猜测）',
-        bindable: true,
-      },
+        bindable: true
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'status', type: 'number' },
       { name: 'body', type: 'string' },
       { name: 'error', type: 'string' },
-      { name: 'headers', type: 'object', canvas: false },
-    ],
+      { name: 'headers', type: 'object', canvas: false }
+    ]
   },
   {
     type: 'clipboard',
@@ -1010,7 +1017,7 @@ export const MOCK_SCHEMAS = [
         label: '操作',
         options: ['read', 'write'],
         default: 'write',
-        option_labels: { read: '读取', write: '写入' },
+        option_labels: { read: '读取', write: '写入' }
       },
       {
         name: 'text',
@@ -1019,14 +1026,14 @@ export const MOCK_SCHEMAS = [
         default: '',
         ui: 'textarea',
         bindable: true,
-        show_when: { action: 'write' },
-      },
+        show_when: { action: 'write' }
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'text', type: 'string' },
-      { name: 'error', type: 'string' },
-    ],
+      { name: 'error', type: 'string' }
+    ]
   },
   {
     type: 'file_io',
@@ -1039,7 +1046,7 @@ export const MOCK_SCHEMAS = [
         label: '操作',
         options: ['read', 'write', 'append'],
         default: 'read',
-        option_labels: { read: '读取', write: '写入', append: '追加' },
+        option_labels: { read: '读取', write: '写入', append: '追加' }
       },
       {
         name: 'path',
@@ -1048,7 +1055,7 @@ export const MOCK_SCHEMAS = [
         default: '',
         placeholder: '手动输入，或点「浏览」选择',
         ui: 'file_path',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'content',
@@ -1057,22 +1064,22 @@ export const MOCK_SCHEMAS = [
         default: '',
         ui: 'textarea',
         bindable: true,
-        show_when: { action: ['write', 'append'] },
+        show_when: { action: ['write', 'append'] }
       },
       {
         name: 'encoding',
         type: 'string',
         label: '编码',
         default: 'utf-8',
-        bindable: true,
-      },
+        bindable: true
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'content', type: 'string' },
       { name: 'path', type: 'string' },
-      { name: 'error', type: 'string' },
-    ],
+      { name: 'error', type: 'string' }
+    ]
   },
   {
     type: 'run_command',
@@ -1086,7 +1093,7 @@ export const MOCK_SCHEMAS = [
         default: '',
         placeholder: '可执行文件或 shell 命令',
         ui: 'textarea',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'args',
@@ -1095,14 +1102,14 @@ export const MOCK_SCHEMAS = [
         default: '',
         placeholder: '空格分隔，或 JSON 数组如 ["a","b"]',
         ui: 'textarea',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'cwd',
         type: 'string',
         label: '工作目录',
         default: '',
-        bindable: true,
+        bindable: true
       },
       { name: 'timeout_sec', type: 'number', label: '超时秒数', default: 60 },
       {
@@ -1111,16 +1118,16 @@ export const MOCK_SCHEMAS = [
         label: '使用 Shell',
         options: ['false', 'true'],
         default: 'false',
-        option_labels: { false: '否（推荐）', true: '是' },
-      },
+        option_labels: { false: '否（推荐）', true: '是' }
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'exit_code', type: 'number' },
       { name: 'stdout', type: 'string' },
       { name: 'stderr', type: 'string' },
-      { name: 'error', type: 'string' },
-    ],
+      { name: 'error', type: 'string' }
+    ]
   },
   {
     type: 'notify',
@@ -1132,7 +1139,7 @@ export const MOCK_SCHEMAS = [
         type: 'string',
         label: '标题',
         default: 'Nexuz',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'message',
@@ -1140,7 +1147,7 @@ export const MOCK_SCHEMAS = [
         label: '内容',
         default: '',
         ui: 'textarea',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'play_sound',
@@ -1148,13 +1155,13 @@ export const MOCK_SCHEMAS = [
         label: '播放提示音',
         options: ['true', 'false'],
         default: 'true',
-        option_labels: { true: '是', false: '否' },
-      },
+        option_labels: { true: '是', false: '否' }
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
-      { name: 'error', type: 'string' },
-    ],
+      { name: 'error', type: 'string' }
+    ]
   },
   {
     type: 'window_wait',
@@ -1168,7 +1175,7 @@ export const MOCK_SCHEMAS = [
         default: '',
         placeholder: '点「选取窗口」或从列表选，不用手填',
         ui: 'window_pick',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'process_name',
@@ -1176,7 +1183,7 @@ export const MOCK_SCHEMAS = [
         label: '进程',
         default: '',
         ui: 'window_pick_meta',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'class_name',
@@ -1184,10 +1191,10 @@ export const MOCK_SCHEMAS = [
         label: '类名',
         default: '',
         ui: 'window_pick_meta',
-        bindable: true,
+        bindable: true
       },
       { name: 'timeout_sec', type: 'number', label: '超时秒数', default: 30 },
-      { name: 'poll_ms', type: 'number', label: '轮询间隔毫秒', default: 200 },
+      { name: 'poll_ms', type: 'number', label: '轮询间隔毫秒', default: 200 }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
@@ -1195,8 +1202,8 @@ export const MOCK_SCHEMAS = [
       { name: 'title', type: 'string' },
       { name: 'pid', type: 'number' },
       { name: 'process_name', type: 'string' },
-      { name: 'error', type: 'string' },
-    ],
+      { name: 'error', type: 'string' }
+    ]
   },
   {
     type: 'window_activate',
@@ -1210,7 +1217,7 @@ export const MOCK_SCHEMAS = [
         default: '',
         placeholder: '点「选取窗口」或从列表选，不用手填',
         ui: 'window_pick',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'process_name',
@@ -1218,7 +1225,7 @@ export const MOCK_SCHEMAS = [
         label: '进程',
         default: '',
         ui: 'window_pick_meta',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'class_name',
@@ -1226,15 +1233,15 @@ export const MOCK_SCHEMAS = [
         label: '类名',
         default: '',
         ui: 'window_pick_meta',
-        bindable: true,
-      },
+        bindable: true
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'title', type: 'string' },
       { name: 'pid', type: 'number' },
-      { name: 'error', type: 'string' },
-    ],
+      { name: 'error', type: 'string' }
+    ]
   },
   {
     type: 'window_close',
@@ -1248,7 +1255,7 @@ export const MOCK_SCHEMAS = [
         default: '',
         placeholder: '点「选取窗口」或从列表选，不用手填',
         ui: 'window_pick',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'process_name',
@@ -1256,7 +1263,7 @@ export const MOCK_SCHEMAS = [
         label: '进程',
         default: '',
         ui: 'window_pick_meta',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'class_name',
@@ -1264,7 +1271,7 @@ export const MOCK_SCHEMAS = [
         label: '类名',
         default: '',
         ui: 'window_pick_meta',
-        bindable: true,
+        bindable: true
       },
       {
         name: 'force',
@@ -1272,15 +1279,15 @@ export const MOCK_SCHEMAS = [
         label: '强制结束进程',
         options: ['false', 'true'],
         default: 'false',
-        option_labels: { false: '否（发送关闭消息）', true: '是（TerminateProcess）' },
-      },
+        option_labels: { false: '否（发送关闭消息）', true: '是（TerminateProcess）' }
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'title', type: 'string' },
       { name: 'pid', type: 'number' },
-      { name: 'error', type: 'string' },
-    ],
+      { name: 'error', type: 'string' }
+    ]
   },
   {
     type: 'python_script',
@@ -1293,22 +1300,22 @@ export const MOCK_SCHEMAS = [
         label: '脚本',
         default: 'out["result"] = 1 + 1\nprint("sum=", out["result"])\n',
         ui: 'python_code',
-        placeholder: '写入 out 字典，例如 out["result"] = inputs.get("x")',
+        placeholder: '写入 out 字典，例如 out["result"] = inputs.get("x")'
       },
       {
         name: 'inputs',
         type: 'keymap',
         label: '注入变量',
         default: {},
-        ui: 'input_map',
-      },
+        ui: 'input_map'
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
       { name: 'result', type: 'any' },
       { name: 'error', type: 'string' },
-      { name: 'printed', type: 'string', canvas: false },
-    ],
+      { name: 'printed', type: 'string', canvas: false }
+    ]
   },
   {
     type: 'example_echo',
@@ -1320,14 +1327,14 @@ export const MOCK_SCHEMAS = [
         type: 'string',
         label: '文本',
         default: 'hello',
-        bindable: true,
-      },
+        bindable: true
+      }
     ],
     outputs: [
       { name: 'ok', type: 'boolean' },
-      { name: 'text', type: 'string' },
-    ],
-  },
+      { name: 'text', type: 'string' }
+    ]
+  }
 ];
 
 async function call(method, ...args) {
@@ -1342,7 +1349,7 @@ async function call(method, ...args) {
     return {
       ok: false,
       error: String(e?.message || e || `${method} 调用失败`),
-      message: String(e?.message || e || `${method} 调用失败`),
+      message: String(e?.message || e || `${method} 调用失败`)
     };
   }
 }
@@ -1357,7 +1364,7 @@ function mockCall(method, ...args) {
         version: '0.1.0-dev',
         frozen: false,
         github: 'Slocean/Nexuz',
-        releases_url: 'https://github.com/Slocean/Nexuz/releases',
+        releases_url: 'https://github.com/Slocean/Nexuz/releases'
       });
     case 'get_resource_stats':
       return Promise.resolve({
@@ -1376,7 +1383,7 @@ function mockCall(method, ...args) {
         system_mem_used_bytes: 8 * 1024 * 1024 * 1024,
         ui_queue: 0,
         exec_running: false,
-        ts: Date.now() / 1000,
+        ts: Date.now() / 1000
       });
     case 'check_for_update':
       return Promise.resolve({
@@ -1384,7 +1391,7 @@ function mockCall(method, ...args) {
         update_available: false,
         current_version: '0.1.0-dev',
         latest_version: '0.1.0-dev',
-        message: '浏览器预览：无法检查 GitHub 更新',
+        message: '浏览器预览：无法检查 GitHub 更新'
       });
     case 'fetch_announcement':
       return Promise.resolve({
@@ -1393,21 +1400,21 @@ function mockCall(method, ...args) {
           id: '0.1.0-dev',
           version: '0.1.0-dev',
           title: '浏览器预览',
-          body: '更新记录预览。',
+          body: '更新记录预览。'
         },
         history: [
           {
             version: '0.1.0-dev',
             title: '浏览器预览',
             body: '更新记录预览。',
-            notice: '这是通知说明预览。',
-          },
+            notice: '这是通知说明预览。'
+          }
         ],
         notice: {
           id: 'mock-notice',
           title: '通知',
-          body: '这是通知说明预览。',
-        },
+          body: '这是通知说明预览。'
+        }
       });
     case 'fetch_notice':
       return Promise.resolve({
@@ -1415,8 +1422,8 @@ function mockCall(method, ...args) {
         notice: {
           id: 'mock-notice',
           title: '通知',
-          body: '这是通知说明预览（桌面客户端中读取 app_update.json 的 notice 字段）。',
-        },
+          body: '这是通知说明预览（桌面客户端中读取 app_update.json 的 notice 字段）。'
+        }
       });
     case 'download_update':
     case 'apply_update':
@@ -1434,26 +1441,26 @@ function mockCall(method, ...args) {
       return Promise.resolve({
         ok: true,
         path: '(browser mock) user_blocks',
-        exists: true,
+        exists: true
       });
     case 'open_user_blocks_dir':
       return Promise.resolve({
         ok: false,
         error: '浏览器预览模式无法打开本地目录',
-        path: '',
+        path: ''
       });
     case 'list_user_block_files':
       return Promise.resolve({
         ok: true,
         path: '(browser mock) user_blocks',
-        files: [{ name: 'example_echo.py', path: 'example_echo.py' }],
+        files: [{ name: 'example_echo.py', path: 'example_echo.py' }]
       });
     case 'read_user_block_file':
       return Promise.resolve({
         ok: true,
         name: args[0] || 'example_echo.py',
         content:
-          'SCHEMA = {"type": "example_echo", "label": "示例：回显", "category": "自定义", "inputs": [], "outputs": []}\n\ndef handler(params, context, **kwargs):\n    return {"ok": True}\n',
+          'SCHEMA = {"type": "example_echo", "label": "示例：回显", "category": "自定义", "inputs": [], "outputs": []}\n\ndef handler(params, context, **kwargs):\n    return {"ok": True}\n'
       });
     case 'write_user_block_file':
       return Promise.resolve({ ok: true, name: args[0] || 'example_echo.py', path: '' });
@@ -1467,7 +1474,7 @@ function mockCall(method, ...args) {
         path: 'localStorage/nexuz',
         exists: true,
         default_path: 'localStorage/nexuz',
-        is_default: true,
+        is_default: true
       });
     case 'pick_data_dir':
     case 'set_data_dir_path':
@@ -1500,7 +1507,7 @@ function mockCall(method, ...args) {
       return Promise.resolve({
         ok: false,
         error: '浏览器预览模式无法打开系统文件对话框',
-        cancelled: true,
+        cancelled: true
       });
     case 'pick_template_image':
       return Promise.resolve({ ok: false, cancelled: true, error: '浏览器预览请手动填写路径或拖入图片' });
@@ -1510,7 +1517,11 @@ function mockCall(method, ...args) {
       try {
         const raw = localStorage.getItem('nexuz.flowTemplates');
         const templates = raw ? JSON.parse(raw) : [];
-        return Promise.resolve({ ok: true, templates: Array.isArray(templates) ? templates : [], dir: 'localStorage' });
+        return Promise.resolve({
+          ok: true,
+          templates: Array.isArray(templates) ? templates : [],
+          dir: 'localStorage'
+        });
       } catch {
         return Promise.resolve({ ok: true, templates: [], dir: 'localStorage' });
       }
@@ -1527,11 +1538,11 @@ function mockCall(method, ...args) {
           path: `local:${Date.now()}`,
           mtime: Date.now(),
           builtin: false,
-          flow: { ...flow, name, description: description || undefined },
+          flow: { ...flow, name, description: description || undefined }
         };
         const raw = localStorage.getItem('nexuz.flowTemplates');
         const list = raw ? JSON.parse(raw) : [];
-        const next = Array.isArray(list) ? list.filter((t) => t.name !== name) : [];
+        const next = Array.isArray(list) ? list.filter(t => t.name !== name) : [];
         next.unshift(item);
         localStorage.setItem('nexuz.flowTemplates', JSON.stringify(next));
         return Promise.resolve({ ok: true, path: item.path, name });
@@ -1544,7 +1555,7 @@ function mockCall(method, ...args) {
         const filepath = String(args[0] || '');
         const raw = localStorage.getItem('nexuz.flowTemplates');
         const list = raw ? JSON.parse(raw) : [];
-        const next = (Array.isArray(list) ? list : []).filter((t) => t.path !== filepath);
+        const next = (Array.isArray(list) ? list : []).filter(t => t.path !== filepath);
         localStorage.setItem('nexuz.flowTemplates', JSON.stringify(next));
         return Promise.resolve({ ok: true });
       } catch (e) {
@@ -1556,7 +1567,7 @@ function mockCall(method, ...args) {
         const filepath = String(args[0] || '');
         const raw = localStorage.getItem('nexuz.flowTemplates');
         const list = raw ? JSON.parse(raw) : [];
-        const hit = (Array.isArray(list) ? list : []).find((t) => t.path === filepath);
+        const hit = (Array.isArray(list) ? list : []).find(t => t.path === filepath);
         if (!hit?.flow) return Promise.resolve({ ok: false, error: '模板不存在' });
         return Promise.resolve({ ok: true, flow: hit.flow, path: filepath });
       } catch (e) {
@@ -1579,7 +1590,7 @@ function mockCall(method, ...args) {
         ok: true,
         enabled: false,
         opacity: 0.85,
-        click_through: false,
+        click_through: false
       });
     case 'window_begin_resize':
       return Promise.resolve({ ok: true, edge: args[0] || 'se' });
@@ -1591,32 +1602,29 @@ function mockCall(method, ...args) {
         pause_run: ['x', 'f5'],
         record_stop: ['x', 'f10'],
         plugin_mode: ['x', 'f6'],
-        click_through: ['x', 'f7'],
+        click_through: ['x', 'f7']
       };
       const prefs = args[0] && typeof args[0] === 'object' ? args[0] : {};
       const hotkeys = { ...defaults };
       for (const slot of Object.keys(defaults)) {
         if (Array.isArray(prefs[slot])) hotkeys[slot] = prefs[slot];
       }
-      const label = (keys) =>
-        (keys || []).map((k) => String(k).toUpperCase()).join('+');
-      const labels = Object.fromEntries(
-        Object.entries(hotkeys).map(([k, v]) => [k, label(v)]),
-      );
+      const label = keys => (keys || []).map(k => String(k).toUpperCase()).join('+');
+      const labels = Object.fromEntries(Object.entries(hotkeys).map(([k, v]) => [k, label(v)]));
       return Promise.resolve({
         ok: true,
         ...hotkeys,
         ...Object.fromEntries(Object.entries(labels).map(([k, v]) => [`${k}_label`, v])),
         hotkeys,
         labels,
-        defaults,
+        defaults
       });
     }
     case 'get_notice_read_id': {
       try {
         return Promise.resolve({
           ok: true,
-          id: localStorage.getItem('nexuz.noticeReadId') || '',
+          id: localStorage.getItem('nexuz.noticeReadId') || ''
         });
       } catch {
         return Promise.resolve({ ok: true, id: '' });
@@ -1761,7 +1769,7 @@ export const bridge = {
   getUserBlocksDir: () => call('get_user_blocks_dir'),
   openUserBlocksDir: () => call('open_user_blocks_dir'),
   listUserBlockFiles: () => call('list_user_block_files'),
-  readUserBlockFile: (filename) => call('read_user_block_file', filename),
+  readUserBlockFile: filename => call('read_user_block_file', filename),
   writeUserBlockFile: (filename, content = '') => call('write_user_block_file', filename, content),
   getScreenInfo: () => call('get_screen_info'),
   runFlow: (flow, stepMode = false, hideWindow = true, debugMode = false, breakpoints = null) =>
@@ -1771,7 +1779,7 @@ export const bridge = {
       stepMode,
       hideWindow,
       debugMode,
-      breakpoints ?? flow?.breakpoints ?? [],
+      breakpoints ?? flow?.breakpoints ?? []
     ),
   pauseFlow: () => call('pause_flow'),
   resumeFlow: () => call('resume_flow'),
@@ -1779,28 +1787,22 @@ export const bridge = {
   stopFlow: () => call('stop_flow'),
   forceReset: () => call('force_reset'),
   stepFlow: () => call('step_flow'),
-  setBreakpoints: (nodeIds) => call('set_breakpoints', nodeIds || []),
+  setBreakpoints: nodeIds => call('set_breakpoints', nodeIds || []),
   isRunning: () => call('is_running'),
-  validateFlow: (flow) => call('validate_flow', JSON.stringify(flow)),
-  startRecording: (
-    minIntervalMs = 50,
-    hideWindow = false,
-    mode = 'coord',
-    coordinateMode = 'screen_abs',
-  ) => call('start_recording', minIntervalMs, hideWindow, mode, coordinateMode),
+  validateFlow: flow => call('validate_flow', JSON.stringify(flow)),
+  startRecording: (minIntervalMs = 50, hideWindow = false, mode = 'coord', coordinateMode = 'screen_abs') =>
+    call('start_recording', minIntervalMs, hideWindow, mode, coordinateMode),
   stopRecording: () => call('stop_recording'),
-  pickPoint: (hideWindow = true, coordinateMode = 'screen_abs') =>
-    call('pick_point', hideWindow, coordinateMode),
+  pickPoint: (hideWindow = true, coordinateMode = 'screen_abs') => call('pick_point', hideWindow, coordinateMode),
   pickClick: (mode = 'coord', hideWindow = true, coordinateMode = 'screen_abs') =>
     call('pick_click', mode, hideWindow, coordinateMode),
   listWindows: () => call('list_windows'),
   pickWindow: (hideWindow = true) => call('pick_window', hideWindow),
   pickRegion: (hideWindow = true) => call('pick_region', hideWindow),
-  captureTemplate: (hideWindow = true, filename = null) =>
-    call('capture_template', hideWindow, filename),
+  captureTemplate: (hideWindow = true, filename = null) => call('capture_template', hideWindow, filename),
   captureDesktop: (hideWindow = true) => call('capture_desktop', hideWindow),
   packScreenPoint: (x, y, color = null) => call('pack_screen_point', x, y, color),
-  packScreenRegion: (region) => call('pack_screen_region', region),
+  packScreenRegion: region => call('pack_screen_region', region),
   captureTemplateFromRegion: (region, filename = null, dataUrl = null, left = null, top = null) =>
     call('capture_template_from_region', region, filename, dataUrl, left, top),
   listCaptureProviders: () => call('list_capture_providers'),
@@ -1810,7 +1812,7 @@ export const bridge = {
     }
     return call('frida_attach', {
       process_name: processNameOrOpts,
-      pid,
+      pid
     });
   },
   fridaDetach: () => call('frida_detach'),
@@ -1818,21 +1820,18 @@ export const bridge = {
   fridaListProcesses: (query = null, onlyWithWindow = true) =>
     call('frida_list_processes', {
       query,
-      only_with_window: onlyWithWindow !== false,
+      only_with_window: onlyWithWindow !== false
     }),
   listScheduleJobs: () => call('list_schedule_jobs'),
-  removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
+  removeScheduleJob: jobId => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),
   pickFlowFile: (libraryOnly = true) => call('pick_flow_file', libraryOnly),
-  pickLocalPath: (mode = 'open', suggestedName = null) =>
-    call('pick_local_path', mode, suggestedName),
-  deleteFlow: (filepath) => call('delete_flow', filepath),
+  pickLocalPath: (mode = 'open', suggestedName = null) => call('pick_local_path', mode, suggestedName),
+  deleteFlow: filepath => call('delete_flow', filepath),
   renameFlow: (filepath, newName) => call('rename_flow', filepath, newName),
-  saveFlow: (flow, filepath = null, name = null) =>
-    call('save_flow', JSON.stringify(flow), filepath, name),
+  saveFlow: (flow, filepath = null, name = null) => call('save_flow', JSON.stringify(flow), filepath, name),
   loadFlow: (filepath = null) => call('load_flow', filepath),
-  exportFlow: (flow, filename = null) =>
-    call('export_flow', JSON.stringify(flow), filename),
+  exportFlow: (flow, filename = null) => call('export_flow', JSON.stringify(flow), filename),
   importFlow: () => call('import_flow'),
   getDataDirInfo: () => call('get_data_dir_info'),
   pickDataDir: () => call('pick_data_dir'),
@@ -1843,10 +1842,10 @@ export const bridge = {
   listFlowTemplates: () => call('list_flow_templates'),
   saveFlowTemplate: (flow, name = null, description = null) =>
     call('save_flow_template', JSON.stringify(flow), name, description),
-  deleteFlowTemplate: (filepath) => call('delete_flow_template', filepath),
-  loadFlowTemplate: (filepath) => call('load_flow_template', filepath),
-  clipboardWrite: (text) => call('clipboard_write', text),
-  readLocalImage: (filepath) => call('read_local_image', filepath),
+  deleteFlowTemplate: filepath => call('delete_flow_template', filepath),
+  loadFlowTemplate: filepath => call('load_flow_template', filepath),
+  clipboardWrite: text => call('clipboard_write', text),
+  readLocalImage: filepath => call('read_local_image', filepath),
   pickTemplateImage: () => call('pick_template_image'),
   saveTemplateImage: (dataUrl, filename = null) => call('save_template_image', dataUrl, filename),
   exportText: (text, filename = null) => call('export_text', text, filename),
@@ -1854,8 +1853,7 @@ export const bridge = {
   exportRunLog: () => call('export_run_log'),
   exportAppLogs: (categories = null) => call('export_app_logs', categories),
   logAudit: (message, detail = null) => call('log_audit', message, detail),
-  logSystem: (message, level = 'info', detail = null) =>
-    call('log_system', message, level, detail),
+  logSystem: (message, level = 'info', detail = null) => call('log_system', message, level, detail),
   setDiagLogging: (enabled = false) => call('set_diag_logging', enabled),
   getDiagLogging: () => call('get_diag_logging'),
   windowMinimize: () => call('window_minimize'),
@@ -1868,5 +1866,5 @@ export const bridge = {
   getPluginMode: () => call('get_plugin_mode'),
   windowBeginResize: (edge = 'se') => call('window_begin_resize', edge),
   getHotkeys: () => call('get_hotkeys'),
-  setHotkeys: (prefs = {}) => call('set_hotkeys', prefs),
+  setHotkeys: (prefs = {}) => call('set_hotkeys', prefs)
 };
