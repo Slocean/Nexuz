@@ -45,11 +45,13 @@ interface BindableInputProps {
   currentNodeId: string;
   schemaMap: SchemaMap;
   onChange: (value: unknown) => void;
-  /** Extra trailing controls (e.g. 取点) */
+  /** Extra trailing controls (e.g. 取点 / 浏览) — placed beside the value field */
   trailing?: React.ReactNode;
   className?: string;
   /** Allow JSON object/array as literal (赋值节点等) */
   allowJson?: boolean;
+  /** Use a textarea for plain string literals (paths, long URLs) without JSON parsing */
+  multiline?: boolean;
   /** Override label for bind-kind row (default: 类型) */
   kindLabel?: string;
   /** Override label for literal/variable value row (default: 值) */
@@ -60,15 +62,19 @@ function Row({
   title,
   children,
   trailing,
+  alignTop = false,
 }: {
   title: string;
   children: React.ReactNode;
   trailing?: React.ReactNode;
+  alignTop?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-1 min-w-0 w-full">
       <span className="text-[11px] font-medium opacity-60 leading-none">{title}</span>
-      <div className="flex items-center gap-1.5 min-w-0 w-full">
+      <div
+        className={`flex gap-1.5 min-w-0 w-full ${alignTop ? 'items-start' : 'items-center'}`}
+      >
         <div className="flex-1 min-w-0">{children}</div>
         {trailing}
       </div>
@@ -86,6 +92,7 @@ export default function BindableInput({
   trailing,
   className,
   allowJson = false,
+  multiline = false,
   kindLabel = '类型',
   valueLabel = '值',
 }: BindableInputProps) {
@@ -234,8 +241,19 @@ export default function BindableInput({
         </Row>
 
         {kind === 'literal' || (kind === 'node' && !hasUpstream) ? (
-          <Row title={allowJson ? `${valueLabel}（支持 JSON）` : valueLabel} trailing={trailing}>
-            {allowJson ? (
+          <Row
+            title={allowJson && !multiline ? `${valueLabel}（支持 JSON）` : valueLabel}
+            trailing={trailing}
+            alignTop={multiline || allowJson}
+          >
+            {multiline ? (
+              <Textarea
+                className="text-xs font-mono min-h-[4.5rem] resize-y w-full"
+                value={literalToDisplay(value, inputType)}
+                placeholder={placeholder || '文本'}
+                onChange={(e) => onChange(e.target.value)}
+              />
+            ) : allowJson ? (
               <div className="space-y-1 w-full">
                 <Textarea
                   className="text-xs font-mono min-h-[4.5rem] resize-y w-full"

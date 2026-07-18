@@ -25,6 +25,7 @@ import LogicTreeEditor, { normalizeLogicValue } from './LogicTreeEditor';
 import TemplateImageField from './TemplateImageField';
 import JsonTreeView from './JsonTreeView';
 import PythonScriptEditor from './PythonScriptEditor';
+import FlowPathField from './FlowPathField';
 import { listFlowVariableNames } from '../bindValue';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
@@ -1719,6 +1720,11 @@ export default function Inspector({
               input.type === 'key_steps' ||
               input.ui === 'expression' ||
               input.ui === 'python_code' ||
+              input.ui === 'textarea' ||
+              input.type === 'textarea' ||
+              input.ui === 'file_path' ||
+              input.ui === 'flow_path' ||
+              input.name === 'subflow_path' ||
               input.name === 'expression' ||
               input.name === 'exit_condition';
             const placeholder =
@@ -1836,35 +1842,50 @@ export default function Inspector({
                     schemaMap={schemaMap}
                   />
                 ) : input.ui === 'flow_path' || input.name === 'subflow_path' ? (
-                  <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                    <BindableInput
-                      value={value ?? ''}
-                      inputType="string"
-                      currentNodeId={selectedNode.id}
-                      schemaMap={schemaMap}
-                      onChange={v => handleFieldChange(input.name, v)}
-                      placeholder={input.placeholder || '子流程 .flow.json 路径'}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 shrink-0 px-2"
-                      onClick={async () => {
-                        const picked = await bridge.pickFlowFile?.();
-                        if (picked?.ok && picked.path) {
-                          handleFieldChange(input.name, picked.path);
-                          return;
-                        }
-                        if (picked?.cancelled) return;
-                        await alert({
-                          title: '选择失败',
-                          description: picked?.error || '无法打开文件对话框，请手动填写路径'
-                        });
-                      }}>
-                      浏览
-                    </Button>
-                  </div>
+                  <FlowPathField
+                    value={String(value ?? '')}
+                    onChange={(path) => handleFieldChange(input.name, path)}
+                  />
+                ) : input.ui === 'file_path' ? (
+                  <BindableInput
+                    value={value ?? ''}
+                    inputType="string"
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={v => handleFieldChange(input.name, v)}
+                    placeholder={input.placeholder || '文件路径'}
+                    multiline
+                    valueLabel="路径"
+                    trailing={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 shrink-0 px-2"
+                        title="打开系统文件选择窗口"
+                        onClick={async () => {
+                          const action = String(selectedNode.config?.action || 'read');
+                          const mode = action === 'write' || action === 'append' ? 'save' : 'open';
+                          const suggested =
+                            typeof value === 'string' && value.trim()
+                              ? value.replace(/^.*[\\/]/, '')
+                              : 'untitled.txt';
+                          const picked = await bridge.pickLocalPath?.(mode, suggested);
+                          if (picked?.ok && picked.path) {
+                            handleFieldChange(input.name, picked.path);
+                            return;
+                          }
+                          if (picked?.cancelled) return;
+                          await alert({
+                            title: '选择失败',
+                            description: picked?.error || '无法打开文件对话框，请手动填写路径',
+                          });
+                        }}
+                      >
+                        浏览
+                      </Button>
+                    }
+                  />
                 ) : input.ui === 'collection' ||
                   (selectedNode.subType === 'loop_foreach' && input.name === 'collection') ? (
                   <div className="flex-1 min-w-0 space-y-1.5">

@@ -877,9 +877,9 @@ export const MOCK_SCHEMAS = [
       {
         name: 'subflow_path',
         type: 'string',
-        label: '子流程路径',
+        label: '子流程',
         default: '',
-        placeholder: '选择或填写 .flow.json',
+        placeholder: '从已保存流程中选择',
         ui: 'flow_path',
       },
       {
@@ -950,6 +950,7 @@ export const MOCK_SCHEMAS = [
         label: 'URL',
         default: '',
         placeholder: 'https://example.com/api',
+        ui: 'textarea',
         bindable: true,
       },
       {
@@ -1033,7 +1034,8 @@ export const MOCK_SCHEMAS = [
         type: 'string',
         label: '文件路径',
         default: '',
-        placeholder: 'C:\\path\\to\\file.txt',
+        placeholder: '手动输入，或点「浏览」选择',
+        ui: 'file_path',
         bindable: true,
       },
       {
@@ -1337,6 +1339,12 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: false, error: '浏览器预览请使用桌面客户端导入' });
     case 'pick_flow_file':
       return Promise.resolve({ ok: false, cancelled: true, error: '浏览器预览请手动填写路径' });
+    case 'pick_local_path':
+      return Promise.resolve({
+        ok: false,
+        error: '浏览器预览模式无法打开系统文件对话框',
+        cancelled: true,
+      });
     case 'pick_template_image':
       return Promise.resolve({ ok: false, cancelled: true, error: '浏览器预览请手动填写路径或拖入图片' });
     case 'save_template_image':
@@ -1599,7 +1607,9 @@ export const bridge = {
   listScheduleJobs: () => call('list_schedule_jobs'),
   removeScheduleJob: (jobId) => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),
-  pickFlowFile: () => call('pick_flow_file'),
+  pickFlowFile: (libraryOnly = true) => call('pick_flow_file', libraryOnly),
+  pickLocalPath: (mode = 'open', suggestedName = null) =>
+    call('pick_local_path', mode, suggestedName),
   deleteFlow: (filepath) => call('delete_flow', filepath),
   renameFlow: (filepath, newName) => call('rename_flow', filepath, newName),
   saveFlow: (flow, filepath = null, name = null) =>

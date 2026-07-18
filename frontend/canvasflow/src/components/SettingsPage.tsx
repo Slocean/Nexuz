@@ -46,6 +46,7 @@ import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
 import PythonScriptEditor from './PythonScriptEditor';
+import { starterForFilename } from '../userBlockTemplate';
 
 function eventToHotkeyKey(e: KeyboardEvent): string | null {
   const k = e.key;
@@ -335,31 +336,6 @@ const SETTINGS_SECTION_IDS = [
   'save',
   'shortcuts',
 ] as const;
-
-const BLOCK_STARTER_TEMPLATE = `SCHEMA = {
-    "type": "my_block",
-    "label": "我的积木",
-    "category": "自定义",
-    "inputs": [
-        {
-            "name": "text",
-            "type": "string",
-            "label": "文本",
-            "default": "",
-            "bindable": True,
-        },
-    ],
-    "outputs": [
-        {"name": "ok", "type": "boolean"},
-        {"name": "text", "type": "string"},
-    ],
-}
-
-
-def handler(params, context, **kwargs):
-    text = "" if params.get("text") is None else str(params.get("text"))
-    return {"ok": True, "text": text}
-`;
 
 type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
@@ -827,8 +803,7 @@ export default function SettingsPage({
       });
       if (!ok) return;
     }
-    const starter =
-      BLOCK_STARTER_TEMPLATE.replace(/my_block/g, name.replace(/\.py$/i, ''));
+    const starter = starterForFilename(name);
     setUserBlocksBusy(true);
     try {
       const res = await bridge.writeUserBlockFile(name, starter);

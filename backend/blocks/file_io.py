@@ -20,7 +20,8 @@ SCHEMA = {
             "type": "string",
             "label": "文件路径",
             "default": "",
-            "placeholder": "C:\\path\\to\\file.txt",
+            "placeholder": "手动输入，或点「浏览」选择",
+            "ui": "file_path",
             "bindable": True,
         },
         {
@@ -51,9 +52,11 @@ SCHEMA = {
 
 def handler(params, context, **kwargs):
     action = str(params.get("action") or "read").strip().lower()
-    path, err = normalize_path(params.get("path"))
+    # textarea may wrap long paths — strip whitespace/newlines before resolve
+    raw_path = "".join(str(params.get("path") or "").split())
+    path, err = normalize_path(raw_path)
     if err or path is None:
-        return {"ok": False, "content": "", "path": str(params.get("path") or ""), "error": err or "无效路径"}
+        return {"ok": False, "content": "", "path": raw_path or str(params.get("path") or ""), "error": err or "无效路径"}
 
     encoding = str(params.get("encoding") or "utf-8").strip() or "utf-8"
     if action == "read":

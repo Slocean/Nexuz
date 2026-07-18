@@ -20,6 +20,7 @@ import VariablesPanel from './VariablesPanel';
 import SchedulePanel from './SchedulePanel';
 import FlowLibrary from './FlowLibrary';
 import TemplatesPanel from './TemplatesPanel';
+import UserBlockCreateDialog from './UserBlockCreateDialog';
 
 interface SidebarProps {
   themeName: ThemeName;
@@ -172,6 +173,8 @@ export default function Sidebar({
     });
   };
 
+  const [createBlockOpen, setCreateBlockOpen] = useState(false);
+
   const nexuzGrouped = useMemo(() => {
     const filtered = q
       ? nexuzSchemas.filter(
@@ -191,6 +194,8 @@ export default function Sidebar({
     const sorted: Record<string, typeof nexuzSchemas> = {};
     for (const cat of order) {
       if (grouped[cat]?.length) sorted[cat] = grouped[cat];
+      // Always show 自定义 so users can hit (+) even with zero custom blocks
+      else if (cat === '自定义' && !q) sorted[cat] = [];
     }
     for (const [cat, items] of Object.entries(grouped)) {
       if (!sorted[cat]) sorted[cat] = items;
@@ -354,11 +359,42 @@ export default function Sidebar({
                           onClick={() => onAddNexuzNode?.(item.type)}
                         />
                       ))}
+                      {cat === '自定义' && (
+                        <button
+                          type="button"
+                          onClick={() => setCreateBlockOpen(true)}
+                          title="新建自定义积木"
+                          style={{
+                            backgroundColor:
+                              themeMode === 'light'
+                                ? 'rgba(255, 255, 255, 0.4)'
+                                : 'rgba(255, 255, 255, 0.02)',
+                            borderColor: colors.border,
+                          }}
+                          className={cn(
+                            'w-full px-3 py-2 rounded-2xl border transition-all duration-200',
+                            'hover:scale-[1.02] active:scale-[0.98] hover:shadow-md',
+                            'hover:border-emerald-400',
+                            'flex items-center justify-center gap-2',
+                          )}
+                        >
+                          <Plus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span className="font-semibold text-sm text-emerald-600 dark:text-emerald-400">
+                            新建积木
+                          </span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
               );
             })}
+
+            <UserBlockCreateDialog
+              open={createBlockOpen}
+              onOpenChange={setCreateBlockOpen}
+              themeMode={themeMode}
+            />
 
           </TabsContent>
 

@@ -175,8 +175,53 @@ function defaultParams(schema) {
   return params;
 }
 
+/** Built-in globals seeded into every flow (missing keys only; never overwrite). */
+const DEFAULT_FLOW_VARIABLES = {
+  $true: true,
+  $false: false,
+  $empty: '',
+  $zero: 0,
+};
+
+const DEFAULT_FLOW_VARIABLE_SCHEMAS = {
+  $true: { type: 'boolean' },
+  $false: { type: 'boolean' },
+  $empty: { type: 'string' },
+  $zero: { type: 'number' },
+};
+
+const SYSTEM_DEFAULT_VAR_BARE = new Set(
+  Object.keys(DEFAULT_FLOW_VARIABLES).map((k) => String(k).replace(/^\$/, '')),
+);
+
+/** Built-in constants ($true / $false / $empty / $zero) — not editable in the Variables panel. */
+export function isSystemDefaultVariable(name) {
+  const bare = String(name || '').trim().replace(/^\$/, '');
+  return !!bare && SYSTEM_DEFAULT_VAR_BARE.has(bare);
+}
+
+function hasVarKey(bag, key) {
+  if (!bag || typeof bag !== 'object') return false;
+  if (key in bag) return true;
+  const bare = String(key).replace(/^\$/, '');
+  return bare in bag || `$${bare}` in bag;
+}
+
+function withDefaultVariables(flow) {
+  const base = flow && typeof flow === 'object' ? flow : {};
+  const variables = { ...(base.variables || {}) };
+  const variable_schemas = { ...(base.variable_schemas || {}) };
+  for (const [k, v] of Object.entries(DEFAULT_FLOW_VARIABLES)) {
+    if (!hasVarKey(variables, k)) variables[k] = v;
+  }
+  for (const [k, schema] of Object.entries(DEFAULT_FLOW_VARIABLE_SCHEMAS)) {
+    if (!hasVarKey(variable_schemas, k)) variable_schemas[k] = cloneValue(schema);
+  }
+  return { ...base, variables, variable_schemas };
+}
+
 function createEmptyFlow() {
-  return {
+  return withDefaultVariables({
     flow_id: uid('flow'),
     name: '未命名流程',
     version: 1,
@@ -185,7 +230,7 @@ function createEmptyFlow() {
     nodes: {},
     entry: null,
     breakpoints: [],
-  };
+  });
 }
 
 function loadHideWindowOnRecord() {
@@ -741,12 +786,12 @@ export const useFlowStore = create((set, get) => ({
   setFlow: (flow, filePath = undefined, options = {}) =>
     set((state) => {
       const next = {
-        flow: {
+        flow: withDefaultVariables({
           ...createEmptyFlow(),
           ...flow,
           nodes: flow.nodes || {},
           breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : [],
-        },
+        }),
         selectedNodeId: null,
         filePath: filePath === undefined ? state.filePath : filePath,
         execNodeStates: {},
@@ -793,7 +838,7 @@ export const useFlowStore = create((set, get) => ({
   setVariable: (name, value, schema) =>
     set((state) => {
       const key = String(name || '').trim();
-      if (!key) return state;
+      if (!key || isSystemDefaultVariable(key)) return state;
       const variables = { ...(state.flow.variables || {}), [key]: value };
       let variable_schemas = { ...(state.flow.variable_schemas || {}) };
       if (schema && typeof schema === 'object') {
@@ -808,7 +853,7 @@ export const useFlowStore = create((set, get) => ({
   setVariableSchema: (name, schema) =>
     set((state) => {
       const key = String(name || '').trim();
-      if (!key) return state;
+      if (!key || isSystemDefaultVariable(key)) return state;
       const variable_schemas = { ...(state.flow.variable_schemas || {}) };
       if (!schema) {
         delete variable_schemas[key];
@@ -825,6 +870,7 @@ export const useFlowStore = create((set, get) => ({
 
   deleteVariable: (name) =>
     set((state) => {
+      if (isSystemDefaultVariable(name)) return state;
       const variables = { ...(state.flow.variables || {}) };
       const variable_schemas = { ...(state.flow.variable_schemas || {}) };
       const bare = String(name).replace(/^\$/, '');
@@ -846,6 +892,7 @@ export const useFlowStore = create((set, get) => ({
       const from = String(oldName || '').trim();
       const to = String(newName || '').trim();
       if (!from || !to || from === to) return state;
+      if (isSystemDefaultVariable(from) || isSystemDefaultVariable(to)) return state;
       const variables = { ...(state.flow.variables || {}) };
       const variable_schemas = { ...(state.flow.variable_schemas || {}) };
       if (!(from in variables)) return state;

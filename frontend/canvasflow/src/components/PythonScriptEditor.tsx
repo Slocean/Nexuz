@@ -325,7 +325,8 @@ function PythonEditorChrome({
           <SelectTrigger className="h-7 text-[11px] w-[11rem]">
             <SelectValue placeholder="插入代码示例…" />
           </SelectTrigger>
-          <SelectContent>
+          {/* Above Dialog (z-101); default Select is z-50 and gets trapped underneath */}
+          <SelectContent className="z-[200]" searchable={false}>
             {examples.map((ex) => (
               <SelectItem key={ex.id} value={ex.id} className="text-xs">
                 {ex.label}

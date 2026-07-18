@@ -23,6 +23,7 @@ SCHEMA = {
             "label": "URL",
             "default": "",
             "placeholder": "https://example.com/api",
+            "ui": "textarea",
             "bindable": True,
         },
         {
@@ -80,7 +81,8 @@ def _normalize_headers(raw: Any) -> dict[str, str]:
 
 def handler(params, context, **kwargs):
     method = str(params.get("method") or "GET").strip().upper() or "GET"
-    url = str(params.get("url") or "").strip()
+    # textarea may wrap long URLs with newlines — strip all whitespace runs
+    url = "".join(str(params.get("url") or "").split())
     if not url:
         return {"ok": False, "status": 0, "body": "", "error": "URL 不能为空", "headers": {}}
 

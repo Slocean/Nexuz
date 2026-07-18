@@ -10,9 +10,9 @@ SCHEMA = {
         {
             "name": "subflow_path",
             "type": "string",
-            "label": "子流程路径",
+            "label": "子流程",
             "default": "",
-            "placeholder": "选择或填写 .flow.json",
+            "placeholder": "从已保存流程中选择",
             "ui": "flow_path",
         },
         {

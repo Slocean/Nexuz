@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useFlowStore } from '@/store/flowModelStore';
+import { isSystemDefaultVariable, useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
 import type { ThemeMode, ThemeName } from '../types';
 import { ComplexVariableEditor } from './VariableVisualEditor';
@@ -56,7 +56,10 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
   const schemas = (flow.variable_schemas || {}) as Record<string, VariableSchema>;
 
   const entries = useMemo(
-    () => Object.entries(flow.variables || {}).sort(([a], [b]) => a.localeCompare(b)),
+    () =>
+      Object.entries(flow.variables || {})
+        .filter(([name]) => !isSystemDefaultVariable(name))
+        .sort(([a], [b]) => a.localeCompare(b)),
     [flow.variables],
   );
 
@@ -78,6 +81,10 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
     const name = normalizeVarKey(newName);
     if (!name) return;
     setAddError(null);
+    if (isSystemDefaultVariable(name)) {
+      setAddError('系统默认变量不可新增或覆盖（$true / $false / $empty / $zero）');
+      return;
+    }
 
     if (COMPLEX_TYPES.includes(newType)) {
       // Validate shape once more via JSON roundtrip rules
@@ -108,7 +115,10 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
         <p style={{ color: colors.secondaryText }} className="text-xs leading-relaxed">
           支持字符串、数字、布尔，以及对象 / 数组 / 对象数组（可视化编辑，类型写入 schema）。节点中可用{' '}
           <code className="font-mono">$name</code> 或路径{' '}
-          <code className="font-mono">$name.0.field</code>。
+          <code className="font-mono">$name.0.field</code>。系统常量{' '}
+          <code className="font-mono">$true</code> / <code className="font-mono">$false</code> /{' '}
+          <code className="font-mono">$empty</code> / <code className="font-mono">$zero</code>{' '}
+          可直接绑定，不在此列表中编辑。
         </p>
       </div>
 

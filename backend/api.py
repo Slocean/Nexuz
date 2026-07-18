@@ -1645,26 +1645,81 @@ class Api:
             return {"ok": False, "error": err, "path": str(path)}
         return {"ok": True, "flow": data, "path": str(path)}
 
-    def pick_flow_file(self) -> dict:
-        """Pick a flow from the user data library (for subflow path etc.)."""
+    def pick_flow_file(self, library_only: bool = True) -> dict:
+        """Pick a .flow.json file.
+
+        library_only=True: must be under the user flows library (legacy).
+        library_only=False: any local flow file; dialog starts in the library if present.
+        """
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
         flows = self._flows_dir(create=False)
-        if not flows.is_dir():
+        only_lib = bool(library_only)
+        if only_lib and not flows.is_dir():
             return {"ok": False, "error": "数据目录中还没有流程，请先保存或导入"}
+        start = str(flows) if flows.is_dir() else str(Path.home())
         result = self._window.create_file_dialog(
             webview.OPEN_DIALOG,
-            directory=str(flows),
+            directory=start,
             allow_multiple=False,
-            file_types=("Flow JSON (*.flow.json;*.json)",),
+            file_types=("Flow JSON (*.flow.json;*.json)", "All files (*.*)"),
         )
         if not result:
             return {"ok": False, "cancelled": True}
         filepath = result[0] if isinstance(result, (list, tuple)) else result
-        path = Path(filepath)
-        if not self._is_under_dir(path, flows):
+        path = Path(str(filepath)).expanduser()
+        try:
+            path = path.resolve()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        if not path.is_file():
+            return {"ok": False, "error": "文件不存在"}
+        if only_lib and flows.is_dir() and not self._is_under_dir(path, flows):
             return {"ok": False, "error": "请选择数据目录中的流程"}
         return {"ok": True, "path": str(path)}
+
+    def pick_local_path(self, mode: str = "open", suggested_name: str | None = None) -> dict:
+        """Open Windows file dialog and return a local path (for file_io etc.).
+
+        mode: ``open`` → existing file; ``save`` → save-as path (may not exist yet).
+        """
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        kind = str(mode or "open").strip().lower()
+        if kind not in ("open", "save"):
+            kind = "open"
+        start = str(Path.home())
+        file_types = (
+            "Text & data (*.txt;*.json;*.csv;*.log;*.md;*.xml;*.yaml;*.yml)",
+            "All files (*.*)",
+        )
+        try:
+            if kind == "save":
+                name = (str(suggested_name or "").strip() or "untitled.txt")
+                result = self._window.create_file_dialog(
+                    webview.SAVE_DIALOG,
+                    directory=start,
+                    save_filename=Path(name).name,
+                    file_types=file_types,
+                )
+            else:
+                result = self._window.create_file_dialog(
+                    webview.OPEN_DIALOG,
+                    directory=start,
+                    allow_multiple=False,
+                    file_types=file_types,
+                )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        if not result:
+            return {"ok": False, "cancelled": True}
+        filepath = result if isinstance(result, str) else result[0]
+        path = Path(str(filepath)).expanduser()
+        try:
+            path = path.resolve(strict=False)
+        except Exception:
+            pass
+        return {"ok": True, "path": str(path), "mode": kind}
 
     def validate_flow(self, flow_json: str) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
