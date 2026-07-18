@@ -124,6 +124,7 @@ export default function Toolbar({
   const { openUpdate } = useUpdateDialog();
   const pluginModeRemote = useFlowStore(s => s.pluginModeRemote);
   const showToolbarLabels = useFlowStore(s => !!s.showToolbarLabels);
+  const resourceHudEnabled = useFlowStore(s => !!s.resourceHudEnabled);
   // Priority: viewport < xl always hides labels; when wide enough, settings decide.
   const labelCls = showToolbarLabels ? 'hidden xl:inline' : 'hidden';
   const btnPad = showToolbarLabels ? 'px-2 xl:px-3' : 'px-2';
@@ -194,6 +195,14 @@ export default function Toolbar({
   };
 
   useEffect(() => () => clearResourceTimers(), []);
+
+  useEffect(() => {
+    if (!resourceHudEnabled) {
+      clearResourceTimers();
+      setResourceOpen(false);
+      setResourcePinned(false);
+    }
+  }, [resourceHudEnabled]);
   const themes: ThemeName[] = ['Ocean', 'Mint', 'Purple', 'Rose', 'Orange'];
 
   const applyPluginUiClass = (enabled: boolean, opacity = pluginOpacity) => {
@@ -612,14 +621,26 @@ export default function Toolbar({
               )}
               <div
                 className="relative pywebview-no-drag"
-                onMouseEnter={() => openResourceHud(140)}
-                onMouseLeave={scheduleCloseResourceHud}
+                onMouseEnter={() => {
+                  if (resourceHudEnabled) openResourceHud(140);
+                }}
+                onMouseLeave={() => {
+                  if (resourceHudEnabled) scheduleCloseResourceHud();
+                }}
               >
                 <button
                   type="button"
-                  className="flex flex-col items-center justify-center gap-0 shrink-0 -my-0.5 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
-                  title="资源检测 · 悬停预览 · 点击固定"
-                  onClick={toggleResourceHud}
+                  className={`flex flex-col items-center justify-center gap-0 shrink-0 -my-0.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 ${
+                    resourceHudEnabled ? 'cursor-pointer' : 'cursor-default'
+                  }`}
+                  title={
+                    resourceHudEnabled
+                      ? '资源检测 · 悬停预览 · 点击固定'
+                      : 'Nexuz'
+                  }
+                  onClick={() => {
+                    if (resourceHudEnabled) toggleResourceHud();
+                  }}
                 >
                   <img
                     src={`${import.meta.env.BASE_URL}logo.png`}
@@ -634,12 +655,14 @@ export default function Toolbar({
                     draggable={false}
                   />
                 </button>
-                <ResourceMonitorHud
-                  open={resourceOpen}
-                  pinned={resourcePinned}
-                  onMouseEnter={() => openResourceHud(0)}
-                  onMouseLeave={scheduleCloseResourceHud}
-                />
+                {resourceHudEnabled ? (
+                  <ResourceMonitorHud
+                    open={resourceOpen}
+                    pinned={resourcePinned}
+                    onMouseEnter={() => openResourceHud(0)}
+                    onMouseLeave={scheduleCloseResourceHud}
+                  />
+                ) : null}
               </div>
             </div>
 

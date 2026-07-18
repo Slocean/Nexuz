@@ -357,6 +357,17 @@ function loadShowToolbarLabels() {
   }
 }
 
+function loadResourceHudEnabled() {
+  try {
+    const v = localStorage.getItem('nexuz.resourceHudEnabled');
+    // Default ON: hover/click logo shows resource HUD
+    if (v === null) return true;
+    return v === '1' || v === 'true';
+  } catch {
+    return true;
+  }
+}
+
 function loadAutoSaveEnabled() {
   try {
     const v = localStorage.getItem('nexuz.autoSaveEnabled');
@@ -558,6 +569,7 @@ export const useFlowStore = create((set, get) => ({
   // app settings
   hideWindowOnRecord: loadHideWindowOnRecord(),
   showToolbarLabels: loadShowToolbarLabels(),
+  resourceHudEnabled: loadResourceHudEnabled(),
   autoSaveEnabled: loadAutoSaveEnabled(),
   autoSaveIntervalSec: loadAutoSaveIntervalSec(),
   saveAfterRun: loadSaveAfterRun(),
@@ -599,6 +611,15 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ showToolbarLabels: !!showToolbarLabels });
+  },
+
+  setResourceHudEnabled: (resourceHudEnabled) => {
+    try {
+      localStorage.setItem('nexuz.resourceHudEnabled', resourceHudEnabled ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    set({ resourceHudEnabled: !!resourceHudEnabled });
   },
 
   setAutoSaveEnabled: (autoSaveEnabled) => {

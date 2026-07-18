@@ -171,64 +171,21 @@ export default function ResourceMonitorHud({
       <div
         className="relative overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl"
         style={{
-          background:
-            'linear-gradient(155deg, rgba(8,12,22,0.94) 0%, rgba(14,18,36,0.92) 55%, rgba(20,10,32,0.94) 100%)',
-          borderColor: 'rgba(100, 210, 255, 0.28)',
-          boxShadow:
-            '0 0 0 1px rgba(168,85,247,0.15), 0 18px 50px rgba(0,0,0,0.55), 0 0 40px rgba(56,189,248,0.12)',
+          background: 'rgba(12, 14, 20, 0.96)',
+          borderColor: 'rgba(255, 255, 255, 0.12)',
+          boxShadow: '0 18px 50px rgba(0,0,0,0.55)',
           color: '#e8eef8',
         }}
       >
-        {/* Corner accents */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-80"
-          style={{
-            background:
-              'radial-gradient(ellipse 80% 50% at 10% 0%, rgba(56,189,248,0.18), transparent 55%), radial-gradient(ellipse 70% 45% at 90% 100%, rgba(192,38,211,0.16), transparent 50%)',
-          }}
-        />
-        <div
-          className="pointer-events-none absolute -inset-px rounded-2xl opacity-60"
-          style={{
-            background:
-              'conic-gradient(from 180deg, transparent, rgba(56,189,248,0.35), transparent, rgba(192,38,211,0.35), transparent)',
-            animation: 'nexuz-hud-ring 8s linear infinite',
-            mask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
-            WebkitMask:
-              'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
-            maskComposite: 'exclude',
-            WebkitMaskComposite: 'xor',
-            padding: 1,
-          }}
-        />
-        <div
-          className="pointer-events-none absolute left-0 right-0 h-10 opacity-[0.07]"
-          style={{
-            background:
-              'linear-gradient(to bottom, rgba(255,255,255,0.55), transparent)',
-            animation: 'nexuz-hud-scan 3.2s linear infinite',
-          }}
-        />
-
         <div className="relative p-3.5 space-y-3">
           {/* Brand header: both logos */}
           <div className="flex items-center gap-3">
-            <div className="relative shrink-0">
-              <div
-                className="absolute inset-[-4px] rounded-xl"
-                style={{
-                  background:
-                    'radial-gradient(circle, rgba(56,189,248,0.35), transparent 70%)',
-                  animation: 'nexuz-hud-pulse 2.2s ease-in-out infinite',
-                }}
-              />
-              <img
-                src={`${import.meta.env.BASE_URL}logo.png`}
-                alt=""
-                className="relative h-12 w-12 object-contain"
-                draggable={false}
-              />
-            </div>
+            <img
+              src={`${import.meta.env.BASE_URL}logo.png`}
+              alt=""
+              className="h-12 w-12 object-contain shrink-0"
+              draggable={false}
+            />
             <div className="min-w-0 flex-1">
               <img
                 src={`${import.meta.env.BASE_URL}logo2.png`}
@@ -236,11 +193,11 @@ export default function ResourceMonitorHud({
                 className="h-6 w-auto max-w-[9rem] object-contain object-left"
                 draggable={false}
               />
-              <div className="mt-1 flex items-center gap-2 text-[10px] tracking-[0.18em] uppercase text-cyan-300/80">
+              <div className="mt-1 flex items-center gap-2 text-[10px] tracking-[0.18em] uppercase text-slate-400">
                 <Activity className="w-3 h-3" />
                 Resource Link
                 {pinned ? (
-                  <span className="ml-auto normal-case tracking-normal text-fuchsia-300/80">
+                  <span className="ml-auto normal-case tracking-normal text-slate-300">
                     已固定
                   </span>
                 ) : (
@@ -252,7 +209,7 @@ export default function ResourceMonitorHud({
             </div>
           </div>
 
-          <div className="h-px w-full bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
+          <div className="h-px w-full bg-white/10" />
 
           {err ? (
             <p className="text-xs text-rose-300/90">{err}</p>

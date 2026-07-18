@@ -25,6 +25,7 @@ import {
   Puzzle,
   Type,
   Terminal,
+  Activity,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -356,6 +357,9 @@ export default function SettingsPage({
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
   const showToolbarLabels = useFlowStore((s) => !!s.showToolbarLabels);
   const setShowToolbarLabels = useFlowStore((s) => s.setShowToolbarLabels);
+  const resourceHudEnabled = useFlowStore((s) => !!s.resourceHudEnabled);
+  const setResourceHudEnabled = useFlowStore((s) => s.setResourceHudEnabled);
+  const appendAuditLog = useFlowStore((s) => s.appendAuditLog);
   const autoSaveEnabled = useFlowStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useFlowStore((s) => s.setAutoSaveEnabled);
   const autoSaveIntervalSec = useFlowStore((s) => s.autoSaveIntervalSec);
@@ -380,7 +384,6 @@ export default function SettingsPage({
   const syncAllClickCaptureModes = useFlowStore((s) => s.syncAllClickCaptureModes);
   const syncAllClickCoordinateModes = useFlowStore((s) => s.syncAllClickCoordinateModes);
   const syncAllOutputCoordinateModes = useFlowStore((s) => s.syncAllOutputCoordinateModes);
-  const appendAuditLog = useFlowStore((s) => s.appendAuditLog);
   const flowNodes = useFlowStore((s) => s.flow.nodes || {});
 
   const [diagLogging, setDiagLogging] = useState(false);
@@ -1769,6 +1772,33 @@ export default function SettingsPage({
                 显示顶部按钮文字
                 <HelpHint
                   text="开启后，窗口较宽时顶部按钮显示文字；关闭后始终只显示图标。窗口变窄时会自动隐藏文字（优先于本开关）。"
+                  colors={colors}
+                  themeMode={themeMode}
+                />
+              </Label>
+            </div>
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="setting-resource-hud"
+                checked={resourceHudEnabled}
+                onCheckedChange={(v) => {
+                  const enabled = !!v;
+                  setResourceHudEnabled(enabled);
+                  appendAuditLog?.(
+                    enabled ? '已开启资源检测浮窗' : '已关闭资源检测浮窗',
+                    { resourceHudEnabled: enabled },
+                  );
+                }}
+              />
+              <Label
+                htmlFor="setting-resource-hud"
+                className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
+                style={{ color: colors.text }}
+              >
+                <Activity className="w-3.5 h-3.5 opacity-70" />
+                启用资源检测浮窗
+                <HelpHint
+                  text="开启后，悬停或点击左上角 Logo 可查看 CPU / 内存等实时资源；关闭后 Logo 仅作品牌展示。"
                   colors={colors}
                   themeMode={themeMode}
                 />

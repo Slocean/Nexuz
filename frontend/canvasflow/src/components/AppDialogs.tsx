@@ -16,12 +16,12 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
+import { Bell, Loader2 } from 'lucide-react';
+import { useFlowStore } from '@/store/flowModelStore';
+import BrandDialogChrome, { brandDialogContentClass } from './BrandDialogChrome';
 
 type ConfirmOpts = {
   title?: string;
@@ -73,7 +73,6 @@ export function useAppDialog(): DialogApi {
         window.alert(typeof opts === 'string' ? opts : opts.description);
       },
       openAlert: (opts) => {
-        const description = opts?.description || '';
         return {
           setContent: (o) => {
             window.alert(o.description);
@@ -87,7 +86,17 @@ export function useAppDialog(): DialogApi {
   return ctx;
 }
 
+function noticeEyebrow(title: string): string {
+  const t = String(title || '');
+  if (/通知|公告|notice/i.test(t)) return 'Notice Channel';
+  if (/失败|错误|error/i.test(t)) return 'System Alert';
+  return 'Message';
+}
+
 export function AppDialogProvider({ children }: { children: React.ReactNode }) {
+  const themeName = useFlowStore((s) => s.themeName);
+  const themeMode = useFlowStore((s) => s.themeMode);
+
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -199,6 +208,8 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
     resolve?.();
   };
 
+  const dark = themeMode === 'dark';
+
   return (
     <DialogCtx.Provider value={api}>
       {children}
@@ -206,40 +217,53 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
       <AlertDialog
         open={!!confirmState?.open}
         onOpenChange={(open) => {
-          // Only treat dismiss (overlay / Esc) as cancel; Action/Cancel handle themselves.
           if (!open && confirmResolver.current) finishConfirm(false);
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{confirmState?.title}</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-wrap">
-              {confirmState?.description}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={(e) => {
-                e.preventDefault();
-                finishConfirm(false);
-              }}
-            >
-              {confirmState?.cancelText}
-            </AlertDialogCancel>
-            <AlertDialogAction
+        <AlertDialogContent className={brandDialogContentClass(themeMode) + ' p-5'}>
+          <BrandDialogChrome
+            themeName={themeName}
+            themeMode={themeMode}
+            eyebrow="Confirm"
+            icon={<Bell className="w-3 h-3" />}
+          >
+            <AlertDialogHeader className="p-0 space-y-2 text-left">
+              <AlertDialogTitle className="text-base font-semibold tracking-tight">
+                {confirmState?.title}
+              </AlertDialogTitle>
+              <AlertDialogDescription
+                className={`whitespace-pre-wrap text-sm leading-relaxed ${
+                  dark ? 'text-slate-300' : 'text-slate-600'
+                }`}
+              >
+                {confirmState?.description}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="p-0 mt-1 sm:justify-end">
+              <AlertDialogCancel
+                className={dark ? 'border-white/15 bg-white/5 hover:bg-white/10' : undefined}
+                onClick={(e) => {
+                  e.preventDefault();
+                  finishConfirm(false);
+                }}
+              >
+                {confirmState?.cancelText}
+              </AlertDialogCancel>
+              <AlertDialogAction
               className={
                 confirmState?.destructive
                   ? 'bg-[var(--destructive)] text-white hover:opacity-90'
                   : undefined
               }
-              onClick={(e) => {
-                e.preventDefault();
-                finishConfirm(true);
-              }}
-            >
-              {confirmState?.confirmText}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+                onClick={(e) => {
+                  e.preventDefault();
+                  finishConfirm(true);
+                }}
+              >
+                {confirmState?.confirmText}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </BrandDialogChrome>
         </AlertDialogContent>
       </AlertDialog>
 
@@ -251,6 +275,7 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
       >
         <DialogContent
           showClose={!alertState?.loading}
+          className={brandDialogContentClass(themeMode) + ' p-5'}
           onPointerDownOutside={(e) => {
             if (alertState?.loading) e.preventDefault();
           }}
@@ -258,34 +283,57 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
             if (alertState?.loading) e.preventDefault();
           }}
         >
-          <DialogHeader>
-            <DialogTitle>{alertState?.title}</DialogTitle>
-            <DialogDescription asChild>
-              <div className="text-sm text-[var(--muted-foreground)]">
-                {alertState?.loading ? (
-                  <div className="flex items-center gap-2 py-1">
-                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    <span className="whitespace-pre-wrap">
-                      {alertState?.description || '加载中…'}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="whitespace-pre-wrap">{alertState?.description}</p>
-                )}
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            {alertState?.loading ? (
-              <Button type="button" variant="ghost" disabled>
-                请稍候…
-              </Button>
-            ) : (
-              <Button type="button" onClick={finishAlert}>
-                {alertState?.okText}
-              </Button>
-            )}
-          </DialogFooter>
+          <DialogTitle className="sr-only">{alertState?.title || '提示'}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {alertState?.description || ''}
+          </DialogDescription>
+          <BrandDialogChrome
+            themeName={themeName}
+            themeMode={themeMode}
+            eyebrow={
+              /通知|公告|notice/i.test(alertState?.title || '')
+                ? undefined
+                : noticeEyebrow(alertState?.title || '')
+            }
+            icon={
+              /通知|公告|notice/i.test(alertState?.title || '') ? undefined : (
+                <Bell className="w-3 h-3" />
+              )
+            }
+            footer={
+              alertState?.loading ? (
+                <Button type="button" variant="ghost" disabled className="opacity-60">
+                  请稍候…
+                </Button>
+              ) : (
+                <Button type="button" onClick={finishAlert}>
+                  {alertState?.okText}
+                </Button>
+              )
+            }
+          >
+            {alertState?.title && !/^通知$/i.test(alertState.title.trim()) ? (
+              <h3 className="text-base font-semibold tracking-tight leading-snug">
+                {alertState.title}
+              </h3>
+            ) : null}
+            <div
+              className={`text-sm leading-relaxed ${
+                dark ? 'text-slate-200' : 'text-slate-700'
+              }`}
+            >
+              {alertState?.loading ? (
+                <div className="flex items-center gap-2 py-0.5">
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0 text-sky-400" />
+                  <span className="whitespace-pre-wrap">
+                    {alertState?.description || '加载中…'}
+                  </span>
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap">{alertState?.description}</p>
+              )}
+            </div>
+          </BrandDialogChrome>
         </DialogContent>
       </Dialog>
     </DialogCtx.Provider>
