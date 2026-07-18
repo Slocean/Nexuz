@@ -1279,37 +1279,44 @@ export default function Inspector({
       ) : null}
       <Button
         variant="ghost"
-        size="sm"
-        className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+        size="icon"
+        className="h-7 w-7 opacity-70 hover:opacity-100"
         onMouseDown={(e) => {
           captureLogSelection();
           // 避免按钮抢焦点清空选区
           e.preventDefault();
         }}
         onClick={copySelectedOrAllLogs}
-        title="复制选中；无选中则复制全部"
+        title={
+          logCopyHint
+            ? logCopyHint
+            : '复制选中；无选中则复制全部'
+        }
       >
-        {copied || logCopyHint ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}{' '}
-        <span className={logCopyHint ? 'text-emerald-500' : undefined}>{logCopyHint || '复制选中'}</span>
+        {copied || logCopyHint ? (
+          <Check className="w-3.5 h-3.5 text-emerald-500" />
+        ) : (
+          <Copy className="w-3.5 h-3.5" />
+        )}
       </Button>
       <Button
         variant="ghost"
-        size="sm"
-        className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+        size="icon"
+        className="h-7 w-7 opacity-70 hover:opacity-100"
         onClick={handleClearLogs}
         title="清空日志"
       >
-        <Trash2 className="w-3 h-3" /> 清空
+        <Trash2 className="w-3.5 h-3.5" />
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs gap-1 opacity-70 hover:opacity-100"
+            size="icon"
+            className="h-7 w-7 opacity-70 hover:opacity-100"
             title="导出日志为 .txt"
           >
-            <Download className="w-3 h-3" /> 导出
+            <Download className="w-3.5 h-3.5" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[11rem] z-[200]">
