@@ -1,4 +1,4 @@
-"""Release-tag monotonicity and immutability contracts."""
+"""Release-tag monotonicity and retag contracts."""
 
 from __future__ import annotations
 
@@ -21,13 +21,12 @@ def test_version_key_accepts_only_canonical_release_versions() -> None:
             trigger_release.version_key(invalid)
 
 
-def test_existing_or_non_incrementing_release_is_rejected() -> None:
+def test_same_version_may_replace_but_older_is_rejected() -> None:
     existing = ["0.3.2", "0.4.0"]
-    with pytest.raises(SystemExit, match="禁止覆盖"):
-        trigger_release.assert_new_release_version("0.4.0", existing)
+    assert trigger_release.ensure_release_version_allowed("0.4.0", existing) is True
     with pytest.raises(SystemExit, match="必须递增"):
-        trigger_release.assert_new_release_version("0.3.9", existing)
-    trigger_release.assert_new_release_version("0.4.1", existing)
+        trigger_release.ensure_release_version_allowed("0.3.9", existing)
+    assert trigger_release.ensure_release_version_allowed("0.4.1", existing) is False
 
 
 def test_remote_tag_listing_ignores_non_release_tags() -> None:
@@ -38,3 +37,24 @@ def test_remote_tag_listing_ignores_non_release_tags() -> None:
     )
     with patch.object(trigger_release, "output", return_value=payload):
         assert trigger_release.remote_versions() == ["0.4.0"]
+
+
+def test_delete_tag_removes_local_and_remote() -> None:
+    calls: list[list[str]] = []
+
+    def fake_output(cmd: list[str]) -> str:
+        if cmd[:3] == ["git", "tag", "--list"]:
+            return "v0.5.0"
+        return ""
+
+    def fake_run(cmd: list[str]) -> None:
+        calls.append(cmd)
+
+    with (
+        patch.object(trigger_release, "output", side_effect=fake_output),
+        patch.object(trigger_release, "run", side_effect=fake_run),
+    ):
+        trigger_release.delete_tag("v0.5.0", remote=True)
+
+    assert ["git", "tag", "-d", "v0.5.0"] in calls
+    assert ["git", "push", "origin", "--delete", "v0.5.0"] in calls

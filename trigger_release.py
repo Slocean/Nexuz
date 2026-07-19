@@ -6,7 +6,10 @@
 
   python trigger_release.py
   release.bat
-  release.bat 0.1.1   # 可选：覆盖版本号
+  release.bat 0.1.1   # 可选：须与 app_update.json 当前版本一致
+
+若同名 tag 已在远端/本地存在，会先删除再重打（用于修正同版本发版）；
+低于远端其他最新版本的号仍会拒绝。
 """
 
 from __future__ import annotations
@@ -57,16 +60,42 @@ def remote_versions() -> list[str]:
     return versions
 
 
-def assert_new_release_version(version: str, existing: list[str]) -> None:
+def ensure_release_version_allowed(version: str, existing: list[str]) -> bool:
+    """Validate version vs remote tags.
+
+    Returns True when the same-version tag already exists and should be deleted
+    before retagging. Versions lower than any *other* remote release are rejected.
+    """
     target = version_key(version)
-    if version in existing:
-        raise SystemExit(f"远端 tag v{version} 已存在；禁止覆盖或重打已发布版本")
-    if existing:
-        latest = max(existing, key=version_key)
-        if target <= version_key(latest):
+    replace_existing = version in existing
+    peers = [v for v in existing if v != version]
+    if peers:
+        latest_peer = max(peers, key=version_key)
+        if target <= version_key(latest_peer):
             raise SystemExit(
-                f"版本必须递增：目标 v{version}，远端最新版本为 v{latest}"
+                f"版本必须递增：目标 v{version}，远端最新版本为 v{latest_peer}"
             )
+    return replace_existing
+
+
+# Backward-compatible name used by older tests/docs.
+def assert_new_release_version(version: str, existing: list[str]) -> None:
+    ensure_release_version_allowed(version, existing)
+
+
+def delete_tag(tag: str, *, remote: bool) -> None:
+    """Delete local and optionally remote tag. Missing local/remote is ignored."""
+    if output(["git", "tag", "--list", tag]):
+        run(["git", "tag", "-d", tag])
+    if remote:
+        # Prefer --delete; fall back to refspec delete. Ignore if already gone.
+        try:
+            run(["git", "push", "origin", "--delete", tag])
+        except subprocess.CalledProcessError:
+            try:
+                run(["git", "push", "origin", f":refs/tags/{tag}"])
+            except subprocess.CalledProcessError as exc:
+                print(f"! 远端 tag {tag} 删除失败（可能已不存在）: {exc}")
 
 
 def read_channel_version() -> str:
@@ -98,7 +127,7 @@ def main() -> None:
         versions = remote_versions()
     except subprocess.CalledProcessError as exc:
         raise SystemExit(f"无法读取 origin 远端 tag，已中止发布：{exc}") from exc
-    assert_new_release_version(version, versions)
+    replace_existing = ensure_release_version_allowed(version, versions)
 
     try:
         if str(ROOT) not in sys.path:
@@ -110,11 +139,12 @@ def main() -> None:
         print(f"! version sync skipped: {exc}")
 
     tag = f"v{version}"
+    local_exists = bool(output(["git", "tag", "--list", tag]))
+    if replace_existing or local_exists:
+        print(f"发现已有 tag {tag}，先删除后再重打")
+        delete_tag(tag, remote=replace_existing)
+
     print(f"打 tag {tag} 并推送到 origin -> 自动触发 Release Action")
-
-    if output(["git", "tag", "--list", tag]):
-        raise SystemExit(f"本地 tag {tag} 已存在；请核实历史，不会自动删除或覆盖")
-
     run(["git", "tag", tag])
     run(["git", "push", "origin", tag])
 

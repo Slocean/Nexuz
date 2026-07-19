@@ -60,7 +60,7 @@
 1. [x] **P1-TYPE**：已建立前端根 TypeScript 配置并统一 canvasflow 配置，修正 alias/types/include；公共 JSX UI 组件已有兼容类型声明，生产源码真实错误已清零，`npm run typecheck` 已接入 CI。
 2. [x] **P1-TEST**：现有后端脚本已统一由 pytest 收集（32 项）；updater、Bridge、store、interpreter 和启动通知已有契约覆盖；Playwright 已覆盖外部流程确认导入、保存与运行主路径，并接入 CI。
 3. [x] **P1-LOCK**：使用 pip-tools 从 `requirements*.in` 生成带哈希的生产/开发锁文件；npm 仅保留 `package-lock.json`；CI、Release 和打包入口只允许哈希锁文件或 `npm ci`。
-4. [x] **P1-TAG**：`trigger_release.py` 会先读取 origin tags，拒绝已存在或非递增版本，且不再包含删除本地/远端 tag 的重打逻辑；版本参数必须与发布清单一致。
+4. [x] **P1-TAG**：`trigger_release.py` 会先读取 origin tags；低于远端其他最新版本仍拒绝；同名 tag 已存在时先删本地/远端再重打；版本参数必须与发布清单一致。
 
 验收命令：
 
