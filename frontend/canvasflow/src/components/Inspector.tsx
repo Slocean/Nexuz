@@ -1725,7 +1725,7 @@ export default function Inspector({
           borderColor: colors.border,
           color: colors.text
         }}
-        className="w-[21.8rem] max-w-[21.8rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
+        className="w-[24rem] max-w-[24rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0">
           <div
             className="w-12 h-12 mx-auto rounded-2xl flex items-center justify-center border"

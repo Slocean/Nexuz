@@ -236,6 +236,9 @@ function Canvas({
 }: CanvasProps) {
   const { confirm, alert } = useAppDialog();
   const flowEntry = useFlowStore((s) => s.flow?.entry ?? null);
+  const menuMode = useFlowStore((s) =>
+    s.nodeContextMenuMode === "flat" ? "flat" : "grouped",
+  );
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -1913,6 +1916,7 @@ function Canvas({
           <NodeContextMenu
             open={ctxMenu}
             onClose={() => setCtxMenu(null)}
+            menuMode={menuMode}
             themeName={themeName}
             themeMode={themeMode}
             selectedIds={menuIds}

@@ -356,6 +356,10 @@ export default function SettingsPage({
   const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
   const showToolbarLabels = useFlowStore((s) => !!s.showToolbarLabels);
   const setShowToolbarLabels = useFlowStore((s) => s.setShowToolbarLabels);
+  const nodeContextMenuMode = useFlowStore((s) =>
+    s.nodeContextMenuMode === 'flat' ? 'flat' : 'grouped',
+  );
+  const setNodeContextMenuMode = useFlowStore((s) => s.setNodeContextMenuMode);
   const appendAuditLog = useFlowStore((s) => s.appendAuditLog);
   const autoSaveEnabled = useFlowStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useFlowStore((s) => s.setAutoSaveEnabled);
@@ -1773,6 +1777,34 @@ export default function SettingsPage({
                   themeMode={themeMode}
                 />
               </Label>
+            </div>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <Label
+                className="text-sm font-medium normal-case tracking-normal inline-flex items-center gap-1.5"
+                style={{ color: colors.text }}
+              >
+                <MousePointer2 className="w-3.5 h-3.5 opacity-70" />
+                节点右键菜单
+                <HelpHint
+                  text="全部一级：所有操作平铺显示。二级组合：一级只保留运行/重命名/复制/折叠，其余收入「更多」与「删除」子菜单。"
+                  colors={colors}
+                  themeMode={themeMode}
+                />
+              </Label>
+              <Select
+                value={nodeContextMenuMode}
+                onValueChange={(v) =>
+                  setNodeContextMenuMode(v === 'flat' ? 'flat' : 'grouped')
+                }
+              >
+                <SelectTrigger className="h-8 text-xs w-[11rem]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="grouped">二级菜单组合</SelectItem>
+                  <SelectItem value="flat">全部一级菜单</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <p className="text-xs leading-relaxed opacity-60 pt-3" style={{ color: colors.text }}>

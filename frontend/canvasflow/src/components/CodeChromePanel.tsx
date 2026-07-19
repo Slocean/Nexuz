@@ -17,7 +17,11 @@ export type CodeChromePanelProps = {
   bodyRef?: React.Ref<HTMLDivElement>;
   /** Grow to fill parent flex column. */
   fill?: boolean;
-  /** Max height for the scrollable body (ignored when fill). */
+  /**
+   * Reserved height for the scrollable body (ignored when fill).
+   * Applied as both height and maxHeight so the panel keeps its size
+   * even when content is short.
+   */
   maxHeight?: number | string;
   /** Empty-state hint when children is null/empty and emptyText is set. */
   emptyText?: string;
@@ -84,7 +88,12 @@ export default function CodeChromePanel({
           fill ? 'flex-1' : ''
         } ${bodyClassName}`}
         style={{
-          maxHeight: fill ? undefined : maxHeight,
+          ...(fill
+            ? {}
+            : {
+                height: maxHeight,
+                maxHeight,
+              }),
           ...bodyStyle,
         }}
       >

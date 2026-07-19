@@ -369,6 +369,17 @@ function loadShowToolbarLabels() {
   }
 }
 
+/** flat = all items on L1; grouped = short L1 + More/Delete submenus */
+function loadNodeContextMenuMode() {
+  try {
+    const v = localStorage.getItem('nexuz.nodeContextMenuMode');
+    if (v === 'flat' || v === 'grouped') return v;
+    return 'grouped';
+  } catch {
+    return 'grouped';
+  }
+}
+
 function loadAutoSaveEnabled() {
   try {
     const v = localStorage.getItem('nexuz.autoSaveEnabled');
@@ -572,6 +583,7 @@ export const useFlowStore = create((set, get) => ({
   // app settings
   hideWindowOnRecord: loadHideWindowOnRecord(),
   showToolbarLabels: loadShowToolbarLabels(),
+  nodeContextMenuMode: loadNodeContextMenuMode(),
   autoSaveEnabled: loadAutoSaveEnabled(),
   autoSaveIntervalSec: loadAutoSaveIntervalSec(),
   saveAfterRun: loadSaveAfterRun(),
@@ -613,6 +625,16 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ showToolbarLabels: !!showToolbarLabels });
+  },
+
+  setNodeContextMenuMode: mode => {
+    const next = mode === 'flat' ? 'flat' : 'grouped';
+    try {
+      localStorage.setItem('nexuz.nodeContextMenuMode', next);
+    } catch {
+      /* ignore */
+    }
+    set({ nodeContextMenuMode: next });
   },
 
   setAutoSaveEnabled: autoSaveEnabled => {
