@@ -1104,7 +1104,7 @@ function Canvas({
           style={{ color: colors.secondaryText }}
           className="text-xs opacity-60 hidden md:inline"
         >
-          {canvasTool === "select" ? "拖空处框选" : "Shift框选"} · Ctrl多选 · Del删除
+          {canvasTool === "select" ? "拖空处框选" : "Shift框选"} · Ctrl多选 · Ctrl+C复制 · Ctrl+V粘贴 · Ctrl+Z撤销 · Ctrl+Y重做 · Del删除
         </span>
       </div>
 
