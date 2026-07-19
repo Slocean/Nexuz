@@ -157,14 +157,7 @@ jobs:
           try {
             $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new($bytes, $pass, $flags)
           } catch {
-            throw @"
-WINDOWS_CERTIFICATE_PASSWORD does not match the PFX (or the base64 is from a different cert).
-Fix: regenerate with scripts/new_codesign_cert.ps1, then update BOTH secrets from the same run:
-  WINDOWS_CERTIFICATE          <- .codesign/nexuz-codesign.pfx.b64.txt
-  WINDOWS_CERTIFICATE_PASSWORD <- .codesign/password.txt
-Or use release_unsigned.bat to skip signing.
-Original error: $($_.Exception.Message)
-"@
+            throw "WINDOWS_CERTIFICATE_PASSWORD does not match the PFX (or base64 is from another cert). Regenerate with scripts/new_codesign_cert.ps1 and update BOTH secrets, or use release_unsigned.bat. Original: $($_.Exception.Message)"
           }
           $sha = [Security.Cryptography.SHA256]::Create()
           try {
