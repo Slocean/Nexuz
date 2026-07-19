@@ -1659,8 +1659,6 @@ function AppShell() {
             onOpenFlowPath={handleOpenFlowPath}
             onRenameFlow={handleRenameFlow}
             onNewFlow={handleNewFlow}
-            onImportFlow={handleImport}
-            onExportFlow={handleExport}
             flowsRefreshToken={flowsRefreshToken}
           />
         ) : null}

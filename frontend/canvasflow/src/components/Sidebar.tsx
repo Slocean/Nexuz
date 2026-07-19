@@ -36,8 +36,6 @@ interface SidebarProps {
   onOpenFlowPath?: (path: string) => void;
   onRenameFlow?: (path: string, newName: string) => Promise<boolean>;
   onNewFlow?: () => void;
-  onImportFlow?: () => void;
-  onExportFlow?: () => void;
   flowsRefreshToken?: number;
 }
 
@@ -268,8 +266,6 @@ export default function Sidebar({
             onOpenFlow={(path) => onOpenFlowPath?.(path)}
             onRenameFlow={onRenameFlow}
             onNewFlow={() => onNewFlow?.()}
-            onImport={onImportFlow}
-            onExport={onExportFlow}
             refreshToken={flowsRefreshToken}
           />
         ) : (

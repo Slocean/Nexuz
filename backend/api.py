@@ -1734,6 +1734,50 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def duplicate_flow(self, filepath: str, new_name: str | None = None) -> dict:
+        """Copy a library flow to a new file with a unique name."""
+        path = Path(str(filepath))
+        flows = self._flows_dir(create=True)
+        try:
+            if not self._is_under_dir(path, flows):
+                return {"ok": False, "error": "只能复制数据目录内的流程"}
+            resolved = path.resolve()
+            if not resolved.is_file():
+                return {"ok": False, "error": "流程文件不存在"}
+            data = json.loads(resolved.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {"ok": False, "error": "无效的流程对象"}
+            err = self._validate_flow(data)
+            if err:
+                return {"ok": False, "error": err}
+            stem = resolved.stem
+            if stem.lower().endswith(".flow"):
+                stem = stem[:-5]
+            base = (str(new_name).strip() if new_name else "") or str(
+                data.get("name") or stem or "未命名流程"
+            ).strip()
+            copy_name = base if "副本" in base else f"{base} 副本"
+            dest = self._unique_flow_path(copy_name)
+            safe_base = self._safe_flow_filename(copy_name)
+            safe_stem = safe_base[: -len(".flow.json")] if safe_base.lower().endswith(".flow.json") else Path(safe_base).stem
+            dest_stem = dest.stem
+            if dest_stem.lower().endswith(".flow"):
+                dest_stem = dest_stem[:-5]
+            final_name = copy_name
+            if dest_stem != safe_stem and dest_stem.startswith(safe_stem + "_"):
+                suffix = dest_stem[len(safe_stem) + 1 :]
+                if suffix.isdigit():
+                    final_name = f"{copy_name} {suffix}"
+            data = {
+                **data,
+                "name": final_name,
+                "flow_id": f"flow_{int(time.time() * 1000)}",
+            }
+            dest.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            return {"ok": True, "flow": data, "path": str(dest), "name": final_name}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     # --- flow templates library (流程模板，不同于截图 templates/) ---
     def list_flow_templates(self) -> dict:
         """List user-saved flow templates under data_dir/flow_templates."""

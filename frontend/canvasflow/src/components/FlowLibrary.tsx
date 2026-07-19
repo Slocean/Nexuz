@@ -1,12 +1,15 @@
 /**
  * Flow library panel — lists flows in the user data directory.
  */
-import React, { useCallback, useEffect, useState } from 'react';
-import { Download, FileJson, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Copy, FileJson, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
 import { bridge } from '@/bridge';
+import { useFlowStore } from '@/store/flowModelStore';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { useAppDialog } from './AppDialogs';
 import SaveNameDialog from './SaveNameDialog';
 
@@ -17,6 +20,8 @@ export interface FlowListItem {
   size?: number;
 }
 
+const normalizePath = (value: string) => value.replace(/\\/g, '/').toLowerCase();
+
 export default function FlowLibrary({
   themeName,
   themeMode,
@@ -24,8 +29,6 @@ export default function FlowLibrary({
   onOpenFlow,
   onRenameFlow,
   onNewFlow,
-  onImport,
-  onExport,
   refreshToken = 0,
 }: {
   themeName: ThemeName;
@@ -34,16 +37,26 @@ export default function FlowLibrary({
   onOpenFlow: (path: string) => void;
   onRenameFlow?: (path: string, newName: string) => Promise<boolean>;
   onNewFlow: () => void;
-  onImport?: () => void;
-  onExport?: () => void;
   refreshToken?: number;
 }) {
   const { confirm } = useAppDialog();
   const colors = getThemeColors(themeName, themeMode);
+  const appendAuditLog = useFlowStore((s) => s.appendAuditLog);
+  const appendLog = useFlowStore((s) => s.appendLog);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [flows, setFlows] = useState<FlowListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
   const [renameTarget, setRenameTarget] = useState<FlowListItem | null>(null);
+  /** Multi-select paths (raw path strings from list). */
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  /** Keyboard focus target for Ctrl+C; not a separate visual highlight. */
+  const [focusPath, setFocusPath] = useState<string | null>(null);
+  /** Source path for Ctrl+V. */
+  const [clipboardPath, setClipboardPath] = useState<string | null>(null);
+  /** Dashed border only after Ctrl+C and before Ctrl+V (not for button duplicate). */
+  const [pendingPastePath, setPendingPastePath] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -68,20 +81,133 @@ export default function FlowLibrary({
     refresh();
   }, [refresh, refreshToken]);
 
-  const remove = async (item: FlowListItem) => {
+  useEffect(() => {
+    if (!flows.length) {
+      setSelectedPaths([]);
+      return;
+    }
+    const alive = new Set(flows.map((f) => normalizePath(f.path)));
+    setSelectedPaths((prev) => prev.filter((p) => alive.has(normalizePath(p))));
+  }, [flows]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return flows;
+    return flows.filter((f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q));
+  }, [flows, query]);
+
+  const selectedSet = useMemo(
+    () => new Set(selectedPaths.map((p) => normalizePath(p))),
+    [selectedPaths],
+  );
+
+  const filteredSelectedCount = useMemo(
+    () => filtered.filter((f) => selectedSet.has(normalizePath(f.path))).length,
+    [filtered, selectedSet],
+  );
+
+  const allFilteredSelected = filtered.length > 0 && filteredSelectedCount === filtered.length;
+
+  const isSelected = useCallback(
+    (path: string) => selectedSet.has(normalizePath(path)),
+    [selectedSet],
+  );
+
+  const toggleSelect = useCallback((path: string, checked: boolean) => {
+    setSelectedPaths((prev) => {
+      const key = normalizePath(path);
+      if (checked) {
+        if (prev.some((p) => normalizePath(p) === key)) return prev;
+        return [...prev, path];
+      }
+      return prev.filter((p) => normalizePath(p) !== key);
+    });
+  }, []);
+
+  const toggleSelectAllFiltered = useCallback(() => {
+    if (allFilteredSelected) {
+      const drop = new Set(filtered.map((f) => normalizePath(f.path)));
+      setSelectedPaths((prev) => prev.filter((p) => !drop.has(normalizePath(p))));
+      return;
+    }
+    setSelectedPaths((prev) => {
+      const next = [...prev];
+      const have = new Set(prev.map((p) => normalizePath(p)));
+      for (const f of filtered) {
+        const key = normalizePath(f.path);
+        if (!have.has(key)) {
+          next.push(f.path);
+          have.add(key);
+        }
+      }
+      return next;
+    });
+  }, [allFilteredSelected, filtered]);
+
+  const clearSelectionRefs = useCallback(
+    (paths: string[]) => {
+      const keys = new Set(paths.map((p) => normalizePath(p)));
+      if (focusPath && keys.has(normalizePath(focusPath))) setFocusPath(null);
+      if (clipboardPath && keys.has(normalizePath(clipboardPath))) setClipboardPath(null);
+      if (pendingPastePath && keys.has(normalizePath(pendingPastePath))) setPendingPastePath(null);
+      setSelectedPaths((prev) => prev.filter((p) => !keys.has(normalizePath(p))));
+    },
+    [clipboardPath, focusPath, pendingPastePath],
+  );
+
+  const removeMany = async (items: FlowListItem[]) => {
+    if (!items.length) return;
+    const names = items.map((i) => i.name);
     const ok = await confirm({
-      title: '删除流程',
-      description: `确定删除流程「${item.name}」？此操作不可恢复。`,
+      title: items.length === 1 ? '删除流程' : '删除多个流程',
+      description:
+        items.length === 1
+          ? `确定删除流程「${names[0]}」？此操作不可恢复。`
+          : `确定删除选中的 ${items.length} 个流程？此操作不可恢复。\n${names.slice(0, 5).join('、')}${
+              names.length > 5 ? ` 等` : ''
+            }`,
       confirmText: '删除',
       destructive: true,
     });
     if (!ok) return;
-    const res = await bridge.deleteFlow(item.path);
-    if (res?.ok === false) {
-      setError(res.error || '删除失败');
-      return;
+
+    const failed: string[] = [];
+    const deleted: FlowListItem[] = [];
+    for (const item of items) {
+      const res = await bridge.deleteFlow(item.path);
+      if (res?.ok === false) {
+        failed.push(`${item.name}: ${res.error || '删除失败'}`);
+      } else {
+        deleted.push(item);
+      }
+    }
+
+    if (deleted.length) {
+      clearSelectionRefs(deleted.map((d) => d.path));
+      if (deleted.length === 1) {
+        appendAuditLog?.(`删除流程: ${deleted[0].name}`, { path: deleted[0].path });
+      } else {
+        appendAuditLog?.(`删除流程 ×${deleted.length}`, {
+          paths: deleted.map((d) => d.path),
+          names: deleted.map((d) => d.name),
+        });
+      }
+    }
+    if (failed.length) {
+      const message = failed.join('；');
+      setError(message);
+      appendLog?.({ level: 'error', category: 'system', message });
     }
     await refresh();
+  };
+
+  const remove = async (item: FlowListItem) => {
+    await removeMany([item]);
+  };
+
+  const removeSelected = async () => {
+    const items = flows.filter((f) => selectedSet.has(normalizePath(f.path)));
+    await removeMany(items);
   };
 
   const rename = async (newName: string) => {
@@ -90,6 +216,78 @@ export default function FlowLibrary({
     if (!ok) return;
     setRenameTarget(null);
     await refresh();
+  };
+
+  const resolveSourceName = useCallback(
+    (path: string) => flows.find((f) => normalizePath(f.path) === normalizePath(path))?.name || path,
+    [flows],
+  );
+
+  const copyToClipboard = useCallback((item: FlowListItem) => {
+    setFocusPath(item.path);
+    setClipboardPath(item.path);
+    setPendingPastePath(item.path);
+    panelRef.current?.focus();
+  }, []);
+
+  const pasteFlow = useCallback(
+    async (sourcePath?: string, opts?: { fromShortcut?: boolean }) => {
+      const path = sourcePath || clipboardPath;
+      if (!path) return;
+      const srcName = resolveSourceName(path);
+      const res = await bridge.duplicateFlow(path);
+      if (res?.ok === false) {
+        const message = res.error || '粘贴失败';
+        setError(message);
+        appendLog?.({ level: 'error', category: 'system', message });
+        return;
+      }
+      if (opts?.fromShortcut) {
+        setPendingPastePath(null);
+      }
+      setFocusPath(path);
+      panelRef.current?.focus();
+      appendAuditLog?.(`复制流程: ${srcName} → ${res.name || '新流程'}`, {
+        source_path: path,
+        path: res.path,
+        name: res.name,
+      });
+      await refresh();
+    },
+    [appendAuditLog, appendLog, clipboardPath, refresh, resolveSourceName],
+  );
+
+  /** 按钮：立即生成副本，不进入「待粘贴」虚线状态 */
+  const duplicateNow = useCallback(
+    (item: FlowListItem) => {
+      setFocusPath(item.path);
+      void pasteFlow(item.path, { fromShortcut: false });
+    },
+    [pasteFlow],
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+    const mod = e.ctrlKey || e.metaKey;
+    if (!mod) return;
+    const key = e.key.toLowerCase();
+    if (key === 'c') {
+      const item =
+        filtered.find((f) => focusPath && normalizePath(f.path) === normalizePath(focusPath)) ||
+        filtered.find(
+          (f) => currentPath && normalizePath(f.path) === normalizePath(currentPath),
+        );
+      if (!item) return;
+      e.preventDefault();
+      copyToClipboard(item);
+    } else if (key === 'v') {
+      if (!clipboardPath) return;
+      e.preventDefault();
+      void pasteFlow(undefined, { fromShortcut: true });
+    }
   };
 
   const fmtTime = (ms?: number) => {
@@ -102,28 +300,66 @@ export default function FlowLibrary({
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div
+      ref={panelRef}
+      className="flex flex-col h-full min-h-0 outline-none"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
       <div className="p-3 border-b border-black/10 dark:border-white/10 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="font-display font-semibold text-sm">流程管理</h3>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={refresh} title="刷新">
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <h3 className="font-display font-semibold text-sm shrink-0">流程管理</h3>
+          {filtered.length > 0 && (
+            <label
+              className="flex items-center gap-1 text-[11px] cursor-pointer select-none shrink-0 ml-0.5"
+              title="全选当前列表"
+            >
+              <Checkbox
+                checked={allFilteredSelected ? true : filteredSelectedCount > 0 ? 'indeterminate' : false}
+                onCheckedChange={() => toggleSelectAllFiltered()}
+                aria-label="全选当前列表"
+              />
+              <span style={{ color: colors.secondaryText }} className="whitespace-nowrap">
+                {selectedPaths.length > 0 ? `${selectedPaths.length}` : '全选'}
+              </span>
+            </label>
+          )}
+          <div className="flex-1 min-w-0" />
+          <div className="flex items-center gap-0.5 shrink-0">
+            {selectedPaths.length > 0 && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 text-rose-500 hover:text-rose-600"
+                onClick={() => void removeSelected()}
+                title={`删除选中的 ${selectedPaths.length} 个流程`}
+                aria-label="删除选中流程"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            <Button
+              size="icon"
+              className="h-7 w-7 text-white hover:opacity-90"
+              style={{ backgroundColor: colors.primary }}
+              onClick={onNewFlow}
+              title="新建流程"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={refresh} title="刷新">
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-1.5">
-          <Button size="sm" className="flex-1 h-8 text-xs" onClick={onNewFlow}>
-            <Plus className="w-3.5 h-3.5" /> 新建
-          </Button>
-          {onImport && (
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onImport} title="导入">
-              <Upload className="w-3.5 h-3.5" />
-            </Button>
-          )}
-          {onExport && (
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onExport} title="导出当前流程">
-              <Download className="w-3.5 h-3.5" />
-            </Button>
-          )}
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 opacity-40" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索流程…"
+            className="h-8 pl-8 text-xs"
+          />
         </div>
       </div>
 
@@ -136,21 +372,46 @@ export default function FlowLibrary({
             保存后会出现在这里
           </p>
         )}
-        {flows.map((f) => {
-          const active = currentPath && f.path.replace(/\\/g, '/') === currentPath.replace(/\\/g, '/');
+        {!loading && flows.length > 0 && filtered.length === 0 && (
+          <p style={{ color: colors.secondaryText }} className="text-xs px-2 py-6 text-center opacity-70">
+            没有匹配「{query.trim()}」的流程
+          </p>
+        )}
+        {filtered.map((f) => {
+          const active = !!(currentPath && normalizePath(f.path) === normalizePath(currentPath));
+          const awaitingPaste = !!(
+            pendingPastePath && normalizePath(f.path) === normalizePath(pendingPastePath)
+          );
+          const checked = isSelected(f.path);
+          const emphasized = active || awaitingPaste || checked;
           return (
             <div
               key={f.path}
               style={{
-                borderColor: active ? colors.primary : colors.border,
-                backgroundColor: active ? colors.primary + '14' : colors.surface,
+                borderColor: emphasized ? colors.primary : colors.border,
+                borderStyle: awaitingPaste ? 'dashed' : 'solid',
+                backgroundColor: active
+                  ? colors.primary + '14'
+                  : checked
+                    ? colors.primary + '0A'
+                    : colors.surface,
               }}
-              className="group rounded-xl border px-2.5 py-2 flex items-start gap-2"
+              className="group rounded-xl border px-2.5 py-2 flex items-center gap-2"
             >
+              <Checkbox
+                checked={checked}
+                onCheckedChange={(v) => toggleSelect(f.path, v === true)}
+                aria-label={`选择流程 ${f.name}`}
+                onClick={(e) => e.stopPropagation()}
+              />
               <button
                 type="button"
                 className="min-w-0 flex-1 text-left"
-                onClick={() => onOpenFlow(f.path)}
+                onClick={() => {
+                  setFocusPath(f.path);
+                  onOpenFlow(f.path);
+                  panelRef.current?.focus();
+                }}
                 title={`应用「${f.name}」`}
               >
                 <div className="flex items-center gap-1.5">
@@ -161,7 +422,17 @@ export default function FlowLibrary({
                   {fmtTime(f.mtime)}
                 </div>
               </button>
-              <div className="flex items-center gap-0.5 shrink-0">
+              <div className="flex items-center self-center gap-0.5 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 opacity-70 group-hover:opacity-100"
+                  onClick={() => duplicateNow(f)}
+                  title={`复制「${f.name}」并立即创建副本（也可 Ctrl+C / Ctrl+V）`}
+                  aria-label={`复制流程 ${f.name}`}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </Button>
                 {onRenameFlow && (
                   <Button
                     variant="ghost"
@@ -178,7 +449,7 @@ export default function FlowLibrary({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7 opacity-0 group-hover:opacity-100 text-rose-400 focus-visible:opacity-100"
-                  onClick={() => remove(f)}
+                  onClick={() => void remove(f)}
                   title={`删除「${f.name}」`}
                   aria-label={`删除流程 ${f.name}`}
                 >

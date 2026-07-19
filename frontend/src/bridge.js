@@ -1575,6 +1575,8 @@ function mockCall(method, ...args) {
       }
     }
     case 'delete_flow':
+    case 'duplicate_flow':
+    case 'rename_flow':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持' });
     case 'window_minimize':
     case 'window_toggle_maximize':
@@ -1831,6 +1833,7 @@ export const bridge = {
   pickFlowFile: (libraryOnly = true) => call('pick_flow_file', libraryOnly),
   pickLocalPath: (mode = 'open', suggestedName = null) => call('pick_local_path', mode, suggestedName),
   deleteFlow: filepath => call('delete_flow', filepath),
+  duplicateFlow: (filepath, newName = null) => call('duplicate_flow', filepath, newName),
   renameFlow: (filepath, newName) => call('rename_flow', filepath, newName),
   saveFlow: (flow, filepath = null, name = null) => call('save_flow', JSON.stringify(flow), filepath, name),
   loadFlow: (filepath = null) => call('load_flow', filepath),
