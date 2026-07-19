@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -17,9 +18,14 @@ from backend.core.input.session import get_recording_session
 from backend.core.interpreter import get_interpreter
 from backend.core.recorder import get_recorder
 from backend.core.registry import (
+    _read_user_block_schema,
     get_schemas,
     get_user_blocks_dir as resolve_user_blocks_dir,
+    is_user_block_trusted,
     register_all_blocks,
+    revoke_user_block,
+    trust_user_block,
+    user_block_sha256,
 )
 from backend.core.runtime_log import get_runtime_log_manager
 from backend.core.log_hub import (
@@ -71,6 +77,7 @@ class Api:
         self._run_monitor_active = False
         self._run_monitor_restore: dict[str, Any] | None = None
         self._run_monitor_flow: dict[str, Any] | None = None
+        self._pending_flow_imports: dict[str, dict[str, Any]] = {}
         self._runtime_logs = get_runtime_log_manager()
         self._emit_lock = threading.RLock()
         self._emit_queue: list[dict[str, Any]] = []
@@ -526,7 +533,14 @@ class Api:
             for p in sorted(root.glob("*.py")):
                 if p.name.startswith("_"):
                     continue
-                files.append({"name": p.name, "path": str(p)})
+                files.append(
+                    {
+                        "name": p.name,
+                        "path": str(p),
+                        "sha256": user_block_sha256(p),
+                        "trusted": is_user_block_trusted(p),
+                    }
+                )
             return {"ok": True, "path": str(root), "files": files}
         except Exception as exc:
             return {"ok": False, "error": str(exc), "files": []}
@@ -550,9 +564,45 @@ class Api:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("" if content is None else str(content), encoding="utf-8", newline="\n")
-            return {"ok": True, "name": path.name, "path": str(path)}
+            _read_user_block_schema(path)
+            digest = trust_user_block(path)
+            return {
+                "ok": True,
+                "name": path.name,
+                "path": str(path),
+                "sha256": digest,
+                "trusted": True,
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def trust_user_block_file(self, filename: str) -> dict:
+        path, err = self._resolve_user_block_file(filename)
+        if err or path is None:
+            return {"ok": False, "error": err or "无效路径"}
+        if not path.is_file():
+            return {"ok": False, "error": "文件不存在"}
+        try:
+            schema = _read_user_block_schema(path)
+            digest = trust_user_block(path)
+            register_all_blocks()
+            return {
+                "ok": True,
+                "name": path.name,
+                "type": schema.get("type"),
+                "sha256": digest,
+                "trusted": True,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": f"无法授权用户积木: {exc}"}
+
+    def revoke_user_block_file(self, filename: str) -> dict:
+        path, err = self._resolve_user_block_file(filename)
+        if err or path is None:
+            return {"ok": False, "error": err or "无效路径"}
+        revoke_user_block(path)
+        register_all_blocks()
+        return {"ok": True, "name": path.name, "trusted": False}
 
     def list_schedule_jobs(self) -> dict:
         from backend.core.scheduler import get_scheduler
@@ -612,13 +662,13 @@ class Api:
 
         return {"ok": True, "id": set_notice_read_id(notice_id)}
 
-    def download_update(self, download_url: str | None = None) -> dict:
+    def download_update(self) -> dict:
         from backend.core.updater import download_update
 
         def on_progress(payload: dict) -> None:
             self._emit("update_download_progress", payload)
 
-        return download_update(download_url, on_progress=on_progress)
+        return download_update(on_progress=on_progress)
 
     def apply_update(self) -> dict:
         """Downloaded Nexuz_update.exe → detached helper renames over Nexuz.exe and restarts."""
@@ -1938,8 +1988,9 @@ class Api:
         return {"ok": True, "path": str(path), "name": flow.get("name"), "format": "json"}
 
     def import_flow(self) -> dict:
-        """Import external .flow.json or .flow.zip into the user data library."""
+        """Parse an external flow and return a capability preview before persisting it."""
         from backend.core.flow_pack import is_zip_path, load_flow_from_zip
+        from backend.core.flow_trust import analyze_flow_risks
 
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
@@ -1985,9 +2036,61 @@ class Api:
             stem = stem[:-5]
         name = str(data.get("name") or stem or "导入的流程").strip()
         data = {**data, "name": name}
+        now = time.time()
+        self._pending_flow_imports = {
+            key: value
+            for key, value in self._pending_flow_imports.items()
+            if now - float(value.get("created_at") or 0) < 600
+        }
+        token = secrets.token_urlsafe(24)
+        self._pending_flow_imports[token] = {
+            "flow": data,
+            "name": name,
+            "format": fmt,
+            "created_at": now,
+        }
+        schemas = get_schemas()
+        known_types = {str(item.get("type") or "") for item in schemas}
+        trusted_plugin_types = {
+            str(item.get("type") or "")
+            for item in schemas
+            if item.get("trust_tier") == "user_plugin"
+        }
+        return {
+            "ok": True,
+            "preview": True,
+            "import_token": token,
+            "name": name,
+            "format": fmt,
+            "risks": analyze_flow_risks(
+                data,
+                known_types=known_types,
+                trusted_plugin_types=trusted_plugin_types,
+            ),
+        }
+
+    def commit_import_flow(self, import_token: str) -> dict:
+        """Persist a flow that was parsed and explicitly confirmed by the UI."""
+        token = str(import_token or "")
+        pending = self._pending_flow_imports.pop(token, None)
+        if not pending:
+            return {"ok": False, "error": "导入确认已失效，请重新选择流程文件"}
+        if time.time() - float(pending.get("created_at") or 0) >= 600:
+            return {"ok": False, "error": "导入确认已过期，请重新选择流程文件"}
+        data = pending.get("flow")
+        err = self._validate_flow(data)
+        if err:
+            return {"ok": False, "error": err}
+        name = str(pending.get("name") or data.get("name") or "导入的流程")
         dest = self._unique_flow_path(name)
         dest.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {"ok": True, "flow": data, "path": str(dest), "name": name, "format": fmt}
+        return {
+            "ok": True,
+            "flow": data,
+            "path": str(dest),
+            "name": name,
+            "format": pending.get("format") or "json",
+        }
 
     def clipboard_write(self, text: str) -> dict:
         """Copy text to system clipboard (pywebview often blocks navigator.clipboard)."""

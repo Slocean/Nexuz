@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -20,12 +22,21 @@ from backend.version import (
     GITHUB_OWNER,
     GITHUB_REPO,
     RELEASES_PAGE_URL,
+    TRUSTED_SIGNER_CERT_SHA256,
     __version__,
 )
 
 USER_AGENT = f"Nexuz/{__version__} (+https://github.com/{GITHUB_OWNER}/{GITHUB_REPO})"
 ASSET_NAME = "Nexuz.exe"
+CHECKSUM_ASSET_NAME = f"{ASSET_NAME}.sha256"
+VERIFY_METADATA_NAME = "Nexuz_update.verify.json"
+_GITHUB_DOWNLOAD_HOSTS = {
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+}
 _VERSION_RE = re.compile(r"^v?(\d+(?:\.\d+)*)", re.I)
+_SHA256_RE = re.compile(r"^([0-9a-fA-F]{64})\s+[ *]?(.+?)\s*$")
 
 
 def current_version() -> str:
@@ -63,7 +74,8 @@ def _http_bytes(
     on_progress: Any | None = None,
 ) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    opener = urllib.request.build_opener(_TrustedGitHubRedirectHandler())
+    with opener.open(req, timeout=timeout) as resp:
         total = 0
         try:
             total = int(resp.headers.get("Content-Length") or 0)
@@ -84,6 +96,29 @@ def _http_bytes(
                 except Exception:
                     pass
         return b"".join(chunks)
+
+
+def _validate_github_url(url: str, *, initial: bool = False) -> str:
+    """Only allow HTTPS assets served by GitHub's release infrastructure."""
+    parsed = urllib.parse.urlsplit(str(url or "").strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme.lower() != "https" or host not in _GITHUB_DOWNLOAD_HOSTS:
+        raise ValueError("更新地址必须是受信任的 GitHub HTTPS Release 资源")
+    if parsed.username or parsed.password or parsed.port not in (None, 443):
+        raise ValueError("更新地址包含不允许的认证信息或端口")
+    if initial:
+        prefix = f"/{GITHUB_OWNER}/{GITHUB_REPO}/releases/download/"
+        if host != "github.com" or not parsed.path.startswith(prefix):
+            raise ValueError("更新地址不属于配置的 GitHub 仓库 Release")
+    return urllib.parse.urlunsplit(parsed)
+
+
+class _TrustedGitHubRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject redirects that leave GitHub's release asset hosts."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        safe_url = _validate_github_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, safe_url)
 
 
 def _http_github_json(url: str, *, timeout: float = 20.0) -> dict[str, Any]:
@@ -299,11 +334,18 @@ def _pick_exe_asset(release: dict[str, Any]) -> dict[str, Any] | None:
         name = str(asset.get("name") or "")
         if name.lower() == ASSET_NAME.lower():
             return asset
+    return None
+
+
+def _pick_named_asset(release: dict[str, Any], expected_name: str) -> dict[str, Any] | None:
+    assets = release.get("assets") or []
+    if not isinstance(assets, list):
+        return None
     for asset in assets:
         if not isinstance(asset, dict):
             continue
         name = str(asset.get("name") or "")
-        if name.lower().endswith(".exe"):
+        if name.lower() == expected_name.lower():
             return asset
     return None
 
@@ -322,13 +364,25 @@ def resolve_download_url(version: str | None = None) -> dict[str, Any]:
         asset = _pick_exe_asset(release)
         if not asset:
             return None
-        url = str(asset.get("browser_download_url") or "").strip()
-        if not url:
+        checksum_asset = _pick_named_asset(release, CHECKSUM_ASSET_NAME)
+        if not checksum_asset:
+            return None
+        try:
+            url = _validate_github_url(
+                str(asset.get("browser_download_url") or "").strip(),
+                initial=True,
+            )
+            checksum_url = _validate_github_url(
+                str(checksum_asset.get("browser_download_url") or "").strip(),
+                initial=True,
+            )
+        except ValueError:
             return None
         tag = str(release.get("tag_name") or "").lstrip("v").strip()
         return {
             "ok": True,
             "download_url": url,
+            "checksum_url": checksum_url,
             "asset_name": asset.get("name") or ASSET_NAME,
             "asset_size": asset.get("size"),
             "latest_version": tag or ver,
@@ -361,7 +415,8 @@ def resolve_download_url(version: str | None = None) -> dict[str, Any]:
             return {
                 "ok": False,
                 "error": (
-                    f"v{ver} 的 Release 已存在，但还没有 Nexuz.exe。"
+                    f"v{ver} 的 Release 已存在，但还没有完整的 "
+                    f"{ASSET_NAME} + {CHECKSUM_ASSET_NAME} 校验资源。"
                     f"打包可能仍在进行或失败，请稍后再试。"
                 ),
                 "tried": tried,
@@ -465,6 +520,7 @@ def check_for_update() -> dict[str, Any]:
         "html_url": html_url,
         # Never return a URL for a different release than `latest`.
         "download_url": download_url if asset_ready else None,
+        "checksum_url": resolved.get("checksum_url") if asset_ready else None,
         "asset_name": resolved.get("asset_name") or ASSET_NAME,
         "asset_size": resolved.get("asset_size") if asset_ready else None,
         "asset_ready": asset_ready,
@@ -475,17 +531,92 @@ def check_for_update() -> dict[str, Any]:
     }
 
 
+def _parse_checksum_manifest(raw: bytes) -> str:
+    text = raw.decode("utf-8-sig", errors="strict")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _SHA256_RE.match(line)
+        if not match:
+            continue
+        digest, filename = match.groups()
+        if Path(filename.strip()).name.lower() == ASSET_NAME.lower():
+            return digest.lower()
+    raise ValueError(f"{CHECKSUM_ASSET_NAME} 中缺少 {ASSET_NAME} 的有效 SHA-256")
+
+
+def _sha256_bytes(blob: bytes) -> str:
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_authenticode(path: Path) -> dict[str, str]:
+    """Fail closed unless Windows reports a valid Authenticode signature."""
+    if os.name != "nt":
+        raise RuntimeError("Authenticode 校验仅支持 Windows，已拒绝应用更新")
+    escaped = _ps_escape(str(path.resolve()))
+    command = (
+        "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new();"
+        f"$s=Get-AuthenticodeSignature -LiteralPath '{escaped}';"
+        "if ($s.Status -ne 'Valid') {"
+        "  Write-Error ('Authenticode status: ' + $s.Status + ' ' + $s.StatusMessage); exit 3"
+        "};"
+        "[pscustomobject]@{"
+        "  subject=$s.SignerCertificate.Subject;"
+        "  thumbprint=$s.SignerCertificate.Thumbprint;"
+        "  cert_sha256=([BitConverter]::ToString("
+        "    ([Security.Cryptography.SHA256]::Create().ComputeHash($s.SignerCertificate.RawData))"
+        "  ).Replace('-',''))"
+        "} | ConvertTo-Json -Compress"
+    )
+    completed = subprocess.run(
+        [_powershell_exe(), "-NoProfile", "-NonInteractive", "-Command", command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        creationflags=0x08000000,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "签名无效").strip()
+        raise RuntimeError(f"安装包 Authenticode 校验失败: {detail}")
+    try:
+        payload = json.loads(completed.stdout.strip())
+    except Exception as exc:
+        raise RuntimeError("无法读取 Authenticode 校验结果") from exc
+    result = {
+        "subject": str(payload.get("subject") or ""),
+        "thumbprint": str(payload.get("thumbprint") or ""),
+        "cert_sha256": str(payload.get("cert_sha256") or "").upper(),
+    }
+    trusted = str(TRUSTED_SIGNER_CERT_SHA256 or "").upper()
+    if not re.fullmatch(r"[0-9A-F]{64}", trusted):
+        raise RuntimeError("当前版本未内置受信任的发布签名证书，已拒绝自动更新")
+    if result["cert_sha256"] != trusted:
+        raise RuntimeError("安装包签名有效，但发布者证书与内置信任锚不匹配")
+    return result
+
+
 def download_update(
-    download_url: str | None = None,
     *,
     on_progress: Any | None = None,
 ) -> dict[str, Any]:
-    """Download latest (or given) exe next to the running binary as Nexuz_update.exe."""
+    """Download and verify the latest release next to the running executable."""
     info = check_for_update()
     if not info.get("ok"):
         return info
 
-    if not info.get("update_available") and not download_url:
+    if not info.get("update_available"):
         return {
             "ok": False,
             "error": "当前已是最新版本，无需下载",
@@ -493,28 +624,24 @@ def download_update(
             "latest_version": info.get("latest_version"),
         }
 
-    url = (download_url or "").strip()
-    if not url:
-        resolved = resolve_download_url(info.get("latest_version"))
-        if not resolved.get("ok"):
-            return {
-                "ok": False,
-                "error": resolved.get("error")
-                or "GitHub Release 中没有 Nexuz.exe，请先成功发版或到 Releases 手动下载",
-                "html_url": resolved.get("html_url")
-                or info.get("html_url")
-                or RELEASES_PAGE_URL,
-                "current_version": info.get("current_version"),
-                "latest_version": info.get("latest_version"),
-            }
-        url = str(resolved.get("download_url") or "").strip()
-
-    if not url:
+    resolved = resolve_download_url(info.get("latest_version"))
+    if not resolved.get("ok"):
         return {
             "ok": False,
-            "error": "未找到可下载地址，请到 GitHub Releases 手动下载",
-            "html_url": info.get("html_url") or RELEASES_PAGE_URL,
+            "error": resolved.get("error")
+            or "GitHub Release 缺少安装包或 SHA-256 清单，请到 Releases 手动下载",
+            "html_url": resolved.get("html_url") or info.get("html_url") or RELEASES_PAGE_URL,
+            "current_version": info.get("current_version"),
+            "latest_version": info.get("latest_version"),
         }
+    try:
+        url = _validate_github_url(str(resolved.get("download_url") or ""), initial=True)
+        checksum_url = _validate_github_url(
+            str(resolved.get("checksum_url") or ""),
+            initial=True,
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "html_url": info.get("html_url")}
 
     dest_dir = exe_dir()
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -544,13 +671,40 @@ def download_update(
     try:
         if on_progress:
             on_progress({"downloaded": 0, "total": 0, "percent": 0, "message": "开始下载…"})
+        expected_sha256 = _parse_checksum_manifest(
+            _http_bytes(checksum_url, timeout=30.0)
+        )
         blob = _http_bytes(url, on_progress=_progress if on_progress else None)
         if len(blob) < 1024 * 100:
             return {"ok": False, "error": "下载文件过小，可能不是有效的安装包"}
+        actual_sha256 = _sha256_bytes(blob)
+        if actual_sha256 != expected_sha256:
+            return {
+                "ok": False,
+                "error": (
+                    "安装包 SHA-256 校验失败，已拒绝更新。"
+                    f"期望 {expected_sha256}，实际 {actual_sha256}"
+                ),
+            }
         partial.write_bytes(blob)
+        signer = _verify_authenticode(partial)
         if dest.exists():
             dest.unlink()
         partial.rename(dest)
+        metadata = dest_dir / VERIFY_METADATA_NAME
+        metadata.write_text(
+            json.dumps(
+                {
+                    "version": info.get("latest_version"),
+                    "sha256": expected_sha256,
+                    "signer_subject": signer["subject"],
+                    "signer_thumbprint": signer["thumbprint"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         if on_progress:
             on_progress(
                 {
@@ -590,6 +744,8 @@ def download_update(
         "ok": True,
         "path": str(dest),
         "size": dest.stat().st_size,
+        "sha256": expected_sha256,
+        "signer": signer["subject"],
         "latest_version": info.get("latest_version"),
         "current_version": info.get("current_version"),
         "message": f"已下载 {info.get('latest_version')}，可立即更新并重启",
@@ -642,11 +798,27 @@ def apply_update_and_restart() -> dict[str, Any]:
     if not update_path.is_file():
         return {"ok": False, "error": "未找到已下载的更新包（Nexuz_update.exe），请先下载更新"}
 
+    metadata_path = exe_dir() / VERIFY_METADATA_NAME
     try:
         if update_path.stat().st_size < 1024 * 100:
             return {"ok": False, "error": "更新包过小，可能下载不完整，请重新下载"}
+        if not metadata_path.is_file():
+            return {"ok": False, "error": "更新包缺少校验记录，请删除后重新下载"}
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        expected_sha256 = str(metadata.get("sha256") or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            return {"ok": False, "error": "更新包校验记录无效，请删除后重新下载"}
+        actual_sha256 = _sha256_file(update_path)
+        if actual_sha256 != expected_sha256:
+            return {"ok": False, "error": "更新包在下载后发生变化，已拒绝应用"}
+        signer = _verify_authenticode(update_path)
+        recorded_thumbprint = str(metadata.get("signer_thumbprint") or "").upper()
+        if recorded_thumbprint and signer["thumbprint"].upper() != recorded_thumbprint:
+            return {"ok": False, "error": "更新包签名证书在下载后发生变化，已拒绝应用"}
     except OSError as exc:
         return {"ok": False, "error": f"无法读取更新包: {exc}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"更新包安全校验失败: {exc}"}
 
     target = _target_exe_path()
     pid = os.getpid()
@@ -657,6 +829,7 @@ def apply_update_and_restart() -> dict[str, Any]:
     tgt = _ps_escape(str(target))
     work = _ps_escape(str(work_dir))
     log = _ps_escape(str(log_path))
+    verify_meta = _ps_escape(str(metadata_path))
     tgt_name = _ps_escape(target.name)
 
     ps1 = Path(tempfile.gettempdir()) / f"nexuz_apply_update_{pid}.ps1"
@@ -669,6 +842,7 @@ $upd = '{upd}'
 $tgt = '{tgt}'
 $work = '{work}'
 $log = '{log}'
+$verifyMeta = '{verify_meta}'
 $tgtName = '{tgt_name}'
 
 function Write-Log([string]$msg) {{
@@ -753,6 +927,7 @@ function Start-Nexuz([string]$exePath) {{
 }}
 
 if ($ok -and (Test-Path -LiteralPath $tgt)) {{
+  Remove-Item -LiteralPath $verifyMeta -Force -ErrorAction SilentlyContinue
   Write-Log "start $tgt"
   Start-Nexuz $tgt
 }} elseif (Test-Path -LiteralPath $upd) {{

@@ -55,8 +55,9 @@ interface ToolbarProps {
   setThemeMode: (mode: ThemeMode) => void;
   onRunWorkflow: () => void;
   isExecuting: boolean;
-  onToggleAssistant: () => void;
-  isAssistantOpen: boolean;
+  showFlowAi?: boolean;
+  onToggleAssistant?: () => void;
+  isAssistantOpen?: boolean;
   onClearCanvas: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
@@ -94,8 +95,9 @@ export default function Toolbar({
   setThemeMode,
   onRunWorkflow,
   isExecuting,
+  showFlowAi = false,
   onToggleAssistant,
-  isAssistantOpen,
+  isAssistantOpen = false,
   onClearCanvas,
   onUndo,
   onRedo,
@@ -164,6 +166,12 @@ export default function Toolbar({
       : '运行';
 
   const themes: ThemeName[] = ['Ocean', 'Mint', 'Purple', 'Rose', 'Orange'];
+
+  useEffect(() => {
+    const onNoticeRead = () => setAnnDot(false);
+    window.addEventListener('nexuz-notice-read', onNoticeRead);
+    return () => window.removeEventListener('nexuz-notice-read', onNoticeRead);
+  }, []);
 
   const applyPluginUiClass = (enabled: boolean, opacity = pluginOpacity) => {
     const op = Math.max(0.25, Math.min(1, Number(opacity) || 0.85));
@@ -276,7 +284,8 @@ export default function Toolbar({
             /* ignore */
           }
         }
-        x;
+        if (String(n.id) === readId) return;
+        setAnnDot(true);
       } catch {
         /* ignore */
       }
@@ -641,15 +650,17 @@ export default function Toolbar({
               </Button>
             ) : null}
 
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={onToggleAssistant}
-              title="Flow AI"
-              style={isAssistantOpen ? { color: colors.primary } : undefined}>
-              <Sparkles className="w-4 h-4" />
-            </Button>
+            {showFlowAi && onToggleAssistant ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={onToggleAssistant}
+                title="Flow AI（开发预览）"
+                style={isAssistantOpen ? { color: colors.primary } : undefined}>
+                <Sparkles className="w-4 h-4" />
+              </Button>
+            ) : null}
           </div>
 
           {/* Drag filler */}

@@ -1,4 +1,4 @@
-"""Restricted exec sandbox for python_script blocks."""
+"""Best-effort restrictions for trusted python_script code; not a security sandbox."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ def run_user_script(
 
     try:
         compiled = compile(raw, "<python_script>", "exec")
-        exec(compiled, g, loc)  # noqa: S102 — intentional sandboxed exec
+        exec(compiled, g, loc)  # noqa: S102 — intentional trusted-code execution
     except Exception as exc:
         return {
             "ok": False,

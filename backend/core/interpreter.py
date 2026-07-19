@@ -248,6 +248,12 @@ class FlowInterpreter:
         self._stop_flag.set()
         self._pause_event.set()
         self._step_event.set()
+        try:
+            from .worker_client import terminate_all_workers
+
+            terminate_all_workers()
+        except Exception:
+            pass
         self._emit("flow_stopping", {})
 
         # Worker already gone (or never started) but flags were inconsistent.
@@ -274,6 +280,12 @@ class FlowInterpreter:
         self._stop_flag.set()
         self._pause_event.set()
         self._step_event.set()
+        try:
+            from .worker_client import terminate_all_workers
+
+            terminate_all_workers()
+        except Exception:
+            pass
         with self._lock:
             self._run_id += 1
             self._running = False

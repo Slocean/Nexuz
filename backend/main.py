@@ -13,6 +13,11 @@ if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
 if str(_BOOT_ROOT) not in sys.path:
     sys.path.insert(0, str(_BOOT_ROOT))
 
+if "--trusted-worker" in sys.argv:
+    from backend.core.trusted_worker import main as _trusted_worker_main
+
+    raise SystemExit(_trusted_worker_main())
+
 from backend.paths import project_root
 
 ROOT = project_root()

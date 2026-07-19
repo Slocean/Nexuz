@@ -571,7 +571,9 @@ export default function SettingsPage({
   const [userBlocksPath, setUserBlocksPath] = useState('');
   const [userBlocksBusy, setUserBlocksBusy] = useState(false);
   const [userBlocksMsg, setUserBlocksMsg] = useState('');
-  const [userBlockFiles, setUserBlockFiles] = useState<{ name: string; path?: string }[]>([]);
+  const [userBlockFiles, setUserBlockFiles] = useState<
+    { name: string; path?: string; trusted?: boolean; sha256?: string }[]
+  >([]);
   const [userBlockFile, setUserBlockFile] = useState('');
   const [userBlockCode, setUserBlockCode] = useState('');
   const [userBlockDirty, setUserBlockDirty] = useState(false);
@@ -814,11 +816,58 @@ export default function SettingsPage({
         return;
       }
       setUserBlockDirty(false);
+      await refreshUserBlockFiles(userBlockFile);
       const list = await bridge.getBlockRegistry();
       if (Array.isArray(list)) setSchemas(list);
       setUserBlocksMsg(`已保存 ${userBlockFile}，并刷新积木列表`);
     } catch (e: any) {
       setUserBlocksMsg(String(e?.message || e));
+    } finally {
+      setUserBlocksBusy(false);
+    }
+  };
+
+  const handleTrustUserBlock = async () => {
+    if (!userBlockFile) return;
+    const selectedFile = userBlockFiles.find(file => file.name === userBlockFile);
+    const ok = await confirm({
+      title: '授权此用户积木？',
+      description:
+        `文件：${userBlockFile}\nSHA-256：${selectedFile?.sha256 || '未知'}\n\n` +
+        '授权后，模块顶层代码与 handler 可在隔离 worker 中运行。worker 默认阻断网络、子进程和文件写入，但仍可读取当前用户文件。仅在你已审查全部代码并信任来源时继续。',
+      confirmText: '我已审查并授权',
+      destructive: true
+    });
+    if (!ok) return;
+    setUserBlocksBusy(true);
+    try {
+      const res = await bridge.trustUserBlockFile(userBlockFile);
+      if (!res?.ok) {
+        setUserBlocksMsg(res?.error || '授权失败');
+        return;
+      }
+      await refreshUserBlockFiles(userBlockFile);
+      const list = await bridge.getBlockRegistry();
+      if (Array.isArray(list)) setSchemas(list);
+      setUserBlocksMsg(`已授权 ${userBlockFile} · ${String(res.sha256 || '').slice(0, 12)}…`);
+    } finally {
+      setUserBlocksBusy(false);
+    }
+  };
+
+  const handleRevokeUserBlock = async () => {
+    if (!userBlockFile) return;
+    setUserBlocksBusy(true);
+    try {
+      const res = await bridge.revokeUserBlockFile(userBlockFile);
+      if (!res?.ok) {
+        setUserBlocksMsg(res?.error || '撤销授权失败');
+        return;
+      }
+      await refreshUserBlockFiles(userBlockFile);
+      const list = await bridge.getBlockRegistry();
+      if (Array.isArray(list)) setSchemas(list);
+      setUserBlocksMsg(`已停用 ${userBlockFile}`);
     } finally {
       setUserBlocksBusy(false);
     }
@@ -866,6 +915,11 @@ export default function SettingsPage({
       setUserBlocksBusy(false);
     }
   };
+
+  const selectedUserBlockMeta = useMemo(
+    () => userBlockFiles.find(file => file.name === userBlockFile) || null,
+    [userBlockFiles, userBlockFile]
+  );
 
   const handleOpenDataDir = async () => {
     setDataDirBusy(true);
@@ -1182,6 +1236,11 @@ export default function SettingsPage({
               themeMode={themeMode}
             />
           }>
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+            仅可信代码：自定义积木只在可终止的隔离 worker 中加载和执行，默认阻断网络、子进程和文件写入；
+            但仍可读取当前用户文件，且不是完整安全沙箱。
+            注册表刷新只读取静态 SCHEMA；仍请只使用你已审查、且来源可信的 Python 文件。
+          </div>
           <div
             className="rounded-xl border px-3 py-2.5 font-mono text-xs break-all mt-1"
             style={{ borderColor: colors.border, color: colors.text }}>
@@ -1265,6 +1324,14 @@ export default function SettingsPage({
             className="rounded-xl border px-3 py-2.5 font-mono text-xs break-all mt-1"
             style={{ borderColor: colors.border, color: colors.text }}>
             {userBlocksPath || '…'}
+            {selectedUserBlockMeta ? (
+              <span className="block mt-1 opacity-60">
+                {selectedUserBlockMeta.trusted ? '已授权' : '未授权，不会出现在积木列表'}
+                {selectedUserBlockMeta.sha256
+                  ? ` · SHA-256 ${selectedUserBlockMeta.sha256.slice(0, 16)}…`
+                  : ''}
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select
@@ -1293,7 +1360,7 @@ export default function SettingsPage({
               <SelectContent>
                 {userBlockFiles.map(f => (
                   <SelectItem key={f.name} value={f.name} className="text-xs font-mono">
-                    {f.name}
+                    {f.trusted ? '已授权' : '未授权'} · {f.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1307,6 +1374,25 @@ export default function SettingsPage({
               <Save className="w-3.5 h-3.5" />
               保存{userBlockDirty ? ' *' : ''}
             </Button>
+            {selectedUserBlockMeta?.trusted ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={userBlocksBusy || !userBlockFile}
+                onClick={() => void handleRevokeUserBlock()}>
+                停用
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={userBlocksBusy || !userBlockFile || userBlockDirty}
+                onClick={() => void handleTrustUserBlock()}>
+                审查并授权
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"

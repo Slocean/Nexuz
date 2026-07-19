@@ -2235,9 +2235,12 @@ export default function Inspector({
                       mode="script"
                       height={240}
                     />
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                      隔离 worker 默认阻断网络、子进程和文件写入，但仍可读取当前用户文件且不是完整安全沙箱；仅运行可信代码。
+                    </p>
                     <p className="text-[10px] opacity-50 leading-relaxed">
                       可用 <code className="font-mono">out</code> / <code className="font-mono">inputs</code> /{' '}
-                      <code className="font-mono">context</code>；Ctrl+Space 补全；import 仅白名单模块。
+                      <code className="font-mono">context</code>；Ctrl+Space 补全。
                     </p>
                   </div>
                 ) : input.ui === 'textarea' || input.type === 'textarea' ? (

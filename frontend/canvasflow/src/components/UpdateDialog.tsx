@@ -211,7 +211,7 @@ export function UpdateDialogProvider({ children }: { children: React.ReactNode }
     setStatusText('正在下载更新包…');
     setError('');
     try {
-      const dl = await bridge.downloadUpdate(info.download_url || null);
+      const dl = await bridge.downloadUpdate();
       if (!dl?.ok) {
         setPhase('error');
         setError(dl?.error || '下载失败');

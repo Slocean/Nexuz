@@ -29,7 +29,11 @@ permissions:
   contents: write
 
 jobs:
+  quality:
+    uses: ./.github/workflows/CI.yml
+
   build-and-release:
+    needs: quality
     runs-on: windows-latest
     timeout-minutes: 120
 
@@ -81,6 +85,31 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Prepare trusted signing identity
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw "Release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD. See docs/WINDOWS_SIGNING.md"
+          }
+          $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+          $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $bytes,
+            $env:WINDOWS_CERTIFICATE_PASSWORD,
+            $flags
+          )
+          $sha = [Security.Cryptography.SHA256]::Create()
+          try {
+            $fingerprint = [BitConverter]::ToString($sha.ComputeHash($cert.RawData)).Replace("-", "")
+          } finally {
+            $sha.Dispose()
+            $cert.Dispose()
+          }
+          "NEXUZ_SIGNER_CERT_SHA256=$fingerprint" >> $env:GITHUB_ENV
+
       - name: Build package
         env:
           NEXUZ_VERSION: ${{ steps.ver.outputs.version }}
@@ -95,10 +124,7 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            Write-Host "WARN: WINDOWS_CERTIFICATE secrets not set - skipping Authenticode sign."
-            Write-Host "      Unsigned PyInstaller exe is often quarantined by Defender."
-            Write-Host "      See docs/WINDOWS_SIGNING.md"
-            exit 0
+            throw "Release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD. See docs/WINDOWS_SIGNING.md"
           }
           New-Item -ItemType Directory -Force -Path certificate | Out-Null
           $pfx = "certificate/certificate.pfx"
@@ -107,11 +133,20 @@ jobs:
           .\scripts\sign_exe.ps1 -ExePath dist\Nexuz.exe
           Remove-Item -Recurse -Force certificate -ErrorAction SilentlyContinue
 
+      - name: Generate SHA-256 manifest
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -LiteralPath dist\Nexuz.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *Nexuz.exe" | Set-Content -LiteralPath dist\Nexuz.exe.sha256 -Encoding ascii
+          Get-Content -LiteralPath dist\Nexuz.exe.sha256
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Nexuz-${{ steps.ver.outputs.version }}
-          path: dist/Nexuz.exe
+          path: |
+            dist/Nexuz.exe
+            dist/Nexuz.exe.sha256
           if-no-files-found: error
 
       - name: Build release notes from app_update.json
@@ -133,7 +168,9 @@ jobs:
           prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
           generate_release_notes: false
           body_path: RELEASE_NOTES.md
-          files: dist/Nexuz.exe
+          files: |
+            dist/Nexuz.exe
+            dist/Nexuz.exe.sha256
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

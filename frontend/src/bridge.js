@@ -1453,7 +1453,7 @@ function mockCall(method, ...args) {
       return Promise.resolve({
         ok: true,
         path: '(browser mock) user_blocks',
-        files: [{ name: 'example_echo.py', path: 'example_echo.py' }]
+        files: [{ name: 'example_echo.py', path: 'example_echo.py', trusted: true, sha256: 'browser-mock' }]
       });
     case 'read_user_block_file':
       return Promise.resolve({
@@ -1463,7 +1463,10 @@ function mockCall(method, ...args) {
           'SCHEMA = {"type": "example_echo", "label": "示例：回显", "category": "自定义", "inputs": [], "outputs": []}\n\ndef handler(params, context, **kwargs):\n    return {"ok": True}\n'
       });
     case 'write_user_block_file':
-      return Promise.resolve({ ok: true, name: args[0] || 'example_echo.py', path: '' });
+    case 'trust_user_block_file':
+      return Promise.resolve({ ok: true, name: args[0] || 'example_echo.py', path: '', trusted: true });
+    case 'revoke_user_block_file':
+      return Promise.resolve({ ok: true, name: args[0] || 'example_echo.py', trusted: false });
     case 'list_schedule_jobs':
       return Promise.resolve({ ok: true, jobs: [] });
     case 'list_flows':
@@ -1500,6 +1503,7 @@ function mockCall(method, ...args) {
       }
     }
     case 'import_flow':
+    case 'commit_import_flow':
       return Promise.resolve({ ok: false, error: '浏览器预览请使用桌面客户端导入' });
     case 'pick_flow_file':
       return Promise.resolve({ ok: false, cancelled: true, error: '浏览器预览请手动填写路径' });
@@ -1767,7 +1771,7 @@ export const bridge = {
   fetchNotice: () => call('fetch_notice'),
   getNoticeReadId: () => call('get_notice_read_id'),
   setNoticeReadId: (noticeId = '') => call('set_notice_read_id', noticeId),
-  downloadUpdate: (downloadUrl = null) => call('download_update', downloadUrl),
+  downloadUpdate: () => call('download_update'),
   applyUpdate: () => call('apply_update'),
   openReleasesPage: () => call('open_releases_page'),
   getBlockRegistry: () => call('get_block_registry'),
@@ -1776,6 +1780,8 @@ export const bridge = {
   listUserBlockFiles: () => call('list_user_block_files'),
   readUserBlockFile: filename => call('read_user_block_file', filename),
   writeUserBlockFile: (filename, content = '') => call('write_user_block_file', filename, content),
+  trustUserBlockFile: filename => call('trust_user_block_file', filename),
+  revokeUserBlockFile: filename => call('revoke_user_block_file', filename),
   getScreenInfo: () => call('get_screen_info'),
   runFlow: (flow, stepMode = false, hideWindow = true, debugMode = false, breakpoints = null) =>
     call(
@@ -1839,6 +1845,7 @@ export const bridge = {
   loadFlow: (filepath = null) => call('load_flow', filepath),
   exportFlow: (flow, filename = null) => call('export_flow', JSON.stringify(flow), filename),
   importFlow: () => call('import_flow'),
+  commitImportFlow: importToken => call('commit_import_flow', importToken),
   getDataDirInfo: () => call('get_data_dir_info'),
   pickDataDir: () => call('pick_data_dir'),
   setDataDirPath: (path = null) => call('set_data_dir_path', path),

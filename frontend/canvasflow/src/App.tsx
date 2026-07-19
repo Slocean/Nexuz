@@ -90,6 +90,7 @@ async function writeNoticeReadId(id: string): Promise<void> {
   } catch {
     /* ignore */
   }
+  window.dispatchEvent(new CustomEvent('nexuz-notice-read', { detail: { id: value } }));
 }
 
 const REQUIRED_BLOCK_TYPES = [
@@ -163,6 +164,7 @@ export default function App() {
 }
 
 function AppShell() {
+  const showFlowAi = Boolean((import.meta as any).env?.DEV);
   const { confirm, alert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
   const flow = useFlowStore((s) => s.flow);
@@ -907,8 +909,39 @@ function AppShell() {
   };
 
   const handleImport = async () => {
-    const res = await bridge.importFlow();
-    if (res?.ok && res.flow) {
+    const preview = await bridge.importFlow();
+    if (preview?.ok && preview.import_token) {
+      const capabilities = Array.isArray(preview.risks?.capabilities)
+        ? preview.risks.capabilities
+        : [];
+      const unknownTypes = Array.isArray(preview.risks?.unknown_types)
+        ? preview.risks.unknown_types
+        : [];
+      const capabilityLines = capabilities.map(
+        (item: any) => `• ${item.label || item.type} × ${item.count || 1}`,
+      );
+      const unknownLines = unknownTypes.map(
+        (item: any) => `• 未知/自定义积木 ${item.type} × ${item.count || 1}`,
+      );
+      const detected = [...capabilityLines, ...unknownLines];
+      const trusted = await confirm({
+        title: preview.risks?.needs_strong_warning ? '导入含高权限能力的流程？' : '导入外部流程？',
+        description: [
+          `文件：${preview.name || '未命名流程'}`,
+          '运行外部流程可操控键鼠，并可能以当前用户权限读写文件、访问网络或执行代码。',
+          detected.length ? `\n检测到的能力：\n${detected.join('\n')}` : '\n未检测到脚本、命令或网络类积木。',
+          '\n请仅在你已审查并完全信任文件来源时继续。',
+        ].join('\n'),
+        confirmText: '我信任此来源，继续导入',
+        destructive: true,
+      });
+      if (!trusted) return;
+      const res = await bridge.commitImportFlow(preview.import_token);
+      if (!res?.ok || !res.flow) {
+        appendLog({ level: 'error', category: 'system', message: res?.error || '导入失败' });
+        await alert({ title: '导入失败', description: res?.error || '无法保存导入的流程' });
+        return;
+      }
       setFlow(res.flow, res.path);
       setFlowsRefreshToken((n) => n + 1);
       const fmt = res.format === 'zip' ? '（已解压模板图片）' : '';
@@ -917,8 +950,8 @@ function AppShell() {
         path: res.path,
         format: res.format,
       });
-    } else if (!res?.cancelled) {
-      appendLog({ level: 'error', category: 'system', message: res?.error || '导入失败' });
+    } else if (!preview?.cancelled) {
+      appendLog({ level: 'error', category: 'system', message: preview?.error || '导入失败' });
     }
   };
 
@@ -1613,6 +1646,7 @@ function AppShell() {
         hotkeyLabels={hotkeyLabels}
         onRunWorkflow={handleRunWorkflow}
         isExecuting={isExecuting}
+        showFlowAi={showFlowAi}
         onToggleAssistant={() => setIsAssistantOpen(!isAssistantOpen)}
         isAssistantOpen={isAssistantOpen}
         onClearCanvas={handleClearCanvas}
@@ -1814,15 +1848,16 @@ function AppShell() {
 
         {screenPickDialog}
 
-        {/* Design-only: keep AI Assistant UI as-is */}
-        <AIAssistant
-          isOpen={isAssistantOpen}
-          onClose={() => setIsAssistantOpen(false)}
-          themeName={themeName as any}
-          themeMode={themeMode as any}
-          workflowContext={nodes}
-          onAddCustomNode={(nodeData) => handleAddDemoNode(nodeData.subType)}
-        />
+        {showFlowAi ? (
+          <AIAssistant
+            isOpen={isAssistantOpen}
+            onClose={() => setIsAssistantOpen(false)}
+            themeName={themeName as any}
+            themeMode={themeMode as any}
+            workflowContext={nodes}
+            onAddCustomNode={(nodeData) => handleAddDemoNode(nodeData.subType)}
+          />
+        ) : null}
       </div>
 
       <RecordingBanner

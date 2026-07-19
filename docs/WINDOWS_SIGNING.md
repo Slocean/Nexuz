@@ -20,7 +20,8 @@
 | `WINDOWS_CERTIFICATE` | pfx 的 base64（一行） |
 | `WINDOWS_CERTIFICATE_PASSWORD` | pfx 导出密码 |
 
-5. 再跑 `release.bat`：Action 会在上传 Release 前自动 `signtool` 签名
+5. 再跑 `release.bat`：Action 会在打包时嵌入证书 SHA-256 信任锚，随后签名、生成
+   `Nexuz.exe.sha256` 并上传两个文件。缺少任一 Secret 会直接终止 Release。
 
 ## 临时自签名（开发 / 过渡）
 
@@ -41,5 +42,8 @@ python package.py
 ## 注意
 
 - `.codesign/`、`*.pfx` 不要提交进 git
-- 证书过期后需换新 Secrets 并重新发版
+- 自动更新会校验固定仓库、SHA-256、Authenticode 和内置证书指纹；普通本地打包未设置
+  `NEXUZ_SIGNER_CERT_SHA256` 时会禁用自动更新。
+- 证书轮换必须先用旧证书签发一个同时信任新证书的过渡版本，再切换 Release Secret；
+  否则旧客户端会按设计拒绝新证书签名的安装包。
 - 若仍被删：把 exe 提交 [Microsoft 误报申诉](https://www.microsoft.com/wdsi/filesubmission)，并积累签名后的下载信誉
