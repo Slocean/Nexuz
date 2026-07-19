@@ -26,7 +26,7 @@ import {
   Type,
   Terminal,
   X,
-  PanelsTopLeft,
+  PanelsTopLeft
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -34,18 +34,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  DEFAULT_HOTKEYS,
-  formatHotkeyLabel,
-  useFlowStore,
-} from '@/store/flowModelStore';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
@@ -68,7 +58,7 @@ function eventToHotkeyKey(e: KeyboardEvent): string | null {
 function HotkeyCaptureField({
   value,
   onChange,
-  colors,
+  colors
 }: {
   value: string[];
   onChange: (keys: string[]) => void;
@@ -96,8 +86,8 @@ function HotkeyCaptureField({
       if (heldRef.current.length) {
         const mods = ['ctrl', 'alt', 'shift', 'win'];
         const ordered = [
-          ...mods.filter((m) => heldRef.current.includes(m)),
-          ...heldRef.current.filter((k) => !mods.includes(k)),
+          ...mods.filter(m => heldRef.current.includes(m)),
+          ...heldRef.current.filter(k => !mods.includes(k))
         ];
         onChange(ordered);
       }
@@ -115,8 +105,7 @@ function HotkeyCaptureField({
     <div className="flex items-center gap-1.5 shrink-0">
       <div
         className="w-[6.5rem] h-8 px-2 rounded-md border flex items-center justify-center font-mono text-xs truncate"
-        style={{ borderColor: colors.border, backgroundColor: 'rgba(0,0,0,0.04)' }}
-      >
+        style={{ borderColor: colors.border, backgroundColor: 'rgba(0,0,0,0.04)' }}>
         {listening ? (
           <span className="text-amber-500 animate-pulse text-[11px]">按下…</span>
         ) : (
@@ -128,9 +117,8 @@ function HotkeyCaptureField({
         variant={listening ? 'default' : 'outline'}
         size="sm"
         className="h-8 shrink-0 px-2"
-        onClick={() => setListening((v) => !v)}
-        title="点击后按下新的快捷键组合"
-      >
+        onClick={() => setListening(v => !v)}
+        title="点击后按下新的快捷键组合">
         <Keyboard className="w-3.5 h-3.5" />
         {listening ? '取消' : '改键'}
       </Button>
@@ -154,14 +142,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`${label}超时（${Math.round(ms / 1000)}s）`)), ms);
     promise.then(
-      (v) => {
+      v => {
         clearTimeout(t);
         resolve(v);
       },
-      (e) => {
+      e => {
         clearTimeout(t);
         reject(e);
-      },
+      }
     );
   });
 }
@@ -170,7 +158,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 function HelpHint({
   text,
   colors,
-  themeMode,
+  themeMode
 }: {
   text: React.ReactNode;
   colors: ThemeColors;
@@ -239,14 +227,12 @@ function HelpHint({
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}
-      onBlur={hide}
-    >
+      onBlur={hide}>
       <span
         className="inline-flex items-center justify-center w-4 h-4 rounded-full cursor-help opacity-50 hover:opacity-90"
         style={{ color: colors.secondaryText }}
         tabIndex={0}
-        aria-label="说明"
-      >
+        aria-label="说明">
         <CircleHelp className="w-3.5 h-3.5" />
       </span>
       {open &&
@@ -263,15 +249,11 @@ function HelpHint({
               borderColor: tipBorder,
               backgroundColor: tipBg,
               color: tipFg,
-              boxShadow:
-                themeMode === 'dark'
-                  ? '0 10px 32px rgba(0,0,0,0.55)'
-                  : '0 10px 32px rgba(0,0,0,0.18)',
-            }}
-          >
+              boxShadow: themeMode === 'dark' ? '0 10px 32px rgba(0,0,0,0.55)' : '0 10px 32px rgba(0,0,0,0.18)'
+            }}>
             {text}
           </div>,
-          document.body,
+          document.body
         )}
     </span>
   );
@@ -284,7 +266,7 @@ function SettingsSection({
   onToggle,
   colors,
   headerRight,
-  children,
+  children
 }: {
   title: string;
   icon: React.ReactNode;
@@ -297,15 +279,13 @@ function SettingsSection({
   return (
     <section
       className="rounded-2xl border overflow-hidden"
-      style={{ borderColor: colors.border, backgroundColor: colors.surface }}
-    >
+      style={{ borderColor: colors.border, backgroundColor: colors.surface }}>
       <div className="flex items-center gap-1 pr-2">
         <button
           type="button"
           className="flex-1 min-w-0 flex items-center gap-2 px-4 py-3.5 text-left hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
           onClick={onToggle}
-          aria-expanded={open}
-        >
+          aria-expanded={open}>
           {open ? (
             <ChevronDown className="w-4 h-4 shrink-0 opacity-60" style={{ color: colors.text }} />
           ) : (
@@ -319,12 +299,16 @@ function SettingsSection({
           </h2>
         </button>
         {headerRight ? (
-          <div className="shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <div className="shrink-0 flex items-center gap-1" onClick={e => e.stopPropagation()}>
             {headerRight}
           </div>
         ) : null}
       </div>
-      {open ? <div className="px-5 pb-5 space-y-4 border-t" style={{ borderColor: colors.border }}>{children}</div> : null}
+      {open ? (
+        <div className="px-5 pb-5 space-y-4 border-t" style={{ borderColor: colors.border }}>
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -339,7 +323,7 @@ const SETTINGS_SECTION_IDS = [
   'window',
   'save',
   'shortcuts',
-  'logging',
+  'logging'
 ] as const;
 
 type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -347,7 +331,7 @@ type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 export default function SettingsPage({
   themeName,
   themeMode,
-  onClose,
+  onClose
 }: {
   themeName: ThemeName;
   themeMode: ThemeMode;
@@ -356,46 +340,40 @@ export default function SettingsPage({
   const colors = getThemeColors(themeName, themeMode);
   const { confirm, alert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
-  const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
-  const setHideWindowOnRecord = useFlowStore((s) => s.setHideWindowOnRecord);
-  const showToolbarLabels = useFlowStore((s) => !!s.showToolbarLabels);
-  const setShowToolbarLabels = useFlowStore((s) => s.setShowToolbarLabels);
-  const nodeContextMenuMode = useFlowStore((s) =>
-    s.nodeContextMenuMode === 'flat' ? 'flat' : 'grouped',
-  );
-  const setNodeContextMenuMode = useFlowStore((s) => s.setNodeContextMenuMode);
-  const hideSidePanelsOnSettings = useFlowStore(
-    (s) => s.hideSidePanelsOnSettings !== false,
-  );
-  const setHideSidePanelsOnSettings = useFlowStore(
-    (s) => s.setHideSidePanelsOnSettings,
-  );
-  const appendAuditLog = useFlowStore((s) => s.appendAuditLog);
-  const autoSaveEnabled = useFlowStore((s) => s.autoSaveEnabled);
-  const setAutoSaveEnabled = useFlowStore((s) => s.setAutoSaveEnabled);
-  const autoSaveIntervalSec = useFlowStore((s) => s.autoSaveIntervalSec);
-  const setAutoSaveIntervalSec = useFlowStore((s) => s.setAutoSaveIntervalSec);
-  const saveAfterRun = useFlowStore((s) => s.saveAfterRun);
-  const setSaveAfterRun = useFlowStore((s) => s.setSaveAfterRun);
-  const hotkeys = useFlowStore((s) => s.hotkeys);
-  const setHotkey = useFlowStore((s) => s.setHotkey);
-  const resetHotkeys = useFlowStore((s) => s.resetHotkeys);
-  const setSchemas = useFlowStore((s) => s.setSchemas);
-  const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
-  const setDefaultCaptureMode = useFlowStore((s) => s.setDefaultCaptureMode);
-  const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
-  const setDefaultPickMethod = useFlowStore((s) => s.setDefaultPickMethod);
-  const defaultCoordinateMode = useFlowStore((s) => s.defaultCoordinateMode);
-  const setDefaultCoordinateMode = useFlowStore((s) => s.setDefaultCoordinateMode);
-  const defaultOutputCoordinateMode = useFlowStore((s) => s.defaultOutputCoordinateMode);
-  const setDefaultOutputCoordinateMode = useFlowStore((s) => s.setDefaultOutputCoordinateMode);
-  const defaultNodeIntervalMs = useFlowStore((s) => s.defaultNodeIntervalMs);
-  const setDefaultNodeIntervalMs = useFlowStore((s) => s.setDefaultNodeIntervalMs);
-  const syncAllPickMethods = useFlowStore((s) => s.syncAllPickMethods);
-  const syncAllClickCaptureModes = useFlowStore((s) => s.syncAllClickCaptureModes);
-  const syncAllClickCoordinateModes = useFlowStore((s) => s.syncAllClickCoordinateModes);
-  const syncAllOutputCoordinateModes = useFlowStore((s) => s.syncAllOutputCoordinateModes);
-  const flowNodes = useFlowStore((s) => s.flow.nodes || {});
+  const hideWindowOnRecord = useFlowStore(s => s.hideWindowOnRecord);
+  const setHideWindowOnRecord = useFlowStore(s => s.setHideWindowOnRecord);
+  const showToolbarLabels = useFlowStore(s => !!s.showToolbarLabels);
+  const setShowToolbarLabels = useFlowStore(s => s.setShowToolbarLabels);
+  const nodeContextMenuMode = useFlowStore(s => (s.nodeContextMenuMode === 'flat' ? 'flat' : 'grouped'));
+  const setNodeContextMenuMode = useFlowStore(s => s.setNodeContextMenuMode);
+  const hideSidePanelsOnSettings = useFlowStore(s => s.hideSidePanelsOnSettings !== false);
+  const setHideSidePanelsOnSettings = useFlowStore(s => s.setHideSidePanelsOnSettings);
+  const appendAuditLog = useFlowStore(s => s.appendAuditLog);
+  const autoSaveEnabled = useFlowStore(s => s.autoSaveEnabled);
+  const setAutoSaveEnabled = useFlowStore(s => s.setAutoSaveEnabled);
+  const autoSaveIntervalSec = useFlowStore(s => s.autoSaveIntervalSec);
+  const setAutoSaveIntervalSec = useFlowStore(s => s.setAutoSaveIntervalSec);
+  const saveAfterRun = useFlowStore(s => s.saveAfterRun);
+  const setSaveAfterRun = useFlowStore(s => s.setSaveAfterRun);
+  const hotkeys = useFlowStore(s => s.hotkeys);
+  const setHotkey = useFlowStore(s => s.setHotkey);
+  const resetHotkeys = useFlowStore(s => s.resetHotkeys);
+  const setSchemas = useFlowStore(s => s.setSchemas);
+  const defaultCaptureMode = useFlowStore(s => s.defaultCaptureMode);
+  const setDefaultCaptureMode = useFlowStore(s => s.setDefaultCaptureMode);
+  const defaultPickMethod = useFlowStore(s => s.defaultPickMethod);
+  const setDefaultPickMethod = useFlowStore(s => s.setDefaultPickMethod);
+  const defaultCoordinateMode = useFlowStore(s => s.defaultCoordinateMode);
+  const setDefaultCoordinateMode = useFlowStore(s => s.setDefaultCoordinateMode);
+  const defaultOutputCoordinateMode = useFlowStore(s => s.defaultOutputCoordinateMode);
+  const setDefaultOutputCoordinateMode = useFlowStore(s => s.setDefaultOutputCoordinateMode);
+  const defaultNodeIntervalMs = useFlowStore(s => s.defaultNodeIntervalMs);
+  const setDefaultNodeIntervalMs = useFlowStore(s => s.setDefaultNodeIntervalMs);
+  const syncAllPickMethods = useFlowStore(s => s.syncAllPickMethods);
+  const syncAllClickCaptureModes = useFlowStore(s => s.syncAllClickCaptureModes);
+  const syncAllClickCoordinateModes = useFlowStore(s => s.syncAllClickCoordinateModes);
+  const syncAllOutputCoordinateModes = useFlowStore(s => s.syncAllOutputCoordinateModes);
+  const flowNodes = useFlowStore(s => s.flow.nodes || {});
 
   const [diagLogging, setDiagLogging] = useState(false);
 
@@ -452,7 +430,7 @@ export default function SettingsPage({
       const ok = await confirm({
         title: '修改默认点击录入模式',
         description: `当前有 ${differing.length} 个点击节点的录入模式与「${label}」不同。确认后将把所有这些节点改为「${label}」，之后新建的点击节点也会默认使用此模式。`,
-        confirmText: '全部修改',
+        confirmText: '全部修改'
       });
       if (!ok) return;
       syncAllClickCaptureModes(mode);
@@ -460,7 +438,7 @@ export default function SettingsPage({
 
     setDefaultCaptureMode(mode);
     appendAuditLog?.(`修改默认点击录入模式 → ${mode === 'frida_ui' ? 'Frida UI' : '坐标'}`, {
-      defaultCaptureMode: mode,
+      defaultCaptureMode: mode
     });
   };
 
@@ -478,7 +456,7 @@ export default function SettingsPage({
       const ok = await confirm({
         title: '修改默认取色 / 取点方式',
         description: `当前有 ${differing.length} 个节点的取点方式与「${label}」不同。确认后将把这些节点全部改为「${label}」，之后未单独设置的节点也会默认使用此方式。`,
-        confirmText: '全部修改',
+        confirmText: '全部修改'
       });
       if (!ok) return;
       syncAllPickMethods(method);
@@ -486,21 +464,17 @@ export default function SettingsPage({
 
     setDefaultPickMethod(method);
     appendAuditLog?.(`修改默认取点方式 → ${method === 'live' ? '实地取点' : '截图取点'}`, {
-      defaultPickMethod: method,
+      defaultPickMethod: method
     });
   };
 
   const handleDefaultCoordinateModeChange = async (next: string) => {
-    const mode =
-      next === 'window_client' || next === 'virtual_norm' ? next : 'screen_abs';
+    const mode = next === 'window_client' || next === 'virtual_norm' ? next : 'screen_abs';
     if (mode === defaultCoordinateMode) return;
 
     const differing = Object.values(flowNodes).filter((n: any) => {
       if (n?.type !== 'click' || (n.params?.capture_mode || 'coord') !== 'coord') return false;
-      const cur =
-        n.params?.coord?.coordinate_mode ||
-        n.params?.coordinate_mode ||
-        defaultCoordinateMode;
+      const cur = n.params?.coord?.coordinate_mode || n.params?.coordinate_mode || defaultCoordinateMode;
       return cur !== mode;
     });
 
@@ -508,12 +482,12 @@ export default function SettingsPage({
       const labels: Record<string, string> = {
         screen_abs: '屏幕绝对坐标',
         window_client: '目标窗口相对',
-        virtual_norm: '虚拟桌面比例',
+        virtual_norm: '虚拟桌面比例'
       };
       const ok = await confirm({
         title: '修改默认坐标基准',
         description: `当前有 ${differing.length} 个坐标点击节点的坐标基准与「${labels[mode]}」不同。确认后将把这些节点全部改为「${labels[mode]}」，之后新建点击节点也会默认选中此基准。`,
-        confirmText: '全部修改',
+        confirmText: '全部修改'
       });
       if (!ok) return;
       syncAllClickCoordinateModes(mode);
@@ -536,12 +510,12 @@ export default function SettingsPage({
     if (differing.length > 0) {
       const labels: Record<string, string> = {
         screen_abs: '屏幕绝对',
-        region_rel: '区域相对',
+        region_rel: '区域相对'
       };
       const ok = await confirm({
         title: '修改默认输出坐标',
         description: `当前有 ${differing.length} 个识别节点（OCR / 找图）的输出坐标与「${labels[mode]}」不同。确认后将把这些节点全部改为「${labels[mode]}」，之后新建识别节点也会默认选中此方式。`,
-        confirmText: '全部修改',
+        confirmText: '全部修改'
       });
       if (!ok) return;
       syncAllOutputCoordinateModes(mode);
@@ -628,30 +602,33 @@ export default function SettingsPage({
     }
   }, []);
 
-  const refreshUserBlockFiles = useCallback(async (preferName?: string) => {
-    try {
-      const res = await bridge.listUserBlockFiles();
-      if (!res?.ok) return;
-      const files = Array.isArray(res.files) ? res.files : [];
-      setUserBlockFiles(files);
-      if (res.path) setUserBlocksPath(String(res.path));
-      const names = files.map((f: any) => String(f.name || ''));
-      const pick =
-        (preferName && names.includes(preferName) && preferName) ||
-        (userBlockFile && names.includes(userBlockFile) && userBlockFile) ||
-        names[0] ||
-        '';
-      if (pick && pick !== userBlockFile) {
-        setUserBlockFile(pick);
-      } else if (!pick) {
-        setUserBlockFile('');
-        setUserBlockCode('');
-        setUserBlockDirty(false);
+  const refreshUserBlockFiles = useCallback(
+    async (preferName?: string) => {
+      try {
+        const res = await bridge.listUserBlockFiles();
+        if (!res?.ok) return;
+        const files = Array.isArray(res.files) ? res.files : [];
+        setUserBlockFiles(files);
+        if (res.path) setUserBlocksPath(String(res.path));
+        const names = files.map((f: any) => String(f.name || ''));
+        const pick =
+          (preferName && names.includes(preferName) && preferName) ||
+          (userBlockFile && names.includes(userBlockFile) && userBlockFile) ||
+          names[0] ||
+          '';
+        if (pick && pick !== userBlockFile) {
+          setUserBlockFile(pick);
+        } else if (!pick) {
+          setUserBlockFile('');
+          setUserBlockCode('');
+          setUserBlockDirty(false);
+        }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
-    }
-  }, [userBlockFile]);
+    },
+    [userBlockFile]
+  );
 
   const loadUserBlockFile = useCallback(async (name: string) => {
     if (!name) {
@@ -692,11 +669,7 @@ export default function SettingsPage({
     const seq = ++listSeq.current;
     setListBusy(true);
     try {
-      const res = await withTimeout(
-        bridge.fridaListProcesses(null, flag),
-        20000,
-        '刷新进程列表',
-      );
+      const res = await withTimeout(bridge.fridaListProcesses(null, flag), 20000, '刷新进程列表');
       if (seq !== listSeq.current) return;
       if (res?.ok && Array.isArray(res.processes)) {
         const slim = res.processes.slice(0, 500).map((p: ProcRow) => ({
@@ -704,15 +677,15 @@ export default function SettingsPage({
           name: p.name,
           window_title: p.window_title,
           exe_base: p.exe_base,
-          display: p.display,
+          display: p.display
         }));
         setProcesses(slim);
-        setSelectedKey((prev) => {
+        setSelectedKey(prev => {
           if (!prev) return prev;
           const pid = Number(prev.split('|')[0]);
           return slim.some((p: ProcRow) => p.pid === pid) ? prev : '';
         });
-        setFridaMsg((m) => (m.startsWith('无法枚举') || m.includes('枚举进程') ? '' : m));
+        setFridaMsg(m => (m.startsWith('无法枚举') || m.includes('枚举进程') ? '' : m));
       } else {
         setProcesses([]);
         setFridaMsg(res?.error || res?.message || '无法枚举进程');
@@ -867,7 +840,7 @@ export default function SettingsPage({
         title: '放弃未保存更改？',
         description: '当前文件有未保存修改，新建将丢弃这些更改。',
         confirmText: '继续新建',
-        destructive: true,
+        destructive: true
       });
       if (!ok) return;
     }
@@ -930,7 +903,7 @@ export default function SettingsPage({
     const ok = await confirm({
       title: '恢复默认存储位置',
       description: `将改回默认路径：\n${dataDirDefault || '%LOCALAPPDATA%\\Nexuz'}\n不会自动搬移已有文件。`,
-      confirmText: '恢复默认',
+      confirmText: '恢复默认'
     });
     if (!ok) return;
     setDataDirBusy(true);
@@ -955,14 +928,14 @@ export default function SettingsPage({
       title: '清空数据目录',
       description: `将永久删除整个数据文件夹及其内容（流程、模板、截图等）：\n${dataDirPath || '（未知）'}\n\n此操作不可恢复。清空后目录会被移除，只有再次保存到此位置时才会新建。`,
       confirmText: '删除整个文件夹',
-      destructive: true,
+      destructive: true
     });
     if (!ok) return;
     const ok2 = await confirm({
       title: '再次确认',
       description: '确定要删除整个数据目录吗？',
       confirmText: '确定删除',
-      destructive: true,
+      destructive: true
     });
     if (!ok2) return;
     setDataDirBusy(true);
@@ -988,7 +961,7 @@ export default function SettingsPage({
       description:
         '将删除数据目录下 screenshots 中的区域截图、图像匹配预览等缓存文件。\n不会删除流程，也不会删除 templates 里的模板图片。',
       confirmText: '清理缓存',
-      destructive: true,
+      destructive: true
     });
     if (!ok) return;
     setDataDirBusy(true);
@@ -1010,15 +983,8 @@ export default function SettingsPage({
   const filtered = useMemo(() => {
     const q = processFilter.trim().toLowerCase();
     if (!q) return processes;
-    return processes.filter((p) => {
-      const hay = [
-        p.name,
-        String(p.pid),
-        p.window_title || '',
-        p.exe || '',
-        p.exe_base || '',
-        p.display || '',
-      ]
+    return processes.filter(p => {
+      const hay = [p.name, String(p.pid), p.window_title || '', p.exe || '', p.exe_base || '', p.display || '']
         .join(' ')
         .toLowerCase();
       return hay.includes(q);
@@ -1028,7 +994,7 @@ export default function SettingsPage({
   const selected = useMemo(() => {
     if (!selectedKey || selectedKey === '__empty') return null;
     const pid = Number(selectedKey.split('|')[0]);
-    return processes.find((p) => p.pid === pid) || null;
+    return processes.find(p => p.pid === pid) || null;
   }, [selectedKey, processes]);
 
   const handleAttach = async () => {
@@ -1040,19 +1006,17 @@ export default function SettingsPage({
     setFridaBusy(true);
     setFridaMsg(`正在连接 ${selected.name} (PID ${selected.pid})…`);
     try {
-      const res = await withTimeout(
-        bridge.fridaAttach(selected.name, selected.pid),
-        45000,
-        '连接进程',
-      );
+      const res = await withTimeout(bridge.fridaAttach(selected.name, selected.pid), 45000, '连接进程');
       const ok = res?.ok === true;
       if (ok && res?.attached !== false) {
         if (res.hooked) {
-          setFridaMsg(`连接成功：${res.process_name || selected.name}${res.pid ? ` (PID ${res.pid})` : ''} · Hook 就绪`);
+          setFridaMsg(
+            `连接成功：${res.process_name || selected.name}${res.pid ? ` (PID ${res.pid})` : ''} · Hook 就绪`
+          );
         } else {
           const warn = res.warning || res.last_error || 'UI Hook 未就绪';
           setFridaMsg(
-            `连接成功：${res.process_name || selected.name}${res.pid ? ` (PID ${res.pid})` : ''} · Hook 未就绪：${warn}`,
+            `连接成功：${res.process_name || selected.name}${res.pid ? ` (PID ${res.pid})` : ''} · Hook 未就绪：${warn}`
           );
         }
       } else {
@@ -1111,16 +1075,18 @@ export default function SettingsPage({
     }
   };
 
-  const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(() =>
-    Object.fromEntries(SETTINGS_SECTION_IDS.map((id) => [id, false])) as Record<SectionId, boolean>,
+  const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(
+    () => Object.fromEntries(SETTINGS_SECTION_IDS.map(id => [id, false])) as Record<SectionId, boolean>
   );
   const toggleSection = (id: SectionId) => {
-    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
+    setOpenSections(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   return (
     <div className="flex-1 min-w-0 h-full overflow-auto">
-      <div className="w-full max-w-none px-6 py-8 space-y-3">
+      <div
+        className="w-full max-w-none px-6 py-8 space-y-3"
+        style={hideSidePanelsOnSettings ? undefined : { paddingLeft: '3rem', paddingRight: '3rem' }}>
         <div className="flex items-center gap-2 mb-5">
           <Settings2 style={{ color: colors.primary }} className="w-5 h-5" />
           <h1 className="font-display text-xl font-semibold" style={{ color: colors.text }}>
@@ -1135,8 +1101,7 @@ export default function SettingsPage({
               className="h-8 w-8 ml-auto shrink-0 opacity-70 hover:opacity-100"
               onClick={onClose}
               title="关闭设置"
-              aria-label="关闭设置"
-            >
+              aria-label="关闭设置">
               <X className="w-4 h-4" />
             </Button>
           ) : null}
@@ -1156,16 +1121,13 @@ export default function SettingsPage({
               className="h-7 px-2"
               disabled={updateBusy}
               onClick={() => void bridge.openReleasesPage()}
-              title="打开 GitHub Releases"
-            >
+              title="打开 GitHub Releases">
               <ExternalLink className="w-3.5 h-3.5" />
               Releases
             </Button>
-          }
-        >
+          }>
           <p className="text-sm pt-1" style={{ color: colors.text }}>
-            当前版本{' '}
-            <span className="font-mono font-medium">{appVersion || '…'}</span>
+            当前版本 <span className="font-mono font-medium">{appVersion || '…'}</span>
             {updateInfo?.latest_version && updateInfo?.update_available ? (
               <span className="ml-2 text-amber-600 dark:text-amber-400">
                 · 可更新至 {updateInfo.latest_version}
@@ -1177,13 +1139,12 @@ export default function SettingsPage({
             <Checkbox
               id="auto-check-update"
               checked={autoCheckUpdate}
-              onCheckedChange={(v) => handleAutoCheckChange(v === true)}
+              onCheckedChange={v => handleAutoCheckChange(v === true)}
             />
             <Label
               htmlFor="auto-check-update"
               className="text-sm cursor-pointer inline-flex items-center gap-1.5"
-              style={{ color: colors.text }}
-            >
+              style={{ color: colors.text }}>
               程序启动时自动检查新版本
             </Label>
           </div>
@@ -1214,12 +1175,16 @@ export default function SettingsPage({
           open={openSections.data}
           onToggle={() => toggleSection('data')}
           colors={colors}
-          headerRight={<HelpHint text="流程、模板、截图等保存在本机数据目录（默认 %LOCALAPPDATA%\Nexuz）。热更新只替换程序，不会动这里。" colors={colors} themeMode={themeMode} />}
-        >
+          headerRight={
+            <HelpHint
+              text="流程、模板、截图等保存在本机数据目录（默认 %LOCALAPPDATA%\Nexuz）。热更新只替换程序，不会动这里。"
+              colors={colors}
+              themeMode={themeMode}
+            />
+          }>
           <div
             className="rounded-xl border px-3 py-2.5 font-mono text-xs break-all mt-1"
-            style={{ borderColor: colors.border, color: colors.text }}
-          >
+            style={{ borderColor: colors.border, color: colors.text }}>
             {dataDirPath || '…'}
             <span className="block mt-1 opacity-60">
               {dataDirExists ? '目录存在' : '目录不存在（保存后会自动创建）'}
@@ -1228,15 +1193,30 @@ export default function SettingsPage({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={dataDirBusy} onClick={() => void handleOpenDataDir()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={dataDirBusy}
+              onClick={() => void handleOpenDataDir()}>
               <FolderOpen className="w-3.5 h-3.5" />
               打开数据目录
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={dataDirBusy} onClick={() => void handlePickDataDir()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={dataDirBusy}
+              onClick={() => void handlePickDataDir()}>
               更改位置
             </Button>
             {!dataDirIsDefault && (
-              <Button type="button" size="sm" variant="ghost" disabled={dataDirBusy} onClick={() => void handleResetDataDir()}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={dataDirBusy}
+                onClick={() => void handleResetDataDir()}>
                 恢复默认
               </Button>
             )}
@@ -1246,8 +1226,7 @@ export default function SettingsPage({
               variant="outline"
               disabled={dataDirBusy}
               onClick={() => void handleClearScreenshotCache()}
-              title="清理 screenshots 缓存（区域截图 / 匹配预览），不影响流程与模板"
-            >
+              title="清理 screenshots 缓存（区域截图 / 匹配预览），不影响流程与模板">
               <Trash2 className="w-3.5 h-3.5" />
               清理截图缓存
             </Button>
@@ -1257,8 +1236,7 @@ export default function SettingsPage({
               variant="outline"
               disabled={dataDirBusy}
               className="text-rose-500 border-rose-500/40 hover:bg-rose-500/10"
-              onClick={() => void handleClearDataDir()}
-            >
+              onClick={() => void handleClearDataDir()}>
               <Trash2 className="w-3.5 h-3.5" />
               清空数据目录
             </Button>
@@ -1282,25 +1260,23 @@ export default function SettingsPage({
               colors={colors}
               themeMode={themeMode}
             />
-          }
-        >
+          }>
           <div
             className="rounded-xl border px-3 py-2.5 font-mono text-xs break-all mt-1"
-            style={{ borderColor: colors.border, color: colors.text }}
-          >
+            style={{ borderColor: colors.border, color: colors.text }}>
             {userBlocksPath || '…'}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={userBlockFile || undefined}
-              onValueChange={(v) => {
+              onValueChange={v => {
                 if (userBlockDirty) {
                   void (async () => {
                     const ok = await confirm({
                       title: '切换文件？',
                       description: '当前有未保存修改，切换将丢弃更改。',
                       confirmText: '切换',
-                      destructive: true,
+                      destructive: true
                     });
                     if (ok) {
                       setUserBlockDirty(false);
@@ -1310,13 +1286,12 @@ export default function SettingsPage({
                   return;
                 }
                 setUserBlockFile(v);
-              }}
-            >
+              }}>
               <SelectTrigger className="h-8 text-xs w-[12rem]">
                 <SelectValue placeholder="选择 .py 文件" />
               </SelectTrigger>
               <SelectContent>
-                {userBlockFiles.map((f) => (
+                {userBlockFiles.map(f => (
                   <SelectItem key={f.name} value={f.name} className="text-xs font-mono">
                     {f.name}
                   </SelectItem>
@@ -1328,8 +1303,7 @@ export default function SettingsPage({
               size="sm"
               variant="outline"
               disabled={userBlocksBusy || !userBlockFile}
-              onClick={() => void handleSaveUserBlock()}
-            >
+              onClick={() => void handleSaveUserBlock()}>
               <Save className="w-3.5 h-3.5" />
               保存{userBlockDirty ? ' *' : ''}
             </Button>
@@ -1338,8 +1312,7 @@ export default function SettingsPage({
               size="sm"
               variant="outline"
               disabled={userBlocksBusy}
-              onClick={() => void handleRefreshUserBlocks()}
-            >
+              onClick={() => void handleRefreshUserBlocks()}>
               <RefreshCw className="w-3.5 h-3.5" />
               刷新积木
             </Button>
@@ -1348,8 +1321,7 @@ export default function SettingsPage({
               size="sm"
               variant="ghost"
               disabled={userBlocksBusy}
-              onClick={() => void handleOpenUserBlocksDir()}
-            >
+              onClick={() => void handleOpenUserBlocksDir()}>
               <FolderOpen className="w-3.5 h-3.5" />
               打开目录
             </Button>
@@ -1359,22 +1331,21 @@ export default function SettingsPage({
               className="h-8 text-xs font-mono w-[12rem]"
               placeholder="新文件 my_block.py"
               value={newBlockName}
-              onChange={(e) => setNewBlockName(e.target.value)}
+              onChange={e => setNewBlockName(e.target.value)}
             />
             <Button
               type="button"
               size="sm"
               variant="outline"
               disabled={userBlocksBusy}
-              onClick={() => void handleCreateUserBlock()}
-            >
+              onClick={() => void handleCreateUserBlock()}>
               新建积木
             </Button>
           </div>
           {userBlockFile ? (
             <PythonScriptEditor
               value={userBlockCode}
-              onChange={(v) => {
+              onChange={v => {
                 setUserBlockCode(v);
                 setUserBlockDirty(true);
               }}
@@ -1406,33 +1377,23 @@ export default function SettingsPage({
               className="h-7 px-2"
               disabled={annBusy}
               onClick={() => void loadAnnouncement()}
-              title="刷新公告"
-            >
+              title="刷新公告">
               <RefreshCw className={`w-3.5 h-3.5 ${annBusy ? 'animate-spin' : ''}`} />
             </Button>
-          }
-        >
+          }>
           {updateHistory.length > 0 || announcement?.body ? (
             <div
               className="max-h-72 overflow-y-auto pr-1 space-y-1 rounded-xl border mt-1"
-              style={{ borderColor: colors.border }}
-            >
+              style={{ borderColor: colors.border }}>
               {(updateHistory.length ? updateHistory : [announcement]).map((item: any, idx: number) => {
                 const key = String(item.version || item.id || idx);
                 const open = !!annOpenIds[key];
                 return (
-                  <div
-                    key={key}
-                    className="border-b last:border-b-0"
-                    style={{ borderColor: colors.border }}
-                  >
+                  <div key={key} className="border-b last:border-b-0" style={{ borderColor: colors.border }}>
                     <button
                       type="button"
                       className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
-                      onClick={() =>
-                        setAnnOpenIds((prev) => ({ ...prev, [key]: !prev[key] }))
-                      }
-                    >
+                      onClick={() => setAnnOpenIds(prev => ({ ...prev, [key]: !prev[key] }))}>
                       {open ? (
                         <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-70" />
                       ) : (
@@ -1441,18 +1402,14 @@ export default function SettingsPage({
                       <span className="font-mono text-xs opacity-70 shrink-0">
                         v{item.version || item.id || '?'}
                       </span>
-                      <span
-                        className="text-sm font-medium truncate flex-1"
-                        style={{ color: colors.text }}
-                      >
+                      <span className="text-sm font-medium truncate flex-1" style={{ color: colors.text }}>
                         {item.title || '更新'}
                       </span>
                     </button>
                     {open ? (
                       <div
                         className="px-3 pb-3 pl-9 text-sm leading-relaxed whitespace-pre-wrap"
-                        style={{ color: colors.secondaryText }}
-                      >
+                        style={{ color: colors.secondaryText }}>
                         {item.body || '（无正文）'}
                       </div>
                     ) : null}
@@ -1472,8 +1429,7 @@ export default function SettingsPage({
           icon={<MousePointer2 className="w-4 h-4" />}
           open={openSections.click}
           onToggle={() => toggleSection('click')}
-          colors={colors}
-        >
+          colors={colors}>
           <div className="space-y-2 pt-1">
             <div className="flex items-center gap-1.5">
               <Label className="text-sm font-medium normal-case tracking-normal" style={{ color: colors.text }}>
@@ -1487,10 +1443,9 @@ export default function SettingsPage({
             </div>
             <Select
               value={defaultCaptureMode || 'coord'}
-              onValueChange={(v) => {
+              onValueChange={v => {
                 void handleDefaultCaptureModeChange(v);
-              }}
-            >
+              }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1514,10 +1469,9 @@ export default function SettingsPage({
             </div>
             <Select
               value={defaultPickMethod || 'screenshot'}
-              onValueChange={(v) => {
+              onValueChange={v => {
                 void handleDefaultPickMethodChange(v);
-              }}
-            >
+              }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1541,10 +1495,9 @@ export default function SettingsPage({
             </div>
             <Select
               value={defaultCoordinateMode || 'window_client'}
-              onValueChange={(v) => {
+              onValueChange={v => {
                 void handleDefaultCoordinateModeChange(v);
-              }}
-            >
+              }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1569,10 +1522,9 @@ export default function SettingsPage({
             </div>
             <Select
               value={defaultOutputCoordinateMode || 'region_rel'}
-              onValueChange={(v) => {
+              onValueChange={v => {
                 void handleDefaultOutputCoordinateModeChange(v);
-              }}
-            >
+              }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1588,8 +1540,7 @@ export default function SettingsPage({
               <Label
                 htmlFor="default-node-interval"
                 className="text-sm font-medium normal-case tracking-normal"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 节点间延时（毫秒）
               </Label>
               <HelpHint
@@ -1604,7 +1555,7 @@ export default function SettingsPage({
               min={0}
               step={10}
               value={defaultNodeIntervalMs ?? 100}
-              onChange={(e) => setDefaultNodeIntervalMs(e.target.value)}
+              onChange={e => setDefaultNodeIntervalMs(e.target.value)}
             />
           </div>
         </SettingsSection>
@@ -1621,8 +1572,7 @@ export default function SettingsPage({
               colors={colors}
               themeMode={themeMode}
             />
-          }
-        >
+          }>
           <div className="flex items-center gap-2 text-xs pt-1" style={{ color: colors.secondaryText }}>
             <span
               className={`inline-block w-2 h-2 rounded-full ${
@@ -1653,8 +1603,7 @@ export default function SettingsPage({
                 onClick={() => {
                   void refreshProcesses(onlyWithWindow);
                 }}
-                title="刷新进程列表"
-              >
+                title="刷新进程列表">
                 <RefreshCw className={`w-3.5 h-3.5 ${listBusy ? 'animate-spin' : ''}`} />
                 刷新
               </Button>
@@ -1664,13 +1613,12 @@ export default function SettingsPage({
               <Checkbox
                 id="only-with-window"
                 checked={onlyWithWindow}
-                onCheckedChange={(v) => setOnlyWithWindow(!!v)}
+                onCheckedChange={v => setOnlyWithWindow(!!v)}
               />
               <Label
                 htmlFor="only-with-window"
                 className="text-xs font-normal normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 仅显示有窗口的进程
                 <HelpHint text="推荐：过滤掉同名后台/辅助进程。" colors={colors} themeMode={themeMode} />
               </Label>
@@ -1678,16 +1626,15 @@ export default function SettingsPage({
 
             <Input
               value={processFilter}
-              onChange={(e) => setProcessFilter(e.target.value)}
+              onChange={e => setProcessFilter(e.target.value)}
               placeholder="过滤：窗口标题 / 进程名 / PID / 路径"
               className="font-mono text-xs"
             />
             <Select
               value={selectedKey || undefined}
-              onValueChange={(v) => {
+              onValueChange={v => {
                 if (v !== '__empty') setSelectedKey(v);
-              }}
-            >
+              }}>
               <SelectTrigger>
                 <SelectValue placeholder={listBusy ? '加载中…' : '从列表选择游戏进程'} />
               </SelectTrigger>
@@ -1701,7 +1648,7 @@ export default function SettingsPage({
                         : '无匹配进程，点刷新重试'}
                   </SelectItem>
                 ) : (
-                  filtered.slice(0, 400).map((p) => (
+                  filtered.slice(0, 400).map(p => (
                     <SelectItem key={`${p.pid}|${p.name}`} value={`${p.pid}|${p.name}`}>
                       <span className="font-mono text-xs leading-snug block max-w-[420px] truncate">
                         {p.display ||
@@ -1717,8 +1664,7 @@ export default function SettingsPage({
             {selected && (
               <p
                 className="text-xs font-mono leading-relaxed opacity-70 break-all"
-                style={{ color: colors.secondaryText }}
-              >
+                style={{ color: colors.secondaryText }}>
                 {selected.window_title ? `窗口：${selected.window_title}` : '无窗口标题'}
                 {selected.exe ? `\n路径：${selected.exe}` : ''}
               </p>
@@ -1734,8 +1680,7 @@ export default function SettingsPage({
               size="sm"
               variant="outline"
               disabled={fridaBusy || !fridaStatus.attached}
-              onClick={handleDetach}
-            >
+              onClick={handleDetach}>
               <Unplug className="w-3.5 h-3.5" />
               断开
             </Button>
@@ -1752,20 +1697,18 @@ export default function SettingsPage({
           icon={<Monitor className="w-4 h-4" />}
           open={openSections.window}
           onToggle={() => toggleSection('window')}
-          colors={colors}
-        >
+          colors={colors}>
           <div className="space-y-3 pt-1">
             <div className="flex items-center gap-3">
               <Checkbox
                 id="setting-hide-window"
                 checked={hideWindowOnRecord}
-                onCheckedChange={(v) => setHideWindowOnRecord(!!v)}
+                onCheckedChange={v => setHideWindowOnRecord(!!v)}
               />
               <Label
                 htmlFor="setting-hide-window"
                 className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 <EyeOff className="w-3.5 h-3.5 opacity-70" />
                 操作时防误点（运行监控 / 录制隐藏）
                 <HelpHint
@@ -1785,13 +1728,12 @@ export default function SettingsPage({
               <Checkbox
                 id="setting-toolbar-labels"
                 checked={showToolbarLabels}
-                onCheckedChange={(v) => setShowToolbarLabels(!!v)}
+                onCheckedChange={v => setShowToolbarLabels(!!v)}
               />
               <Label
                 htmlFor="setting-toolbar-labels"
                 className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 <Type className="w-3.5 h-3.5 opacity-70" />
                 显示顶部按钮文字
                 <HelpHint
@@ -1805,13 +1747,12 @@ export default function SettingsPage({
               <Checkbox
                 id="setting-hide-side-panels"
                 checked={hideSidePanelsOnSettings}
-                onCheckedChange={(v) => setHideSidePanelsOnSettings(!!v)}
+                onCheckedChange={v => setHideSidePanelsOnSettings(!!v)}
               />
               <Label
                 htmlFor="setting-hide-side-panels"
                 className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 <PanelsTopLeft className="w-3.5 h-3.5 opacity-70" />
                 打开设置时隐藏左右面板
                 <HelpHint
@@ -1824,8 +1765,7 @@ export default function SettingsPage({
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <Label
                 className="text-sm font-medium normal-case tracking-normal inline-flex items-center gap-1.5"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 <MousePointer2 className="w-3.5 h-3.5 opacity-70" />
                 节点右键菜单
                 <HelpHint
@@ -1836,10 +1776,7 @@ export default function SettingsPage({
               </Label>
               <Select
                 value={nodeContextMenuMode}
-                onValueChange={(v) =>
-                  setNodeContextMenuMode(v === 'flat' ? 'flat' : 'grouped')
-                }
-              >
+                onValueChange={v => setNodeContextMenuMode(v === 'flat' ? 'flat' : 'grouped')}>
                 <SelectTrigger className="h-8 text-xs w-[11rem]">
                   <SelectValue />
                 </SelectTrigger>
@@ -1852,8 +1789,7 @@ export default function SettingsPage({
           </div>
           <p className="text-xs leading-relaxed opacity-60 pt-3" style={{ color: colors.text }}>
             标题栏「插件模式」可让窗口浮在无边框全屏游戏之上并调节透明度。默认快捷键：
-            {formatHotkeyLabel(hotkeys?.plugin_mode || DEFAULT_HOTKEYS.plugin_mode)}{' '}
-            开关插件模式、
+            {formatHotkeyLabel(hotkeys?.plugin_mode || DEFAULT_HOTKEYS.plugin_mode)} 开关插件模式、
             {formatHotkeyLabel(hotkeys?.click_through || DEFAULT_HOTKEYS.click_through)}{' '}
             开关点击穿透（可在下方「快捷键」中改键）。独占全屏游戏在点到本窗口时仍可能退出全屏。
           </p>
@@ -1871,20 +1807,18 @@ export default function SettingsPage({
               colors={colors}
               themeMode={themeMode}
             />
-          }
-        >
+          }>
           <div className="space-y-4 pt-1">
             <div className="flex items-center gap-3">
               <Checkbox
                 id="setting-auto-save"
                 checked={autoSaveEnabled}
-                onCheckedChange={(v) => setAutoSaveEnabled(!!v)}
+                onCheckedChange={v => setAutoSaveEnabled(!!v)}
               />
               <Label
                 htmlFor="setting-auto-save"
                 className="text-sm font-medium normal-case tracking-normal cursor-pointer"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 启用自动保存
               </Label>
             </div>
@@ -1892,8 +1826,7 @@ export default function SettingsPage({
               <Label
                 htmlFor="setting-auto-save-interval"
                 className="text-sm font-medium normal-case tracking-normal shrink-0"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 自动保存间隔（秒）
               </Label>
               <Input
@@ -1905,7 +1838,7 @@ export default function SettingsPage({
                 className="h-8 w-28"
                 disabled={!autoSaveEnabled}
                 value={autoSaveIntervalSec}
-                onChange={(e) => setAutoSaveIntervalSec(e.target.value)}
+                onChange={e => setAutoSaveIntervalSec(e.target.value)}
                 title="范围 10～3600 秒"
               />
             </div>
@@ -1913,13 +1846,12 @@ export default function SettingsPage({
               <Checkbox
                 id="setting-save-after-run"
                 checked={saveAfterRun}
-                onCheckedChange={(v) => setSaveAfterRun(!!v)}
+                onCheckedChange={v => setSaveAfterRun(!!v)}
               />
               <Label
                 htmlFor="setting-save-after-run"
                 className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
-                style={{ color: colors.text }}
-              >
+                style={{ color: colors.text }}>
                 运行结束后自动保存流程
                 <HelpHint
                   text="流程运行完成或停止后自动保存。若尚未保存过，将自动命名为「年月日_时分秒_N节点」并写入流程库。"
@@ -1936,8 +1868,7 @@ export default function SettingsPage({
           icon={<Keyboard className="w-4 h-4" />}
           open={openSections.shortcuts}
           onToggle={() => toggleSection('shortcuts')}
-          colors={colors}
-        >
+          colors={colors}>
           <div className="space-y-3 pt-1 text-sm" style={{ color: colors.text }}>
             <p className="text-xs opacity-70 leading-relaxed">
               在输入框中打字时，下列画布快捷键不会触发，以免误删或打断输入。全局快捷键在窗口隐藏时仍可用，可点「改键」重新录制。
@@ -2006,8 +1937,7 @@ export default function SettingsPage({
                       /* ignore */
                     }
                   }}
-                  title="恢复全部全局快捷键为默认"
-                >
+                  title="恢复全部全局快捷键为默认">
                   全部恢复默认
                 </Button>
               </div>
@@ -2018,9 +1948,9 @@ export default function SettingsPage({
                   { slot: 'stop_run', label: '结束运行' },
                   { slot: 'record_stop', label: '停止录制' },
                   { slot: 'plugin_mode', label: '开关插件模式' },
-                  { slot: 'click_through', label: '开关点击穿透' },
+                  { slot: 'click_through', label: '开关点击穿透' }
                 ] as const
-              ).map((row) => (
+              ).map(row => (
                 <div key={row.slot} className="flex items-center gap-2 min-w-0">
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     <Label className="text-xs opacity-80 shrink-0">{row.label}</Label>
@@ -2036,20 +1966,19 @@ export default function SettingsPage({
                         } catch {
                           /* ignore */
                         }
-                      }}
-                    >
+                      }}>
                       默认 {formatHotkeyLabel(DEFAULT_HOTKEYS[row.slot])}
                     </button>
                   </div>
                   <HotkeyCaptureField
                     value={hotkeys?.[row.slot] || DEFAULT_HOTKEYS[row.slot]}
                     colors={colors}
-                    onChange={async (keys) => {
+                    onChange={async keys => {
                       const res = setHotkey(row.slot, keys);
                       if (res?.ok === false) {
                         await alert({
                           title: '快捷键冲突',
-                          description: res.error || '与其它快捷键重复，请换一组',
+                          description: res.error || '与其它快捷键重复，请换一组'
                         });
                         return;
                       }
@@ -2058,7 +1987,7 @@ export default function SettingsPage({
                         if (sync?.ok === false) {
                           await alert({
                             title: '快捷键冲突',
-                            description: sync.error || '与其它快捷键重复',
+                            description: sync.error || '与其它快捷键重复'
                           });
                         }
                       } catch {
@@ -2087,19 +2016,17 @@ export default function SettingsPage({
               colors={colors}
               themeMode={themeMode}
             />
-          }
-        >
+          }>
           <div className="flex items-center gap-2 pt-1">
             <Checkbox
               id="diag-logging"
               checked={diagLogging}
-              onCheckedChange={(v) => void handleDiagLoggingChange(v === true)}
+              onCheckedChange={v => void handleDiagLoggingChange(v === true)}
             />
             <Label
               htmlFor="diag-logging"
               className="text-sm cursor-pointer inline-flex items-center gap-1.5"
-              style={{ color: colors.text }}
-            >
+              style={{ color: colors.text }}>
               记录诊断日志
               <HelpHint
                 text="包含内存采样、坐标换算中间值等细节。关闭时不推送到界面、不写入诊断落盘。"
