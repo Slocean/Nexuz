@@ -2,12 +2,10 @@
 #
 # Usage:
 #   .\scripts\sign_exe.ps1 -ExePath dist\Nexuz.exe -PfxPath cert.pfx -Password "xxx"
-#   .\scripts\sign_exe.ps1 -ExePath dist\Nexuz.exe   # reads WINDOWS_CERTIFICATE_PASSWORD / file from env
+#   .\scripts\sign_exe.ps1 -ExePath dist\Nexuz.exe   # env: WINDOWS_CERTIFICATE_FILE / PASSWORD
 #
-# In GitHub Actions, secrets WINDOWS_CERTIFICATE (base64 pfx) + WINDOWS_CERTIFICATE_PASSWORD are used.
-#
-# Note: self-signed certs will NOT pass `signtool verify /pa` (no trusted root).
-# We treat "has Authenticode signer" as success for interim certs; OV/EV still pass /pa.
+# Self-signed certs are OK. We do NOT use `signtool verify /pa` (fails without trusted root
+# and leaves a non-zero process exit code that breaks GitHub Actions pwsh steps).
 
 param(
   [Parameter(Mandatory = $true)]
@@ -19,6 +17,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$global:LASTEXITCODE = 0
 
 if (-not (Test-Path -LiteralPath $ExePath)) {
   throw "Exe not found: $ExePath"
@@ -38,7 +37,9 @@ if (-not $Password) {
   throw "PFX password required. Pass -Password or set WINDOWS_CERTIFICATE_PASSWORD"
 }
 
-$Password = $Password.Trim()
+$Password = "$Password".Trim()
+$ExePath = (Resolve-Path -LiteralPath $ExePath).Path
+$PfxPath = (Resolve-Path -LiteralPath $PfxPath).Path
 
 function Find-SignTool {
   $cmd = Get-Command signtool.exe -ErrorAction SilentlyContinue
@@ -57,52 +58,54 @@ function Find-SignTool {
   throw "signtool.exe not found. Install Windows SDK / Build Tools."
 }
 
-function Assert-HasAuthenticodeSignature {
-  param([string]$Path)
-
-  $sig = Get-AuthenticodeSignature -FilePath $Path
-  if ($sig.Status -eq "NotSigned" -or -not $sig.SignerCertificate) {
-    throw "signature verify failed: file is not Authenticode-signed (Status=$($sig.Status))"
+function Invoke-SignTool {
+  param([string[]]$SignArgs)
+  $output = & $script:signtool @SignArgs 2>&1
+  $code = $LASTEXITCODE
+  $global:LASTEXITCODE = 0
+  if ($output) {
+    $output | ForEach-Object { Write-Host $_ }
   }
-
-  Write-Host "Authenticode Status=$($sig.Status) Subject=$($sig.SignerCertificate.Subject)"
-  Write-Host "Thumbprint=$($sig.SignerCertificate.Thumbprint)"
-
-  # Preferred path for OV/EV (trusted chain). Self-signed usually fails /pa — that is OK.
-  & $script:signtool verify /pa /v $Path
-  if ($LASTEXITCODE -eq 0) {
-    Write-Host "OK: trusted-chain verify (/pa) passed"
-    return
-  }
-
-  Write-Host "WARN: signtool verify /pa failed (common for self-signed). Accepting signer presence."
+  return $code
 }
 
 $script:signtool = Find-SignTool
 Write-Host "Using signtool: $signtool"
 Write-Host "Signing: $ExePath"
 
-& $signtool sign `
-  /f $PfxPath `
-  /p $Password `
-  /fd sha256 `
-  /tr $TimestampUrl `
-  /td sha256 `
-  /d "Nexuz" `
+$signCode = Invoke-SignTool @(
+  "sign",
+  "/f", $PfxPath,
+  "/p", $Password,
+  "/fd", "sha256",
+  "/tr", $TimestampUrl,
+  "/td", "sha256",
+  "/d", "Nexuz",
   $ExePath
+)
 
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "Timestamped sign failed (exit $LASTEXITCODE); retry without timestamp..."
-  & $signtool sign `
-    /f $PfxPath `
-    /p $Password `
-    /fd sha256 `
-    /d "Nexuz" `
+if ($signCode -ne 0) {
+  Write-Host "Timestamped sign failed (exit $signCode); retry without timestamp..."
+  $signCode = Invoke-SignTool @(
+    "sign",
+    "/f", $PfxPath,
+    "/p", $Password,
+    "/fd", "sha256",
+    "/d", "Nexuz",
     $ExePath
-  if ($LASTEXITCODE -ne 0) {
-    throw "signtool failed with exit $LASTEXITCODE"
+  )
+  if ($signCode -ne 0) {
+    throw "signtool sign failed with exit $signCode"
   }
 }
 
-Assert-HasAuthenticodeSignature -Path $ExePath
+$sig = Get-AuthenticodeSignature -FilePath $ExePath
+if ($null -eq $sig.SignerCertificate -or $sig.Status -eq "NotSigned") {
+  throw "signature missing after signtool (Status=$($sig.Status))"
+}
+
+Write-Host "Authenticode Status=$($sig.Status)"
+Write-Host "Subject=$($sig.SignerCertificate.Subject)"
+Write-Host "Thumbprint=$($sig.SignerCertificate.Thumbprint)"
 Write-Host "OK: signed $ExePath"
+$global:LASTEXITCODE = 0

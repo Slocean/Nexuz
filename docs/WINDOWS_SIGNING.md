@@ -40,7 +40,7 @@
 
 按脚本提示把生成的 base64 / 密码填进上述两个 Secrets。  
 自签名仍可能被 Defender 报毒，但比完全不签好一些；请尽快换成正式证书。  
-`signtool verify /pa` 对自签名会失败（无受信任根），Release 脚本在确认已带签名者后会接受这种情况。
+Release 用 `Get-AuthenticodeSignature` 确认已签名，**不再**跑 `signtool verify /pa`（自签名必失败，还会把 GitHub Actions 步骤退出码弄成 1）。
 
 ## 本地签名
 
