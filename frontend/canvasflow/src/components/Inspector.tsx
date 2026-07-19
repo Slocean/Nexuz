@@ -2686,30 +2686,34 @@ export default function Inspector({
                 </Button>
               ) : null}
             </div>
-            <div className="space-y-0.5 max-h-36 overflow-y-auto overflow-x-hidden font-mono text-sm leading-relaxed select-text cursor-text rounded-lg border border-black/5 dark:border-white/5 px-2 py-1.5 min-w-0 w-full max-w-full">
+            <div
+              className="space-y-0.5 max-h-36 overflow-y-auto overflow-x-hidden font-mono text-[12px] leading-relaxed select-text cursor-text rounded-lg border px-2.5 py-2 min-w-0 w-full max-w-full"
+              style={{
+                background: '#0d1117',
+                borderColor: 'rgba(255,255,255,0.1)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+              }}
+            >
               {nodeLogs.length === 0 ? (
-                <p className="text-xs opacity-50 py-2">此节点尚无运行日志</p>
+                <p className="text-slate-500 py-2"># 此节点尚无运行日志</p>
               ) : (
                 nodeLogs.map(log => (
                   <div
                     key={log.id}
-                    className={`break-all whitespace-pre-wrap py-0.5 select-text min-w-0 w-full max-w-full ${
+                    className={`break-all whitespace-pre-wrap py-px select-text min-w-0 w-full max-w-full ${
                       log.type === 'error'
-                        ? 'text-rose-500'
+                        ? 'text-rose-400'
                         : log.type === 'warning'
-                          ? 'text-amber-500'
+                          ? 'text-amber-400'
                           : log.type === 'success'
-                            ? 'text-emerald-500'
-                            : ''
+                            ? 'text-emerald-400'
+                            : 'text-slate-400'
                     }`}
                     style={{
                       overflowWrap: 'anywhere',
                       wordBreak: 'break-word',
-                      ...(log.type === 'error' || log.type === 'warning' || log.type === 'success'
-                        ? {}
-                        : { color: colors.secondaryText }),
                     }}>
-                    <span className="opacity-50 mr-2">{log.timestamp}</span>
+                    <span className="text-slate-500 mr-2">{log.timestamp}</span>
                     {log.message}
                   </div>
                 ))
