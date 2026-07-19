@@ -28,6 +28,7 @@ import ExpressionField from './ExpressionField';
 import LogicTreeEditor, { normalizeLogicValue } from './LogicTreeEditor';
 import TemplateImageField from './TemplateImageField';
 import JsonTreeView from './JsonTreeView';
+import CodeChromePanel from './CodeChromePanel';
 import PythonScriptEditor from './PythonScriptEditor';
 import FlowPathField from './FlowPathField';
 import WindowPickField from './WindowPickField';
@@ -2659,26 +2660,29 @@ export default function Inspector({
               );
             })()}
 
-            {outputText ? (
-              <JsonTreeView
-                data={
-                  selectedNode.outputData && typeof selectedNode.outputData === 'object'
-                    ? selectedNode.outputData
-                    : outputText
-                }
-                onCopied={() => {
-                  setOutputCopied(true);
-                  setTimeout(() => setOutputCopied(false), 2000);
-                }}
-                style={{
-                  backgroundColor: themeMode === 'light' ? '#F1F5F9' : '#05070A',
-                  borderColor: colors.border,
-                }}
-                className="p-2 border max-h-64 overflow-y-auto overflow-x-hidden cursor-text min-w-0 w-full max-w-full"
-              />
-            ) : (
-              <p className="text-xs opacity-50 py-1">运行后将显示此节点输出</p>
-            )}
+            <CodeChromePanel
+              title="output.json"
+              meta={outputText ? `${outputText.split('\n').length} lines` : undefined}
+              maxHeight={256}
+              emptyText={outputText ? undefined : '# 运行后将显示此节点输出'}
+              bodyClassName="!px-2 !py-1.5"
+            >
+              {outputText ? (
+                <JsonTreeView
+                  data={
+                    selectedNode.outputData && typeof selectedNode.outputData === 'object'
+                      ? selectedNode.outputData
+                      : outputText
+                  }
+                  onCopied={() => {
+                    setOutputCopied(true);
+                    setTimeout(() => setOutputCopied(false), 2000);
+                  }}
+                  style={{ backgroundColor: 'transparent', border: 'none' }}
+                  className="cursor-text min-w-0 w-full max-w-full overflow-x-hidden"
+                />
+              ) : null}
+            </CodeChromePanel>
           </div>
 
           <div className="space-y-2">

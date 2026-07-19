@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Activity, Pause, Play, Square, Terminal } from 'lucide-react';
+import { Activity, Pause, Play, Square } from 'lucide-react';
 import { getThemeColors } from '../theme';
 import type { ThemeMode, ThemeName } from '../types';
 import { ResourceMonitorPanel } from './ResourceMonitorHud';
 import { useFlowStore } from '@/store/flowModelStore';
+import CodeChromePanel from './CodeChromePanel';
 
 type Props = {
   flowName?: string;
@@ -148,49 +149,24 @@ export default function RunMonitorView({
         className="flex-1 min-h-0 flex flex-col pt-2 pb-1"
         style={{ WebkitAppRegion: 'no-drag', paddingLeft: 15, paddingRight: 15 } as React.CSSProperties}
       >
-        <div
-          className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-lg border"
-          style={{
-            background: '#0d1117',
-            borderColor: 'rgba(255,255,255,0.1)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-          }}
+        <CodeChromePanel
+          title="run.log"
+          meta={`${runLogs.length} lines`}
+          fill
+          emptyText="# waiting for runtime logs…"
+          bodyRef={logBoxRef}
+          bodyClassName="font-mono text-[12px] leading-relaxed"
+          bodyStyle={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <div
-            className="shrink-0 flex items-center gap-2 px-2.5 py-1.5 border-b"
-            style={{
-              background: '#161b22',
-              borderColor: 'rgba(255,255,255,0.08)',
-            }}
-          >
-            <span className="inline-flex gap-1">
-              <span className="w-2 h-2 rounded-full bg-[#ff5f56]" />
-              <span className="w-2 h-2 rounded-full bg-[#ffbd2e]" />
-              <span className="w-2 h-2 rounded-full bg-[#27c93f]" />
-            </span>
-            <Terminal className="w-3 h-3 text-slate-400" />
-            <span className="text-[11px] font-mono text-slate-400 tracking-wide">
-              run.log
-            </span>
-            <span className="ml-auto text-[10px] font-mono text-slate-500">
-              {runLogs.length} lines
-            </span>
-          </div>
-          <div
-            ref={logBoxRef}
-            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2.5 py-2 font-mono text-[12px] leading-relaxed select-text"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            {runLogs.length === 0 ? (
-              <div className="text-slate-500 py-2"># waiting for runtime logs…</div>
-            ) : (
-              runLogs.map((log: any, i: number) => {
+          {runLogs.length > 0 ? (
+            <>
+              {runLogs.map((log: any, i: number) => {
                 const color = levelColor(log.level);
                 const ts = formatTs(log.ts);
                 return (
                   <div
                     key={`${log.ts || 0}-${i}-${String(log.message || '').slice(0, 20)}`}
-                    className="whitespace-pre-wrap break-all py-[1px]"
+                    className="whitespace-pre-wrap break-all py-px"
                     style={{ color, overflowWrap: 'anywhere' }}
                   >
                     <span className="text-slate-500 mr-2">{ts}</span>
@@ -200,11 +176,11 @@ export default function RunMonitorView({
                     {log.message}
                   </div>
                 );
-              })
-            )}
-            <div ref={logEndRef} />
-          </div>
-        </div>
+              })}
+              <div ref={logEndRef} />
+            </>
+          ) : null}
+        </CodeChromePanel>
       </div>
 
       <div
