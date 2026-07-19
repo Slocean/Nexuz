@@ -145,13 +145,27 @@ jobs:
           if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
             throw "Signed release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD. Use release_unsigned.bat for a dev build, or see docs/WINDOWS_SIGNING.md"
           }
-          $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          # Trim / strip whitespace — Secrets UI paste often adds a trailing newline.
+          $b64 = ($env:WINDOWS_CERTIFICATE -replace '\s', '').Trim()
+          $pass = $env:WINDOWS_CERTIFICATE_PASSWORD.Trim()
+          try {
+            $bytes = [Convert]::FromBase64String($b64)
+          } catch {
+            throw "WINDOWS_CERTIFICATE is not valid base64. Re-copy .codesign/nexuz-codesign.pfx.b64.txt in full."
+          }
           $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
-          $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
-            $bytes,
-            $env:WINDOWS_CERTIFICATE_PASSWORD,
-            $flags
-          )
+          try {
+            $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new($bytes, $pass, $flags)
+          } catch {
+            throw @"
+WINDOWS_CERTIFICATE_PASSWORD does not match the PFX (or the base64 is from a different cert).
+Fix: regenerate with scripts/new_codesign_cert.ps1, then update BOTH secrets from the same run:
+  WINDOWS_CERTIFICATE          <- .codesign/nexuz-codesign.pfx.b64.txt
+  WINDOWS_CERTIFICATE_PASSWORD <- .codesign/password.txt
+Or use release_unsigned.bat to skip signing.
+Original error: $($_.Exception.Message)
+"@
+          }
           $sha = [Security.Cryptography.SHA256]::Create()
           try {
             $fingerprint = [BitConverter]::ToString($sha.ComputeHash($cert.RawData)).Replace("-", "")

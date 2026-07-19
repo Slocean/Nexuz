@@ -44,16 +44,28 @@ $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $pfxPath))
 $b64 = [Convert]::ToBase64String($bytes)
 Set-Content -Path $b64Path -Value $b64 -NoNewline -Encoding ascii
 
+$passPath = Join-Path $OutDir "password.txt"
+Set-Content -Path $passPath -Value $Password -NoNewline -Encoding ascii
+
+# Sanity-check: PFX must open with the same password we just wrote.
+$check = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+  $bytes,
+  $Password,
+  [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+)
+$check.Dispose()
+
 Write-Host ""
 Write-Host "OK: created"
 Write-Host "  PFX:  $pfxPath"
 Write-Host "  CER:  $cerPath"
 Write-Host "  B64:  $b64Path"
+Write-Host "  Pass file: $passPath"
 Write-Host "  Pass: $Password"
 Write-Host ""
 Write-Host "GitHub -> Settings -> Secrets -> Actions:"
-Write-Host "  WINDOWS_CERTIFICATE          = content of $b64Path"
-Write-Host "  WINDOWS_CERTIFICATE_PASSWORD = $Password"
+Write-Host "  WINDOWS_CERTIFICATE          = FULL content of $b64Path (one line, no spaces)"
+Write-Host "  WINDOWS_CERTIFICATE_PASSWORD = content of $passPath (must be THIS cert)"
 Write-Host ""
 Write-Host "Local sign:"
 Write-Host "  .\scripts\sign_exe.ps1 -ExePath dist\Nexuz.exe -PfxPath $pfxPath -Password `"$Password`""
