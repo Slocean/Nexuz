@@ -24,6 +24,7 @@ import {
 } from "../types";
 import { getThemeColors } from "../theme";
 import MiniMap from "./MiniMap";
+import NodeContextMenu, { type NodeContextMenuState } from "./NodeContextMenu";
 import { Button } from "@/components/ui/button";
 import { useAppDialog } from "./AppDialogs";
 import { computeAutoLayout } from "../autoLayout";
@@ -52,6 +53,7 @@ interface CanvasProps {
   onToggleBreakpoint?: (nodeId: string) => void;
   onUpdateNodeName?: (nodeId: string, name: string) => void;
   onToggleNodeCollapsed?: (nodeId: string) => void;
+  onSetEntry?: (nodeId: string) => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
   isExecuting: boolean;
@@ -208,6 +210,7 @@ function Canvas({
   onToggleBreakpoint,
   onUpdateNodeName,
   onToggleNodeCollapsed,
+  onSetEntry,
   themeName,
   themeMode,
   isExecuting: _isExecuting,
@@ -217,12 +220,14 @@ function Canvas({
   breakpoints = [],
 }: CanvasProps) {
   const { confirm, alert } = useAppDialog();
+  const flowEntry = useFlowStore((s) => s.flow?.entry ?? null);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 600 });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showDataLinks, setShowDataLinks] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<NodeContextMenuState | null>(null);
 
   const loopFrames = useMemo(
     () => computeLoopBodyFrames(nodes, connections),
@@ -1496,6 +1501,15 @@ function Canvas({
                     onSelectNode(node.id);
                   }
                 }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!selectedIdSet.has(node.id)) {
+                    setSelectedIds([node.id]);
+                    onSelectNode(node.id);
+                  }
+                  setCtxMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
+                }}
                 style={{
                   left: xy.x,
                   top: xy.y,
@@ -1862,6 +1876,57 @@ function Canvas({
           />
         )}
       </div>
+
+      {ctxMenu ? (() => {
+        const ctxNode = nodeById.get(ctxMenu.nodeId);
+        if (!ctxNode) return null;
+        const menuIds =
+          selectedIdSet.has(ctxMenu.nodeId) && selectedIds.length > 0
+            ? selectedIds
+            : [ctxMenu.nodeId];
+        return (
+          <NodeContextMenu
+            open={ctxMenu}
+            onClose={() => setCtxMenu(null)}
+            themeName={themeName}
+            themeMode={themeMode}
+            selectedIds={menuIds}
+            collapsed={!!ctxNode.collapsed}
+            isEntry={flowEntry === ctxMenu.nodeId}
+            hasBreakpoint={(breakpoints || []).includes(ctxMenu.nodeId)}
+            isExecuting={_isExecuting}
+            onRunSingle={() => onRunSingleNode?.(ctxMenu.nodeId)}
+            onRename={() => {
+              setEditingNameId(ctxMenu.nodeId);
+              setEditingNameValue(ctxNode.name || "");
+            }}
+            onToggleCollapse={() => {
+              if (!onToggleNodeCollapsed) return;
+              for (const id of menuIds) onToggleNodeCollapsed(id);
+            }}
+            onDuplicate={() => {
+              if (!onDuplicateNodes) return;
+              const newIds = onDuplicateNodes(menuIds) || [];
+              if (newIds.length) {
+                setSelectedIds(newIds);
+                onSelectNode(newIds[newIds.length - 1]);
+                clipboardRef.current = newIds;
+              }
+            }}
+            onSetEntry={() => onSetEntry?.(ctxMenu.nodeId)}
+            onToggleBreakpoint={() => {
+              if (!onToggleBreakpoint) return;
+              for (const id of menuIds) onToggleBreakpoint(id);
+            }}
+            onDelete={() => {
+              if (onRemoveNodes) onRemoveNodes(menuIds);
+              else menuIds.forEach((id) => onRemoveNode(id));
+              setSelectedIds([]);
+              onSelectNode(null);
+            }}
+          />
+        );
+      })() : null}
     </div>
   );
 }

@@ -1569,6 +1569,7 @@ function AppShell() {
                 onToggleBreakpoint={handleToggleBreakpoint}
                 onUpdateNodeName={handleUpdateNodeName}
                 onToggleNodeCollapsed={handleToggleNodeCollapsed}
+                onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
                 themeName={themeName as any}
                 themeMode={themeMode as any}
                 isExecuting={isExecuting}
