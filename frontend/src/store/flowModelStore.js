@@ -918,6 +918,26 @@ export const useFlowStore = create((set, get) => ({
     }));
   },
 
+  /** Enable or disable breakpoints for a set of nodes (unified multi-select). */
+  setBreakpointsForNodes: (nodeIds, enabled) => {
+    const ids = [...new Set((nodeIds || []).map(String).filter(Boolean))];
+    if (!ids.length) return;
+    set(state => {
+      const prev = Array.isArray(state.flow.breakpoints)
+        ? state.flow.breakpoints.map(String)
+        : [];
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (enabled) next.add(id);
+        else next.delete(id);
+      }
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, breakpoints: [...next] }
+      };
+    });
+  },
+
   /**
    * Replace the whole flow.
    * @param {object} [options]
@@ -1232,6 +1252,215 @@ export const useFlowStore = create((set, get) => ({
         }
       };
     }),
+
+  setNodesCollapsed: (nodeIds, collapsed) => {
+    const ids = [...new Set((nodeIds || []).map(String).filter(Boolean))];
+    if (!ids.length) return;
+    set(state => {
+      let changed = false;
+      const nodes = { ...state.flow.nodes };
+      for (const id of ids) {
+        const node = nodes[id];
+        if (!node) continue;
+        const nextNode = { ...node };
+        if (collapsed) nextNode.collapsed = true;
+        else delete nextNode.collapsed;
+        nodes[id] = nextNode;
+        changed = true;
+      }
+      if (!changed) return state;
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, nodes }
+      };
+    });
+  },
+
+  setNodeDisabled: (nodeId, disabled) =>
+    set(state => {
+      const node = state.flow.nodes[nodeId];
+      if (!node) return state;
+      const nextNode = { ...node };
+      if (disabled) nextNode.disabled = true;
+      else delete nextNode.disabled;
+      return {
+        ...takeFlowHistory(state),
+        flow: {
+          ...state.flow,
+          nodes: {
+            ...state.flow.nodes,
+            [nodeId]: nextNode
+          }
+        }
+      };
+    }),
+
+  setNodesDisabled: (nodeIds, disabled) => {
+    const ids = [...new Set((nodeIds || []).map(String).filter(Boolean))];
+    if (!ids.length) return;
+    set(state => {
+      let changed = false;
+      const nodes = { ...state.flow.nodes };
+      for (const id of ids) {
+        const node = nodes[id];
+        if (!node) continue;
+        const nextNode = { ...node };
+        if (disabled) nextNode.disabled = true;
+        else delete nextNode.disabled;
+        nodes[id] = nextNode;
+        changed = true;
+      }
+      if (!changed) return state;
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, nodes }
+      };
+    });
+  },
+
+  /** Clear all flow out-edges on nodes (next/then/else/body/switch). */
+  clearNodesFlowOuts: nodeIds => {
+    const ids = [...new Set((nodeIds || []).map(String).filter(Boolean))];
+    if (!ids.length) return;
+    set(state => {
+      let changed = false;
+      const nodes = { ...state.flow.nodes };
+      for (const id of ids) {
+        const node = nodes[id];
+        if (!node) continue;
+        const nextNode = { ...node };
+        for (const k of ['next', 'then', 'else', 'body']) {
+          if (nextNode[k]) {
+            nextNode[k] = null;
+            changed = true;
+          }
+        }
+        if (nextNode.type === 'switch' && nextNode.params) {
+          const params = { ...nextNode.params };
+          if (Array.isArray(params.cases)) {
+            params.cases = params.cases.map(c =>
+              c && typeof c === 'object' ? { ...c, node_id: '' } : c
+            );
+          }
+          params.default = '';
+          nextNode.params = params;
+          nextNode.next = null;
+          changed = true;
+        }
+        nodes[id] = nextNode;
+      }
+      if (!changed) return state;
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, nodes }
+      };
+    });
+  },
+
+  /**
+   * Disconnect nodes completely: clear their flow outs, inbound flow pointers,
+   * and exact {{node.field}} data bindings involving them.
+   */
+  disconnectNodes: nodeIds => {
+    const idSet = new Set((nodeIds || []).map(String).filter(Boolean));
+    if (!idSet.size) return;
+    const NODE_REF = /^\{\{\s*([A-Za-z0-9_]+)\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)\s*\}\}$/;
+    const clearParams = (params, clearOutgoingRefs) => {
+      if (!params || typeof params !== 'object' || Array.isArray(params)) return params;
+      let changed = false;
+      const next = { ...params };
+      for (const [k, v] of Object.entries(params)) {
+        if (typeof v !== 'string') continue;
+        const m = NODE_REF.exec(v.trim());
+        if (!m) continue;
+        const srcId = m[1];
+        if (idSet.has(srcId) || clearOutgoingRefs) {
+          next[k] = '';
+          changed = true;
+        }
+      }
+      return changed ? next : params;
+    };
+
+    set(state => {
+      const hist = takeFlowHistory(state);
+      const nodes = { ...state.flow.nodes };
+      let changed = false;
+
+      for (const id of Object.keys(nodes)) {
+        const prev = nodes[id];
+        let nextNode = prev;
+        const touch = () => {
+          if (nextNode === prev) nextNode = { ...prev };
+        };
+
+        if (idSet.has(id)) {
+          touch();
+          for (const k of ['next', 'then', 'else', 'body']) nextNode[k] = null;
+          if (nextNode.type === 'switch') {
+            const params = { ...(nextNode.params || {}) };
+            if (Array.isArray(params.cases)) {
+              params.cases = params.cases.map(c =>
+                c && typeof c === 'object' ? { ...c, node_id: '' } : c
+              );
+            }
+            params.default = '';
+            nextNode.params = params;
+            nextNode.next = null;
+          }
+          const cleared = clearParams(nextNode.params || {}, true);
+          if (cleared !== (nextNode.params || {})) {
+            nextNode.params = cleared;
+          }
+          changed = true;
+        } else {
+          for (const k of ['next', 'then', 'else', 'body']) {
+            if (prev[k] && idSet.has(prev[k])) {
+              touch();
+              nextNode[k] = null;
+              changed = true;
+            }
+          }
+          if (prev.type === 'switch' && prev.params) {
+            const params = { ...prev.params };
+            let paramsChanged = false;
+            if (Array.isArray(params.cases)) {
+              params.cases = params.cases.map(c => {
+                if (c?.node_id && idSet.has(c.node_id)) {
+                  paramsChanged = true;
+                  return { ...c, node_id: '' };
+                }
+                return c;
+              });
+            }
+            if (params.default && idSet.has(params.default)) {
+              params.default = '';
+              paramsChanged = true;
+            }
+            if (paramsChanged) {
+              touch();
+              nextNode.params = params;
+              changed = true;
+            }
+          }
+          const cleared = clearParams(prev.params || {}, false);
+          if (cleared !== (prev.params || {})) {
+            touch();
+            nextNode.params = cleared;
+            changed = true;
+          }
+        }
+        if (nextNode !== prev) nodes[id] = nextNode;
+      }
+
+      if (!changed) return state;
+      return {
+        ...hist,
+        flow: { ...state.flow, nodes }
+      };
+    });
+    get().appendAuditLog?.(`断开节点连线`, { node_ids: [...idSet] });
+  },
 
   updateNodePosition: (nodeId, position) =>
     set(state => {

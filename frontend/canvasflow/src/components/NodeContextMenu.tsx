@@ -1,15 +1,20 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
+  Ban,
   Check,
+  CircleDot,
   Copy,
   Flag,
-  CircleDot,
+  Hash,
+  Link2Off,
   Pause,
-  Play,
   Pencil,
+  Play,
   ChevronDown,
   ChevronRight,
+  PlayCircle,
   Trash2,
+  Eraser,
 } from 'lucide-react';
 import type { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -25,18 +30,24 @@ type Props = {
   onClose: () => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
-  /** Selected ids at menu open (includes context node). */
   selectedIds: string[];
   collapsed: boolean;
   isEntry: boolean;
   hasBreakpoint: boolean;
+  isDisabled: boolean;
   isExecuting: boolean;
   onRunSingle: () => void;
+  onRunFrom: () => void;
   onRename: () => void;
-  onToggleCollapse: () => void;
+  onSetCollapsed: () => void;
   onDuplicate: () => void;
+  onCopyId: () => void;
   onSetEntry: () => void;
-  onToggleBreakpoint: () => void;
+  onSetBreakpoint: () => void;
+  onSetDisabled: () => void;
+  onDisconnect: () => void;
+  onDeleteDownstream: () => void;
+  onDeleteOthers: () => void;
   onDelete: () => void;
 };
 
@@ -91,7 +102,7 @@ function Separator() {
   return <div className="my-1 h-px bg-black/10 dark:bg-white/10" />;
 }
 
-/** Lightweight fixed-position node context menu (no new radix dependency). */
+/** Lightweight fixed-position node context menu. */
 export default function NodeContextMenu({
   open,
   onClose,
@@ -101,13 +112,20 @@ export default function NodeContextMenu({
   collapsed,
   isEntry,
   hasBreakpoint,
+  isDisabled,
   isExecuting,
   onRunSingle,
+  onRunFrom,
   onRename,
-  onToggleCollapse,
+  onSetCollapsed,
   onDuplicate,
+  onCopyId,
   onSetEntry,
-  onToggleBreakpoint,
+  onSetBreakpoint,
+  onSetDisabled,
+  onDisconnect,
+  onDeleteDownstream,
+  onDeleteOthers,
   onDelete,
 }: Props) {
   const colors = getThemeColors(themeName, themeMode);
@@ -118,8 +136,8 @@ export default function NodeContextMenu({
   useLayoutEffect(() => {
     if (!open) return;
     const el = ref.current;
-    const w = el?.offsetWidth || 200;
-    const h = el?.offsetHeight || 280;
+    const w = el?.offsetWidth || 220;
+    const h = el?.offsetHeight || 420;
     const pad = 8;
     let x = open.x;
     let y = open.y;
@@ -163,7 +181,7 @@ export default function NodeContextMenu({
   return (
     <div
       ref={ref}
-      className="fixed z-[300] min-w-[11.5rem] overflow-hidden rounded-xl border p-1.5 shadow-2xl backdrop-blur-xl"
+      className="fixed z-[300] min-w-[12.5rem] max-h-[min(90vh,32rem)] overflow-y-auto overflow-x-hidden rounded-xl border p-1.5 shadow-2xl backdrop-blur-xl"
       style={{
         left: pos.x,
         top: pos.y,
@@ -183,6 +201,12 @@ export default function NodeContextMenu({
         disabled={multi || isExecuting}
         onClick={() => run(onRunSingle)}
       />
+      <MenuItem
+        label="从此节点开始运行"
+        icon={<PlayCircle className="w-3.5 h-3.5" />}
+        disabled={multi || isExecuting}
+        onClick={() => run(onRunFrom)}
+      />
       <Separator />
       <MenuItem
         label="重命名"
@@ -199,12 +223,18 @@ export default function NodeContextMenu({
             <ChevronDown className="w-3.5 h-3.5" />
           )
         }
-        onClick={() => run(onToggleCollapse)}
+        onClick={() => run(onSetCollapsed)}
       />
       <MenuItem
         label={multi ? `复制选中 ${selectedIds.length} 个节点` : '复制该节点'}
         icon={<Copy className="w-3.5 h-3.5" />}
         onClick={() => run(onDuplicate)}
+      />
+      <MenuItem
+        label="复制节点 ID"
+        icon={<Hash className="w-3.5 h-3.5" />}
+        disabled={multi}
+        onClick={() => run(onCopyId)}
       />
       <MenuItem
         label="设为入口"
@@ -216,9 +246,34 @@ export default function NodeContextMenu({
       <MenuItem
         label={hasBreakpoint ? '取消断点' : '设置断点'}
         icon={<CircleDot className="w-3.5 h-3.5" />}
-        onClick={() => run(onToggleBreakpoint)}
+        onClick={() => run(onSetBreakpoint)}
+      />
+      <MenuItem
+        label={isDisabled ? '启用节点' : '禁用节点'}
+        icon={<Ban className="w-3.5 h-3.5" />}
+        checked={isDisabled}
+        onClick={() => run(onSetDisabled)}
+      />
+      <MenuItem
+        label="断开全部连线"
+        icon={<Link2Off className="w-3.5 h-3.5" />}
+        onClick={() => run(onDisconnect)}
       />
       <Separator />
+      <MenuItem
+        label="删除后续节点"
+        icon={<Eraser className="w-3.5 h-3.5" />}
+        disabled={multi}
+        danger
+        onClick={() => run(onDeleteDownstream)}
+      />
+      <MenuItem
+        label="删除其他节点"
+        icon={<Eraser className="w-3.5 h-3.5" />}
+        disabled={multi}
+        danger
+        onClick={() => run(onDeleteOthers)}
+      />
       <MenuItem
         label={multi ? `删除 ${selectedIds.length} 个节点` : '删除'}
         icon={<Trash2 className="w-3.5 h-3.5" />}

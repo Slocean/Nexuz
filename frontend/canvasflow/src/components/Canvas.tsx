@@ -30,6 +30,7 @@ import { useAppDialog } from "./AppDialogs";
 import { computeAutoLayout } from "../autoLayout";
 import { computeLoopBodyFrames } from "../nexuzAdapter";
 import { useFlowStore } from "@/store/flowModelStore";
+import { bridge } from "@/bridge";
 
 interface CanvasProps {
   nodes: WorkflowNode[];
@@ -50,10 +51,17 @@ interface CanvasProps {
   onDuplicateNodes?: (nodeIds: string[]) => void;
   onDropBlock?: (blockType: string, x: number, y: number) => void;
   onRunSingleNode?: (nodeId: string) => void;
+  onRunFromNode?: (nodeId: string) => void;
   onToggleBreakpoint?: (nodeId: string) => void;
+  onSetBreakpointsForNodes?: (nodeIds: string[], enabled: boolean) => void;
   onUpdateNodeName?: (nodeId: string, name: string) => void;
   onToggleNodeCollapsed?: (nodeId: string) => void;
+  onSetNodesCollapsed?: (nodeIds: string[], collapsed: boolean) => void;
   onSetEntry?: (nodeId: string) => void;
+  onSetNodesDisabled?: (nodeIds: string[], disabled: boolean) => void;
+  onDisconnectNodes?: (nodeIds: string[]) => void;
+  onDeleteOtherNodes?: (keepId: string) => void;
+  onDeleteDownstreamNodes?: (startId: string) => void;
   themeName: ThemeName;
   themeMode: ThemeMode;
   isExecuting: boolean;
@@ -207,10 +215,17 @@ function Canvas({
   onDuplicateNodes,
   onDropBlock,
   onRunSingleNode,
+  onRunFromNode,
   onToggleBreakpoint,
+  onSetBreakpointsForNodes,
   onUpdateNodeName,
   onToggleNodeCollapsed,
+  onSetNodesCollapsed,
   onSetEntry,
+  onSetNodesDisabled,
+  onDisconnectNodes,
+  onDeleteOtherNodes,
+  onDeleteDownstreamNodes,
   themeName,
   themeMode,
   isExecuting: _isExecuting,
@@ -1473,6 +1488,7 @@ function Canvas({
           {nodes.map((node) => {
             const isSelected = selectedIdSet.has(node.id) || selectedNodeId === node.id;
             const isForever = node.subType === "loop_forever";
+            const isNodeDisabled = !!node.disabled;
             const isNodeRunning =
               executingNodeId === node.id || node.status === "running";
             const isAtBreakpoint =
@@ -1546,10 +1562,19 @@ function Canvas({
                   thisDragging ? "" : "hover:shadow-lg"
                 } ${isNodeLive ? "node-running-halo" : ""} ${
                   isNodePaused ? "node-paused-halo" : ""
-                }`}
+                } ${isNodeDisabled ? "opacity-45" : ""}`}
               >
                 {isNodeLive ? <NodeRunningOrbit /> : null}
                 {isNodePaused ? <NodePausedRing /> : null}
+                {isNodeDisabled ? (
+                  <div
+                    className={`absolute -top-2 px-1.5 py-0.5 rounded bg-slate-500 text-white text-[10px] font-semibold tracking-wide ${
+                      isForever ? "right-2" : "left-2"
+                    }`}
+                  >
+                    禁用
+                  </div>
+                ) : null}
                 {debugMode ? (
                   <button
                     type="button"
@@ -1894,15 +1919,20 @@ function Canvas({
             collapsed={!!ctxNode.collapsed}
             isEntry={flowEntry === ctxMenu.nodeId}
             hasBreakpoint={(breakpoints || []).includes(ctxMenu.nodeId)}
+            isDisabled={!!ctxNode.disabled}
             isExecuting={_isExecuting}
             onRunSingle={() => onRunSingleNode?.(ctxMenu.nodeId)}
+            onRunFrom={() => onRunFromNode?.(ctxMenu.nodeId)}
             onRename={() => {
               setEditingNameId(ctxMenu.nodeId);
               setEditingNameValue(ctxNode.name || "");
             }}
-            onToggleCollapse={() => {
-              if (!onToggleNodeCollapsed) return;
-              for (const id of menuIds) onToggleNodeCollapsed(id);
+            onSetCollapsed={() => {
+              const nextCollapsed = !ctxNode.collapsed;
+              if (onSetNodesCollapsed) onSetNodesCollapsed(menuIds, nextCollapsed);
+              else if (onToggleNodeCollapsed) {
+                for (const id of menuIds) onToggleNodeCollapsed(id);
+              }
             }}
             onDuplicate={() => {
               if (!onDuplicateNodes) return;
@@ -1913,11 +1943,40 @@ function Canvas({
                 clipboardRef.current = newIds;
               }
             }}
-            onSetEntry={() => onSetEntry?.(ctxMenu.nodeId)}
-            onToggleBreakpoint={() => {
-              if (!onToggleBreakpoint) return;
-              for (const id of menuIds) onToggleBreakpoint(id);
+            onCopyId={() => {
+              void (async () => {
+                const text = ctxMenu.nodeId;
+                try {
+                  const res = await bridge.clipboardWrite?.(text);
+                  if (res?.ok) return;
+                } catch {
+                  /* fall through */
+                }
+                try {
+                  await navigator.clipboard.writeText(text);
+                } catch {
+                  /* ignore */
+                }
+              })();
             }}
+            onSetEntry={() => onSetEntry?.(ctxMenu.nodeId)}
+            onSetBreakpoint={() => {
+              const enable = !(breakpoints || []).includes(ctxMenu.nodeId);
+              if (onSetBreakpointsForNodes) onSetBreakpointsForNodes(menuIds, enable);
+              else if (onToggleBreakpoint) {
+                for (const id of menuIds) {
+                  const has = (breakpoints || []).includes(id);
+                  if (has !== enable) onToggleBreakpoint(id);
+                }
+              }
+            }}
+            onSetDisabled={() => {
+              const next = !ctxNode.disabled;
+              onSetNodesDisabled?.(menuIds, next);
+            }}
+            onDisconnect={() => onDisconnectNodes?.(menuIds)}
+            onDeleteDownstream={() => onDeleteDownstreamNodes?.(ctxMenu.nodeId)}
+            onDeleteOthers={() => onDeleteOtherNodes?.(ctxMenu.nodeId)}
             onDelete={() => {
               if (onRemoveNodes) onRemoveNodes(menuIds);
               else menuIds.forEach((id) => onRemoveNode(id));

@@ -32,6 +32,7 @@ import {
   applyDefaultOutputCoordinateMode,
   dataOutField,
   formatNodeRef,
+  collectDownstreamNodeIds,
   flowToCanvas,
   isDataOutSocket,
   isParamInSocket,
@@ -265,6 +266,11 @@ function AppShell() {
   const updateNodeParams = useFlowStore((s) => s.updateNodeParams);
   const updateNodeName = useFlowStore((s) => s.updateNodeName);
   const setNodeCollapsed = useFlowStore((s) => s.setNodeCollapsed);
+  const setNodesCollapsed = useFlowStore((s) => s.setNodesCollapsed);
+  const setBreakpointsForNodes = useFlowStore((s) => s.setBreakpointsForNodes);
+  const setNodesDisabled = useFlowStore((s) => s.setNodesDisabled);
+  const disconnectNodes = useFlowStore((s) => s.disconnectNodes);
+  const clearNodesFlowOuts = useFlowStore((s) => s.clearNodesFlowOuts);
   const updateNodePosition = useFlowStore((s) => s.updateNodePosition);
   const setNodeLink = useFlowStore((s) => s.setNodeLink);
   const removeNodeLink = useFlowStore((s) => s.removeNodeLink);
@@ -1315,6 +1321,167 @@ function AppShell() {
     [setNodeCollapsed],
   );
 
+  const handleSetNodesCollapsed = useCallback(
+    (nodeIds: string[], collapsed: boolean) => {
+      setNodesCollapsed(nodeIds, collapsed);
+    },
+    [setNodesCollapsed],
+  );
+
+  const handleSetBreakpointsForNodes = useCallback(
+    (nodeIds: string[], enabled: boolean) => {
+      setBreakpointsForNodes(nodeIds, enabled);
+      queueMicrotask(() => {
+        const bps = useFlowStore.getState().flow.breakpoints || [];
+        const st = useFlowStore.getState().execStatus;
+        if (st !== 'idle') {
+          bridge.setBreakpoints(bps);
+        }
+        appendLog({
+          level: 'info',
+          message: enabled
+            ? `已设置断点 ×${nodeIds.length}`
+            : `已取消断点 ×${nodeIds.length}`,
+        });
+      });
+    },
+    [setBreakpointsForNodes, appendLog],
+  );
+
+  const handleSetNodesDisabled = useCallback(
+    (nodeIds: string[], disabled: boolean) => {
+      setNodesDisabled(nodeIds, disabled);
+      appendLog({
+        level: 'info',
+        message: disabled
+          ? `已禁用 ${nodeIds.length} 个节点`
+          : `已启用 ${nodeIds.length} 个节点`,
+      });
+    },
+    [setNodesDisabled, appendLog],
+  );
+
+  const handleDisconnectNodes = useCallback(
+    async (nodeIds: string[]) => {
+      const ids = (nodeIds || []).filter(Boolean);
+      if (!ids.length) return;
+      const ok = await confirm({
+        title: '断开全部连线',
+        description: `将清除 ${ids.length} 个节点的全部执行连线与相关数据绑定，是否继续？`,
+        confirmText: '断开',
+        destructive: true,
+      });
+      if (!ok) return;
+      disconnectNodes(ids);
+      appendLog({ level: 'info', message: `已断开 ${ids.length} 个节点的连线` });
+    },
+    [confirm, disconnectNodes, appendLog],
+  );
+
+  const handleDeleteOtherNodes = useCallback(
+    async (keepId: string) => {
+      const all = Object.keys(flow?.nodes || {});
+      const others = all.filter((id) => id !== keepId);
+      if (!others.length) {
+        appendLog({ level: 'info', message: '没有其他节点可删' });
+        return;
+      }
+      const ok = await confirm({
+        title: '删除其他节点',
+        description: `将删除其余 ${others.length} 个节点，仅保留当前节点，是否继续？`,
+        confirmText: '删除',
+        destructive: true,
+      });
+      if (!ok) return;
+      deleteNodes(others);
+      if (flow?.entry !== keepId) {
+        useFlowStore.getState().setEntry(keepId);
+      }
+      selectNode(keepId);
+      appendLog({ level: 'warn', message: `已删除其他节点 ×${others.length}` });
+    },
+    [flow, confirm, deleteNodes, appendLog, selectNode],
+  );
+
+  const handleDeleteDownstreamNodes = useCallback(
+    async (startId: string) => {
+      const down = collectDownstreamNodeIds(flow, startId);
+      if (!down.length) {
+        appendLog({ level: 'info', message: '没有后续节点可删' });
+        return;
+      }
+      const ok = await confirm({
+        title: '删除后续节点',
+        description: `将删除从当前节点可达的 ${down.length} 个后续节点（保留本节点），是否继续？`,
+        confirmText: '删除',
+        destructive: true,
+      });
+      if (!ok) return;
+      deleteNodes(down);
+      clearNodesFlowOuts([startId]);
+      appendLog({ level: 'warn', message: `已删除后续节点 ×${down.length}` });
+    },
+    [flow, confirm, deleteNodes, clearNodesFlowOuts, appendLog],
+  );
+
+  const handleRunFromNode = useCallback(
+    async (nodeId: string) => {
+      if (isExecuting) {
+        appendLog({
+          level: 'warn',
+          message: '已有流程在执行，请先停止后再运行',
+        });
+        return;
+      }
+      const src = flow.nodes?.[nodeId];
+      if (!src) {
+        appendLog({ level: 'error', message: `节点不存在: ${nodeId}` });
+        return;
+      }
+      clearLogs();
+      appendLog({
+        level: 'info',
+        message: `从此节点开始运行 [${nodeId}] ${src.type || ''}…`,
+      });
+      const fromFlow = { ...flow, entry: nodeId };
+      const prepared = applyDefaultOutputCoordinateMode(
+        applyDefaultCoordinateMode(
+          applyDefaultCaptureMode(fromFlow, defaultCaptureMode),
+          defaultCoordinateMode,
+        ),
+        defaultOutputCoordinateMode,
+      );
+      const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
+      const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
+      const useDebug = !!debugMode;
+      const bps = useDebug ? flow.breakpoints || [] : [];
+      const hide = hideWindowOnRecord && !useDebug;
+      const res = await bridge.runFlow(payload, false, hide, useDebug, bps);
+      if (res?.run_log) useFlowStore.setState({ runLog: res.run_log });
+      if (!res?.ok) {
+        appendLog({ level: 'error', message: res?.error || '启动失败' });
+        return;
+      }
+      if (res?.run_monitor) {
+        setRunMonitorActive(true);
+        setRunMonitorFlowName(String(payload?.name || flow?.name || ''));
+      }
+    },
+    [
+      isExecuting,
+      flow,
+      appendLog,
+      clearLogs,
+      defaultCaptureMode,
+      defaultCoordinateMode,
+      defaultOutputCoordinateMode,
+      defaultNodeIntervalMs,
+      filePath,
+      hideWindowOnRecord,
+      debugMode,
+    ],
+  );
+
   const handleRunSingleNode = useCallback(
     async (nodeId: string) => {
       if (isExecuting) {
@@ -1566,10 +1733,17 @@ function AppShell() {
                 onDuplicateNodes={handleDuplicateNodes}
                 onDropBlock={handleDropBlock}
                 onRunSingleNode={handleRunSingleNode}
+                onRunFromNode={handleRunFromNode}
                 onToggleBreakpoint={handleToggleBreakpoint}
+                onSetBreakpointsForNodes={handleSetBreakpointsForNodes}
                 onUpdateNodeName={handleUpdateNodeName}
                 onToggleNodeCollapsed={handleToggleNodeCollapsed}
+                onSetNodesCollapsed={handleSetNodesCollapsed}
                 onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
+                onSetNodesDisabled={handleSetNodesDisabled}
+                onDisconnectNodes={handleDisconnectNodes}
+                onDeleteOtherNodes={handleDeleteOtherNodes}
+                onDeleteDownstreamNodes={handleDeleteDownstreamNodes}
                 themeName={themeName as any}
                 themeMode={themeMode as any}
                 isExecuting={isExecuting}

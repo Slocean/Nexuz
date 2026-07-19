@@ -47,6 +47,8 @@ export interface WorkflowNode {
   bindErrorCount?: number;
   /** UI: collapse body (sockets / footer); wires dock to header */
   collapsed?: boolean;
+  /** Runtime skip; still keeps flow links */
+  disabled?: boolean;
 }
 
 export interface NodeConnection {

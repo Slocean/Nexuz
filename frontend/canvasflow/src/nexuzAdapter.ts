@@ -338,6 +338,61 @@ export function pickBestBindParam(
   return params[0]?.name ?? null;
 }
 
+/** Flow out-edge targets from a model node (next/then/else/body/switch). */
+export function flowOutTargets(node: any): string[] {
+  if (!node || typeof node !== 'object') return [];
+  const out: string[] = [];
+  for (const k of ['next', 'then', 'else', 'body'] as const) {
+    const v = node[k];
+    if (v) out.push(String(v));
+  }
+  if (node.type === 'switch' && node.params) {
+    if (node.params.default) out.push(String(node.params.default));
+    const cases = Array.isArray(node.params.cases) ? node.params.cases : [];
+    for (const c of cases) {
+      if (c?.node_id) out.push(String(c.node_id));
+    }
+  }
+  return out;
+}
+
+/** Downstream node ids reachable via flow edges from startId (excludes startId). */
+export function collectDownstreamNodeIds(flow: any, startId: string): string[] {
+  const nodes = flow?.nodes || {};
+  const start = String(startId || '');
+  if (!start || !nodes[start]) return [];
+  const visited = new Set<string>();
+  const stack = [...flowOutTargets(nodes[start])];
+  while (stack.length) {
+    const id = String(stack.pop() || '');
+    if (!id || id === start || visited.has(id) || !nodes[id]) continue;
+    visited.add(id);
+    for (const t of flowOutTargets(nodes[id])) stack.push(t);
+  }
+  return [...visited];
+}
+
+/** Clear all flow out pointers on a model node (mutates a shallow copy fields). */
+export function clearedFlowOuts(node: any): any {
+  if (!node) return node;
+  const next = { ...node };
+  for (const k of ['next', 'then', 'else', 'body']) {
+    if (k in next) next[k] = null;
+  }
+  if (next.type === 'switch' && next.params) {
+    const params = { ...next.params };
+    if (Array.isArray(params.cases)) {
+      params.cases = params.cases.map((c: any) =>
+        c && typeof c === 'object' ? { ...c, node_id: '' } : c,
+      );
+    }
+    params.default = '';
+    next.params = params;
+    next.next = null;
+  }
+  return next;
+}
+
 export function flowToCanvas(
   flow: any,
   schemaMap: Record<string, any>,
@@ -376,6 +431,7 @@ export function flowToCanvas(
       // Only attach live output for nodes that produced one (already summarized upstream).
       outputData: nodeOutputs[id] || null,
       collapsed: !!node.collapsed,
+      disabled: !!node.disabled,
     });
 
     const links: [string, string | null | undefined][] = [

@@ -419,6 +419,49 @@ class FlowInterpreter:
                 self._current_node_id = str(node_id)
 
             block_type = node.get("type")
+
+            # Disabled nodes: skip handler, follow next (avoid branch/loop side effects).
+            if node.get("disabled"):
+                self._emit(
+                    "node_start",
+                    {
+                        "node_id": node_id,
+                        "type": block_type,
+                        "params": {},
+                        "skipped": True,
+                    },
+                )
+                self._emit(
+                    "node_end",
+                    {
+                        "node_id": node_id,
+                        "type": block_type,
+                        "result": {"skipped": True},
+                        "elapsed_ms": 0,
+                        "ok": True,
+                        "skipped": True,
+                        "summary": f"跳过禁用节点 [{node_id}]",
+                        "category": "runtime",
+                        "scope": "node",
+                    },
+                )
+                nxt = node.get("next") or None
+                if nxt and nxt != node_id:
+                    self._emit(
+                        "log",
+                        {
+                            "level": "info",
+                            "category": "runtime",
+                            "scope": "node",
+                            "node_id": node_id,
+                            "message": f"禁用跳过 → [{nxt}]",
+                            "detail": {"from": node_id, "to": nxt, "type": block_type},
+                        },
+                    )
+                node_id = nxt
+                node_index += 1
+                continue
+
             handler = get_handler(block_type)
             if handler is None:
                 raise ValueError(f"未知 Block 类型: {block_type}")
