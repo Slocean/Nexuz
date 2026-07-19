@@ -19,6 +19,7 @@ import SaveNameDialog from './components/SaveNameDialog';
 import RecordingBanner from './components/RecordingBanner';
 import RunningBanner from './components/RunningBanner';
 import SettingsPage from './components/SettingsPage';
+import FlowchartView from './components/FlowchartView';
 import DebugBar from './components/DebugBar';
 import DebugWatchPanel from './components/DebugWatchPanel';
 import { AppDialogProvider, useAppDialog } from './components/AppDialogs';
@@ -1455,7 +1456,7 @@ function AppShell() {
         onToggleDebug={handleToggleDebug}
         debugMode={debugMode}
         execStatus={execStatus}
-        viewMode={viewMode as 'canvas' | 'code' | 'settings'}
+        viewMode={viewMode as 'canvas' | 'code' | 'flowchart' | 'settings'}
         onViewModeChange={(m) => setViewMode(m)}
       />
 
@@ -1523,6 +1524,16 @@ function AppShell() {
             <SettingsPage themeName={themeName as any} themeMode={themeMode as any} />
           ) : viewMode === 'code' ? (
             <CodeEditor themeName={themeName as any} themeMode={themeMode as any} />
+          ) : viewMode === 'flowchart' ? (
+            <FlowchartView
+              nodes={nodes}
+              connections={connections}
+              activeNodeId={execNodeId}
+              entryId={flow?.entry ?? null}
+              execStatus={execStatus}
+              themeName={themeName as any}
+              themeMode={themeMode as any}
+            />
           ) : (
             <>
               {debugMode ? (

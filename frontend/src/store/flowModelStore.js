@@ -561,7 +561,7 @@ export const useFlowStore = create((set, get) => ({
   schemas: [],
   schemaMap: {},
   selectedNodeId: null,
-  viewMode: 'canvas', // canvas | code | settings
+  viewMode: 'canvas', // canvas | code | flowchart | settings
   bridgeReady: false,
   filePath: null,
 

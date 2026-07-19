@@ -25,6 +25,7 @@ import {
   Minimize2,
   Pin,
   Waypoints,
+  GitBranch,
   Megaphone,
   ArrowUpCircle,
   AppWindow,
@@ -74,8 +75,8 @@ interface ToolbarProps {
   onToggleDebug?: () => void;
   debugMode?: boolean;
   execStatus?: string;
-  viewMode?: 'canvas' | 'code' | 'settings';
-  onViewModeChange?: (mode: 'canvas' | 'code' | 'settings') => void;
+  viewMode?: 'canvas' | 'code' | 'flowchart' | 'settings';
+  onViewModeChange?: (mode: 'canvas' | 'code' | 'flowchart' | 'settings') => void;
   hotkeyLabels?: {
     start_run?: string;
     stop_run?: string;
@@ -604,18 +605,32 @@ export default function Toolbar({
                 <Button
                   size="sm"
                   className="h-8 w-8 px-0"
-                  onClick={() => onViewModeChange('settings')}
-                  title="设置"
+                  onClick={() => onViewModeChange('flowchart')}
+                  title="流程图"
                   style={
-                    viewMode === 'settings'
+                    viewMode === 'flowchart'
                       ? { backgroundColor: colors.primary, color: '#FFFFFF' }
                       : { backgroundColor: 'transparent', color: colors.text }
                   }
                   variant="ghost">
-                  <Settings2 className="w-3.5 h-3.5" />
+                  <GitBranch className="w-3.5 h-3.5" />
                 </Button>
               </div>
             )}
+
+            {onViewModeChange ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => onViewModeChange('settings')}
+                title="设置"
+                style={
+                  viewMode === 'settings' ? { color: colors.primary } : undefined
+                }>
+                <Settings2 className="w-4 h-4" />
+              </Button>
+            ) : null}
 
             <Button
               variant="ghost"
