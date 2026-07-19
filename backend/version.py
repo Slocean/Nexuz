@@ -6,7 +6,7 @@ Source of truth for remote clients: repo-root `app_update.json`
 
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # Release packaging replaces this with the SHA-256 fingerprint of the trusted
 # Authenticode signing certificate. Empty means updates must fail closed.
