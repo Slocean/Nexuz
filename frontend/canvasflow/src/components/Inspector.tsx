@@ -1325,10 +1325,10 @@ export default function Inspector({
             .join('·')}）`;
 
   const renderLogLines = (limit = 80, endRef: boolean = false) => (
-    <div className="space-y-0.5 font-mono text-sm pr-2 select-text cursor-text leading-relaxed min-w-0 w-full max-w-full">
+    <div className="space-y-0.5 font-mono text-[12px] select-text cursor-text leading-relaxed min-w-0 w-full max-w-full">
       {filteredLogs.length === 0 && (
-        <p style={{ color: colors.secondaryText }} className="opacity-60 py-2">
-          {logs.length === 0 ? '尚无日志' : '当前过滤器下无日志'}
+        <p className="text-slate-500 py-2">
+          {logs.length === 0 ? '# 尚无日志' : '# 当前过滤器下无日志'}
         </p>
       )}
       {filteredLogs.slice(-limit).map((log) => {
@@ -1337,21 +1337,18 @@ export default function Inspector({
         return (
           <div
             key={log.id}
-            className={`select-text break-all whitespace-pre-wrap py-0.5 min-w-0 w-full max-w-full ${
+            className={`select-text break-all whitespace-pre-wrap py-px min-w-0 w-full max-w-full ${
               log.type === 'error'
-                ? 'text-rose-500'
+                ? 'text-rose-400'
                 : log.type === 'success'
-                  ? 'text-emerald-500'
+                  ? 'text-emerald-400'
                   : log.type === 'warning'
-                    ? 'text-amber-500'
-                    : ''
+                    ? 'text-amber-400'
+                    : 'text-slate-400'
             }`}
             style={{
               overflowWrap: 'anywhere',
               wordBreak: 'break-word',
-              ...(log.type === 'error' || log.type === 'success' || log.type === 'warning'
-                ? {}
-                : { color: colors.secondaryText }),
             }}
           >
             <div
@@ -1360,25 +1357,28 @@ export default function Inspector({
               title={hasDetail ? (open ? '收起详情' : '展开详情') : undefined}
             >
               {hasDetail ? (
-                <span className="inline-block w-3 opacity-50 mr-0.5">
+                <span className="inline-block w-3 text-slate-600 mr-0.5">
                   {open ? '▾' : '▸'}
                 </span>
               ) : (
                 <span className="inline-block w-3 mr-0.5" />
               )}
-              <span className="opacity-50 mr-2">{log.timestamp}</span>
+              <span className="text-slate-500 mr-2">{log.timestamp}</span>
               {log.nodeId ? (
-                <span className="opacity-60 mr-1 font-medium">[{log.nodeId}]</span>
+                <span className="text-slate-500 mr-1 font-medium">[{log.nodeId}]</span>
               ) : null}
               {log.message}
             </div>
             {hasDetail && open ? (
               <div
-                className="mt-1 mb-1 ml-3 pl-2 border-l"
-                style={{ borderColor: colors.border }}
+                className="mt-1 mb-1 ml-3 pl-2 border-l border-white/10"
                 onClick={(e) => e.stopPropagation()}
               >
-                <JsonTreeView data={log.detail} className="text-xs" />
+                <JsonTreeView
+                  data={log.detail}
+                  className="text-xs"
+                  style={{ backgroundColor: 'transparent', border: 'none' }}
+                />
               </div>
             ) : null}
           </div>
@@ -1389,7 +1389,7 @@ export default function Inspector({
   );
 
   const logToolbar = (opts?: { showExpand?: boolean }) => (
-    <div className="flex items-center gap-0.5 shrink-0">
+    <div className="flex items-center gap-px shrink-0 text-slate-300 [&_button]:text-slate-300">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -1504,25 +1504,18 @@ export default function Inspector({
 
   const logsPanel = (
     <>
-      <div className="space-y-2 p-3 border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text min-w-0 max-w-full overflow-hidden">
-        <div className="flex items-center justify-between gap-2 select-none min-w-0">
-          <h4 className="font-medium text-sm opacity-70 flex items-center gap-1.5 shrink-0">
-            <img
-              src={`${import.meta.env.BASE_URL}logo2.png`}
-              alt=""
-              className="h-3.5 w-auto max-w-[4.5rem] object-contain opacity-90"
-              draggable={false}
-            />
-            日志
-          </h4>
-          {logToolbar({ showExpand: true })}
-        </div>
-        <div
-          ref={logListRef}
-          className="h-36 min-w-0 max-w-full overflow-y-auto overflow-x-hidden"
+      <div className="border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text min-w-0 max-w-full overflow-hidden">
+        <CodeChromePanel
+          title="run.log"
+          meta={`${filteredLogs.length} lines`}
+          headerRight={logToolbar({ showExpand: true })}
+          bodyRef={logListRef}
+          maxHeight={144}
+          className="rounded-none border-0 border-t-0"
+          bodyClassName="!px-2.5 !py-2"
         >
           {renderLogLines(80, true)}
-        </div>
+        </CodeChromePanel>
       </div>
       <Dialog open={logsExpanded} onOpenChange={setLogsExpanded}>
         <DialogContent
@@ -1533,26 +1526,20 @@ export default function Inspector({
             color: colors.text,
           }}
         >
-          <DialogHeader className="shrink-0">
-            <div className="flex items-center justify-between gap-2 pr-8">
-              <DialogTitle className="flex items-center gap-1.5 text-sm font-medium">
-                <img
-                  src={`${import.meta.env.BASE_URL}logo2.png`}
-                  alt=""
-                  className="h-3.5 w-auto max-w-[4.5rem] object-contain opacity-90"
-                  draggable={false}
-                />
-                日志
-              </DialogTitle>
-              {logToolbar({ showExpand: false })}
-            </div>
+          <DialogHeader className="sr-only">
+            <DialogTitle>日志</DialogTitle>
           </DialogHeader>
-          <div
-            ref={logExpandedListRef}
-            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden select-text"
+          <CodeChromePanel
+            title="run.log"
+            meta={`${filteredLogs.length} lines`}
+            headerRight={logToolbar({ showExpand: false })}
+            bodyRef={logExpandedListRef}
+            fill
+            className="flex-1 min-h-0"
+            bodyClassName="!px-3 !py-2"
           >
             {renderLogLines(500, false)}
-          </div>
+          </CodeChromePanel>
         </DialogContent>
       </Dialog>
     </>

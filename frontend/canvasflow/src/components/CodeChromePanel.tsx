@@ -68,13 +68,13 @@ export default function CodeChromePanel({
         <span className="text-slate-400 shrink-0">
           {icon ?? <Terminal className="w-3 h-3" />}
         </span>
-        <span className="text-[11px] font-mono text-slate-400 tracking-wide truncate min-w-0">
+        <span className="text-[11px] font-mono text-slate-400 tracking-wide shrink-0">
           {title}
         </span>
-        <div className="ml-auto flex items-center gap-2 shrink-0">
+        <div className="ml-auto flex items-center gap-1.5 shrink-0 min-w-0">
           {headerRight}
           {meta != null ? (
-            <span className="text-[10px] font-mono text-slate-500">{meta}</span>
+            <span className="text-[10px] font-mono text-slate-500 shrink-0">{meta}</span>
           ) : null}
         </div>
       </div>
