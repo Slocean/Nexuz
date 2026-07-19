@@ -43,7 +43,7 @@ from backend.core.hotkey_prefs import (
 )
 from backend.core.record_hotkeys import get_record_stop_hotkeys
 from backend.core.run_hotkeys import get_run_hotkeys
-from backend.core.run_overlay import hide_run_overlay, show_run_overlay
+from backend.core.run_overlay import hide_run_overlay
 from backend.paths import (
     default_data_dir,
     exe_dir,
@@ -68,10 +68,14 @@ class Api:
         self._pick_event = threading.Event()
         self._recording_hidden = False
         self._run_hidden = False
+        self._run_monitor_active = False
+        self._run_monitor_restore: dict[str, Any] | None = None
+        self._run_monitor_flow: dict[str, Any] | None = None
         self._runtime_logs = get_runtime_log_manager()
         self._emit_lock = threading.RLock()
         self._emit_queue: list[dict[str, Any]] = []
         self._emit_stop = threading.Event()
+        self._emit_wake = threading.Event()
         self._last_ui_node_event_at = 0.0
         self._last_memory_sample_at = 0.0
         self._emit_thread = threading.Thread(
@@ -218,28 +222,40 @@ class Api:
         self._emit("log", {"level": "warn", "message": f"快捷键暂停流程（{label}）"})
         self.pause_flow()
 
-    def _start_run_controls(self, *, show_overlay: bool) -> None:
+    def _start_run_controls(self, *, flow: dict | None = None) -> None:
         get_run_hotkeys().start(
             on_stop=self._on_run_hotkey_stop,
             on_pause=self._on_run_hotkey_pause,
         )
-        if show_overlay:
-            show_run_overlay(
-                on_stop=self._on_run_hotkey_stop,
-                on_pause=self._on_run_hotkey_pause,
-            )
 
     def _stop_run_controls(self) -> None:
         get_run_hotkeys().stop()
-        hide_run_overlay()
+        try:
+            hide_run_overlay()
+        except Exception:
+            pass
 
     def _emit_worker(self) -> None:
-        while not self._emit_stop.wait(0.25):
+        while not self._emit_stop.is_set():
+            # Wake early for critical events; otherwise poll every 250ms.
+            self._emit_wake.wait(timeout=0.25)
+            self._emit_wake.clear()
+            if self._emit_stop.is_set():
+                break
             self._flush_emit_queue()
             now = time.monotonic()
             if now - self._last_memory_sample_at >= 60.0:
                 self._last_memory_sample_at = now
                 self._record_memory_sample()
+
+    def _queue_ui_event(self, message: dict[str, Any], *, urgent: bool = False) -> None:
+        """Enqueue a UI event. Never call evaluate_js on the pywebview JS-API thread."""
+        with self._emit_lock:
+            if len(self._emit_queue) >= 500:
+                del self._emit_queue[:250]
+            self._emit_queue.append(message)
+        if urgent:
+            self._emit_wake.set()
 
     def _record_memory_sample(self) -> None:
         try:
@@ -272,29 +288,18 @@ class Api:
         except Exception:
             pass
 
-    def _dispatch_events(self, messages: list[dict[str, Any]]) -> None:
-        if not messages or not self._window:
-            return
-        try:
-            data = json.dumps(messages, ensure_ascii=False)
-            self._window.evaluate_js(
-                "(function(messages){"
-                "if(window.__nexuzEmitBatch){window.__nexuzEmitBatch(messages);}"
-                "else{messages.forEach(function(m){"
-                "window.__nexuzEmit && window.__nexuzEmit(m);"
-                "});}"
-                f"}})({data})"
-            )
-        except Exception:
-            pass
-
-    def _flush_emit_queue(self) -> None:
+    def drain_ui_events(self) -> dict:
+        """Pull UI events (JS polls). Avoids evaluate_js↔JS-API WebView2 deadlocks."""
         with self._emit_lock:
-            if not self._emit_queue:
-                return
             messages = self._emit_queue
             self._emit_queue = []
-        self._dispatch_events(messages)
+        return {"ok": True, "messages": messages}
+
+    def _flush_emit_queue(self) -> None:
+        # Intentionally empty: UI consumes via drain_ui_events().
+        # Never call window.evaluate_js here — it deadlocks with in-flight JS API
+        # calls (pause/stop) on WebView2/WinForms.
+        return
 
     def _emit(self, event: str, payload: dict) -> None:
         event_payload = enrich_payload(event, dict(payload or {}))
@@ -344,18 +349,11 @@ class Api:
             "schedule_error",
             "plugin_mode_changed",
         } or (event == "node_end" and not bool(event_payload.get("ok", True)))
-        if critical:
-            self._flush_emit_queue()
-            self._dispatch_events([message])
-        else:
-            with self._emit_lock:
-                # Complete history is already on disk. Bound only the transient UI queue.
-                if len(self._emit_queue) >= 500:
-                    del self._emit_queue[:250]
-                self._emit_queue.append(message)
-        # After run ends, show window again (was hidden so OS clicks wouldn't hit Nexuz UI)
+        # Queue only — frontend polls drain_ui_events (no evaluate_js push).
+        self._queue_ui_event(message, urgent=critical)
+        # Window geometry only — UI view switch is owned by the frontend.
         if event in ("flow_finished", "flow_stopped"):
-            self._stop_run_controls()
+            self._exit_run_monitor()
             if self._run_hidden:
                 self._set_window_visible(True)
                 self._run_hidden = False
@@ -1294,15 +1292,12 @@ class Api:
             except Exception as exc:
                 return {"ok": False, "error": str(exc)}
 
-        # Hide during continuous run so pyautogui clicks cannot land on Nexuz.
-        # Keep visible in debug / step mode so the user can use debug controls.
+        # Continuous run + hideWindow → compact main-window monitor (not hide + Tk).
+        # Debug / step keeps the full editor UI.
         in_debug = bool(debug_mode) or bool(step_mode)
-        do_hide = bool(hide_window) and not in_debug
+        use_monitor = bool(hide_window) and not in_debug
         log_session = self._runtime_logs.start(flow)
-        self._run_hidden = do_hide
-        if do_hide:
-            self._set_window_visible(False)
-            time.sleep(0.15)
+        self._run_hidden = False
         try:
             result = interp.run_flow(
                 flow,
@@ -1313,7 +1308,11 @@ class Api:
             started = bool((result or {}).get("started", True))
             resumed = bool((result or {}).get("resumed"))
             if started and not resumed:
-                self._start_run_controls(show_overlay=do_hide)
+                if use_monitor:
+                    # Geometry + hotkeys only; frontend flips to RunMonitorView.
+                    self._enter_run_monitor(flow)
+                else:
+                    self._start_run_controls(flow=flow)
                 self._emit(
                     "log",
                     {
@@ -1327,31 +1326,26 @@ class Api:
                 "ok": True,
                 "started": started,
                 "resumed": resumed,
-                "hide_window": do_hide,
+                "hide_window": False,
+                "run_monitor": use_monitor,
                 "debug_mode": in_debug,
                 "run_log": log_session.info(),
             }
         except Exception as exc:
             self._runtime_logs.finish({"ok": False, "error": str(exc)})
-            self._stop_run_controls()
-            if do_hide:
-                self._set_window_visible(True)
-                self._run_hidden = False
+            self._exit_run_monitor()
             return {"ok": False, "error": str(exc)}
 
     def pause_flow(self) -> dict:
-        """Pause execution and show window so user can Continue / Stop."""
+        """Same path for editor and run-monitor UI — only pauses the interpreter."""
         interp = get_interpreter()
         if not interp.running:
             return {"ok": False, "error": "当前没有运行中的流程"}
         interp.pause()
-        if self._run_hidden:
-            self._set_window_visible(True)
-            self._run_hidden = False
-            hide_run_overlay()
         return {"ok": True, "paused": True}
 
     def resume_flow(self) -> dict:
+        """Same path for editor and run-monitor UI — only resumes the interpreter."""
         interp = get_interpreter()
         if not interp.running:
             return {"ok": False, "error": "当前没有运行中的流程"}
@@ -1363,10 +1357,8 @@ class Api:
         return self.resume_flow()
 
     def stop_flow(self) -> dict:
+        """Same path for editor and run-monitor UI — only stops the interpreter."""
         get_interpreter().stop()
-        self._set_window_visible(True)
-        self._run_hidden = False
-        hide_run_overlay()
         return {"ok": True, "stopping": True}
 
     def force_reset(self) -> dict:
@@ -1408,12 +1400,7 @@ class Api:
             hide_stop_overlay()
         except Exception:
             pass
-        try:
-            hide_run_overlay()
-        except Exception:
-            pass
-
-        self._stop_run_controls()
+        self._exit_run_monitor()
         self._set_window_visible(True)
         self._run_hidden = False
         self._recording_hidden = False
@@ -2285,6 +2272,193 @@ class Api:
                 self._window.hide()
         except Exception:
             pass
+
+    def _window_rect(self) -> dict[str, int] | None:
+        hwnd = self._root_hwnd() or self._window_hwnd()
+        if not hwnd:
+            return None
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class RECT(ctypes.Structure):
+                _fields_ = [
+                    ("left", wintypes.LONG),
+                    ("top", wintypes.LONG),
+                    ("right", wintypes.LONG),
+                    ("bottom", wintypes.LONG),
+                ]
+
+            rect = RECT()
+            if not ctypes.windll.user32.GetWindowRect(
+                ctypes.c_void_p(hwnd), ctypes.byref(rect)
+            ):
+                return None
+            return {
+                "left": int(rect.left),
+                "top": int(rect.top),
+                "width": max(1, int(rect.right - rect.left)),
+                "height": max(1, int(rect.bottom - rect.top)),
+            }
+        except Exception:
+            return None
+
+    def _set_window_rect(self, left: int, top: int, width: int, height: int) -> bool:
+        hwnd = self._root_hwnd() or self._window_hwnd()
+        if not hwnd:
+            return False
+        try:
+            import ctypes
+
+            SWP_NOZORDER = 0x0004
+            SWP_NOACTIVATE = 0x0010
+            ok = ctypes.windll.user32.SetWindowPos(
+                ctypes.c_void_p(hwnd),
+                None,
+                int(left),
+                int(top),
+                max(1, int(width)),
+                max(1, int(height)),
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+            return bool(ok)
+        except Exception:
+            return False
+
+    def _show_window_cmd(self, cmd: int) -> bool:
+        """Win32 ShowWindow — safe from non-UI threads (unlike Form.WindowState)."""
+        hwnd = self._root_hwnd() or self._window_hwnd()
+        if not hwnd:
+            return False
+        try:
+            import ctypes
+
+            return bool(ctypes.windll.user32.ShowWindow(ctypes.c_void_p(hwnd), int(cmd)))
+        except Exception:
+            return False
+
+    def _work_area(self) -> dict[str, int]:
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class RECT(ctypes.Structure):
+                _fields_ = [
+                    ("left", wintypes.LONG),
+                    ("top", wintypes.LONG),
+                    ("right", wintypes.LONG),
+                    ("bottom", wintypes.LONG),
+                ]
+
+            SPI_GETWORKAREA = 0x0030
+            rect = RECT()
+            if ctypes.windll.user32.SystemParametersInfoW(
+                SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
+            ):
+                return {
+                    "left": int(rect.left),
+                    "top": int(rect.top),
+                    "right": int(rect.right),
+                    "bottom": int(rect.bottom),
+                }
+        except Exception:
+            pass
+        return {"left": 0, "top": 0, "right": 1920, "bottom": 1080}
+
+    def _enter_run_monitor(self, flow: dict | None = None) -> None:
+        """Shrink main WebView into a top-right run monitor (no Tk overlay, no hide)."""
+        if self._run_monitor_active:
+            self._run_monitor_flow = flow
+            self._start_run_controls(flow=flow)
+            return
+
+        rect = self._window_rect()
+        was_maximized = False
+        try:
+            was_maximized = bool(getattr(self, "_ui_maximized", False))
+            state = getattr(self._window, "state", None) if self._window else None
+            if state is not None and "maximized" in str(getattr(state, "name", state)).lower():
+                was_maximized = True
+        except Exception:
+            pass
+
+        prev_on_top = bool(getattr(self, "_ui_on_top", False))
+        self._run_monitor_restore = {
+            "rect": rect,
+            "maximized": was_maximized,
+            "on_top": prev_on_top,
+            "min_w": 800,
+            "min_h": 560,
+        }
+        self._run_monitor_flow = flow
+        self._run_monitor_active = True
+        self._run_hidden = False
+
+        # Win32 only — never Form.WindowState / MinimumSize (deadlocks WebView2).
+        SW_RESTORE = 9
+        if was_maximized:
+            self._show_window_cmd(SW_RESTORE)
+            time.sleep(0.05)
+            rect = self._window_rect() or rect
+            if self._run_monitor_restore is not None:
+                self._run_monitor_restore["rect"] = rect
+
+        area = self._work_area()
+        mon_w, mon_h = 360, 520
+        margin = 24
+        left = max(area["left"] + margin, area["right"] - mon_w - margin)
+        top = area["top"] + margin
+        self._set_window_rect(left, top, mon_w, mon_h)
+
+        try:
+            self._apply_window_topmost(True)
+            self._ui_on_top = True
+            self._sync_pywebview_on_top_flag(True)
+        except Exception:
+            pass
+
+        self._start_run_controls(flow=flow)
+        # Do not emit UI events here — App.tsx switches view from run_flow result.
+
+    def _exit_run_monitor(self) -> None:
+        """Restore window geometry / hotkeys. Does not drive frontend view."""
+        was_active = bool(self._run_monitor_active) or self._run_monitor_restore is not None
+        self._stop_run_controls()
+        restore = self._run_monitor_restore
+        self._run_monitor_active = False
+        self._run_monitor_restore = None
+        self._run_monitor_flow = None
+
+        if not was_active:
+            return
+
+        def _restore() -> None:
+            try:
+                if not restore:
+                    return
+                rect = restore.get("rect") if isinstance(restore.get("rect"), dict) else None
+                if rect:
+                    self._set_window_rect(
+                        int(rect.get("left") or 0),
+                        int(rect.get("top") or 0),
+                        int(rect.get("width") or 1400),
+                        int(rect.get("height") or 900),
+                    )
+                if restore.get("maximized"):
+                    SW_MAXIMIZE = 3
+                    self._show_window_cmd(SW_MAXIMIZE)
+                    self._ui_maximized = True
+                want_top = bool(restore.get("on_top"))
+                try:
+                    self._apply_window_topmost(want_top)
+                    self._ui_on_top = want_top
+                    self._sync_pywebview_on_top_flag(want_top)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_restore, daemon=True, name="nexuz-exit-monitor").start()
 
     # --- recording / capture providers ---
     def list_capture_providers(self) -> dict:

@@ -98,7 +98,9 @@ def main() -> None:
         js_api=api,
         width=1400,
         height=900,
-        min_size=(800, 560),
+        # Allow compact run-monitor geometry without runtime WinForms MinimumSize tweaks
+        # (changing MinimumSize off the UI thread deadlocks WebView2).
+        min_size=(320, 280),
         frameless=True,
         easy_drag=False,
         background_color="#0A0D14",

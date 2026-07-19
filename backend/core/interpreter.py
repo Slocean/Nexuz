@@ -49,6 +49,8 @@ class FlowInterpreter:
         self._break_next = False  # stop before the next node (step / step-into start)
         self._at_breakpoint = False
         self._paused_node_id: str | None = None
+        self._current_node_id: str | None = None
+        self._flow_name: str = ""
         self._debug_context: dict[str, Any] = {}
         # Optional parent controls when nested (call_subflow).
         self._parent_should_stop: Callable[[], bool] | None = None
@@ -96,6 +98,16 @@ class FlowInterpreter:
     def debug_mode(self) -> bool:
         return self._debug_mode
 
+    @property
+    def current_node_id(self) -> str | None:
+        with self._lock:
+            return self._current_node_id
+
+    @property
+    def flow_name(self) -> str:
+        with self._lock:
+            return self._flow_name
+
     def set_breakpoints(self, node_ids: list[str] | None) -> None:
         with self._lock:
             self._breakpoints = {str(x) for x in (node_ids or []) if str(x).strip()}
@@ -137,6 +149,8 @@ class FlowInterpreter:
             self._step_event.clear()
             self._at_breakpoint = False
             self._paused_node_id = None
+            self._current_node_id = None
+            self._flow_name = str(flow.get("name") or flow.get("flow_id") or "").strip()
             # step_mode alone implies debug (legacy「单步」)
             self._debug_mode = bool(debug_mode) or bool(step_mode)
             bps = breakpoints
@@ -179,6 +193,8 @@ class FlowInterpreter:
                         self._running = False
                         self._at_breakpoint = False
                         self._paused_node_id = None
+                        self._current_node_id = None
+                        self._flow_name = ""
                         self._debug_mode = False
                         self._break_next = False
                         self._thread = None
@@ -240,6 +256,8 @@ class FlowInterpreter:
                 self._running = False
                 self._at_breakpoint = False
                 self._paused_node_id = None
+                self._current_node_id = None
+                self._flow_name = ""
                 self._debug_mode = False
                 self._break_next = False
                 self._thread = None
@@ -261,6 +279,8 @@ class FlowInterpreter:
             self._running = False
             self._at_breakpoint = False
             self._paused_node_id = None
+            self._current_node_id = None
+            self._flow_name = ""
             self._debug_mode = False
             self._break_next = False
             self._thread = None
@@ -394,6 +414,9 @@ class FlowInterpreter:
             node = nodes.get(node_id)
             if not node:
                 raise ValueError(f"节点不存在: {node_id}")
+
+            with self._lock:
+                self._current_node_id = str(node_id)
 
             block_type = node.get("type")
             handler = get_handler(block_type)

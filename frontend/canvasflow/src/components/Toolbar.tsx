@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Play,
   Save,
@@ -46,7 +46,6 @@ import { bridge } from '@/bridge';
 import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '../../../src/store/flowModelStore';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
-import ResourceMonitorHud from './ResourceMonitorHud';
 
 interface ToolbarProps {
   themeName: ThemeName;
@@ -125,7 +124,6 @@ export default function Toolbar({
   const pluginModeRemote = useFlowStore(s => s.pluginModeRemote);
   const hotkeys = useFlowStore(s => s.hotkeys);
   const showToolbarLabels = useFlowStore(s => !!s.showToolbarLabels);
-  const resourceHudEnabled = useFlowStore(s => !!s.resourceHudEnabled);
   const pluginModeKey = formatHotkeyLabel(hotkeys?.plugin_mode || DEFAULT_HOTKEYS.plugin_mode);
   const clickThroughKey = formatHotkeyLabel(hotkeys?.click_through || DEFAULT_HOTKEYS.click_through);
   // Priority: viewport < xl always hides labels; when wide enough, settings decide.
@@ -139,73 +137,8 @@ export default function Toolbar({
   const [pluginClickThrough, setPluginClickThrough] = useState(false);
   const [updateDot, setUpdateDot] = useState(false);
   const [annDot, setAnnDot] = useState(false);
-  const [resourceOpen, setResourceOpen] = useState(false);
-  const [resourcePinned, setResourcePinned] = useState(false);
-  const resourceHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const resourceLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const colors = getThemeColors(themeName, themeMode);
 
-  const clearResourceTimers = () => {
-    if (resourceHoverTimer.current) {
-      clearTimeout(resourceHoverTimer.current);
-      resourceHoverTimer.current = null;
-    }
-    if (resourceLeaveTimer.current) {
-      clearTimeout(resourceLeaveTimer.current);
-      resourceLeaveTimer.current = null;
-    }
-  };
-
-  const openResourceHud = (delay = 120) => {
-    if (resourceLeaveTimer.current) {
-      clearTimeout(resourceLeaveTimer.current);
-      resourceLeaveTimer.current = null;
-    }
-    if (resourcePinned) {
-      setResourceOpen(true);
-      return;
-    }
-    if (resourceHoverTimer.current) clearTimeout(resourceHoverTimer.current);
-    resourceHoverTimer.current = setTimeout(() => {
-      setResourceOpen(true);
-      resourceHoverTimer.current = null;
-    }, delay);
-  };
-
-  const scheduleCloseResourceHud = () => {
-    if (resourcePinned) return;
-    if (resourceHoverTimer.current) {
-      clearTimeout(resourceHoverTimer.current);
-      resourceHoverTimer.current = null;
-    }
-    if (resourceLeaveTimer.current) clearTimeout(resourceLeaveTimer.current);
-    resourceLeaveTimer.current = setTimeout(() => {
-      setResourceOpen(false);
-      resourceLeaveTimer.current = null;
-    }, 160);
-  };
-
-  const toggleResourceHud = () => {
-    clearResourceTimers();
-    setResourcePinned(prev => {
-      if (prev) {
-        setResourceOpen(false);
-        return false;
-      }
-      setResourceOpen(true);
-      return true;
-    });
-  };
-
-  useEffect(() => () => clearResourceTimers(), []);
-
-  useEffect(() => {
-    if (!resourceHudEnabled) {
-      clearResourceTimers();
-      setResourceOpen(false);
-      setResourcePinned(false);
-    }
-  }, [resourceHudEnabled]);
   const themes: ThemeName[] = ['Ocean', 'Mint', 'Purple', 'Rose', 'Orange'];
 
   const applyPluginUiClass = (enabled: boolean, opacity = pluginOpacity) => {
@@ -623,43 +556,20 @@ export default function Toolbar({
                 </Button>
               )}
               <div
-                className="relative pywebview-no-drag"
-                onMouseEnter={() => {
-                  if (resourceHudEnabled) openResourceHud(140);
-                }}
-                onMouseLeave={() => {
-                  if (resourceHudEnabled) scheduleCloseResourceHud();
-                }}>
-                <button
-                  type="button"
-                  className={`flex flex-col items-center justify-center gap-0 shrink-0 -my-0.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 ${
-                    resourceHudEnabled ? 'cursor-pointer' : 'cursor-default'
-                  }`}
-                  title={resourceHudEnabled ? '资源检测 · 悬停预览 · 点击固定' : 'Nexuz'}
-                  onClick={() => {
-                    if (resourceHudEnabled) toggleResourceHud();
-                  }}>
-                  <img
-                    src={`${import.meta.env.BASE_URL}logo.png`}
-                    alt=""
-                    className="h-12 w-12 object-contain select-none pointer-events-none"
-                    draggable={false}
-                  />
-                  <img
-                    src={`${import.meta.env.BASE_URL}logo2.png`}
-                    alt="Nexuz"
-                    className="h-5 w-auto max-w-[5.5rem] object-contain select-none -mt-3.5 pointer-events-none"
-                    draggable={false}
-                  />
-                </button>
-                {resourceHudEnabled ? (
-                  <ResourceMonitorHud
-                    open={resourceOpen}
-                    pinned={resourcePinned}
-                    onMouseEnter={() => openResourceHud(0)}
-                    onMouseLeave={scheduleCloseResourceHud}
-                  />
-                ) : null}
+                className="relative flex flex-col items-center justify-center gap-0 shrink-0 -my-0.5"
+                title="Nexuz">
+                <img
+                  src={`${import.meta.env.BASE_URL}logo.png`}
+                  alt=""
+                  className="h-12 w-12 object-contain select-none pointer-events-none"
+                  draggable={false}
+                />
+                <img
+                  src={`${import.meta.env.BASE_URL}logo2.png`}
+                  alt="Nexuz"
+                  className="h-5 w-auto max-w-[5.5rem] object-contain select-none -mt-3.5 pointer-events-none"
+                  draggable={false}
+                />
               </div>
             </div>
 

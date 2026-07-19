@@ -89,19 +89,36 @@ function Meter({
   );
 }
 
-type Props = {
-  open: boolean;
-  pinned?: boolean;
-  onMouseEnter?: () => void;
-  onMouseLeave?: () => void;
+const HUD_STYLES = `
+  @keyframes nexuz-hud-shine {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @keyframes nexuz-hud-pulse {
+    0%, 100% { opacity: 0.45; }
+    50% { opacity: 1; }
+  }
+`;
+
+export type ResourceMonitorPanelProps = {
+  variant?: 'popover' | 'page';
+  headerRight?: React.ReactNode;
+  subtitle?: string;
+  className?: string;
+  polling?: boolean;
+  /** When true, skip logo / brand row (e.g. brand already rendered above). */
+  hideBrand?: boolean;
 };
 
-export default function ResourceMonitorHud({
-  open,
-  pinned = false,
-  onMouseEnter,
-  onMouseLeave,
-}: Props) {
+/** Shared resource meters — used by run monitor page (and formerly logo popover). */
+export function ResourceMonitorPanel({
+  variant = 'page',
+  headerRight,
+  subtitle = 'Resource Link',
+  className = '',
+  polling = true,
+  hideBrand = false,
+}: ResourceMonitorPanelProps) {
   const [stats, setStats] = useState<ResourceStats | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const alive = useRef(false);
@@ -124,9 +141,8 @@ export default function ResourceMonitorHud({
 
   useEffect(() => {
     alive.current = true;
-    if (!open) return undefined;
+    if (!polling) return undefined;
     void refresh();
-    // Warm CPU percent (psutil first sample is often 0)
     const warm = window.setTimeout(() => void refresh(), 400);
     const id = window.setInterval(() => void refresh(), 1000);
     return () => {
@@ -134,82 +150,65 @@ export default function ResourceMonitorHud({
       window.clearTimeout(warm);
       window.clearInterval(id);
     };
-  }, [open, refresh]);
-
-  if (!open) return null;
+  }, [polling, refresh]);
 
   const appMem = (stats?.private_bytes || stats?.rss_bytes || 0) + (stats?.children_rss_bytes || 0);
   const cpu = clampPct(stats?.cpu_percent);
   const sysCpu = clampPct(stats?.system_cpu_percent);
   const sysMem = clampPct(stats?.system_mem_percent);
 
-  return (
-    <div
-      className="absolute left-0 top-[calc(100%+6px)] z-[120] w-[19.5rem] select-none"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      <style>{`
-        @keyframes nexuz-hud-shine {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-        @keyframes nexuz-hud-pulse {
-          0%, 100% { opacity: 0.45; }
-          50% { opacity: 1; }
-        }
-        @keyframes nexuz-hud-scan {
-          0% { transform: translateY(-100%); }
-          100% { transform: translateY(220%); }
-        }
-        @keyframes nexuz-hud-ring {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
+  const shellCls =
+    variant === 'page'
+      ? `relative w-full select-none ${className}`
+      : `absolute left-0 top-[calc(100%+6px)] z-[120] w-[19.5rem] select-none ${className}`;
 
+  return (
+    <div className={shellCls}>
+      <style>{HUD_STYLES}</style>
       <div
-        className="relative overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl"
+        className={
+          variant === 'page'
+            ? 'relative overflow-hidden rounded-none border-0'
+            : 'relative overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-xl'
+        }
         style={{
           background: 'rgba(12, 14, 20, 0.96)',
           borderColor: 'rgba(255, 255, 255, 0.12)',
-          boxShadow: '0 18px 50px rgba(0,0,0,0.55)',
+          boxShadow: variant === 'page' ? 'none' : '0 18px 50px rgba(0,0,0,0.55)',
           color: '#e8eef8',
         }}
       >
-        <div className="relative p-3.5 space-y-3">
-          {/* Brand header: both logos */}
-          <div className="flex items-center gap-3">
-            <img
-              src={`${import.meta.env.BASE_URL}logo.png`}
-              alt=""
-              className="h-12 w-12 object-contain shrink-0"
-              draggable={false}
-            />
-            <div className="min-w-0 flex-1">
-              <img
-                src={`${import.meta.env.BASE_URL}logo2.png`}
-                alt="Nexuz"
-                className="h-6 w-auto max-w-[9rem] object-contain object-left"
-                draggable={false}
-              />
-              <div className="mt-1 flex items-center gap-2 text-[10px] tracking-[0.18em] uppercase text-slate-400">
-                <Activity className="w-3 h-3" />
-                Resource Link
-                {pinned ? (
-                  <span className="ml-auto normal-case tracking-normal text-slate-300">
-                    已固定
-                  </span>
-                ) : (
-                  <span className="ml-auto normal-case tracking-normal opacity-50">
-                    点击固定
-                  </span>
-                )}
+        <div className={`relative space-y-3 ${variant === 'page' ? 'p-3' : 'p-3.5'}`}>
+          {!hideBrand ? (
+            <>
+              <div className="flex items-center gap-3">
+                <img
+                  src={`${import.meta.env.BASE_URL}logo.png`}
+                  alt=""
+                  className="h-12 w-12 object-contain shrink-0"
+                  draggable={false}
+                />
+                <div className="min-w-0 flex-1 flex items-center gap-2">
+                  <img
+                    src={`${import.meta.env.BASE_URL}logo2.png`}
+                    alt="Nexuz"
+                    className="h-6 w-auto max-w-[7rem] object-contain object-left shrink-0"
+                    draggable={false}
+                  />
+                  <div className="min-w-0 flex items-center gap-1.5 text-[10px] tracking-[0.14em] uppercase text-slate-400">
+                    <Activity className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{subtitle}</span>
+                  </div>
+                  {headerRight ? (
+                    <span className="ml-auto shrink-0 normal-case tracking-normal text-[10px] text-slate-300">
+                      {headerRight}
+                    </span>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          </div>
-
-          <div className="h-px w-full bg-white/10" />
+              <div className="h-px w-full bg-white/10" />
+            </>
+          ) : null}
 
           {err ? (
             <p className="text-xs text-rose-300/90">{err}</p>
@@ -289,4 +288,17 @@ export default function ResourceMonitorHud({
       </div>
     </div>
   );
+}
+
+/** @deprecated Logo popover removed — kept as thin wrapper for any leftover imports. */
+export default function ResourceMonitorHud({
+  open,
+}: {
+  open: boolean;
+  pinned?: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
+  if (!open) return null;
+  return <ResourceMonitorPanel variant="popover" />;
 }

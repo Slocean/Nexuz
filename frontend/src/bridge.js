@@ -1726,6 +1726,8 @@ function mockCall(method, ...args) {
     case 'frida_detach':
     case 'frida_status':
     case 'frida_list_processes':
+    case 'drain_ui_events':
+      return Promise.resolve({ ok: true, messages: [] });
     case 'pause_flow':
     case 'resume_flow':
     case 'continue_flow':
@@ -1757,6 +1759,7 @@ export const bridge = {
   ping: () => call('ping'),
   getAppInfo: () => call('get_app_info'),
   getResourceStats: () => call('get_resource_stats'),
+  drainUiEvents: () => call('drain_ui_events'),
   checkForUpdate: () => call('check_for_update'),
   fetchAnnouncement: () => call('fetch_announcement'),
   fetchNotice: () => call('fetch_notice'),

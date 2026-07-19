@@ -44,6 +44,7 @@ import { collectFlowBindIssues } from './bindValidate';
 import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '../../src/store/flowModelStore';
 import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
 import WindowResizeHandles from './components/WindowResizeHandles';
+import RunMonitorView from './components/RunMonitorView';
 
 function loadPanelCollapsed(key: string): boolean {
   try {
@@ -282,6 +283,8 @@ function AppShell() {
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingMode, setRecordingMode] = useState<'coord' | 'frida_ui'>('coord');
+  const [runMonitorActive, setRunMonitorActive] = useState(false);
+  const [runMonitorFlowName, setRunMonitorFlowName] = useState('');
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [flowsRefreshToken, setFlowsRefreshToken] = useState(0);
 
@@ -410,6 +413,11 @@ function AppShell() {
         void handleRunWorkflowRef.current?.();
         return;
       }
+      // View switch only — pause/stop never depend on this.
+      if (msg.event === 'flow_finished' || msg.event === 'force_reset') {
+        setRunMonitorActive(false);
+        setRunMonitorFlowName('');
+      }
       onRuntimeEvent(msg.event, msg.payload || {});
     };
     (window as any).__nexuzEmit = handleRuntimeMessage;
@@ -418,10 +426,28 @@ function AppShell() {
       for (const msg of messages) handleRuntimeMessage(msg);
     };
     let cancelled = false;
+    let drainTimer: number | undefined;
+    let drainBusy = false;
+    const pollUiEvents = () => {
+      if (cancelled || drainBusy) return;
+      drainBusy = true;
+      void bridge.drainUiEvents?.()
+        .then((res: any) => {
+          const messages = res?.messages;
+          if (!Array.isArray(messages) || !messages.length) return;
+          for (const msg of messages) handleRuntimeMessage(msg);
+        })
+        .catch(() => {})
+        .finally(() => {
+          drainBusy = false;
+        });
+    };
     (async () => {
       await waitForBridge(8000);
       if (cancelled) return;
       setBridgeReady(true);
+      drainTimer = window.setInterval(pollUiEvents, 50);
+      pollUiEvents();
       try {
         const keys = useFlowStore.getState().hotkeys || DEFAULT_HOTKEYS;
         await bridge.setHotkeys?.(keys);
@@ -529,6 +555,7 @@ function AppShell() {
     })();
     return () => {
       cancelled = true;
+      if (drainTimer != null) window.clearInterval(drainTimer);
       delete (window as any).__nexuzEmit;
       delete (window as any).__nexuzEmitBatch;
     };
@@ -594,7 +621,15 @@ function AppShell() {
       appendLog({ level: 'info', message: '已继续暂停中的流程' });
       return;
     }
-    if (!res?.ok) appendLog({ level: 'error', message: res?.error || '启动失败' });
+    if (!res?.ok) {
+      appendLog({ level: 'error', message: res?.error || '启动失败' });
+      return;
+    }
+    // Frontend-owned view switch (compact monitor). Pause/stop stay the same handlers.
+    if (res?.run_monitor) {
+      setRunMonitorActive(true);
+      setRunMonitorFlowName(String(payload?.name || flow?.name || ''));
+    }
   };
   handleRunWorkflowRef.current = () => {
     void handleRunWorkflow();
@@ -608,28 +643,13 @@ function AppShell() {
     if (res?.ok === false) {
       appendLog({ level: 'error', message: res?.error || '停止失败' });
     }
-    // Safety: if worker already gone / race left UI on「停止中」, force idle.
-    const unlockIfIdle = async () => {
-      const st = await bridge.isRunning();
-      if (st?.running) return false;
-      if (useFlowStore.getState().execStatus === 'stopping') {
-        useFlowStore.setState({ execStatus: 'idle', execNodeId: null });
-        const last = useFlowStore.getState().logs.slice(-1)[0]?.message;
-        if (last !== '流程已停止') {
-          appendLog({ level: 'warn', message: '流程已停止' });
-        }
-      }
-      return true;
-    };
-    if (await unlockIfIdle()) return;
-    window.setTimeout(() => {
-      void unlockIfIdle();
-    }, 800);
   };
 
   const handleForceReset = async () => {
     // Unlock UI immediately even if the bridge is wedged.
     setRecording(false);
+    setRunMonitorActive(false);
+    setRunMonitorFlowName('');
     useFlowStore.setState({
       execStatus: 'idle',
       execNodeId: null,
@@ -1351,6 +1371,11 @@ function AppShell() {
       const res = await bridge.runFlow(payload, false, hide, false, []);
       if (!res?.ok) {
         appendLog({ level: 'error', message: res?.error || '单节点启动失败' });
+        return;
+      }
+      if (res?.run_monitor) {
+        setRunMonitorActive(true);
+        setRunMonitorFlowName(String(payload?.name || flow?.name || ''));
       }
     },
     [
@@ -1367,6 +1392,34 @@ function AppShell() {
       debugMode,
     ],
   );
+
+  if (runMonitorActive) {
+    const node = execNodeId ? flow?.nodes?.[execNodeId] : null;
+    const nodeName = node
+      ? String(node.name || node.type || execNodeId)
+      : execNodeId || '—';
+    const nodeLabel = execNodeId && node ? `${nodeName} (${execNodeId})` : nodeName;
+    return (
+      <div
+        className="plugin-shell h-screen w-screen overflow-hidden font-sans"
+        style={{ backgroundColor: '#0c0e14' }}
+        data-plugin-chrome
+      >
+        <WindowResizeHandles />
+        <RunMonitorView
+          flowName={runMonitorFlowName || flow?.name || ''}
+          nodeLabel={nodeLabel}
+          execStatus={execStatus}
+          onPause={handlePause}
+          onResume={handleResume}
+          onStop={handleStop}
+          hotkeyLabels={hotkeyLabels}
+          themeName={themeName as any}
+          themeMode={themeMode as any}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
