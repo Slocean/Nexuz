@@ -573,6 +573,8 @@ export const useFlowStore = create((set, get) => ({
   schemaMap: {},
   selectedNodeId: null,
   viewMode: 'canvas', // canvas | code | flowchart | settings
+  /** Last non-settings view; kept selected in the view group while settings is open. */
+  lastFlowViewMode: 'canvas', // canvas | code | flowchart
   bridgeReady: false,
   filePath: null,
 
@@ -903,7 +905,13 @@ export const useFlowStore = create((set, get) => ({
     set({ schemas, schemaMap });
   },
 
-  setViewMode: viewMode => set({ viewMode }),
+  setViewMode: viewMode => {
+    if (viewMode === 'canvas' || viewMode === 'code' || viewMode === 'flowchart') {
+      set({ viewMode, lastFlowViewMode: viewMode });
+      return;
+    }
+    set({ viewMode });
+  },
   selectNode: selectedNodeId => set({ selectedNodeId }),
 
   setDebugMode: debugMode => set({ debugMode: !!debugMode }),

@@ -25,6 +25,7 @@ import {
   Puzzle,
   Type,
   Terminal,
+  X,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -345,9 +346,11 @@ type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 export default function SettingsPage({
   themeName,
   themeMode,
+  onClose,
 }: {
   themeName: ThemeName;
   themeMode: ThemeMode;
+  onClose?: () => void;
 }) {
   const colors = getThemeColors(themeName, themeMode);
   const { confirm, alert } = useAppDialog();
@@ -1117,6 +1120,19 @@ export default function SettingsPage({
             设置
           </h1>
           <HelpHint text="全局偏好，保存在本机，与当前流程无关。" colors={colors} themeMode={themeMode} />
+          {onClose ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 ml-auto shrink-0 opacity-70 hover:opacity-100"
+              onClick={onClose}
+              title="关闭设置"
+              aria-label="关闭设置"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          ) : null}
         </div>
 
         <SettingsSection

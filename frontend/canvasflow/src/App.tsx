@@ -171,6 +171,11 @@ function AppShell() {
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const selectNode = useFlowStore((s) => s.selectNode);
   const viewMode = useFlowStore((s) => s.viewMode);
+  const lastFlowViewMode = useFlowStore((s) =>
+    s.lastFlowViewMode === 'code' || s.lastFlowViewMode === 'flowchart'
+      ? s.lastFlowViewMode
+      : 'canvas',
+  );
   const setViewMode = useFlowStore((s) => s.setViewMode);
   const themeName = useFlowStore((s) => s.themeName);
   const themeMode = useFlowStore((s) => s.themeMode);
@@ -1624,6 +1629,12 @@ function AppShell() {
         debugMode={debugMode}
         execStatus={execStatus}
         viewMode={viewMode as 'canvas' | 'code' | 'flowchart' | 'settings'}
+        flowViewMode={
+          (viewMode === 'settings' ? lastFlowViewMode : viewMode) as
+            | 'canvas'
+            | 'code'
+            | 'flowchart'
+        }
         onViewModeChange={(m) => setViewMode(m)}
       />
 
@@ -1688,7 +1699,11 @@ function AppShell() {
           </button>
 
           {viewMode === 'settings' ? (
-            <SettingsPage themeName={themeName as any} themeMode={themeMode as any} />
+            <SettingsPage
+              themeName={themeName as any}
+              themeMode={themeMode as any}
+              onClose={() => setViewMode(lastFlowViewMode)}
+            />
           ) : viewMode === 'code' ? (
             <CodeEditor themeName={themeName as any} themeMode={themeMode as any} />
           ) : viewMode === 'flowchart' ? (

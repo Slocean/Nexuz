@@ -76,6 +76,8 @@ interface ToolbarProps {
   debugMode?: boolean;
   execStatus?: string;
   viewMode?: 'canvas' | 'code' | 'flowchart' | 'settings';
+  /** Which flow view stays highlighted in the view group (even while settings is open). */
+  flowViewMode?: 'canvas' | 'code' | 'flowchart';
   onViewModeChange?: (mode: 'canvas' | 'code' | 'flowchart' | 'settings') => void;
   hotkeyLabels?: {
     start_run?: string;
@@ -113,9 +115,13 @@ export default function Toolbar({
   debugMode = false,
   execStatus = 'idle',
   viewMode = 'canvas',
+  flowViewMode = 'canvas',
   onViewModeChange,
   hotkeyLabels
 }: ToolbarProps) {
+  const activeFlowView =
+    flowViewMode === 'code' || flowViewMode === 'flowchart' ? flowViewMode : 'canvas';
+  const settingsOpen = viewMode === 'settings';
   const runKey = hotkeyLabels?.start_run || 'X+F3';
   const pauseKey = hotkeyLabels?.pause_run || 'X+F5';
   const stopKey = hotkeyLabels?.stop_run || 'X+F4';
@@ -582,7 +588,7 @@ export default function Toolbar({
                   onClick={() => onViewModeChange('canvas')}
                   title="画布"
                   style={
-                    viewMode === 'canvas'
+                    activeFlowView === 'canvas'
                       ? { backgroundColor: colors.primary, color: '#FFFFFF' }
                       : { backgroundColor: 'transparent', color: colors.text }
                   }
@@ -595,7 +601,7 @@ export default function Toolbar({
                   onClick={() => onViewModeChange('code')}
                   title="JSON"
                   style={
-                    viewMode === 'code'
+                    activeFlowView === 'code'
                       ? { backgroundColor: colors.primary, color: '#FFFFFF' }
                       : { backgroundColor: 'transparent', color: colors.text }
                   }
@@ -608,7 +614,7 @@ export default function Toolbar({
                   onClick={() => onViewModeChange('flowchart')}
                   title="流程图"
                   style={
-                    viewMode === 'flowchart'
+                    activeFlowView === 'flowchart'
                       ? { backgroundColor: colors.primary, color: '#FFFFFF' }
                       : { backgroundColor: 'transparent', color: colors.text }
                   }
@@ -623,11 +629,11 @@ export default function Toolbar({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => onViewModeChange('settings')}
-                title="设置"
-                style={
-                  viewMode === 'settings' ? { color: colors.primary } : undefined
-                }>
+                onClick={() =>
+                  onViewModeChange(settingsOpen ? activeFlowView : 'settings')
+                }
+                title={settingsOpen ? '返回视图' : '设置'}
+                style={settingsOpen ? { color: colors.primary } : undefined}>
                 <Settings2 className="w-4 h-4" />
               </Button>
             ) : null}
