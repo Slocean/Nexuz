@@ -1,10 +1,9 @@
 name: Release
 
 # Trigger (no gh needed):
-#   1) Edit app_update.json, push main, then:  release.bat
-#      → creates tag v* and pushes; this workflow runs on tag push
-#   2) Or manually: git tag v0.1.1 && git push origin v0.1.1
-#   3) Or Actions UI → Run workflow
+#   Signed:   release.bat           → tag vX.Y.Z          (requires cert secrets)
+#   Unsigned: release_unsigned.bat  → tag unsigned-vX.Y.Z (skips Authenticode)
+#   Or Actions UI → Run workflow
 #
 # Auth for Release upload: built-in GITHUB_TOKEN only.
 
@@ -21,9 +20,15 @@ on:
         required: false
         type: boolean
         default: false
+      skip_signing:
+        description: "Skip Authenticode (dev / unsigned build)"
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
+      - "unsigned-v*"
 
 permissions:
   contents: write
@@ -45,22 +50,63 @@ jobs:
         id: ver
         shell: bash
         run: |
+          SKIP_SIGNING=false
+          PRERELEASE=false
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             RAW="${{ inputs.version }}"
             if [ -z "$RAW" ]; then
               RAW=$(python -c "import json; d=json.load(open('app_update.json',encoding='utf-8')); h=d.get('history') if isinstance(d,dict) else None; print((h[0].get('version','') if isinstance(h,list) and h else d.get('version','')) if isinstance(d,dict) else '')")
             fi
+            RAW="${RAW#unsigned-v}"
+            RAW="${RAW#v}"
+            if [ "${{ inputs.skip_signing }}" = "true" ]; then
+              SKIP_SIGNING=true
+              PRERELEASE=true
+            fi
+            if [ "${{ inputs.prerelease }}" = "true" ]; then
+              PRERELEASE=true
+            fi
+            if [ "$SKIP_SIGNING" = "true" ]; then
+              TAG="unsigned-v${RAW}"
+            else
+              TAG="v${RAW}"
+            fi
           else
-            RAW="${GITHUB_REF_NAME}"
+            REF="${GITHUB_REF_NAME}"
+            if [[ "$REF" == unsigned-v* ]]; then
+              SKIP_SIGNING=true
+              PRERELEASE=true
+              RAW="${REF#unsigned-v}"
+              TAG="$REF"
+            elif [[ "$REF" == v* ]]; then
+              RAW="${REF#v}"
+              TAG="$REF"
+            else
+              echo "unsupported tag: $REF" >&2
+              exit 1
+            fi
           fi
-          RAW="${RAW#v}"
           if [ -z "$RAW" ]; then
             echo "version is empty — set workflow input or app_update.json version" >&2
             exit 1
           fi
+          if [ "$SKIP_SIGNING" = "true" ]; then
+            NAME="Nexuz ${RAW} (unsigned)"
+          else
+            NAME="Nexuz ${RAW}"
+          fi
+          if [ "$SKIP_SIGNING" = "true" ]; then
+            ARTIFACT="Nexuz-${RAW}-unsigned"
+          else
+            ARTIFACT="Nexuz-${RAW}"
+          fi
           echo "version=$RAW" >> "$GITHUB_OUTPUT"
-          echo "tag=v$RAW" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: $RAW"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "skip_signing=$SKIP_SIGNING" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "release_name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=$RAW tag=$TAG skip_signing=$SKIP_SIGNING"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -87,11 +133,17 @@ jobs:
       - name: Prepare trusted signing identity
         shell: pwsh
         env:
+          SKIP_SIGNING: ${{ steps.ver.outputs.skip_signing }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
+          if ($env:SKIP_SIGNING -eq "true") {
+            "NEXUZ_SIGNER_CERT_SHA256=" >> $env:GITHUB_ENV
+            Write-Host "Unsigned release: leave trusted signer empty (client updates disabled)"
+            return
+          }
           if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            throw "Release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD. See docs/WINDOWS_SIGNING.md"
+            throw "Signed release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD. Use release_unsigned.bat for a dev build, or see docs/WINDOWS_SIGNING.md"
           }
           $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
           $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
@@ -119,11 +171,16 @@ jobs:
       - name: Sign exe (Authenticode)
         shell: pwsh
         env:
+          SKIP_SIGNING: ${{ steps.ver.outputs.skip_signing }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
+          if ($env:SKIP_SIGNING -eq "true") {
+            Write-Host "Unsigned release: skip Authenticode signing"
+            return
+          }
           if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            throw "Release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD. See docs/WINDOWS_SIGNING.md"
+            throw "Signed release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD. See docs/WINDOWS_SIGNING.md"
           }
           New-Item -ItemType Directory -Force -Path certificate | Out-Null
           $pfx = "certificate/certificate.pfx"
@@ -142,7 +199,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nexuz-${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.artifact_name }}
           path: |
             dist/Nexuz.exe
             dist/Nexuz.exe.sha256
@@ -155,6 +212,12 @@ jobs:
           python build_release_notes.py \
             --version "${{ steps.ver.outputs.version }}" \
             -o RELEASE_NOTES.md
+          if [ "${{ steps.ver.outputs.skip_signing }}" = "true" ]; then
+            {
+              echo ""
+              echo "> **Unsigned / pre-release build** — Authenticode skipped; not for production auto-update."
+            } >> RELEASE_NOTES.md
+          fi
           echo "----- RELEASE_NOTES.md -----"
           cat RELEASE_NOTES.md
 
@@ -162,9 +225,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: Nexuz ${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.release_name }}
           draft: false
-          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           generate_release_notes: false
           body_path: RELEASE_NOTES.md
           files: |

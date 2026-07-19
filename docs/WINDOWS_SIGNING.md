@@ -21,7 +21,16 @@
 | `WINDOWS_CERTIFICATE_PASSWORD` | pfx 导出密码 |
 
 5. 再跑 `release.bat`：Action 会在打包时嵌入证书 SHA-256 信任锚，随后签名、生成
-   `Nexuz.exe.sha256` 并上传两个文件。缺少任一 Secret 会直接终止 Release。
+   `Nexuz.exe.sha256` 并上传两个文件。缺少任一 Secret 会直接终止**正式** Release。
+
+## 两条发版通道
+
+| 脚本 | Tag | 签名 | 用途 |
+|------|-----|------|------|
+| `release.bat` / `python trigger_release.py` | `vX.Y.Z` | **必须** Secrets | 正式包、可走热更新信任锚 |
+| `release_unsigned.bat` / `python trigger_release.py --unsigned` | `unsigned-vX.Y.Z` | 跳过 | 内测；Release 标为 pre-release；**不写信任锚，客户端热更新应拒绝** |
+
+未配置证书时请用未签名通道，不要改正式 `v*` 门禁。
 
 ## 临时自签名（开发 / 过渡）
 

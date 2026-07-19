@@ -100,6 +100,9 @@ python trigger_release.py
 
 会打 `v版本号` 的 tag 并推送，GitHub Action 自动打包上传 Release。**不需要安装 gh。**
 
+- **正式签名发版**：`release.bat`（需配置 `WINDOWS_CERTIFICATE` Secrets）
+- **未签名内测发版**：`release_unsigned.bat`（打 `unsigned-v*` tag，跳过 Authenticode；勿当生产热更新源）
+
 Release 正文只写入 [`app_update.json`](app_update.json) 里**当前发版版本**那一条的 `title` / `body`，不会再用 GitHub 自动 Changelog 链接，也不会把历史版本全塞进去。
 
 进度：https://github.com/Slocean/Nexuz/actions  

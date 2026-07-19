@@ -39,6 +39,17 @@ def test_remote_tag_listing_ignores_non_release_tags() -> None:
         assert trigger_release.remote_versions() == ["0.4.0"]
 
 
+def test_tag_for_version_signed_and_unsigned() -> None:
+    assert trigger_release.tag_for_version("0.5.0", unsigned=False) == "v0.5.0"
+    assert trigger_release.tag_for_version("0.5.0", unsigned=True) == "unsigned-v0.5.0"
+
+
+def test_parse_args_unsigned_flag() -> None:
+    assert trigger_release.parse_args(["--unsigned"]) == ("", True)
+    assert trigger_release.parse_args(["0.5.0", "-u"]) == ("0.5.0", True)
+    assert trigger_release.parse_args(["0.5.0"]) == ("0.5.0", False)
+
+
 def test_delete_tag_removes_local_and_remote() -> None:
     calls: list[list[str]] = []
 
