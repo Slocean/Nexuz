@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Cpu, HardDrive, Timer, Waves } from 'lucide-react';
+import { Activity, Boxes, Cpu, HardDrive, Layers, Timer, Waves } from 'lucide-react';
 import { bridge } from '@/bridge';
 
 export type ResourceStats = {
@@ -45,32 +45,46 @@ function clampPct(n?: number): number {
   return Math.max(0, Math.min(100, v));
 }
 
-function Meter({
+/** System = full gray track; process = accent fill by process/system ratio; right = xx/xx */
+function RatioMeter({
   label,
-  value,
-  hint,
+  icon,
+  processValue,
+  systemValue,
+  processText,
+  systemText,
   accent,
 }: {
   label: string;
-  value: number;
-  hint?: string;
+  icon: React.ReactNode;
+  processValue: number;
+  systemValue: number;
+  processText: string;
+  systemText: string;
   accent: string;
 }) {
-  const pct = clampPct(value);
+  const sys = Math.max(0, Number(systemValue) || 0);
+  const proc = Math.max(0, Number(processValue) || 0);
+  const ratio = sys > 0 ? Math.max(0, Math.min(100, (proc / sys) * 100)) : 0;
   return (
-    <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-2 text-[11px]">
-        <span className="tracking-wide opacity-70">{label}</span>
-        <span className="font-mono tabular-nums" style={{ color: accent }}>
-          {pct.toFixed(1)}%
-          {hint ? <span className="ml-1.5 opacity-50">{hint}</span> : null}
+    <div className="space-y-1 min-w-0">
+      <div className="flex items-center justify-between gap-2 text-[12.5px]">
+        <div className="flex items-center gap-1.5 opacity-60 min-w-0">
+          {icon}
+          <span className="tracking-wide truncate">{label}</span>
+        </div>
+        <span
+          className="shrink-0 font-mono tabular-nums leading-none"
+          style={{ color: accent }}
+        >
+          {processText}/{systemText}
         </span>
       </div>
-      <div className="h-1.5 rounded-full bg-white/10 overflow-hidden relative">
+      <div className="h-1.5 w-full rounded-full bg-white/15 overflow-hidden relative">
         <div
           className="h-full rounded-full transition-[width] duration-500 ease-out relative"
           style={{
-            width: `${pct}%`,
+            width: `${ratio}%`,
             background: `linear-gradient(90deg, ${accent}88, ${accent})`,
             boxShadow: `0 0 12px ${accent}66`,
           }}
@@ -155,7 +169,6 @@ export function ResourceMonitorPanel({
   const appMem = (stats?.private_bytes || stats?.rss_bytes || 0) + (stats?.children_rss_bytes || 0);
   const cpu = clampPct(stats?.cpu_percent);
   const sysCpu = clampPct(stats?.system_cpu_percent);
-  const sysMem = clampPct(stats?.system_mem_percent);
 
   const shellCls =
     variant === 'page'
@@ -178,7 +191,10 @@ export function ResourceMonitorPanel({
           color: '#e8eef8',
         }}
       >
-        <div className={`relative space-y-3 ${variant === 'page' ? 'p-3' : 'p-3.5'}`}>
+        <div
+          className={`relative space-y-3 ${variant === 'page' ? 'py-3' : 'py-3.5'}`}
+          style={{ paddingLeft: 15, paddingRight: 15 }}
+        >
           {!hideBrand ? (
             <>
               <div className="flex items-center gap-3">
@@ -195,12 +211,12 @@ export function ResourceMonitorPanel({
                     className="h-6 w-auto max-w-[7rem] object-contain object-left shrink-0"
                     draggable={false}
                   />
-                  <div className="min-w-0 flex items-center gap-1.5 text-[10px] tracking-[0.14em] uppercase text-slate-400">
+                  <div className="min-w-0 flex items-center gap-1.5 text-[12.5px] tracking-[0.14em] uppercase text-slate-400">
                     <Activity className="w-3 h-3 shrink-0" />
                     <span className="truncate">{subtitle}</span>
                   </div>
                   {headerRight ? (
-                    <span className="ml-auto shrink-0 normal-case tracking-normal text-[10px] text-slate-300">
+                    <span className="ml-auto shrink-0 normal-case tracking-normal text-[12.5px] text-slate-300">
                       {headerRight}
                     </span>
                   ) : null}
@@ -211,57 +227,76 @@ export function ResourceMonitorPanel({
           ) : null}
 
           {err ? (
-            <p className="text-xs text-rose-300/90">{err}</p>
+            <p className="text-[12.5px] text-rose-300/90">{err}</p>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2">
-                  <div className="flex items-center gap-1.5 text-[10px] opacity-60">
-                    <Cpu className="w-3 h-3 text-cyan-300" /> 进程 CPU
-                  </div>
-                  <div className="mt-0.5 font-mono text-lg tabular-nums text-cyan-200">
-                    {cpu.toFixed(1)}
-                    <span className="text-xs opacity-60">%</span>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2">
-                  <div className="flex items-center gap-1.5 text-[10px] opacity-60">
-                    <HardDrive className="w-3 h-3 text-fuchsia-300" /> 进程内存
-                  </div>
-                  <div className="mt-0.5 font-mono text-lg tabular-nums text-fuchsia-200">
-                    {formatBytes(appMem).replace(' ', '')}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2.5">
-                <Meter label="系统 CPU" value={sysCpu} accent="#38bdf8" />
-                <Meter
-                  label="系统内存"
-                  value={sysMem}
-                  hint={formatBytes(stats?.system_mem_used_bytes)}
+              <div className="grid grid-cols-2 gap-3">
+                <RatioMeter
+                  label="CPU"
+                  icon={<Cpu className="w-3 h-3 text-cyan-300" />}
+                  processValue={cpu}
+                  systemValue={sysCpu}
+                  processText={cpu.toFixed(1)}
+                  systemText={sysCpu.toFixed(1)}
+                  accent="#38bdf8"
+                />
+                <RatioMeter
+                  label="内存"
+                  icon={<HardDrive className="w-3 h-3 text-fuchsia-300" />}
+                  processValue={appMem}
+                  systemValue={stats?.system_mem_total_bytes || 0}
+                  processText={formatBytes(appMem).replace(' ', '')}
+                  systemText={formatBytes(stats?.system_mem_total_bytes).replace(' ', '')}
                   accent="#d946ef"
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-1.5 text-[10px]">
-                <div className="rounded-lg bg-white/[0.04] px-2 py-1.5 border border-white/8">
-                  <div className="opacity-50">线程</div>
-                  <div className="font-mono tabular-nums text-sm">{stats?.threads ?? '—'}</div>
-                </div>
-                <div className="rounded-lg bg-white/[0.04] px-2 py-1.5 border border-white/8">
-                  <div className="opacity-50">子进程</div>
-                  <div className="font-mono tabular-nums text-sm">{stats?.child_count ?? '—'}</div>
-                </div>
-                <div className="rounded-lg bg-white/[0.04] px-2 py-1.5 border border-white/8">
-                  <div className="opacity-50 flex items-center gap-1">
-                    <Timer className="w-2.5 h-2.5" /> 运行
+              <div className="grid grid-cols-3 gap-2 text-[12.5px]">
+                <div
+                  className="min-w-0 space-y-0.5 text-center rounded-lg px-2 py-1.5"
+                  style={{
+                    background: 'rgba(251, 191, 36, 0.1)',
+                    border: '1px solid rgba(251, 191, 36, 0.18)',
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-1 opacity-60">
+                    <Layers className="w-3 h-3 text-amber-300" /> 线程
                   </div>
-                  <div className="font-mono tabular-nums text-sm">{formatUptime(stats?.uptime_s)}</div>
+                  <div className="font-mono tabular-nums text-sm text-amber-200">
+                    {stats?.threads ?? '—'}
+                  </div>
+                </div>
+                <div
+                  className="min-w-0 space-y-0.5 text-center rounded-lg px-2 py-1.5"
+                  style={{
+                    background: 'rgba(167, 139, 250, 0.1)',
+                    border: '1px solid rgba(167, 139, 250, 0.18)',
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-1 opacity-60">
+                    <Boxes className="w-3 h-3 text-violet-300" /> 子进程
+                  </div>
+                  <div className="font-mono tabular-nums text-sm text-violet-200">
+                    {stats?.child_count ?? '—'}
+                  </div>
+                </div>
+                <div
+                  className="min-w-0 space-y-0.5 text-center rounded-lg px-2 py-1.5"
+                  style={{
+                    background: 'rgba(52, 211, 153, 0.1)',
+                    border: '1px solid rgba(52, 211, 153, 0.18)',
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-1 opacity-60">
+                    <Timer className="w-3 h-3 text-emerald-300" /> 运行
+                  </div>
+                  <div className="font-mono tabular-nums text-sm text-emerald-200">
+                    {formatUptime(stats?.uptime_s)}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-[10px] opacity-70">
+              <div className="flex items-center justify-between text-[12.5px] opacity-70">
                 <span className="inline-flex items-center gap-1.5">
                   <span
                     className="inline-block h-1.5 w-1.5 rounded-full"
