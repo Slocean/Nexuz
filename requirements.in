@@ -1,3 +1,6 @@
+# Regenerate locks (pin setuptools for --require-hashes):
+#   pip-compile --allow-unsafe --generate-hashes -o requirements.txt requirements.in
+#   pip-compile --allow-unsafe --generate-hashes -o requirements-dev.txt requirements-dev.in
 pywebview>=5.0
 pyautogui>=0.9.54
 pynput>=1.7.6
