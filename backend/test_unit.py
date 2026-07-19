@@ -128,6 +128,76 @@ def test_runtime_logs_are_scoped_per_flow():
             assert '"node_id":"b"' not in first.as_text()
 
 
+def test_ocr_memory_helpers():
+    from PIL import Image
+
+    from backend.blocks.ocr_recognize import (
+        _infer_ocr,
+        _is_ocr_memory_error,
+        _prepare_ocr_image,
+        reset_ocr_engine,
+    )
+    from backend.core.runtime_payload import summarize_node_outcome
+
+    assert _is_ocr_memory_error(MemoryError("x"))
+    assert _is_ocr_memory_error(
+        RuntimeError(
+            "[ONNXRuntimeError] : 6 : RUNTIME_EXCEPTION : bad allocation"
+        )
+    )
+    assert not _is_ocr_memory_error(ValueError("请框选识别区域"))
+
+    tiny = Image.new("RGB", (20, 10), color=(255, 255, 255))
+    scaled, scale = _prepare_ocr_image(tiny)
+    assert scale > 1.0
+    assert scaled.size[0] > tiny.size[0]
+    assert scaled.size[1] > tiny.size[1]
+    big = Image.new("RGB", (200, 80), color=(255, 255, 255))
+    same, scale2 = _prepare_ocr_image(big)
+    assert scale2 == 1.0
+    assert same.size == big.size
+
+    calls = {"n": 0}
+
+    class BoomThenOk:
+        def __call__(self, _arr):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError(
+                    "onnxruntime ... Status Message: bad allocation"
+                )
+            return [[[[0, 0], [10, 0], [10, 10], [0, 10]], "80", 0.9]], 1.0
+
+    with (
+        patch("backend.blocks.ocr_recognize._get_ocr", return_value=BoomThenOk()),
+        patch("backend.blocks.ocr_recognize.reset_ocr_engine") as reset_mock,
+    ):
+        import numpy as np
+
+        out, _elapsed = _infer_ocr(np.zeros((8, 8, 3), dtype=np.uint8))
+        assert out and out[0][1] == "80"
+        assert calls["n"] == 2
+        assert reset_mock.called
+
+    reset_ocr_engine()
+
+    assert "识别为空" in summarize_node_outcome(
+        "if_text_contains",
+        ok=True,
+        result={"matched": False, "recognized": False, "actual_text": ""},
+    )
+    assert "实际: 79" in summarize_node_outcome(
+        "if_text_contains",
+        ok=True,
+        result={"matched": False, "recognized": True, "actual_text": "79"},
+    )
+    assert "成立" in summarize_node_outcome(
+        "if_text_contains",
+        ok=True,
+        result={"matched": True, "recognized": True, "actual_text": "80"},
+    )
+
+
 if __name__ == "__main__":
     test_variables()
     test_expressions()
@@ -136,4 +206,5 @@ if __name__ == "__main__":
     test_interpreter_node_delay()
     test_coordinate_modes()
     test_runtime_logs_are_scoped_per_flow()
+    test_ocr_memory_helpers()
     print("UNIT OK")

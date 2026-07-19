@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import gc
+import threading
 from pathlib import Path
 
 from backend.blocks._helpers import (
@@ -18,6 +20,13 @@ from backend.blocks._ocr_match import (
     primary_match_from_list,
     total_match_count,
 )
+
+# Rebuild ONNX session periodically to limit native memory / fragmentation growth.
+_OCR_REBUILD_EVERY = 50
+# Upscale tiny crops so det/rec see enough pixels (boxes scaled back after).
+_OCR_MIN_SHORT_SIDE = 48
+_OCR_MIN_AREA = 4000
+_OCR_MAX_UPSCALE = 3.0
 
 SCHEMA = {
     "type": "ocr_recognize",
@@ -231,6 +240,7 @@ SCHEMA = {
         {"name": "match_count", "type": "number"},
         {"name": "text", "type": "string"},
         {"name": "confidence", "type": "number"},
+        {"name": "recognized", "type": "boolean"},
         {"name": "matches", "type": "array", "canvas": False},
         {"name": "boxes", "type": "array", "canvas": False},
         {"name": "region", "type": "object", "canvas": False},
@@ -239,19 +249,150 @@ SCHEMA = {
 }
 
 _ocr_engine = None
+_ocr_call_count = 0
+_ocr_lock = threading.Lock()
+
+
+def _dispose_ocr_engine(engine) -> None:
+    if engine is None:
+        return
+    # Best-effort: clear nested session refs RapidOCR may hold.
+    for attr in ("session", "text_detector", "text_recognizer", "text_cls"):
+        try:
+            sub = getattr(engine, attr, None)
+            if sub is None:
+                continue
+            for nested in ("session", "ort_session", "predictor"):
+                try:
+                    setattr(sub, nested, None)
+                except Exception:
+                    pass
+            try:
+                setattr(engine, attr, None)
+            except Exception:
+                pass
+        except Exception:
+            pass
+    try:
+        del engine
+    except Exception:
+        pass
+    try:
+        gc.collect()
+    except Exception:
+        pass
+
+
+def reset_ocr_engine() -> None:
+    """Drop the RapidOCR/ONNX singleton so the next call rebuilds a fresh session."""
+    global _ocr_engine, _ocr_call_count
+    with _ocr_lock:
+        engine = _ocr_engine
+        _ocr_engine = None
+        _ocr_call_count = 0
+    _dispose_ocr_engine(engine)
 
 
 def _get_ocr():
     global _ocr_engine
-    if _ocr_engine is None:
+    with _ocr_lock:
+        if _ocr_engine is None:
+            try:
+                from rapidocr_onnxruntime import RapidOCR
+            except ImportError as exc:
+                raise RuntimeError(
+                    "未安装 OCR 依赖，请执行: pip install rapidocr-onnxruntime"
+                ) from exc
+            _ocr_engine = RapidOCR()
+        return _ocr_engine
+
+
+def _maybe_periodic_rebuild() -> None:
+    """Rebuild session every N inferences to reduce native memory buildup."""
+    global _ocr_engine, _ocr_call_count
+    engine = None
+    with _ocr_lock:
+        _ocr_call_count += 1
+        if _ocr_call_count >= _OCR_REBUILD_EVERY:
+            engine = _ocr_engine
+            _ocr_engine = None
+            _ocr_call_count = 0
+    if engine is not None:
+        _dispose_ocr_engine(engine)
+
+
+def _is_ocr_memory_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    if isinstance(exc, MemoryError):
+        return True
+    markers = (
+        "bad allocation",
+        "onnxruntime",
+        "failed to allocate",
+        "out of memory",
+        "oom",
+        "std::bad_alloc",
+    )
+    if any(m in msg for m in markers):
+        return True
+    name = type(exc).__name__.lower()
+    return "onnx" in name and ("runtime" in name or "exception" in name)
+
+
+def _prepare_ocr_image(img):
+    """
+    Upscale tiny crops for better det/rec; return (image, scale).
+    Caller must scale OCR box coords back by 1/scale.
+    """
+    try:
+        w, h = img.size
+    except Exception:
+        return img, 1.0
+    if w <= 0 or h <= 0:
+        return img, 1.0
+    short = min(w, h)
+    area = w * h
+    scale = 1.0
+    if short < _OCR_MIN_SHORT_SIDE:
+        scale = max(scale, _OCR_MIN_SHORT_SIDE / float(short))
+    if area < _OCR_MIN_AREA:
+        scale = max(scale, (_OCR_MIN_AREA / float(area)) ** 0.5)
+    scale = min(scale, _OCR_MAX_UPSCALE)
+    if scale <= 1.01:
+        return img, 1.0
+    nw = max(1, int(round(w * scale)))
+    nh = max(1, int(round(h * scale)))
+    try:
+        from PIL import Image
+
+        resample = getattr(Image, "Resampling", Image).LANCZOS
+    except Exception:
+        resample = 1  # LANCZOS
+    try:
+        return img.resize((nw, nh), resample), scale
+    except Exception:
+        return img, 1.0
+
+
+def _infer_ocr(arr):
+    """Run RapidOCR once; on memory/runtime failure reset engine and retry once."""
+    engine = _get_ocr()
+    try:
+        return engine(arr)
+    except Exception as exc:
+        if not _is_ocr_memory_error(exc):
+            raise
+        reset_ocr_engine()
+        engine = _get_ocr()
         try:
-            from rapidocr_onnxruntime import RapidOCR
-        except ImportError as exc:
-            raise RuntimeError(
-                "未安装 OCR 依赖，请执行: pip install rapidocr-onnxruntime"
-            ) from exc
-        _ocr_engine = RapidOCR()
-    return _ocr_engine
+            return engine(arr)
+        except Exception as retry_exc:
+            if _is_ocr_memory_error(retry_exc):
+                raise RuntimeError(
+                    "OCR 引擎内存不足（bad allocation），已重置并重试仍失败。"
+                    "请重启应用或降低 OCR 调用频率。"
+                ) from retry_exc
+            raise
 
 
 def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | None]:
@@ -346,6 +487,7 @@ def _empty_ocr_result(
         "match_count": 0,
         "text": "",
         "confidence": 0.0,
+        "recognized": False,
         "matches": [],
         "boxes": [],
         "region": region,
@@ -391,19 +533,25 @@ def run_ocr(params: dict) -> dict:
         region = [x1, y1, x2, y2]
         img = grab_region(x1, y1, x2, y2)
 
-    engine = _get_ocr()
     import numpy as np
 
-    arr = np.asarray(img)
+    ocr_img, scale = _prepare_ocr_image(img)
+    arr = np.asarray(ocr_img)
     try:
-        result, _elapsed = engine(arr)
+        result, _elapsed = _infer_ocr(arr)
     finally:
-        # Release screenshot buffer promptly; RapidOCR may retain its own copy.
+        # Release screenshot buffers promptly; RapidOCR may retain its own copy.
         del arr
+        if ocr_img is not img:
+            try:
+                ocr_img.close()
+            except Exception:
+                pass
         try:
             img.close()
         except Exception:
             pass
+        _maybe_periodic_rebuild()
 
     if not result:
         return _empty_ocr_result(region, anchor)
@@ -414,6 +562,7 @@ def run_ocr(params: dict) -> dict:
     include_geometry = str(params.get("include_box_geometry", "false")).lower() == "true"
     match_mode = str(params.get("match_mode") or "contains")
     queries = parse_match_queries(params)
+    inv_scale = 1.0 / scale if scale and scale != 1.0 else 1.0
 
     texts: list[str] = []
     scores: list[float] = []
@@ -427,6 +576,11 @@ def run_ocr(params: dict) -> dict:
         texts.append(str(text))
         scores.append(score)
         poly = _compact_box(box)
+        if inv_scale != 1.0 and poly:
+            poly = [
+                [int(round(pt[0] * inv_scale)), int(round(pt[1] * inv_scale))]
+                for pt in poly
+            ]
         geom = aabb_from_polygon(poly, offset_x=x1, offset_y=y1)
         entry: dict = {
             "text": text,
@@ -446,6 +600,7 @@ def run_ocr(params: dict) -> dict:
 
     joined = "\n".join(texts)
     avg = sum(scores) / len(scores) if scores else 0.0
+    recognized = bool(texts)
 
     matches = match_all_queries(boxes, queries, match_mode) if queries else []
     match_out = primary_match_from_list(matches) if matches else empty_match_outputs()
@@ -456,6 +611,7 @@ def run_ocr(params: dict) -> dict:
         "match_count": match_count,
         "text": joined,
         "confidence": round(avg, 4),
+        "recognized": recognized,
         "matches": matches,
         "boxes": boxes,
         "region": region,

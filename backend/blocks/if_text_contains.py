@@ -185,6 +185,7 @@ SCHEMA = {
     "outputs": [
         {"name": "matched", "type": "boolean"},
         {"name": "actual_text", "type": "string"},
+        {"name": "recognized", "type": "boolean"},
         {"name": "found", "type": "boolean"},
         {"name": "x", "type": "number"},
         {"name": "y", "type": "number"},
@@ -208,6 +209,7 @@ def handler(params, context, **kwargs):
         return {
             "matched": matched,
             "actual_text": actual,
+            "recognized": bool(actual.strip()),
             **empty_match_outputs(),
             "matched_text": actual if matched else "",
             "found": matched,
@@ -229,6 +231,7 @@ def handler(params, context, **kwargs):
     return {
         "matched": matched,
         "actual_text": actual,
+        "recognized": bool(ocr_out.get("recognized")),
         "found": bool(ocr_out.get("found")),
         "x": int(ocr_out.get("x") or 0),
         "y": int(ocr_out.get("y") or 0),

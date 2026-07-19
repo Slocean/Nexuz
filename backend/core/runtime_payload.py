@@ -163,7 +163,17 @@ def summarize_node_outcome(
         if text:
             return f"OCR: {str(text)[:120]}{ms}"
         return f"OCR 无文字{ms}"
-    if t in ("if_condition", "if_color_match", "if_text_contains", "if_logic"):
+    if t == "if_text_contains":
+        matched = bool(r.get("matched"))
+        actual = r.get("actual_text")
+        recognized = r.get("recognized")
+        if matched:
+            detail = f" · 实际: {str(actual)[:80]}" if actual else ""
+            return f"文字匹配 成立{detail}{ms}"
+        if recognized is False or (recognized is None and not actual):
+            return f"文字匹配 不成立 · 识别为空{ms}"
+        return f"文字匹配 不成立 · 实际: {str(actual)[:80]}{ms}"
+    if t in ("if_condition", "if_color_match", "if_logic"):
         return f"条件{'成立' if r.get('matched') else '不成立'}{ms}"
     if t == "color_detect":
         c = r.get("color") or r.get("hex")

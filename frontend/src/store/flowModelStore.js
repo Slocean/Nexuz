@@ -42,7 +42,17 @@ function formatRuntimeNodeEnd(payload) {
       ? `✓ [${nid}] OCR 识别到: ${String(t).slice(0, 120)}`
       : `✓ [${nid}] OCR 完成但未识别到文字`;
   }
-  if (type === 'if_text_contains' || type === 'if_condition' || type === 'if_color_match' || type === 'if_logic') {
+  if (type === 'if_text_contains') {
+    if (result.matched) {
+      const actual = result.actual_text != null ? ` · 实际: ${String(result.actual_text).slice(0, 80)}` : '';
+      return `✓ [${nid}] 文字匹配 成立${actual}`;
+    }
+    if (result.recognized === false || (result.recognized == null && !result.actual_text)) {
+      return `✓ [${nid}] 文字匹配 不成立 · 识别为空`;
+    }
+    return `✓ [${nid}] 文字匹配 不成立 · 实际: ${String(result.actual_text ?? '').slice(0, 80)}`;
+  }
+  if (type === 'if_condition' || type === 'if_color_match' || type === 'if_logic') {
     return `✓ [${nid}] 条件${result.matched ? '成立' : '不成立'}${
       result.actual_text != null ? ` · 实际: ${String(result.actual_text).slice(0, 80)}` : ''
     }`;

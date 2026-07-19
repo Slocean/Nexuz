@@ -185,6 +185,12 @@ class FlowInterpreter:
                 # Runs may create many short-lived payload/container objects. Collect once
                 # at the run boundary; never collect inside the hot loop.
                 try:
+                    from backend.blocks.ocr_recognize import reset_ocr_engine
+
+                    reset_ocr_engine()
+                except Exception:
+                    pass
+                try:
                     import gc
 
                     gc.collect()
