@@ -145,6 +145,23 @@ export default function Toolbar({
   const [updateDot, setUpdateDot] = useState(false);
   const [annDot, setAnnDot] = useState(false);
   const colors = getThemeColors(themeName, themeMode);
+  const isPaused = execStatus === 'paused' || execStatus === 'breakpoint';
+  const isStopping = execStatus === 'stopping';
+  const showAsStop = execStatus === 'running' || isStopping;
+  const runStopTitle = showAsStop
+    ? isStopping
+      ? '停止中'
+      : `停止（${stopKey}）`
+    : isPaused
+      ? `继续（${runKey}）`
+      : `运行（${runKey}）`;
+  const runStopLabel = showAsStop
+    ? isStopping
+      ? '停止中'
+      : '停止'
+    : isPaused
+      ? '继续'
+      : '运行';
 
   const themes: ThemeName[] = ['Ocean', 'Mint', 'Purple', 'Rose', 'Orange'];
 
@@ -380,41 +397,24 @@ export default function Toolbar({
             <Button
               size="sm"
               className={btnPad}
-              onClick={onRunWorkflow}
-              title={
-                execStatus === 'stopping'
-                  ? '停止中'
-                  : execStatus === 'running'
-                    ? '运行中'
-                    : execStatus === 'paused' || execStatus === 'breakpoint'
-                      ? `继续（${runKey}）`
-                      : `运行（${runKey}）`
-              }
-              disabled={isExecuting && execStatus !== 'paused' && execStatus !== 'breakpoint'}
+              onClick={showAsStop ? onStop : onRunWorkflow}
+              title={runStopTitle}
+              disabled={isStopping || (showAsStop && !onStop)}
               style={{
-                backgroundColor:
-                  isExecuting && execStatus !== 'paused' && execStatus !== 'breakpoint'
-                    ? colors.secondaryText + '20'
-                    : colors.primary,
+                backgroundColor: showAsStop ? colors.danger : colors.primary,
                 color: '#FFFFFF'
               }}>
-              {execStatus === 'running' || execStatus === 'stopping' ? (
+              {isStopping ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : showAsStop ? (
+                <Square className="w-3 h-3 fill-current" />
               ) : (
                 <Play className="w-3.5 h-3.5 fill-current" />
               )}
-              <span className={labelCls}>
-                {execStatus === 'stopping'
-                  ? '停止中'
-                  : execStatus === 'running'
-                    ? '运行中'
-                    : execStatus === 'paused' || execStatus === 'breakpoint'
-                      ? '继续'
-                      : '运行'}
-              </span>
+              <span className={labelCls}>{runStopLabel}</span>
             </Button>
 
-            {execStatus === 'paused' || execStatus === 'breakpoint' || debugMode ? null : (
+            {isPaused || debugMode ? null : (
               <Button
                 variant="ghost"
                 size="sm"
@@ -427,16 +427,19 @@ export default function Toolbar({
               </Button>
             )}
 
-            <Button
-              variant="ghost"
-              size="sm"
-              className={btnPad}
-              onClick={onStop}
-              disabled={execStatus === 'idle' && !recording}
-              title={`停止（${stopKey}）`}>
-              <Square className="w-3 h-3" />
-              <span className={labelCls}>{execStatus === 'stopping' ? '停止中' : '停止'}</span>
-            </Button>
+            {/* 暂停时主按钮是「继续」，需单独保留停止 */}
+            {isPaused ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={btnPad}
+                onClick={onStop}
+                disabled={!onStop}
+                title={`停止（${stopKey}）`}>
+                <Square className="w-3 h-3" />
+                <span className={labelCls}>停止</span>
+              </Button>
+            ) : null}
 
             {onForceReset ? (
               <Button
