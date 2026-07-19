@@ -132,10 +132,12 @@ def test_ocr_memory_helpers():
     from PIL import Image
 
     from backend.blocks.ocr_recognize import (
+        _dispose_ocr_engine,
         _infer_ocr,
         _is_ocr_memory_error,
         _prepare_ocr_image,
         reset_ocr_engine,
+        run_ocr,
     )
     from backend.core.runtime_payload import summarize_node_outcome
 
@@ -156,6 +158,61 @@ def test_ocr_memory_helpers():
     same, scale2 = _prepare_ocr_image(big)
     assert scale2 == 1.0
     assert same.size == big.size
+
+    # Large inputs are capped before RapidOCR and their coordinate scale is kept.
+    huge = Image.new("RGB", (3200, 800), color=(255, 255, 255))
+    reduced, scale3 = _prepare_ocr_image(huge)
+    assert scale3 == 0.5
+    assert reduced.size == (1600, 400)
+
+    with tempfile.TemporaryDirectory() as td:
+        image_path = Path(td) / "large.png"
+        huge.save(image_path)
+        fake_result = [
+            [[[800, 200], [900, 200], [900, 250], [800, 250]], "目标", 0.9]
+        ]
+        with patch(
+            "backend.blocks.ocr_recognize._infer_ocr",
+            return_value=(fake_result, 0.01),
+        ):
+            mapped = run_ocr(
+                {
+                    "source_mode": "image",
+                    "image_path": str(image_path),
+                    "origin_x": 10,
+                    "origin_y": 20,
+                    "match_text": "目标",
+                    "output_coordinate_mode": "screen_abs",
+                }
+            )
+        assert mapped["left"] == 1610
+        assert mapped["top"] == 420
+        assert mapped["width"] == 200
+        assert mapped["height"] == 100
+
+    # Disposal follows RapidOCR 1.4.x's actual object layout.
+    class Holder:
+        pass
+
+    engine = Holder()
+    engine.text_det = Holder()
+    engine.text_det.infer = Holder()
+    engine.text_det.infer.session = object()
+    engine.text_cls = Holder()
+    engine.text_cls.infer = Holder()
+    engine.text_cls.infer.session = object()
+    engine.text_rec = Holder()
+    engine.text_rec.session = object()
+    det = engine.text_det
+    cls = engine.text_cls
+    rec = engine.text_rec
+    _dispose_ocr_engine(engine)
+    assert engine.text_det is None
+    assert engine.text_cls is None
+    assert engine.text_rec is None
+    assert det.infer.session is None
+    assert cls.infer.session is None
+    assert rec.session is None
 
     calls = {"n": 0}
 
@@ -178,6 +235,22 @@ def test_ocr_memory_helpers():
         assert out and out[0][1] == "80"
         assert calls["n"] == 2
         assert reset_mock.called
+
+    # Exhaust retries → surface platform engine error (not a "buy more RAM" message).
+    class AlwaysBoom:
+        def __call__(self, _arr):
+            raise RuntimeError("onnxruntime Status Message: bad allocation")
+
+    with (
+        patch("backend.blocks.ocr_recognize._get_ocr", return_value=AlwaysBoom()),
+        patch("backend.blocks.ocr_recognize.reset_ocr_engine"),
+        patch("backend.blocks.ocr_recognize.time.sleep"),
+    ):
+        import numpy as np
+        import pytest
+
+        with pytest.raises(RuntimeError, match="OCR 引擎异常"):
+            _infer_ocr(np.zeros((8, 8, 3), dtype=np.uint8))
 
     reset_ocr_engine()
 

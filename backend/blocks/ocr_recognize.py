@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import threading
+import time
 from pathlib import Path
 
 from backend.blocks._helpers import (
@@ -21,12 +22,17 @@ from backend.blocks._ocr_match import (
     total_match_count,
 )
 
-# Rebuild ONNX session periodically to limit native memory / fragmentation growth.
-_OCR_REBUILD_EVERY = 50
+# Keep one session for a flow. Repeatedly constructing ONNX sessions is expensive
+# and can itself fragment the Windows native heap. The interpreter resets it at
+# the run boundary; inference failures also reset it immediately.
+_OCR_REBUILD_EVERY = 0
 # Upscale tiny crops so det/rec see enough pixels (boxes scaled back after).
 _OCR_MIN_SHORT_SIDE = 48
 _OCR_MIN_AREA = 4000
 _OCR_MAX_UPSCALE = 3.0
+# Guard against accidental full-desktop tensors if region resolution misbehaves.
+_OCR_MAX_SIDE = 1600
+_OCR_INFER_ATTEMPTS = 3
 
 SCHEMA = {
     "type": "ocr_recognize",
@@ -251,22 +257,29 @@ SCHEMA = {
 _ocr_engine = None
 _ocr_call_count = 0
 _ocr_lock = threading.Lock()
+_ocr_infer_lock = threading.Lock()
 
 
 def _dispose_ocr_engine(engine) -> None:
     if engine is None:
         return
-    # Best-effort: clear nested session refs RapidOCR may hold.
-    for attr in ("session", "text_detector", "text_recognizer", "text_cls"):
+    # RapidOCR 1.4.x stores detector/classifier sessions under ``infer.session``
+    # and the recognizer session directly under ``session``.
+    for attr in ("text_det", "text_cls", "text_rec"):
         try:
             sub = getattr(engine, attr, None)
             if sub is None:
                 continue
-            for nested in ("session", "ort_session", "predictor"):
+            infer = getattr(sub, "infer", None)
+            if infer is not None:
                 try:
-                    setattr(sub, nested, None)
+                    setattr(infer, "session", None)
                 except Exception:
                     pass
+            try:
+                setattr(sub, "session", None)
+            except Exception:
+                pass
             try:
                 setattr(engine, attr, None)
             except Exception:
@@ -303,7 +316,14 @@ def _get_ocr():
                 raise RuntimeError(
                     "未安装 OCR 依赖，请执行: pip install rapidocr-onnxruntime"
                 ) from exc
-            _ocr_engine = RapidOCR()
+            _ocr_engine = RapidOCR(
+                # ``min`` expands a 59x25 crop to roughly 1728x736. ``max``
+                # keeps the bounded input small and avoids huge det tensors.
+                det_limit_type="max",
+                det_limit_side_len=_OCR_MAX_SIDE,
+                intra_op_num_threads=2,
+                inter_op_num_threads=1,
+            )
         return _ocr_engine
 
 
@@ -313,7 +333,7 @@ def _maybe_periodic_rebuild() -> None:
     engine = None
     with _ocr_lock:
         _ocr_call_count += 1
-        if _ocr_call_count >= _OCR_REBUILD_EVERY:
+        if _OCR_REBUILD_EVERY > 0 and _ocr_call_count >= _OCR_REBUILD_EVERY:
             engine = _ocr_engine
             _ocr_engine = None
             _ocr_call_count = 0
@@ -341,7 +361,7 @@ def _is_ocr_memory_error(exc: BaseException) -> bool:
 
 def _prepare_ocr_image(img):
     """
-    Upscale tiny crops for better det/rec; return (image, scale).
+    Scale tiny crops for readability and cap large inputs; return (image, scale).
     Caller must scale OCR box coords back by 1/scale.
     """
     try:
@@ -358,8 +378,12 @@ def _prepare_ocr_image(img):
     if area < _OCR_MIN_AREA:
         scale = max(scale, (_OCR_MIN_AREA / float(area)) ** 0.5)
     scale = min(scale, _OCR_MAX_UPSCALE)
+    longest = max(w, h)
+    if longest * scale > _OCR_MAX_SIDE:
+        scale = _OCR_MAX_SIDE / float(longest)
     if scale <= 1.01:
-        return img, 1.0
+        if scale >= 0.99:
+            return img, 1.0
     nw = max(1, int(round(w * scale)))
     nh = max(1, int(round(h * scale)))
     try:
@@ -374,25 +398,67 @@ def _prepare_ocr_image(img):
         return img, 1.0
 
 
-def _infer_ocr(arr):
-    """Run RapidOCR once; on memory/runtime failure reset engine and retry once."""
-    engine = _get_ocr()
-    try:
-        return engine(arr)
-    except Exception as exc:
-        if not _is_ocr_memory_error(exc):
-            raise
-        reset_ocr_engine()
-        engine = _get_ocr()
+def _normalize_ocr_array(arr):
+    """Ensure a small, contiguous RGB uint8 buffer for ONNX."""
+    import numpy as np
+
+    if arr is None:
+        raise ValueError("OCR 输入图像为空")
+    out = np.ascontiguousarray(arr)
+    if out.ndim == 2:
+        out = np.stack([out, out, out], axis=-1)
+    elif out.ndim == 3 and out.shape[2] == 4:
+        out = out[:, :, :3]
+    elif out.ndim != 3 or out.shape[2] < 3:
+        raise ValueError(f"OCR 输入图像形状无效: {getattr(out, 'shape', None)}")
+    if out.dtype != np.uint8:
+        out = out.astype(np.uint8, copy=False)
+    h, w = int(out.shape[0]), int(out.shape[1])
+    if h <= 0 or w <= 0:
+        raise ValueError("OCR 输入图像尺寸无效")
+    return out
+
+
+def _clear_exception_tracebacks(exc: BaseException) -> None:
+    """Break traceback references to failed native sessions before retrying."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
         try:
-            return engine(arr)
-        except Exception as retry_exc:
-            if _is_ocr_memory_error(retry_exc):
-                raise RuntimeError(
-                    "OCR 引擎内存不足（bad allocation），已重置并重试仍失败。"
-                    "请重启应用或降低 OCR 调用频率。"
-                ) from retry_exc
-            raise
+            current.__traceback__ = None
+        except Exception:
+            pass
+        current = current.__cause__ or current.__context__
+
+
+def _infer_ocr(arr):
+    """Run RapidOCR; rebuild once only after a genuine allocator failure."""
+    import numpy as np
+
+    arr = _normalize_ocr_array(arr)
+    with _ocr_infer_lock:
+        for attempt in range(1, _OCR_INFER_ATTEMPTS + 1):
+            try:
+                return _get_ocr()(arr)
+            except Exception as exc:
+                if not _is_ocr_memory_error(exc):
+                    raise
+                if attempt >= _OCR_INFER_ATTEMPTS:
+                    reset_ocr_engine()
+                    raise RuntimeError(
+                        "OCR 引擎异常（ONNX bad allocation）。已自动重建引擎并重试，"
+                        "若持续出现请重启应用。"
+                    ) from exc
+                # Remove traceback-held engine refs before constructing a new session.
+                _clear_exception_tracebacks(exc)
+                reset_ocr_engine()
+                try:
+                    gc.collect()
+                except Exception:
+                    pass
+                time.sleep(0.05 * attempt)
+                arr = np.ascontiguousarray(arr.copy())
 
 
 def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | None]:
@@ -536,11 +602,11 @@ def run_ocr(params: dict) -> dict:
     import numpy as np
 
     ocr_img, scale = _prepare_ocr_image(img)
-    arr = np.asarray(ocr_img)
+    # Copy out of the PIL buffer so we can close the screenshot immediately.
+    arr = np.ascontiguousarray(np.asarray(ocr_img))
     try:
         result, _elapsed = _infer_ocr(arr)
     finally:
-        # Release screenshot buffers promptly; RapidOCR may retain its own copy.
         del arr
         if ocr_img is not img:
             try:
@@ -551,6 +617,7 @@ def run_ocr(params: dict) -> dict:
             img.close()
         except Exception:
             pass
+        # Disabled by default; run-boundary cleanup is handled by the interpreter.
         _maybe_periodic_rebuild()
 
     if not result:
