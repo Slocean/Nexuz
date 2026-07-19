@@ -189,9 +189,11 @@ jobs:
           if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
             throw "Signed release requires WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD. See docs/WINDOWS_SIGNING.md"
           }
+          $b64 = ($env:WINDOWS_CERTIFICATE -replace '\s', '').Trim()
+          $env:WINDOWS_CERTIFICATE_PASSWORD = $env:WINDOWS_CERTIFICATE_PASSWORD.Trim()
           New-Item -ItemType Directory -Force -Path certificate | Out-Null
           $pfx = "certificate/certificate.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($b64))
           $env:WINDOWS_CERTIFICATE_FILE = (Resolve-Path $pfx).Path
           .\scripts\sign_exe.ps1 -ExePath dist\Nexuz.exe
           Remove-Item -Recurse -Force certificate -ErrorAction SilentlyContinue

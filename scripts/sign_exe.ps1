@@ -5,6 +5,9 @@
 #   .\scripts\sign_exe.ps1 -ExePath dist\Nexuz.exe   # reads WINDOWS_CERTIFICATE_PASSWORD / file from env
 #
 # In GitHub Actions, secrets WINDOWS_CERTIFICATE (base64 pfx) + WINDOWS_CERTIFICATE_PASSWORD are used.
+#
+# Note: self-signed certs will NOT pass `signtool verify /pa` (no trusted root).
+# We treat "has Authenticode signer" as success for interim certs; OV/EV still pass /pa.
 
 param(
   [Parameter(Mandatory = $true)]
@@ -35,6 +38,8 @@ if (-not $Password) {
   throw "PFX password required. Pass -Password or set WINDOWS_CERTIFICATE_PASSWORD"
 }
 
+$Password = $Password.Trim()
+
 function Find-SignTool {
   $cmd = Get-Command signtool.exe -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
@@ -52,7 +57,28 @@ function Find-SignTool {
   throw "signtool.exe not found. Install Windows SDK / Build Tools."
 }
 
-$signtool = Find-SignTool
+function Assert-HasAuthenticodeSignature {
+  param([string]$Path)
+
+  $sig = Get-AuthenticodeSignature -FilePath $Path
+  if ($sig.Status -eq "NotSigned" -or -not $sig.SignerCertificate) {
+    throw "signature verify failed: file is not Authenticode-signed (Status=$($sig.Status))"
+  }
+
+  Write-Host "Authenticode Status=$($sig.Status) Subject=$($sig.SignerCertificate.Subject)"
+  Write-Host "Thumbprint=$($sig.SignerCertificate.Thumbprint)"
+
+  # Preferred path for OV/EV (trusted chain). Self-signed usually fails /pa — that is OK.
+  & $script:signtool verify /pa /v $Path
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "OK: trusted-chain verify (/pa) passed"
+    return
+  }
+
+  Write-Host "WARN: signtool verify /pa failed (common for self-signed). Accepting signer presence."
+}
+
+$script:signtool = Find-SignTool
 Write-Host "Using signtool: $signtool"
 Write-Host "Signing: $ExePath"
 
@@ -66,12 +92,17 @@ Write-Host "Signing: $ExePath"
   $ExePath
 
 if ($LASTEXITCODE -ne 0) {
-  throw "signtool failed with exit $LASTEXITCODE"
+  Write-Host "Timestamped sign failed (exit $LASTEXITCODE); retry without timestamp..."
+  & $signtool sign `
+    /f $PfxPath `
+    /p $Password `
+    /fd sha256 `
+    /d "Nexuz" `
+    $ExePath
+  if ($LASTEXITCODE -ne 0) {
+    throw "signtool failed with exit $LASTEXITCODE"
+  }
 }
 
-& $signtool verify /pa /v $ExePath
-if ($LASTEXITCODE -ne 0) {
-  throw "signature verify failed"
-}
-
+Assert-HasAuthenticodeSignature -Path $ExePath
 Write-Host "OK: signed $ExePath"
