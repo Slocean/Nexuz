@@ -28,19 +28,13 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install --require-hashes -r requirements-dev.txt
 
       - name: Compile Python sources
         run: python -m compileall -q backend
 
       - name: Run backend unit checks
-        run: |
-          python backend/test_unit.py
-          python backend/test_input.py
-          python backend/test_updater.py
-          python backend/test_flow_trust.py
-          python backend/test_worker_isolation.py
-          python backend/smoke_test.py
+        run: python -m pytest
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -52,6 +46,22 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Type-check frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Run frontend contract tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
+
+      - name: Run frontend E2E smoke
+        working-directory: frontend
+        run: npm run test:e2e
 
       - name: Lint frontend
         working-directory: frontend

@@ -172,7 +172,7 @@ export function inspectBindValue(
         broken: true,
         typeWarn: false,
         message:
-          vr.reason === 'missing_var'
+          'reason' in vr && vr.reason === 'missing_var'
             ? `变量 $${name.split('.')[0]} 未定义`
             : `变量路径 $${name} 不存在`,
       };
@@ -201,7 +201,7 @@ export function inspectBindValue(
       broken: true,
       typeWarn: false,
       message:
-        nr.reason === 'missing_node'
+        'reason' in nr && nr.reason === 'missing_node'
           ? `节点 ${ref.nodeId} 不存在`
           : `节点无输出字段 ${ref.field}`,
     };
@@ -250,7 +250,7 @@ export function inspectEmbeddedRefs(
         level: 'error',
         nodeId: currentNodeId,
         message:
-          vr.reason === 'missing_node'
+          'reason' in vr && vr.reason === 'missing_node'
             ? `引用的节点不存在: ${nodeId}`
             : `引用的字段不存在: ${nodeId}.${field}`,
         sourceId: nodeId,
@@ -269,7 +269,7 @@ export function inspectEmbeddedRefs(
           level: 'error',
           nodeId: currentNodeId,
           message:
-            vr.reason === 'missing_var'
+            'reason' in vr && vr.reason === 'missing_var'
               ? `变量 $${name.split('.')[0]} 未定义`
               : `变量路径 $${name} 不存在`,
         });

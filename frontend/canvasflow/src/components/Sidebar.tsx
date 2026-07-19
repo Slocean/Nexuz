@@ -140,8 +140,6 @@ export default function Sidebar({
   onOpenFlowPath,
   onRenameFlow,
   onNewFlow,
-  onImportFlow,
-  onExportFlow,
   flowsRefreshToken = 0,
 }: SidebarProps) {
   const colors = getThemeColors(themeName, themeMode);

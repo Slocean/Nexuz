@@ -638,7 +638,7 @@ export function ComplexVariableEditor({
 }) {
   const commitJson = (text: string) => {
     const parsed = parseComplex(text, type);
-    if (!parsed.ok) return { ok: false as const, error: parsed.error };
+    if ('error' in parsed) return { ok: false as const, error: parsed.error };
     onChange(parsed.value);
     return { ok: true as const };
   };

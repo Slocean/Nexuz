@@ -48,7 +48,7 @@ interface CanvasProps {
   onRemoveConnection: (connectionId: string) => void;
   onRemoveNode: (nodeId: string) => void;
   onRemoveNodes?: (nodeIds: string[]) => void;
-  onDuplicateNodes?: (nodeIds: string[]) => void;
+  onDuplicateNodes?: (nodeIds: string[]) => string[];
   onDropBlock?: (blockType: string, x: number, y: number) => void;
   onRunSingleNode?: (nodeId: string) => void;
   onRunFromNode?: (nodeId: string) => void;

@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { bridge } from '@/bridge';
 import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '../../../src/store/flowModelStore';
+import { getUnreadNoticeId } from '../noticeState';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
 
@@ -284,8 +285,7 @@ export default function Toolbar({
             /* ignore */
           }
         }
-        if (String(n.id) === readId) return;
-        setAnnDot(true);
+        setAnnDot(getUnreadNoticeId(n, readId) !== null);
       } catch {
         /* ignore */
       }

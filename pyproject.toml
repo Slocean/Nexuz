@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+testpaths = ["backend"]
+python_files = ["test_*.py", "smoke_test.py"]
+python_functions = ["test_*"]
+addopts = "-ra"

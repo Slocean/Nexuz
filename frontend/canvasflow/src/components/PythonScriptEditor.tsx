@@ -215,7 +215,7 @@ function ensureCompletionProvider(monaco: any, mode: PythonEditorMode) {
       };
       const Kind = monaco.languages.CompletionItemKind;
       const list = completionMode === 'block' ? BLOCK_KEYWORDS : SCRIPT_KEYWORDS;
-      const suggestions = list.map((item) => ({
+      const suggestions: any[] = list.map((item) => ({
         label: item.label,
         kind: Kind.Keyword,
         detail: item.detail,

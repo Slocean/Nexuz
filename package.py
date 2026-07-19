@@ -40,14 +40,20 @@ def ensure_pyinstaller() -> None:
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
-        run([sys.executable, "-m", "pip", "install", "pyinstaller>=6.0"])
+        raise SystemExit(
+            "PyInstaller 未安装；请先运行 "
+            f"{sys.executable} -m pip install --require-hashes -r requirements.txt"
+        )
 
 
 def ensure_pillow() -> None:
     try:
         import PIL  # noqa: F401
     except ImportError:
-        run([sys.executable, "-m", "pip", "install", "Pillow>=10.0"])
+        raise SystemExit(
+            "Pillow 未安装；请先运行 "
+            f"{sys.executable} -m pip install --require-hashes -r requirements.txt"
+        )
 
 
 def ensure_app_icon(*, force: bool = False) -> Path:
@@ -96,7 +102,7 @@ def build_frontend() -> None:
     if not npm:
         raise SystemExit("npm not found - install Node.js 18+")
     if not (FRONTEND / "node_modules").exists():
-        run([npm, "install"], cwd=FRONTEND)
+        run([npm, "ci"], cwd=FRONTEND)
     run([npm, "run", "build"], cwd=FRONTEND)
     if not DIST_UI.exists():
         raise SystemExit("frontend build failed: frontend/dist/index.html missing")

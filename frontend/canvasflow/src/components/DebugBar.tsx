@@ -94,7 +94,7 @@ export default function DebugBar({
           variant="ghost"
           size="sm"
           className="h-8 gap-1 shrink-0"
-          disabled={!canStep || execStatus === 'stopping'}
+          disabled={!canStep}
           onClick={onStep}
           title={isIdle ? '从入口单步开始' : '执行下一节点后暂停'}
         >

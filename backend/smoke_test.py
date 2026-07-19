@@ -13,7 +13,7 @@ from backend.core.registry import register_all_blocks, get_schemas
 from backend.core.interpreter import FlowInterpreter
 
 
-def main():
+def test_registry_and_interpreter_smoke():
     register_all_blocks()
     schemas = get_schemas()
     types = sorted(s["type"] for s in schemas)
@@ -39,4 +39,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    test_registry_and_interpreter_smoke()

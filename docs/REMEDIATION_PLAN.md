@@ -57,10 +57,10 @@
 
 按以下顺序执行：
 
-1. **P1-TYPE**：建立根 TypeScript 配置，修正 alias/types/include，先让 `tsc --noEmit` 可运行，再按模块消除真实错误并接入 CI。
-2. **P1-TEST**：把现有脚本迁到 pytest；为 updater、Bridge、store、interpreter 和启动通知补契约测试；增加保存/导入/运行 Playwright 冒烟路径。
-3. **P1-LOCK**：使用 uv 或 pip-tools 生成带哈希 Python 锁文件；统一 npm 单一锁文件；CI 和打包只从锁文件安装。
-4. **P1-TAG**：修改 `trigger_release.py`，禁止删除或覆盖远端 tag；已发布版本只能递增。
+1. [x] **P1-TYPE**：已建立前端根 TypeScript 配置并统一 canvasflow 配置，修正 alias/types/include；公共 JSX UI 组件已有兼容类型声明，生产源码真实错误已清零，`npm run typecheck` 已接入 CI。
+2. [x] **P1-TEST**：现有后端脚本已统一由 pytest 收集（32 项）；updater、Bridge、store、interpreter 和启动通知已有契约覆盖；Playwright 已覆盖外部流程确认导入、保存与运行主路径，并接入 CI。
+3. [x] **P1-LOCK**：使用 pip-tools 从 `requirements*.in` 生成带哈希的生产/开发锁文件；npm 仅保留 `package-lock.json`；CI、Release 和打包入口只允许哈希锁文件或 `npm ci`。
+4. [x] **P1-TAG**：`trigger_release.py` 会先读取 origin tags，拒绝已存在或非递增版本，且不再包含删除本地/远端 tag 的重打逻辑；版本参数必须与发布清单一致。
 
 验收命令：
 
@@ -69,6 +69,8 @@
 - `npm run typecheck`
 - `npm run build`
 - PR CI 与 tag Release 使用同一锁文件和同一质量门禁
+
+当前验证：`python -m pytest`（35 passed）、Python 哈希锁文件 dry-run、`npm test`（9 passed）、`npm run test:e2e`（1 passed）、`npm run typecheck`、`npm run lint`、`npm run build` 均通过；pytest 保留 1 条 mss 弃用警告，lint 保留既有非阻断 warning，生产构建保留大 chunk 警告。
 
 ## 阶段四：P1 权限、反馈与停止语义（预计 1–2 周）
 

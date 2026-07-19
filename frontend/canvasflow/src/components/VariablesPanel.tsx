@@ -89,7 +89,7 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
     if (COMPLEX_TYPES.includes(newType)) {
       // Validate shape once more via JSON roundtrip rules
       const check = parseComplex(JSON.stringify(newComplex ?? defaultValueFor(newType)), newType);
-      if (!check.ok) {
+      if ('error' in check) {
         setAddError(check.error);
         return;
       }
@@ -97,7 +97,11 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
     } else if (newType === 'boolean') {
       setVariable(name, newValue === 'true' || newValue === '1', { type: 'boolean' });
     } else {
-      setVariable(name, coerceScalar(newValue, newType), { type: newType });
+      setVariable(
+        name,
+        coerceScalar(newValue, newType as 'string' | 'number' | 'boolean'),
+        { type: newType },
+      );
     }
     setNewName('');
     setNewValue('');
@@ -278,7 +282,11 @@ export default function VariablesPanel({ themeName, themeMode }: VariablesPanelP
                     type={t === 'number' ? 'number' : 'text'}
                     value={value as any}
                     onChange={(e) =>
-                      setVariable(name, coerceScalar(e.target.value, t), { type: t })
+                      setVariable(
+                        name,
+                        coerceScalar(e.target.value, t as 'string' | 'number' | 'boolean'),
+                        { type: t },
+                      )
                     }
                   />
                 )}

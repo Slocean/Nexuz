@@ -191,7 +191,6 @@ export default function RunMonitorView({
           <button
             type="button"
             onClick={() => onResume?.()}
-            disabled={execStatus === 'stopping'}
             className="h-10 rounded-xl font-semibold text-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-40"
             style={{
               background: 'rgba(52, 211, 153, 0.12)',

@@ -19,11 +19,11 @@ Windows 桌面自动化平台（MVP）：可视化拖拽与 JSON 同源编排，
 
 ```bash
 # 后端依赖
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements-dev.txt
 
 # 前端依赖
 cd frontend
-npm install
+npm ci
 ```
 
 ## 开发启动（一键）
