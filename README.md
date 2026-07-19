@@ -157,7 +157,7 @@ Release 正文只写入 [`app_update.json`](app_update.json) 里**当前发版�
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | 动作 | click / **mouse_hover** / drag / key_press / type_text / delay / **wait_until**                                                      |
 | 识别 | color_detect / if_color_match / ocr_recognize / **locate_text** / if_text_contains / find_image / **screenshot**                     |
-| 控制 | if*condition / switch / loop*\* / **schedule_trigger** / **call_subflow** / **assign**                                               |
+| 控制 | if*condition / switch / loop*\* / **try_catch** / **schedule_trigger** / **call_subflow** / **assign**                               |
 | 系统 | http_request / clipboard / file_io / run_command / notify / python_script / **window_wait** / **window_activate** / **window_close** |
 | 平台 | 画布↔JSON（可自动同步）、变量面板、参数表单、运行控制、分类日志（运行/系统/操作/诊断）、保存加载、录制、定时任务落盘                 |
 

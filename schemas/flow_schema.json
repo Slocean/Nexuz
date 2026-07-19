@@ -52,6 +52,8 @@
           "then": { "type": ["string", "null"] },
           "else": { "type": ["string", "null"] },
           "body": { "type": ["string", "null"] },
+          "catch": { "type": ["string", "null"] },
+          "finally": { "type": ["string", "null"] },
           "position": {
             "type": "object",
             "properties": {

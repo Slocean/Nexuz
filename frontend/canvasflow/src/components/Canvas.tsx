@@ -488,8 +488,20 @@ function Canvas({
   const flowHandleMeta = (socketId: string, sourceNode?: WorkflowNode) => {
     if (socketId === "then") return { label: "是", color: "#34C759" };
     if (socketId === "else") return { label: "否", color: "#FF5E57" };
-    if (socketId === "body") return { label: "循环体", color: "#AF52DE" };
-    if (socketId === "next") return { label: "下一步", color: "#4F8CFF" };
+    if (socketId === "body") {
+      if (sourceNode?.subType === "try_catch") {
+        return { label: "尝试", color: "#5856D6" };
+      }
+      return { label: "循环体", color: "#AF52DE" };
+    }
+    if (socketId === "catch") return { label: "捕获", color: "#FF9F0A" };
+    if (socketId === "finally") return { label: "收尾", color: "#8E8E93" };
+    if (socketId === "next") {
+      if (sourceNode?.subType === "try_catch") {
+        return { label: "继续", color: "#4F8CFF" };
+      }
+      return { label: "下一步", color: "#4F8CFF" };
+    }
     if (socketId === "default") return { label: "默认", color: "#FF9F0A" };
     if (String(socketId || "").startsWith("case:")) {
       const out = sourceNode?.outputs?.find((s) => s.id === socketId);
@@ -1791,6 +1803,9 @@ function Canvas({
                     const isThen = out.id === 'then';
                     const isElse = out.id === 'else';
                     const isBody = out.id === 'body';
+                    const isCatch = out.id === 'catch';
+                    const isFinally = out.id === 'finally';
+                    const isTryBody = isBody && node.subType === 'try_catch';
                     const isDefault = out.id === 'default';
                     const isCase = String(out.id || '').startsWith('case:');
                     const socketColor = isDataOut
@@ -1799,13 +1814,19 @@ function Canvas({
                         ? '#34C759'
                         : isElse
                           ? '#FF5E57'
-                          : isBody
-                            ? '#AF52DE'
-                            : isDefault
-                              ? '#FF9F0A'
-                              : isCase
-                                ? '#30B0C7'
-                                : nodeAccentColor;
+                          : isCatch
+                            ? '#FF9F0A'
+                            : isFinally
+                              ? '#8E8E93'
+                              : isTryBody
+                                ? '#5856D6'
+                                : isBody
+                                  ? '#AF52DE'
+                                  : isDefault
+                                    ? '#FF9F0A'
+                                    : isCase
+                                      ? '#30B0C7'
+                                      : nodeAccentColor;
                     return (
                       <div
                         key={out.id}
@@ -1819,13 +1840,19 @@ function Canvas({
                                 ? 'text-emerald-500'
                                 : isElse
                                   ? 'text-rose-500'
-                                  : isBody
-                                    ? 'text-purple-400'
-                                    : isDefault
-                                      ? 'text-amber-500'
-                                      : isCase
-                                        ? 'text-cyan-600'
-                                        : 'opacity-80 font-medium'
+                                  : isCatch
+                                    ? 'text-amber-500'
+                                    : isFinally
+                                      ? 'text-slate-400'
+                                      : isTryBody
+                                        ? 'text-indigo-400'
+                                        : isBody
+                                          ? 'text-purple-400'
+                                          : isDefault
+                                            ? 'text-amber-500'
+                                            : isCase
+                                              ? 'text-cyan-600'
+                                              : 'opacity-80 font-medium'
                           }`}
                         >
                           {out.name}

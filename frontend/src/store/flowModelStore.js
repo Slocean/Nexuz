@@ -1142,13 +1142,19 @@ export const useFlowStore = create((set, get) => ({
       next: null,
       position
     };
-    if (['if_condition', 'if_color_match', 'if_text_contains'].includes(type)) {
+    if (['if_condition', 'if_color_match', 'if_text_contains', 'if_logic'].includes(type)) {
       node.then = null;
       node.else = null;
       delete node.next;
     }
     if (['loop_n', 'loop_while', 'loop_forever', 'loop_foreach'].includes(type)) {
       node.body = null;
+      node.next = null;
+    }
+    if (type === 'try_catch') {
+      node.body = null;
+      node.catch = null;
+      node.finally = null;
       node.next = null;
     }
     set(state => {
@@ -1176,7 +1182,7 @@ export const useFlowStore = create((set, get) => ({
       } else if (state.flow.entry) {
         // find node with no next
         for (const [id, n] of Object.entries(nodes)) {
-          if (!n.next && !n.then && !n.body) lastId = id;
+          if (!n.next && !n.then && !n.body && !n.catch && !n.finally) lastId = id;
         }
         if (!lastId) lastId = existingIds[existingIds.length - 1] || null;
       }
@@ -1383,7 +1389,7 @@ export const useFlowStore = create((set, get) => ({
         const node = nodes[id];
         if (!node) continue;
         const nextNode = { ...node };
-        for (const k of ['next', 'then', 'else', 'body']) {
+        for (const k of ['next', 'then', 'else', 'body', 'catch', 'finally']) {
           if (nextNode[k]) {
             nextNode[k] = null;
             changed = true;
@@ -1450,7 +1456,7 @@ export const useFlowStore = create((set, get) => ({
 
         if (idSet.has(id)) {
           touch();
-          for (const k of ['next', 'then', 'else', 'body']) nextNode[k] = null;
+          for (const k of ['next', 'then', 'else', 'body', 'catch', 'finally']) nextNode[k] = null;
           if (nextNode.type === 'switch') {
             const params = { ...(nextNode.params || {}) };
             if (Array.isArray(params.cases)) {
@@ -1468,7 +1474,7 @@ export const useFlowStore = create((set, get) => ({
           }
           changed = true;
         } else {
-          for (const k of ['next', 'then', 'else', 'body']) {
+          for (const k of ['next', 'then', 'else', 'body', 'catch', 'finally']) {
             if (prev[k] && idSet.has(prev[k])) {
               touch();
               nextNode[k] = null;
@@ -1691,7 +1697,7 @@ export const useFlowStore = create((set, get) => ({
       for (const id of Object.keys(nodes)) {
         const prev = nodes[id];
         let nextNode = prev;
-        for (const key of ['next', 'then', 'else', 'body']) {
+        for (const key of ['next', 'then', 'else', 'body', 'catch', 'finally']) {
           if (prev[key] && idSet.has(prev[key])) {
             if (nextNode === prev) nextNode = { ...prev };
             nextNode[key] = null;
@@ -1754,7 +1760,7 @@ export const useFlowStore = create((set, get) => ({
           ...cloneValue(src),
           position: { x: pos.x + offset.x, y: pos.y + offset.y }
         };
-        for (const key of ['next', 'then', 'else', 'body']) {
+        for (const key of ['next', 'then', 'else', 'body', 'catch', 'finally']) {
           if (copy[key]) copy[key] = idMap[copy[key]] || null;
         }
         if (copy.type === 'switch' && copy.params) {

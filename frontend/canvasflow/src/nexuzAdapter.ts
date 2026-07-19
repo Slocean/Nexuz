@@ -106,6 +106,8 @@ function mapDataType(t?: string): NodeSocket['dataType'] {
   return 'any';
 }
 
+const FLOW_OUT_KEYS = ['next', 'then', 'else', 'body', 'catch', 'finally'] as const;
+
 function flowOutputsFor(blockType: string, params?: Record<string, any>): NodeSocket[] {
   if (['if_condition', 'if_color_match', 'if_text_contains', 'if_logic'].includes(blockType)) {
     return [
@@ -117,6 +119,14 @@ function flowOutputsFor(blockType: string, params?: Record<string, any>): NodeSo
     return [
       { id: 'body', name: '循环体', type: 'output', dataType: 'any', kind: 'flow' },
       { id: 'next', name: '结束', type: 'output', dataType: 'any', kind: 'flow' },
+    ];
+  }
+  if (blockType === 'try_catch') {
+    return [
+      { id: 'body', name: '尝试', type: 'output', dataType: 'any', kind: 'flow' },
+      { id: 'catch', name: '捕获', type: 'output', dataType: 'any', kind: 'flow' },
+      { id: 'finally', name: '收尾', type: 'output', dataType: 'any', kind: 'flow' },
+      { id: 'next', name: '继续', type: 'output', dataType: 'any', kind: 'flow' },
     ];
   }
   if (blockType === 'switch') {
@@ -338,11 +348,11 @@ export function pickBestBindParam(
   return params[0]?.name ?? null;
 }
 
-/** Flow out-edge targets from a model node (next/then/else/body/switch). */
+/** Flow out-edge targets from a model node (next/then/else/body/catch/finally/switch). */
 export function flowOutTargets(node: any): string[] {
   if (!node || typeof node !== 'object') return [];
   const out: string[] = [];
-  for (const k of ['next', 'then', 'else', 'body'] as const) {
+  for (const k of FLOW_OUT_KEYS) {
     const v = node[k];
     if (v) out.push(String(v));
   }
@@ -376,7 +386,7 @@ export function collectDownstreamNodeIds(flow: any, startId: string): string[] {
 export function clearedFlowOuts(node: any): any {
   if (!node) return node;
   const next = { ...node };
-  for (const k of ['next', 'then', 'else', 'body']) {
+  for (const k of FLOW_OUT_KEYS) {
     if (k in next) next[k] = null;
   }
   if (next.type === 'switch' && next.params) {
@@ -439,6 +449,8 @@ export function flowToCanvas(
       ['then', node.then],
       ['else', node.else],
       ['body', node.body],
+      ['catch', node.catch],
+      ['finally', node.finally],
     ];
     // switch: per-case + default edges (single source of truth in params)
     if (node.type === 'switch') {

@@ -416,7 +416,8 @@ class FlowInterpreter:
         if flow.get("__file_path__"):
             context["__flow_file_path__"] = flow["__file_path__"]
 
-        loop_stack: list[str] = []
+        # Shared fallthrough stack for loop_* and try_catch control heads.
+        control_stack: list[str] = []
         node_id: str | None = entry
         node_index = 0
         global_node_interval = flow.get("__global_node_interval_ms", 0)
@@ -578,11 +579,30 @@ class FlowInterpreter:
                         "scope": "node",
                     },
                 )
-                raise
+                handled = self._try_handle_exception(
+                    exc, str(node_id), nodes, context, control_stack
+                )
+                if handled is None:
+                    raise
+                node_id, control_stack = handled
+                continue
 
-            nxt, loop_stack = self.decide_next(
-                node, node_id, result, context, nodes, loop_stack
+            nxt, control_stack = self.decide_next(
+                node, node_id, result, context, nodes, control_stack
             )
+            pending = context.pop("__pending_reraise__", None)
+            if pending is not None:
+                handled = self._try_handle_exception(
+                    pending if isinstance(pending, BaseException) else RuntimeError(str(pending)),
+                    str(node_id),
+                    nodes,
+                    context,
+                    control_stack,
+                )
+                if handled is None:
+                    raise pending if isinstance(pending, BaseException) else RuntimeError(str(pending))
+                node_id, control_stack = handled
+                continue
             if nxt and nxt != node_id:
                 self._emit(
                     "log",
@@ -599,6 +619,68 @@ class FlowInterpreter:
 
         return context
 
+    def _try_handle_exception(
+        self,
+        exc: BaseException,
+        failed_node_id: str,
+        nodes: dict[str, Any],
+        context: dict[str, Any],
+        control_stack: list[str],
+    ) -> tuple[str, list[str]] | None:
+        """Route an exception into the nearest try_catch body, if any."""
+        stack = list(control_stack)
+        for i in range(len(stack) - 1, -1, -1):
+            tid = stack[i]
+            tnode = nodes.get(tid) or {}
+            if tnode.get("type") != "try_catch":
+                continue
+            phase_key = f"__try_{tid}__phase"
+            if context.get(phase_key) != "body":
+                continue
+
+            # Drop inner control frames (loops nested in this try body).
+            stack = stack[: i + 1]
+            context[f"{tid}.raised"] = True
+            context[f"{tid}.error"] = str(exc)
+            pending_key = f"__try_{tid}__pending_error"
+            catch = tnode.get("catch")
+            fin = tnode.get("finally")
+
+            self._emit(
+                "log",
+                {
+                    "level": "warn",
+                    "category": "runtime",
+                    "scope": "node",
+                    "node_id": tid,
+                    "message": f"异常已捕获 ← [{failed_node_id}]",
+                    "detail": {
+                        "error": str(exc),
+                        "from": failed_node_id,
+                        "catch": catch,
+                        "finally": fin,
+                    },
+                },
+            )
+
+            if catch:
+                context[phase_key] = "catch"
+                context.pop(pending_key, None)
+                return str(catch), stack
+            if fin:
+                context[phase_key] = "finally"
+                context[pending_key] = exc
+                return str(fin), stack
+
+            # No catch/finally on this try — pop and keep looking outward.
+            stack = stack[:i]
+            context.pop(phase_key, None)
+            context.pop(pending_key, None)
+            context.pop(f"{tid}.raised", None)
+            context.pop(f"{tid}.error", None)
+
+        return None
+
     def decide_next(
         self,
         node: dict[str, Any],
@@ -606,14 +688,14 @@ class FlowInterpreter:
         result: dict[str, Any],
         context: dict[str, Any],
         nodes: dict[str, Any],
-        loop_stack: list[str],
+        control_stack: list[str],
     ) -> tuple[str | None, list[str]]:
         block_type = node.get("type")
 
         if block_type in ("if_condition", "if_color_match", "if_text_contains", "if_logic"):
             matched = bool(result.get("matched"))
             nxt = node.get("then") if matched else node.get("else")
-            return self._resolve_fallthrough(nxt, loop_stack), loop_stack
+            return self._resolve_fallthrough(nxt, control_stack), control_stack
 
         if block_type == "switch":
             from .expression import compare_values
@@ -656,7 +738,7 @@ class FlowInterpreter:
                         "node_id": node_id,
                     },
                 )
-                return self._resolve_fallthrough(matched_target, loop_stack), loop_stack
+                return self._resolve_fallthrough(matched_target, control_stack), control_stack
 
             default = (
                 params.get("default")
@@ -677,7 +759,7 @@ class FlowInterpreter:
                     "node_id": node_id,
                 },
             )
-            return self._resolve_fallthrough(default, loop_stack), loop_stack
+            return self._resolve_fallthrough(default, control_stack), control_stack
 
         if block_type == "loop_n":
             times = int((node.get("params") or {}).get("times") or 0)
@@ -699,13 +781,13 @@ class FlowInterpreter:
                 body = node.get("body")
                 if not body:
                     raise ValueError(f"loop_n 节点 {node_id} 缺少 body")
-                if not loop_stack or loop_stack[-1] != node_id:
-                    loop_stack = loop_stack + [node_id]
-                return body, loop_stack
+                if not control_stack or control_stack[-1] != node_id:
+                    control_stack = control_stack + [node_id]
+                return body, control_stack
             context[counter_key] = 0
-            if loop_stack and loop_stack[-1] == node_id:
-                loop_stack = loop_stack[:-1]
-            return self._resolve_fallthrough(node.get("next"), loop_stack), loop_stack
+            if control_stack and control_stack[-1] == node_id:
+                control_stack = control_stack[:-1]
+            return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
 
         if block_type == "loop_foreach":
             from backend.blocks.loop_foreach import _as_list, inject_item_var, _normalize_item_var
@@ -733,13 +815,13 @@ class FlowInterpreter:
                 body = node.get("body")
                 if not body:
                     raise ValueError(f"loop_foreach 节点 {node_id} 缺少 body")
-                if not loop_stack or loop_stack[-1] != node_id:
-                    loop_stack = loop_stack + [node_id]
-                return body, loop_stack
+                if not control_stack or control_stack[-1] != node_id:
+                    control_stack = control_stack + [node_id]
+                return body, control_stack
             context[counter_key] = 0
-            if loop_stack and loop_stack[-1] == node_id:
-                loop_stack = loop_stack[:-1]
-            return self._resolve_fallthrough(node.get("next"), loop_stack), loop_stack
+            if control_stack and control_stack[-1] == node_id:
+                control_stack = control_stack[:-1]
+            return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
 
         if block_type == "loop_while":
             params = node.get("params") or {}
@@ -763,13 +845,13 @@ class FlowInterpreter:
                 body = node.get("body")
                 if not body:
                     raise ValueError(f"loop_while 节点 {node_id} 缺少 body")
-                if not loop_stack or loop_stack[-1] != node_id:
-                    loop_stack = loop_stack + [node_id]
-                return body, loop_stack
+                if not control_stack or control_stack[-1] != node_id:
+                    control_stack = control_stack + [node_id]
+                return body, control_stack
             context[counter_key] = 0
-            if loop_stack and loop_stack[-1] == node_id:
-                loop_stack = loop_stack[:-1]
-            return self._resolve_fallthrough(node.get("next"), loop_stack), loop_stack
+            if control_stack and control_stack[-1] == node_id:
+                control_stack = control_stack[:-1]
+            return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
 
         if block_type == "loop_forever":
             params = node.get("params") or {}
@@ -780,14 +862,14 @@ class FlowInterpreter:
             interval = int(params.get("check_interval_ms") or 0)
             if exit_cond and evaluate_expression(str(exit_cond), context):
                 context[counter_key] = 0
-                if loop_stack and loop_stack[-1] == node_id:
-                    loop_stack = loop_stack[:-1]
-                return self._resolve_fallthrough(node.get("next"), loop_stack), loop_stack
+                if control_stack and control_stack[-1] == node_id:
+                    control_stack = control_stack[:-1]
+                return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
             if count >= max_times:
                 context[counter_key] = 0
-                if loop_stack and loop_stack[-1] == node_id:
-                    loop_stack = loop_stack[:-1]
-                return self._resolve_fallthrough(node.get("next"), loop_stack), loop_stack
+                if control_stack and control_stack[-1] == node_id:
+                    control_stack = control_stack[:-1]
+                return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
             context[counter_key] = count + 1
             if interval > 0:
                 from backend.blocks._helpers import interruptible_sleep
@@ -800,23 +882,88 @@ class FlowInterpreter:
             body = node.get("body")
             if not body:
                 raise ValueError(f"loop_forever 节点 {node_id} 缺少 body")
-            if not loop_stack or loop_stack[-1] != node_id:
-                loop_stack = loop_stack + [node_id]
-            return body, loop_stack
+            if not control_stack or control_stack[-1] != node_id:
+                control_stack = control_stack + [node_id]
+            return body, control_stack
+
+        if block_type == "try_catch":
+            phase_key = f"__try_{node_id}__phase"
+            pending_key = f"__try_{node_id}__pending_error"
+            phase = context.get(phase_key)
+
+            def _ensure_on_stack(stack: list[str]) -> list[str]:
+                if not stack or stack[-1] != node_id:
+                    return stack + [node_id]
+                return stack
+
+            def _pop_self(stack: list[str]) -> list[str]:
+                if stack and stack[-1] == node_id:
+                    stack = stack[:-1]
+                context.pop(phase_key, None)
+                context.pop(pending_key, None)
+                return stack
+
+            # Fresh entry: start body (or skip to finally / next).
+            if phase is None:
+                context[f"{node_id}.raised"] = False
+                context[f"{node_id}.error"] = ""
+                body = node.get("body")
+                if body:
+                    context[phase_key] = "body"
+                    control_stack = _ensure_on_stack(control_stack)
+                    return str(body), control_stack
+                fin = node.get("finally")
+                if fin:
+                    context[phase_key] = "finally"
+                    control_stack = _ensure_on_stack(control_stack)
+                    return str(fin), control_stack
+                return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
+
+            # Body finished without error → finally or next.
+            if phase == "body":
+                fin = node.get("finally")
+                if fin:
+                    context[phase_key] = "finally"
+                    control_stack = _ensure_on_stack(control_stack)
+                    return str(fin), control_stack
+                control_stack = _pop_self(control_stack)
+                return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
+
+            # Catch finished → finally or next (exception already swallowed).
+            if phase == "catch":
+                fin = node.get("finally")
+                if fin:
+                    context[phase_key] = "finally"
+                    control_stack = _ensure_on_stack(control_stack)
+                    return str(fin), control_stack
+                control_stack = _pop_self(control_stack)
+                return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
+
+            # Finally finished → continue, or re-raise if body failed with no catch.
+            if phase == "finally":
+                pending = context.get(pending_key)
+                control_stack = _pop_self(control_stack)
+                if pending is not None:
+                    context["__pending_reraise__"] = pending
+                    return None, control_stack
+                return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
+
+            control_stack = _pop_self(control_stack)
+            return self._resolve_fallthrough(node.get("next"), control_stack), control_stack
 
         nxt = node.get("next")
         if nxt:
-            return nxt, loop_stack
-        if loop_stack:
-            return loop_stack[-1], loop_stack
-        return None, loop_stack
+            return nxt, control_stack
+        if control_stack:
+            return control_stack[-1], control_stack
+        return None, control_stack
 
     @staticmethod
-    def _resolve_fallthrough(nxt: str | None, loop_stack: list[str]) -> str | None:
+    def _resolve_fallthrough(nxt: str | None, control_stack: list[str]) -> str | None:
         if nxt:
             return nxt
-        if loop_stack:
-            return loop_stack[-1]
+        if control_stack:
+            return control_stack[-1]
         return None
 
 

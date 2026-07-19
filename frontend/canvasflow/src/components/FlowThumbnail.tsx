@@ -58,12 +58,13 @@ const IF_TYPES = new Set([
   'switch',
 ]);
 const LOOP_TYPES = new Set(['loop_n', 'loop_while', 'loop_forever', 'loop_foreach']);
+const TRY_TYPES = new Set(['try_catch']);
 const END_TYPES = new Set(['end', 'stop', 'return', 'exit']);
 
 function shapeKind(subType: string, isEntry: boolean, isSink: boolean): ShapeKind {
   if (isEntry || isSink || END_TYPES.has(subType)) return 'terminator';
   if (IF_TYPES.has(subType)) return 'decision';
-  if (LOOP_TYPES.has(subType)) return 'loop';
+  if (LOOP_TYPES.has(subType) || TRY_TYPES.has(subType)) return 'loop';
   return 'process';
 }
 
@@ -77,7 +78,9 @@ function sizeOf(kind: ShapeKind) {
 function branchMeta(socketId: string) {
   if (socketId === 'then') return { label: '是', color: '#34C759' };
   if (socketId === 'else') return { label: '否', color: '#FF5E57' };
-  if (socketId === 'body') return { label: '循环', color: '#AF52DE' };
+  if (socketId === 'body') return { label: '体', color: '#AF52DE' };
+  if (socketId === 'catch') return { label: '捕获', color: '#FF9F0A' };
+  if (socketId === 'finally') return { label: '收尾', color: '#8E8E93' };
   if (socketId === 'default') return { label: '默认', color: '#FF9F0A' };
   if (String(socketId || '').startsWith('case:')) {
     return { label: '分支', color: '#30B0C7' };

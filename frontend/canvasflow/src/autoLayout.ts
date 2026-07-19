@@ -12,11 +12,13 @@ function outletRank(socketId: string) {
   const s = String(socketId || '');
   if (s === 'then') return 0;
   if (s === 'body') return 1;
-  if (s.startsWith('case:')) return 2;
-  if (s === 'next') return 3;
-  if (s === 'default') return 4;
-  if (s === 'else') return 5;
-  return 6;
+  if (s === 'catch') return 2;
+  if (s.startsWith('case:')) return 3;
+  if (s === 'finally') return 4;
+  if (s === 'next') return 5;
+  if (s === 'default') return 6;
+  if (s === 'else') return 7;
+  return 8;
 }
 
 export function computeAutoLayout(
