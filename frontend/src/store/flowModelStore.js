@@ -380,6 +380,17 @@ function loadNodeContextMenuMode() {
   }
 }
 
+function loadHideSidePanelsOnSettings() {
+  try {
+    const v = localStorage.getItem('nexuz.hideSidePanelsOnSettings');
+    // Default ON: settings is a full-bleed config page
+    if (v === null) return true;
+    return v === '1' || v === 'true';
+  } catch {
+    return true;
+  }
+}
+
 function loadAutoSaveEnabled() {
   try {
     const v = localStorage.getItem('nexuz.autoSaveEnabled');
@@ -586,6 +597,7 @@ export const useFlowStore = create((set, get) => ({
   hideWindowOnRecord: loadHideWindowOnRecord(),
   showToolbarLabels: loadShowToolbarLabels(),
   nodeContextMenuMode: loadNodeContextMenuMode(),
+  hideSidePanelsOnSettings: loadHideSidePanelsOnSettings(),
   autoSaveEnabled: loadAutoSaveEnabled(),
   autoSaveIntervalSec: loadAutoSaveIntervalSec(),
   saveAfterRun: loadSaveAfterRun(),
@@ -637,6 +649,18 @@ export const useFlowStore = create((set, get) => ({
       /* ignore */
     }
     set({ nodeContextMenuMode: next });
+  },
+
+  setHideSidePanelsOnSettings: hideSidePanelsOnSettings => {
+    try {
+      localStorage.setItem(
+        'nexuz.hideSidePanelsOnSettings',
+        hideSidePanelsOnSettings ? '1' : '0',
+      );
+    } catch {
+      /* ignore */
+    }
+    set({ hideSidePanelsOnSettings: !!hideSidePanelsOnSettings });
   },
 
   setAutoSaveEnabled: autoSaveEnabled => {

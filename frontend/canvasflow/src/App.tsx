@@ -176,6 +176,10 @@ function AppShell() {
       ? s.lastFlowViewMode
       : 'canvas',
   );
+  const hideSidePanelsOnSettings = useFlowStore(
+    (s) => s.hideSidePanelsOnSettings !== false,
+  );
+  const settingsFocus = viewMode === 'settings' && hideSidePanelsOnSettings;
   const setViewMode = useFlowStore((s) => s.setViewMode);
   const themeName = useFlowStore((s) => s.themeName);
   const themeMode = useFlowStore((s) => s.themeMode);
@@ -1639,7 +1643,8 @@ function AppShell() {
       />
 
       <div className="flex-1 flex overflow-hidden relative">
-        {!leftCollapsed ? (
+        {/* Optional: hide flow side panels while settings is open (pref). */}
+        {!settingsFocus && !leftCollapsed ? (
           <Sidebar
             themeName={themeName as any}
             themeMode={themeMode as any}
@@ -1661,42 +1666,46 @@ function AppShell() {
         ) : null}
 
         <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
-          <button
-            type="button"
-            onClick={toggleLeftPanel}
-            title={leftCollapsed ? '展开左侧' : '收起左侧'}
-            aria-label={leftCollapsed ? '展开左侧' : '收起左侧'}
-            className="absolute left-2 top-1/2 -translate-y-1/2 z-30 h-8 w-8 rounded-lg border shadow-sm flex items-center justify-center transition-colors hover:opacity-100 opacity-80"
-            style={{
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-              color: colors.text,
-            }}
-          >
-            {leftCollapsed ? (
-              <PanelLeftOpen className="w-3.5 h-3.5" />
-            ) : (
-              <PanelLeftClose className="w-3.5 h-3.5" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={toggleRightPanel}
-            title={rightCollapsed ? '展开右侧' : '收起右侧'}
-            aria-label={rightCollapsed ? '展开右侧' : '收起右侧'}
-            className="absolute right-2 top-1/2 -translate-y-1/2 z-30 h-8 w-8 rounded-lg border shadow-sm flex items-center justify-center transition-colors hover:opacity-100 opacity-80"
-            style={{
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-              color: colors.text,
-            }}
-          >
-            {rightCollapsed ? (
-              <PanelRightOpen className="w-3.5 h-3.5" />
-            ) : (
-              <PanelRightClose className="w-3.5 h-3.5" />
-            )}
-          </button>
+          {!settingsFocus ? (
+            <>
+              <button
+                type="button"
+                onClick={toggleLeftPanel}
+                title={leftCollapsed ? '展开左侧' : '收起左侧'}
+                aria-label={leftCollapsed ? '展开左侧' : '收起左侧'}
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-30 h-8 w-8 rounded-lg border shadow-sm flex items-center justify-center transition-colors hover:opacity-100 opacity-80"
+                style={{
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  color: colors.text,
+                }}
+              >
+                {leftCollapsed ? (
+                  <PanelLeftOpen className="w-3.5 h-3.5" />
+                ) : (
+                  <PanelLeftClose className="w-3.5 h-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={toggleRightPanel}
+                title={rightCollapsed ? '展开右侧' : '收起右侧'}
+                aria-label={rightCollapsed ? '展开右侧' : '收起右侧'}
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-30 h-8 w-8 rounded-lg border shadow-sm flex items-center justify-center transition-colors hover:opacity-100 opacity-80"
+                style={{
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  color: colors.text,
+                }}
+              >
+                {rightCollapsed ? (
+                  <PanelRightOpen className="w-3.5 h-3.5" />
+                ) : (
+                  <PanelRightClose className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </>
+          ) : null}
 
           {viewMode === 'settings' ? (
             <SettingsPage
@@ -1771,7 +1780,7 @@ function AppShell() {
           )}
         </div>
 
-        {!rightCollapsed ? (
+        {!settingsFocus && !rightCollapsed ? (
           <Inspector
             selectedNode={selectedNode}
             onUpdateNodeConfig={handleUpdateNodeConfig}

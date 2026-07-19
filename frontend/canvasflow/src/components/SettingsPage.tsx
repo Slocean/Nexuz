@@ -26,6 +26,7 @@ import {
   Type,
   Terminal,
   X,
+  PanelsTopLeft,
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -363,6 +364,12 @@ export default function SettingsPage({
     s.nodeContextMenuMode === 'flat' ? 'flat' : 'grouped',
   );
   const setNodeContextMenuMode = useFlowStore((s) => s.setNodeContextMenuMode);
+  const hideSidePanelsOnSettings = useFlowStore(
+    (s) => s.hideSidePanelsOnSettings !== false,
+  );
+  const setHideSidePanelsOnSettings = useFlowStore(
+    (s) => s.setHideSidePanelsOnSettings,
+  );
   const appendAuditLog = useFlowStore((s) => s.appendAuditLog);
   const autoSaveEnabled = useFlowStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useFlowStore((s) => s.setAutoSaveEnabled);
@@ -1113,7 +1120,7 @@ export default function SettingsPage({
 
   return (
     <div className="flex-1 min-w-0 h-full overflow-auto">
-      <div className="max-w-xl mx-auto px-8 py-10 space-y-3">
+      <div className="w-full max-w-none px-6 py-8 space-y-3">
         <div className="flex items-center gap-2 mb-5">
           <Settings2 style={{ color: colors.primary }} className="w-5 h-5" />
           <h1 className="font-display text-xl font-semibold" style={{ color: colors.text }}>
@@ -1789,6 +1796,26 @@ export default function SettingsPage({
                 显示顶部按钮文字
                 <HelpHint
                   text="开启后，窗口较宽时顶部按钮显示文字；关闭后始终只显示图标。窗口变窄时会自动隐藏文字（优先于本开关）。"
+                  colors={colors}
+                  themeMode={themeMode}
+                />
+              </Label>
+            </div>
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="setting-hide-side-panels"
+                checked={hideSidePanelsOnSettings}
+                onCheckedChange={(v) => setHideSidePanelsOnSettings(!!v)}
+              />
+              <Label
+                htmlFor="setting-hide-side-panels"
+                className="text-sm font-medium normal-case tracking-normal cursor-pointer inline-flex items-center gap-1.5"
+                style={{ color: colors.text }}
+              >
+                <PanelsTopLeft className="w-3.5 h-3.5 opacity-70" />
+                打开设置时隐藏左右面板
+                <HelpHint
+                  text="开启后进入设置会临时隐藏左侧积木栏与右侧属性栏，设置全幅显示；关闭设置后恢复原来的展开状态。关闭本选项则设置只占中间区域。"
                   colors={colors}
                   themeMode={themeMode}
                 />
