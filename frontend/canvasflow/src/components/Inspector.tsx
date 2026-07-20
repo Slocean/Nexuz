@@ -322,6 +322,10 @@ function PointListEditor({
     delay_ms?: number | string;
     frida_ui?: any;
     button?: string;
+    coordinate_mode?: string;
+    point_norm?: number[];
+    coord_space?: any;
+    window_target?: any;
   }[];
   onChange: (next: any[]) => void;
   onPickPoint?: (method?: string) => Promise<any>;
