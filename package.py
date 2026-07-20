@@ -36,24 +36,51 @@ def run(cmd: list[str], *, cwd: Path | None = None) -> None:
     subprocess.check_call(cmd, cwd=str(cwd or ROOT))
 
 
+def _install_locked_deps() -> None:
+    """Install production lockfile (hashes required). Used for first-time package."""
+    req = ROOT / "requirements.txt"
+    if not req.is_file():
+        raise SystemExit(f"缺少依赖锁文件: {req}")
+    print(f"正在安装打包依赖（{req.name}，require-hashes）…")
+    run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--require-hashes",
+            "-r",
+            str(req),
+        ]
+    )
+
+
 def ensure_pyinstaller() -> None:
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
-        raise SystemExit(
-            "PyInstaller 未安装；请先运行 "
-            f"{sys.executable} -m pip install --require-hashes -r requirements.txt"
-        )
+        _install_locked_deps()
+        try:
+            import PyInstaller  # noqa: F401
+        except ImportError as exc:
+            raise SystemExit(
+                "已安装 requirements.txt 但仍无法导入 PyInstaller，"
+                f"请确认当前解释器为 {sys.executable}"
+            ) from exc
 
 
 def ensure_pillow() -> None:
     try:
         import PIL  # noqa: F401
     except ImportError:
-        raise SystemExit(
-            "Pillow 未安装；请先运行 "
-            f"{sys.executable} -m pip install --require-hashes -r requirements.txt"
-        )
+        _install_locked_deps()
+        try:
+            import PIL  # noqa: F401
+        except ImportError as exc:
+            raise SystemExit(
+                "已安装 requirements.txt 但仍无法导入 Pillow，"
+                f"请确认当前解释器为 {sys.executable}"
+            ) from exc
 
 
 def ensure_app_icon(*, force: bool = False) -> Path:

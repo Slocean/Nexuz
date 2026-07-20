@@ -99,6 +99,10 @@ class Api:
         )
         session.set_stop_hotkey_callback(self._on_record_stop_hotkey)
 
+        from backend.core.host_window import register_mouse_yield
+
+        register_mouse_yield(self._begin_playback_mouse_yield, self._end_playback_mouse_yield)
+
         from backend.core.input.frida.session_manager import get_frida_session_manager
 
         def on_frida_detached():
@@ -1098,6 +1102,44 @@ class Api:
             return ok_any or applied_form
         except Exception:
             return applied_form
+
+    def _begin_playback_mouse_yield(self) -> None:
+        """Temporarily make Nexuz ignore hit-tests during pyautogui playback."""
+        depth = int(getattr(self, "_playback_yield_depth", 0) or 0)
+        self._playback_yield_depth = depth + 1
+        if depth > 0:
+            return
+        # Plugin mode already click-through — leave it alone.
+        if bool(getattr(self, "_plugin_click_through", False)):
+            self._playback_yield_owned = False
+            return
+        self._playback_yield_owned = True
+        self._apply_click_through(True)
+        if getattr(self, "_plugin_mode", False):
+            try:
+                self._apply_window_opacity(float(getattr(self, "_plugin_opacity", 0.85)))
+            except Exception:
+                pass
+
+    def _end_playback_mouse_yield(self) -> None:
+        depth = int(getattr(self, "_playback_yield_depth", 0) or 0)
+        if depth <= 0:
+            return
+        self._playback_yield_depth = depth - 1
+        if depth > 1:
+            return
+        if not getattr(self, "_playback_yield_owned", False):
+            return
+        self._playback_yield_owned = False
+        # User may have enabled permanent click-through while we were yielding.
+        if bool(getattr(self, "_plugin_click_through", False)):
+            return
+        self._apply_click_through(False)
+        if getattr(self, "_plugin_mode", False):
+            try:
+                self._apply_window_opacity(float(getattr(self, "_plugin_opacity", 0.85)))
+            except Exception:
+                pass
 
     def _apply_click_through(self, enabled: bool) -> bool:
         """WS_EX_TRANSPARENT: mouse goes to windows below (game).

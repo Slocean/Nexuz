@@ -111,6 +111,30 @@ def test_coordinate_modes():
         ) == (960, 540)
 
 
+def test_click_outcome_summarizes_multi_points():
+    from backend.core.runtime_payload import summarize_node_outcome
+
+    text = summarize_node_outcome(
+        "click",
+        ok=True,
+        result={
+            "ok": True,
+            "x": 50,
+            "y": 60,
+            "count": 3,
+            "clicks": [
+                {"index": 1, "x": 10, "y": 20},
+                {"index": 2, "x": 30, "y": 40},
+                {"index": 3, "x": 50, "y": 60},
+            ],
+        },
+        elapsed_ms=120.0,
+    )
+    assert "多点点击 3 次" in text
+    assert "(10, 20)" in text
+    assert "(50, 60)" in text
+
+
 def test_runtime_logs_are_scoped_per_flow():
     with tempfile.TemporaryDirectory() as td:
         with patch("backend.core.runtime_log.get_data_dir", return_value=Path(td)):

@@ -172,6 +172,147 @@ def test_script_loader_exists():
     assert "attachhooks" in src.lower() or "attachHooks" in src
 
 
+def test_multi_click_hits_each_point():
+    """Multi mode must invoke playback once per point (not only the last)."""
+    import backend.blocks.click as click_mod
+    import backend.core.input.providers.coord_playback as playback_mod
+    from backend.core import host_window
+
+    seen = []
+    moves = []
+    yields = []
+    resolve_flags = []
+
+    class FakePy:
+        @staticmethod
+        def moveTo(x=None, y=None, duration=0, *a, **k):
+            moves.append((int(x), int(y)))
+
+        @staticmethod
+        def click(x=None, y=None, button="left", clicks=1, interval=0.05):
+            # Playback clicks at current cursor after moveTo (x/y may be omitted).
+            if x is None and moves:
+                x, y = moves[-1]
+            seen.append((int(x or 0), int(y or 0), button, int(clicks)))
+
+    def fake_resolve(params, x_key="x", y_key="y"):
+        resolve_flags.append(params.get("activate_window", "unset"))
+        return int(params.get(x_key) or 0), int(params.get(y_key) or 0)
+
+    orig_py = playback_mod.pyautogui
+    orig_resolve = playback_mod.resolve_point
+    orig_sleep = playback_mod.time.sleep
+    host_window.register_mouse_yield(
+        lambda: yields.append("begin"),
+        lambda: yields.append("end"),
+    )
+    playback_mod.pyautogui = FakePy  # type: ignore
+    playback_mod.resolve_point = fake_resolve  # type: ignore
+    playback_mod.time.sleep = lambda *_a, **_k: None  # type: ignore
+    try:
+        out = click_mod.handler(
+            {
+                "click_mode": "multi",
+                "capture_mode": "coord",
+                "coordinate_mode": "screen_abs",
+                "button": "left",
+                "interval_ms": 0,
+                "points": [
+                    {"x": 10, "y": 20, "delay_ms": 0},
+                    {"x": 30, "y": 40, "delay_ms": 0},
+                    {"x": 50, "y": 60, "delay_ms": 0},
+                ],
+            },
+            {},
+        )
+        assert out.get("ok") is True
+        assert out.get("count") == 3
+        assert seen == [
+            (10, 20, "left", 1),
+            (30, 40, "left", 1),
+            (50, 60, "left", 1),
+        ]
+        assert [c["x"] for c in out.get("clicks") or []] == [10, 30, 50]
+        # Each physical click must yield the host window so overlays don't eat it.
+        assert yields == ["begin", "end", "begin", "end", "begin", "end"]
+    finally:
+        playback_mod.pyautogui = orig_py
+        playback_mod.resolve_point = orig_resolve
+        playback_mod.time.sleep = orig_sleep
+        host_window.register_mouse_yield(None, None)
+
+
+def test_multi_click_activates_window_only_once():
+    """window_client multi-click must not SetForegroundWindow before every point."""
+    import backend.blocks.click as click_mod
+    import backend.core.input.providers.coord_playback as playback_mod
+    from backend.core import host_window
+
+    activate_flags = []
+
+    class FakePy:
+        @staticmethod
+        def moveTo(*a, **k):
+            pass
+
+        @staticmethod
+        def click(*a, **k):
+            pass
+
+    def fake_resolve(params, x_key="x", y_key="y"):
+        activate_flags.append(params.get("activate_window", "unset"))
+        return (
+            100 + len(activate_flags) * 10,
+            200 + len(activate_flags) * 10,
+        )
+
+    orig_py = playback_mod.pyautogui
+    orig_resolve = playback_mod.resolve_point
+    orig_sleep = playback_mod.time.sleep
+    host_window.register_mouse_yield(lambda: None, lambda: None)
+    playback_mod.pyautogui = FakePy  # type: ignore
+    playback_mod.resolve_point = fake_resolve  # type: ignore
+    playback_mod.time.sleep = lambda *_a, **_k: None  # type: ignore
+    try:
+        wt = {
+            "process_name": "Game.exe",
+            "title": "Game",
+            "point_norm": [0.5, 0.5],
+            "client_width": 800,
+            "client_height": 600,
+        }
+        out = click_mod.handler(
+            {
+                "click_mode": "multi",
+                "capture_mode": "coord",
+                "coordinate_mode": "window_client",
+                "button": "left",
+                "interval_ms": 0,
+                "points": [
+                    {"x": 1, "y": 1, "delay_ms": 0, "coordinate_mode": "window_client", "window_target": {**wt, "point_norm": [0.1, 0.1]}},
+                    {"x": 2, "y": 2, "delay_ms": 0, "coordinate_mode": "window_client", "window_target": {**wt, "point_norm": [0.2, 0.2]}},
+                    {"x": 3, "y": 3, "delay_ms": 0, "coordinate_mode": "window_client", "window_target": {**wt, "point_norm": [0.3, 0.3]}},
+                ],
+            },
+            {},
+        )
+        assert out.get("count") == 3
+        assert activate_flags == [True, False, False]
+    finally:
+        playback_mod.pyautogui = orig_py
+        playback_mod.resolve_point = orig_resolve
+        playback_mod.time.sleep = orig_sleep
+        host_window.register_mouse_yield(None, None)
+
+
+def test_yield_host_mouse_noop_without_registration():
+    from backend.core.host_window import register_mouse_yield, yield_host_mouse
+
+    register_mouse_yield(None, None)
+    with yield_host_mouse():
+        pass
+
+
 if __name__ == "__main__":
     test_normalize_legacy_coord()
     test_normalize_frida_nested()
@@ -183,6 +324,9 @@ if __name__ == "__main__":
     test_frida_session_status_detached()
     test_click_handler_coord()
     test_script_loader_exists()
+    test_multi_click_hits_each_point()
+    test_multi_click_activates_window_only_once()
+    test_yield_host_mouse_noop_without_registration()
     # keep original expression tests runnable too
     from backend.test_unit import test_expressions, test_variables
 

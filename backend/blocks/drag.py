@@ -83,6 +83,9 @@ def handler(params, context, **kwargs):
         }
     )
     duration = float(params.get("duration", 300) or 0) / 1000.0
-    pyautogui.moveTo(fx, fy)
-    pyautogui.dragTo(tx, ty, duration=duration, button="left")
+    from backend.core.host_window import yield_host_mouse
+
+    with yield_host_mouse():
+        pyautogui.moveTo(fx, fy)
+        pyautogui.dragTo(tx, ty, duration=duration, button="left")
     return {"from_x": fx, "from_y": fy, "to_x": tx, "to_y": ty}

@@ -79,34 +79,39 @@ def handler(params, context, **kwargs):
         if not configured:
             require_configured_point(params, label="滚轮焦点")
         x, y = resolve_point(params)
-        pyautogui.moveTo(x, y)
-        time.sleep(0.05)
 
-    def _vscroll(amount: int) -> None:
+    from backend.core.host_window import yield_host_mouse
+
+    with yield_host_mouse():
         if configured or move_first:
-            pyautogui.scroll(amount, x=x, y=y)
-        else:
-            pyautogui.scroll(amount)
+            pyautogui.moveTo(x, y)
+            time.sleep(0.05)
 
-    def _hscroll(amount: int) -> None:
-        if configured or move_first:
-            pyautogui.hscroll(amount, x=x, y=y)
-        else:
-            pyautogui.hscroll(amount)
+        def _vscroll(amount: int) -> None:
+            if configured or move_first:
+                pyautogui.scroll(amount, x=x, y=y)
+            else:
+                pyautogui.scroll(amount)
 
-    if direction == "up":
-        _vscroll(clicks)
-        amount = clicks
-    elif direction == "down":
-        _vscroll(-clicks)
-        amount = -clicks
-    elif direction == "left":
-        _hscroll(-clicks)
-        amount = -clicks
-    elif direction == "right":
-        _hscroll(clicks)
-        amount = clicks
-    else:
-        raise ValueError(f"未知滚动方向: {direction}")
+        def _hscroll(amount: int) -> None:
+            if configured or move_first:
+                pyautogui.hscroll(amount, x=x, y=y)
+            else:
+                pyautogui.hscroll(amount)
+
+        if direction == "up":
+            _vscroll(clicks)
+            amount = clicks
+        elif direction == "down":
+            _vscroll(-clicks)
+            amount = -clicks
+        elif direction == "left":
+            _hscroll(-clicks)
+            amount = -clicks
+        elif direction == "right":
+            _hscroll(clicks)
+            amount = clicks
+        else:
+            raise ValueError(f"未知滚动方向: {direction}")
 
     return {"ok": True, "x": x, "y": y, "amount": amount}

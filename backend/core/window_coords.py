@@ -149,8 +149,16 @@ def _find_window(target: dict[str, Any]) -> int:
     return max(ranked, default=(0, 0))[1]
 
 
-def resolve_window_point(target: dict[str, Any]) -> tuple[int, int, int]:
-    """Resolve client-normalized point to current screen coords (DPI-safe via point_norm)."""
+def resolve_window_point(
+    target: dict[str, Any],
+    *,
+    activate: bool = True,
+) -> tuple[int, int, int]:
+    """Resolve client-normalized point to current screen coords (DPI-safe via point_norm).
+
+    ``activate`` should be True for the first playback against a window. Re-activating
+    before every multi-click point steals/eats earlier clicks on many games (Unity).
+    """
     if not _supported() or not isinstance(target, dict):
         raise RuntimeError("窗口相对坐标仅支持 Windows")
     hwnd = _find_window(target)
@@ -158,7 +166,8 @@ def resolve_window_point(target: dict[str, Any]) -> tuple[int, int, int]:
         raise RuntimeError(
             f"未找到目标窗口：{target.get('process_name') or target.get('title') or '未知窗口'}"
         )
-    activate_hwnd(hwnd)
+    if activate:
+        activate_hwnd(hwnd)
     geometry = _client_geometry(hwnd)
     if geometry is None:
         raise RuntimeError("无法读取目标窗口客户区")
@@ -171,6 +180,27 @@ def resolve_window_point(target: dict[str, Any]) -> tuple[int, int, int]:
     x = int(round(left + float(norm[0]) * width))
     y = int(round(top + float(norm[1]) * height))
     return x, y, hwnd
+
+
+def describe_screen_hit(x: int, y: int) -> dict[str, Any]:
+    """Top-level window currently under a screen point (for click diagnostics)."""
+    if not _supported():
+        return {}
+    try:
+        user32 = ctypes.windll.user32
+        point = ctypes.wintypes.POINT(int(x), int(y))
+        hwnd = int(user32.WindowFromPoint(point) or 0)
+        if not hwnd:
+            return {}
+        hwnd = int(user32.GetAncestor(hwnd, 2) or hwnd)  # GA_ROOT
+        info = describe_hwnd(hwnd)
+        return {
+            "hit_hwnd": int(hwnd),
+            "hit_process": str(info.get("process_name") or ""),
+            "hit_title": str(info.get("title") or ""),
+        }
+    except Exception:
+        return {}
 
 
 def criteria_from_params(params: dict[str, Any] | None) -> dict[str, Any]:
@@ -312,16 +342,51 @@ def capture_window_under_point(x: int, y: int) -> dict[str, Any] | None:
 
 
 def activate_hwnd(hwnd: int) -> None:
+    """Bring *hwnd* to the foreground (best-effort; Windows focus rules apply)."""
     if not hwnd or not _supported():
         return
     user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         time.sleep(0.08)
     try:
-        user32.SetForegroundWindow(hwnd)
+        if int(user32.GetForegroundWindow() or 0) == int(hwnd):
+            return
     except Exception:
         pass
+    # AttachThreadInput is the usual way to bypass the foreground lock when the
+    # user just clicked Nexuz to start a run — bare SetForegroundWindow often fails.
+    attached_fg = False
+    attached_target = False
+    fg_tid = 0
+    target_tid = 0
+    try:
+        cur_tid = int(kernel32.GetCurrentThreadId())
+        fg = int(user32.GetForegroundWindow() or 0)
+        fg_tid = int(user32.GetWindowThreadProcessId(fg, None) or 0) if fg else 0
+        target_tid = int(user32.GetWindowThreadProcessId(int(hwnd), None) or 0)
+        if fg_tid and fg_tid != cur_tid:
+            attached_fg = bool(user32.AttachThreadInput(cur_tid, fg_tid, True))
+        if target_tid and target_tid != cur_tid and target_tid != fg_tid:
+            attached_target = bool(user32.AttachThreadInput(cur_tid, target_tid, True))
+        user32.BringWindowToTop(int(hwnd))
+        user32.ShowWindow(int(hwnd), 5)  # SW_SHOW
+        user32.SetForegroundWindow(int(hwnd))
+    except Exception:
+        try:
+            user32.SetForegroundWindow(int(hwnd))
+        except Exception:
+            pass
+    finally:
+        try:
+            if attached_target and target_tid:
+                user32.AttachThreadInput(int(kernel32.GetCurrentThreadId()), target_tid, False)
+            if attached_fg and fg_tid:
+                user32.AttachThreadInput(int(kernel32.GetCurrentThreadId()), fg_tid, False)
+        except Exception:
+            pass
+    time.sleep(0.05)
 
 
 def close_hwnd(hwnd: int, *, force: bool = False) -> None:

@@ -68,7 +68,19 @@ function formatRuntimeNodeEnd(payload) {
   if (type === 'click') {
     const x = result.x ?? result.screen_x;
     const y = result.y ?? result.screen_y;
-    if (x != null && y != null) return `✓ [${nid}] 点击 (${x}, ${y}) · ${payload.elapsed_ms}ms`;
+    const count = Number(result.count || 1);
+    const ms = payload.elapsed_ms != null ? ` · ${payload.elapsed_ms}ms` : '';
+    if (count > 1) {
+      const pts = Array.isArray(result.clicks) ? result.clicks : [];
+      const trail = pts
+        .filter((p) => p && p.x != null && p.y != null)
+        .map((p) => `(${p.x}, ${p.y})`)
+        .join(' → ');
+      if (trail) return `✓ [${nid}] 多点点击 ${count} 次 ${trail}${ms}`;
+      if (x != null && y != null) return `✓ [${nid}] 多点点击 ${count} 次 · 末点 (${x}, ${y})${ms}`;
+      return `✓ [${nid}] 多点点击 ${count} 次${ms}`;
+    }
+    if (x != null && y != null) return `✓ [${nid}] 点击 (${x}, ${y})${ms}`;
   }
   if (type === 'switch') {
     return `✓ [${nid}] 判断值=${JSON.stringify(result.value)} · ${payload.elapsed_ms}ms`;

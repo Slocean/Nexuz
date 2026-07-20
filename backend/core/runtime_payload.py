@@ -142,6 +142,23 @@ def summarize_node_outcome(
 
     if t == "click":
         x, y = r.get("x", r.get("screen_x")), r.get("y", r.get("screen_y"))
+        try:
+            count = int(r.get("count") or 1)
+        except (TypeError, ValueError):
+            count = 1
+        if count > 1:
+            pts = r.get("clicks") if isinstance(r.get("clicks"), list) else []
+            if pts:
+                trail = " → ".join(
+                    f"({p.get('x')}, {p.get('y')})"
+                    for p in pts
+                    if isinstance(p, dict) and p.get("x") is not None
+                )
+                if trail:
+                    return f"多点点击 {count} 次 {trail}{ms}"
+            if x is not None and y is not None:
+                return f"多点点击 {count} 次 · 末点 ({x}, {y}){ms}"
+            return f"多点点击 {count} 次{ms}"
         if x is not None and y is not None:
             return f"点击 ({x}, {y}){ms}"
         return f"点击完成{ms}"

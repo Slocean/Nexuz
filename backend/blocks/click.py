@@ -125,7 +125,11 @@ def _click_once(params: dict, context: dict) -> dict:
     provider_or_err = registry.require_playback(target.capture_mode)
     if isinstance(provider_or_err, dict):
         raise RuntimeError(provider_or_err.get("message") or ERROR_INVALID_MODE)
-    result = provider_or_err.execute(target, context) or {}
+    # ClickTarget drops playback-only flags; pass via call context.
+    call_ctx = dict(context) if isinstance(context, dict) else {}
+    if "activate_window" in params:
+        call_ctx["__activate_window"] = bool(params.get("activate_window"))
+    result = provider_or_err.execute(target, call_ctx) or {}
     if "x" not in result and target.coord is not None:
         result["x"] = int(target.coord.x)
     if "y" not in result and target.coord is not None:
@@ -192,6 +196,10 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     button = params.get("button") or "left"
     last: dict = {"ok": True, "x": 0, "y": 0, "button": button}
     done = 0
+    clicks: list[dict] = []
+    # window_client resolves used to SetForegroundWindow before EVERY point.
+    # That focus thrash is why single-point works but earlier multi points drop.
+    window_activated = False
 
     for i, pt in enumerate(raw_points):
         if not isinstance(pt, dict):
@@ -216,12 +224,30 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
         if node_cap == "coord":
             one["capture_mode"] = "coord"
             one.pop("frida_ui", None)
+        if str(one.get("coordinate_mode") or "") == "window_client":
+            if window_activated:
+                one["activate_window"] = False
+            else:
+                one["activate_window"] = True
+                window_activated = True
         last = _click_once(one, ctx)
         done += 1
+        clicks.append(
+            {
+                "index": done,
+                "x": last.get("x"),
+                "y": last.get("y"),
+                "button": last.get("button") or button,
+                "hit_process": last.get("hit_process"),
+                "hit_title": last.get("hit_title"),
+                "activated": one.get("activate_window"),
+            }
+        )
 
     if done <= 0:
         raise ValueError("多点模式请至少添加一个点击点")
     last["count"] = done
+    last["clicks"] = clicks
     last.setdefault("ok", True)
     last.setdefault("button", button)
     return last

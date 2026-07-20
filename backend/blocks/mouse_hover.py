@@ -106,7 +106,10 @@ def _hover_at(
 ) -> tuple[int, int]:
     require_configured_point(params, label="悬停坐标")
     x, y = resolve_point(params)
-    pyautogui.moveTo(x, y, duration=max(0.0, move_duration))
+    from backend.core.host_window import yield_host_mouse
+
+    with yield_host_mouse():
+        pyautogui.moveTo(x, y, duration=max(0.0, move_duration))
     if hold_ms > 0:
         interruptible_sleep(hold_ms / 1000.0, should_stop, cooperate=cooperate)
     return x, y
@@ -134,6 +137,7 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     interval = max(0, _as_int(params.get("interval_ms"), 200))
     last_x, last_y = 0, 0
     done = 0
+    window_activated = False
 
     for i, pt in enumerate(raw_points):
         if not isinstance(pt, dict):
@@ -161,6 +165,12 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
             "coord_space": pt.get("coord_space") or params.get("coord_space"),
             "window_target": pt.get("window_target") or params.get("window_target"),
         }
+        if str(one.get("coordinate_mode") or "") == "window_client":
+            if window_activated:
+                one["activate_window"] = False
+            else:
+                one["activate_window"] = True
+                window_activated = True
         last_x, last_y = _hover_at(
             one,
             hold_ms=hold_ms,

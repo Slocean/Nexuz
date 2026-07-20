@@ -257,7 +257,12 @@ def resolve_point(params: dict, x_key: str = "x", y_key: str = "y") -> tuple[int
                 target = nested.get("window_target")
         from backend.core.window_coords import resolve_window_point
 
-        x, y, _hwnd = resolve_window_point(target)
+        # Multi-click passes activate_window=False after the first point so we
+        # don't SetForegroundWindow between every click (drops earlier inputs).
+        activate = True
+        if "activate_window" in params:
+            activate = bool(params.get("activate_window"))
+        x, y, _hwnd = resolve_window_point(target, activate=activate)
         return validate_point(x, y)
 
     if mode == "virtual_norm" and has_norm:
