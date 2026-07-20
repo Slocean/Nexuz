@@ -353,7 +353,17 @@ function PointListEditor({
   };
 
   const update = (idx: number, patch: Record<string, any>) => {
-    onChange(points.map((p, i) => (i === idx ? normalize({ ...p, ...patch }) : normalize(p))));
+    onChange(
+      points.map((p, i) => {
+        if (i !== idx) return normalize(p);
+        const merged = { ...p, ...patch };
+        // Explicit null clears stale window bind from a previous pick.
+        if ('window_target' in patch && !patch.window_target) {
+          delete merged.window_target;
+        }
+        return normalize(merged);
+      }),
+    );
   };
 
   const move = (idx: number, dir: -1 | 1) => {
@@ -378,19 +388,23 @@ function PointListEditor({
       return;
     }
     const params = res.params || {};
+    const windowTarget = params.window_target || res.window_target || null;
     const patch: any = {
       x: Number(params.x ?? res.x) || 0,
-      y: Number(params.y ?? res.y) || 0
+      y: Number(params.y ?? res.y) || 0,
+      // Always set (null clears previous bind — do not keep old window_target).
+      window_target: windowTarget,
     };
     if (params.point_norm || res.point_norm) patch.point_norm = params.point_norm || res.point_norm;
     if (params.coord_space || res.coord_space) {
       patch.coord_space = params.coord_space || res.coord_space;
     }
-    if (params.coordinate_mode || res.coordinate_mode) {
+    if (windowTarget) {
+      patch.coordinate_mode = 'window_client';
+    } else if (params.coordinate_mode || res.coordinate_mode) {
       patch.coordinate_mode = params.coordinate_mode || res.coordinate_mode;
-    }
-    if (params.window_target || res.window_target) {
-      patch.window_target = params.window_target || res.window_target;
+    } else {
+      patch.coordinate_mode = 'screen_abs';
     }
     if (params.button || res.button) patch.button = params.button || res.button;
     if (params.frida_ui) patch.frida_ui = params.frida_ui;
@@ -1601,32 +1615,47 @@ export default function Inspector({
     const params = res.params || {};
     patch[xKey] = params.x ?? res.x;
     patch[yKey] = params.y ?? res.y;
-    const windowTarget = params.window_target || res.window_target || patch.window_target;
+    // Never keep a stale window_target from the previous pick — screenshot/live
+    // must supply a fresh one, otherwise window_client replays the old point_norm.
+    const windowTarget = params.window_target || res.window_target || null;
     const preferred =
       selectedNode.config?.coordinate_mode ||
       params.coordinate_mode ||
       res.coordinate_mode ||
       defaultCoordinateMode ||
       'screen_abs';
-    const useWindow =
-      preferred === 'window_client' && !!windowTarget;
+    const useWindow = preferred === 'window_client' && !!windowTarget;
     patch.coordinate_mode = useWindow
       ? 'window_client'
       : preferred === 'virtual_norm'
         ? 'virtual_norm'
-        : params.coordinate_mode || res.coordinate_mode || patch.coordinate_mode || 'screen_abs';
+        : params.coordinate_mode || res.coordinate_mode || 'screen_abs';
     patch.coord_space = params.coord_space || res.coord_space || patch.coord_space;
-    patch.window_target = windowTarget;
+    if (useWindow) {
+      patch.window_target = windowTarget;
+    } else {
+      delete patch.window_target;
+    }
     if (xKey === 'from_x') {
       patch.from_point_norm = params.point_norm || res.point_norm;
-      if (windowTarget) patch.from_window_target = windowTarget;
+      if (useWindow) patch.from_window_target = windowTarget;
+      else delete patch.from_window_target;
     } else if (xKey === 'to_x') {
       patch.to_point_norm = params.point_norm || res.point_norm;
-      if (windowTarget) patch.to_window_target = windowTarget;
-    } else patch.point_norm = params.point_norm || res.point_norm;
+      if (useWindow) patch.to_window_target = windowTarget;
+      else delete patch.to_window_target;
+    } else {
+      patch.point_norm = params.point_norm || res.point_norm;
+    }
     if (params.button || res.button) patch.button = params.button || res.button;
     if (params.capture_mode) patch.capture_mode = params.capture_mode;
-    if (params.coord) patch.coord = params.coord;
+    if (params.coord) {
+      const coord = { ...params.coord };
+      coord.coordinate_mode = patch.coordinate_mode;
+      if (useWindow) coord.window_target = windowTarget;
+      else delete coord.window_target;
+      patch.coord = coord;
+    }
     if (selectedNode.subType.includes('color') && res.color) {
       patch.target_color = res.color;
     }
@@ -1643,15 +1672,37 @@ export default function Inspector({
     if (!selectedNode || !res?.ok) return;
     const params = res.params || {};
     const patch: any = { ...selectedNode.config, ...params };
-    if (
-      selectedNode.config?.coordinate_mode === 'window_client' &&
-      (params.window_target || params.coord?.window_target)
-    ) {
+    const freshWt = params.window_target || params.coord?.window_target || null;
+    const preferred =
+      selectedNode.config?.coordinate_mode || defaultCoordinateMode || 'screen_abs';
+    if (preferred === 'window_client' && freshWt) {
       patch.coordinate_mode = 'window_client';
-      if (patch.coord) patch.coord = { ...patch.coord, coordinate_mode: 'window_client' };
-    } else if (selectedNode.config?.coordinate_mode === 'virtual_norm') {
+      patch.window_target = freshWt;
+      if (patch.coord) {
+        patch.coord = { ...patch.coord, coordinate_mode: 'window_client', window_target: freshWt };
+      }
+    } else if (preferred === 'virtual_norm') {
       patch.coordinate_mode = 'virtual_norm';
-      if (patch.coord) patch.coord = { ...patch.coord, coordinate_mode: 'virtual_norm' };
+      delete patch.window_target;
+      if (patch.coord) {
+        const coord = { ...patch.coord, coordinate_mode: 'virtual_norm' };
+        delete coord.window_target;
+        patch.coord = coord;
+      }
+    } else {
+      // Fresh pick without a window bind must not keep an old window_target.
+      if (!freshWt) {
+        delete patch.window_target;
+        if (patch.coord) {
+          const coord = { ...patch.coord };
+          delete coord.window_target;
+          patch.coord = coord;
+        }
+      }
+      if (patch.coordinate_mode === 'window_client' && !freshWt) {
+        patch.coordinate_mode = 'screen_abs';
+        if (patch.coord) patch.coord = { ...patch.coord, coordinate_mode: 'screen_abs' };
+      }
     }
     onUpdateNodeConfig(selectedNode.id, patch);
   };

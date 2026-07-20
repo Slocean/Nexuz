@@ -20,56 +20,44 @@ export interface ZoomPanStageProps {
   hint?: string;
 }
 
+/** Map viewport client coords → image pixel via the real rendered image box. */
 function clientToImage(
   clientX: number,
   clientY: number,
-  stage: HTMLElement,
   img: HTMLImageElement,
-  offset: { x: number; y: number },
-  scale: number,
 ): ImagePoint | null {
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
   if (nw <= 0 || nh <= 0) return null;
-  const rect = stage.getBoundingClientRect();
-  const cx = rect.width / 2 + offset.x;
-  const cy = rect.height / 2 + offset.y;
-  const displayW = nw * scale;
-  const displayH = nh * scale;
-  const imgLeft = cx - displayW / 2;
-  const imgTop = cy - displayH / 2;
-  const ix = (clientX - rect.left - imgLeft) / scale;
-  const iy = (clientY - rect.top - imgTop) / scale;
+  const r = img.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return null;
+  const ix = ((clientX - r.left) / r.width) * nw;
+  const iy = ((clientY - r.top) / r.height) * nh;
   if (ix < 0 || iy < 0 || ix >= nw || iy >= nh) return null;
   return { ix, iy };
 }
 
+/** Map image-pixel region → stage-local CSS box via the real rendered image box. */
 function imageRectToStage(
   region: ImageRegion,
   stage: HTMLElement,
   img: HTMLImageElement,
-  offset: { x: number; y: number },
-  scale: number,
 ): { left: number; top: number; width: number; height: number } | null {
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
   if (nw <= 0 || nh <= 0) return null;
-  const rect = stage.getBoundingClientRect();
-  const cx = rect.width / 2 + offset.x;
-  const cy = rect.height / 2 + offset.y;
-  const displayW = nw * scale;
-  const displayH = nh * scale;
-  const imgLeft = cx - displayW / 2;
-  const imgTop = cy - displayH / 2;
+  const ir = img.getBoundingClientRect();
+  const sr = stage.getBoundingClientRect();
+  if (ir.width <= 0 || ir.height <= 0) return null;
   const x1 = Math.min(region.x1, region.x2);
   const y1 = Math.min(region.y1, region.y2);
   const x2 = Math.max(region.x1, region.x2);
   const y2 = Math.max(region.y1, region.y2);
   return {
-    left: imgLeft + x1 * scale,
-    top: imgTop + y1 * scale,
-    width: (x2 - x1) * scale,
-    height: (y2 - y1) * scale,
+    left: ir.left - sr.left + (x1 / nw) * ir.width,
+    top: ir.top - sr.top + (y1 / nh) * ir.height,
+    width: ((x2 - x1) / nw) * ir.width,
+    height: ((y2 - y1) / nh) * ir.height,
   };
 }
 
@@ -104,6 +92,18 @@ export function ZoomPanStage({
   const last = useRef({ x: 0, y: 0 });
   const downPt = useRef({ x: 0, y: 0 });
   const startImage = useRef<ImagePoint | null>(null);
+
+  const fitToStage = React.useCallback(() => {
+    const stage = stageRef.current;
+    const img = imgRef.current;
+    if (!stage || !img || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
+    const sw = stage.clientWidth;
+    const sh = stage.clientHeight;
+    if (sw <= 0 || sh <= 0) return;
+    const fit = Math.min(sw / img.naturalWidth, sh / img.naturalHeight, 1);
+    setScale(Number(Math.max(0.2, fit).toFixed(3)));
+    setOffset({ x: 0, y: 0 });
+  }, []);
 
   useEffect(() => {
     setScale(1);
@@ -157,14 +157,13 @@ export function ZoomPanStage({
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.button !== 1) return;
-    const stage = stageRef.current;
     const img = imgRef.current;
-    if (!stage || !img) return;
+    if (!img) return;
 
     dragging.current = true;
     last.current = { x: e.clientX, y: e.clientY };
     downPt.current = { x: e.clientX, y: e.clientY };
-    startImage.current = clientToImage(e.clientX, e.clientY, stage, img, offset, scale);
+    startImage.current = clientToImage(e.clientX, e.clientY, img);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
     if (mode === 'region' && !wantsPan(e) && e.button === 0) {
@@ -187,14 +186,13 @@ export function ZoomPanStage({
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
-    const stage = stageRef.current;
     const img = imgRef.current;
     const dx = e.clientX - last.current.x;
     const dy = e.clientY - last.current.y;
     last.current = { x: e.clientX, y: e.clientY };
 
-    if (boxMode.current && stage && img) {
-      const cur = clientToImage(e.clientX, e.clientY, stage, img, offset, scale);
+    if (boxMode.current && img) {
+      const cur = clientToImage(e.clientX, e.clientY, img);
       if (cur && startImage.current) {
         setDraftRegion({
           x1: startImage.current.ix,
@@ -250,9 +248,12 @@ export function ZoomPanStage({
 
     if (mode === 'point' && !wasPan && e.button === 0 && start) {
       const image = imgRef.current;
+      // Re-sample at pointer-up with live geometry (more accurate than down if layout shifted).
+      const live = image ? clientToImage(e.clientX, e.clientY, image) : null;
+      const srcPt = live || start;
       onPickPoint?.({
-        ix: Math.max(0, Math.min((image?.naturalWidth || 1) - 1, Math.round(start.ix))),
-        iy: Math.max(0, Math.min((image?.naturalHeight || 1) - 1, Math.round(start.iy))),
+        ix: Math.max(0, Math.min((image?.naturalWidth || 1) - 1, Math.round(srcPt.ix))),
+        iy: Math.max(0, Math.min((image?.naturalHeight || 1) - 1, Math.round(srcPt.iy))),
       });
     }
   };
@@ -261,36 +262,29 @@ export function ZoomPanStage({
   const img = imgRef.current;
   const showRegion = draftRegion || selectedRegion;
   const regionBox =
-    showRegion && stage && img
-      ? imageRectToStage(showRegion, stage, img, offset, scale)
-      : null;
+    showRegion && stage && img ? imageRectToStage(showRegion, stage, img) : null;
   void overlayTick;
 
   const pointMarker =
     selectedPoint && stage && img
-      ? (() => {
-          const box = imageRectToStage(
-            {
-              x1: selectedPoint.ix,
-              y1: selectedPoint.iy,
-              x2: selectedPoint.ix + 1,
-              y2: selectedPoint.iy + 1,
-            },
-            stage,
-            img,
-            offset,
-            scale,
-          );
-          return box;
-        })()
+      ? imageRectToStage(
+          {
+            x1: selectedPoint.ix,
+            y1: selectedPoint.iy,
+            x2: selectedPoint.ix + 1,
+            y2: selectedPoint.iy + 1,
+          },
+          stage,
+          img,
+        )
       : null;
 
   const defaultHint =
     mode === 'point'
-      ? '单击取点 · 拖动平移 · 滚轮缩放 · 双击复位'
+      ? '单击取点 · 拖动平移 · 滚轮缩放 · 双击适应窗口'
       : mode === 'region'
-        ? '拖动框选 · Alt/空格拖平移 · 滚轮缩放 · 双击复位'
-        : '滚轮缩放 · 拖动平移 · 双击复位';
+        ? '拖动框选 · Alt/空格拖平移 · 滚轮缩放 · 双击适应窗口'
+        : '滚轮缩放 · 拖动平移 · 双击适应窗口';
 
   const cursorClass = grabbing
     ? 'cursor-grabbing'
@@ -309,10 +303,7 @@ export function ZoomPanStage({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onDoubleClick={() => {
-          setScale(1);
-          setOffset({ x: 0, y: 0 });
-        }}
+        onDoubleClick={fitToStage}
       >
         <img
           ref={imgRef}
@@ -324,7 +315,13 @@ export function ZoomPanStage({
             transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
             transformOrigin: 'center center',
           }}
-          onLoad={() => setOverlayTick((t) => t + 1)}
+          onLoad={() => {
+            // Wait one frame so the stage has a real client size before fit.
+            requestAnimationFrame(() => {
+              fitToStage();
+              setOverlayTick((t) => t + 1);
+            });
+          }}
         />
         {regionBox && regionBox.width > 0 && regionBox.height > 0 && (
           <div
@@ -376,12 +373,9 @@ export function ZoomPanStage({
           <button
             type="button"
             className="h-7 px-2 text-xs rounded-md border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10"
-            onClick={() => {
-              setScale(1);
-              setOffset({ x: 0, y: 0 });
-            }}
+            onClick={fitToStage}
           >
-            复位
+            适应
           </button>
         </div>
       </div>

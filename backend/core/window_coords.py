@@ -55,42 +55,85 @@ def _client_geometry(hwnd: int) -> tuple[int, int, int, int] | None:
     return int(origin.x), int(origin.y), width, height
 
 
+def _window_target_from_hwnd(hwnd: int, x: int, y: int) -> dict[str, Any] | None:
+    geometry = _client_geometry(hwnd)
+    if geometry is None:
+        return None
+    left, top, width, height = geometry
+    pid = _window_pid(hwnd)
+    try:
+        dpi = int(ctypes.windll.user32.GetDpiForWindow(int(hwnd)) or 96)
+    except Exception:
+        dpi = 96
+    return {
+        "pid": pid,
+        "process_name": _process_name(pid),
+        "class_name": _window_class(hwnd),
+        "title": _window_text(hwnd),
+        "client_width": width,
+        "client_height": height,
+        "dpi": dpi,
+        "point_norm": [
+            (int(x) - left) / width,
+            (int(y) - top) / height,
+        ],
+    }
+
+
+def _capture_window_target_enum(x: int, y: int, *, skip_pid: int) -> dict[str, Any] | None:
+    """Topmost visible top-level window whose client rect contains (x, y), excluding skip_pid.
+
+    Used when WindowFromPoint hits Nexuz itself (screenshot-pick dialog covers the desktop).
+    EnumWindows walks in Z-order (front to back).
+    """
+    if not _supported():
+        return None
+    user32 = ctypes.windll.user32
+    hit: list[int] = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+    def collect(hwnd, _lparam):
+        hwnd_i = int(hwnd)
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        if user32.GetWindow(hwnd, 4):  # GW_OWNER — skip owned popups
+            return True
+        if _window_pid(hwnd_i) == skip_pid:
+            return True
+        geometry = _client_geometry(hwnd_i)
+        if geometry is None:
+            return True
+        left, top, width, height = geometry
+        if left <= int(x) < left + width and top <= int(y) < top + height:
+            hit.append(hwnd_i)
+            return False  # stop: first match is topmost
+        return True
+
+    user32.EnumWindows(collect, 0)
+    if not hit:
+        return None
+    return _window_target_from_hwnd(hit[0], x, y)
+
+
 def capture_window_target(x: int, y: int) -> dict[str, Any] | None:
     """Describe the top-level window under a physical screen point."""
     if not _supported():
         return None
     try:
         user32 = ctypes.windll.user32
+        skip_pid = os.getpid()
         point = ctypes.wintypes.POINT(int(x), int(y))
         hwnd = int(user32.WindowFromPoint(point) or 0)
-        if not hwnd:
-            return None
-        hwnd = int(user32.GetAncestor(hwnd, 2) or hwnd)  # GA_ROOT
-        geometry = _client_geometry(hwnd)
-        if geometry is None:
-            return None
-        left, top, width, height = geometry
-        pid = _window_pid(hwnd)
-        # Never bind automation to this Nexuz process itself.
-        if pid == os.getpid():
-            return None
-        try:
-            dpi = int(user32.GetDpiForWindow(hwnd) or 96)
-        except Exception:
-            dpi = 96
-        return {
-            "pid": pid,
-            "process_name": _process_name(pid),
-            "class_name": _window_class(hwnd),
-            "title": _window_text(hwnd),
-            "client_width": width,
-            "client_height": height,
-            "dpi": dpi,
-            "point_norm": [
-                (int(x) - left) / width,
-                (int(y) - top) / height,
-            ],
-        }
+        if hwnd:
+            hwnd = int(user32.GetAncestor(hwnd, 2) or hwnd)  # GA_ROOT
+            pid = _window_pid(hwnd)
+            # Screenshot pick shows Nexuz over the desktop — WindowFromPoint then
+            # hits us. Fall back to Z-order enum so window_client still binds the game.
+            if pid != skip_pid:
+                target = _window_target_from_hwnd(hwnd, x, y)
+                if target is not None:
+                    return target
+        return _capture_window_target_enum(x, y, skip_pid=skip_pid)
     except Exception:
         return None
 
