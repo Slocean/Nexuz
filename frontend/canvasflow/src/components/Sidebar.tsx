@@ -37,6 +37,8 @@ interface SidebarProps {
   onRenameFlow?: (path: string, newName: string) => Promise<boolean>;
   onNewFlow?: () => void;
   flowsRefreshToken?: number;
+  /** Width of the content column (excluding the 56px icon rail). Default 280. */
+  contentWidth?: number;
 }
 
 const nexuzCatColor: Record<string, string> = {
@@ -141,6 +143,7 @@ export default function Sidebar({
   onRenameFlow,
   onNewFlow,
   flowsRefreshToken = 0,
+  contentWidth = 280,
 }: SidebarProps) {
   const colors = getThemeColors(themeName, themeMode);
   const [query, setQuery] = useState('');
@@ -206,7 +209,7 @@ export default function Sidebar({
         borderColor: colors.border,
         color: colors.text,
       }}
-      className={`flex h-full backdrop-blur-xl z-30 shrink-0 border-r ${
+      className={`flex h-full backdrop-blur-xl z-30 shrink-0 ${
         interactionLocked ? 'pointer-events-none opacity-60' : ''
       }`}
     >
@@ -255,7 +258,10 @@ export default function Sidebar({
         </button>
       </nav>
 
-      <div className="w-[17.5rem] flex flex-col h-full min-h-0 min-w-0">
+      <div
+        className="flex flex-col h-full min-h-0 min-w-0"
+        style={{ width: contentWidth }}
+      >
         {panel === 'flows' ? (
           <FlowLibrary
             themeName={themeName}

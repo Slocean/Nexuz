@@ -47,6 +47,7 @@ import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '../../src/stor
 import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
 import WindowResizeHandles from './components/WindowResizeHandles';
 import RunMonitorView from './components/RunMonitorView';
+import SplitHandle from './components/SplitHandle';
 
 function loadPanelCollapsed(key: string): boolean {
   try {
@@ -63,6 +64,33 @@ function persistPanelCollapsed(key: string, collapsed: boolean) {
     /* ignore */
   }
 }
+
+function loadPanelSize(key: string, fallback: number, min: number, max: number): number {
+  try {
+    const n = Number(localStorage.getItem(key));
+    if (Number.isFinite(n)) return Math.min(max, Math.max(min, Math.round(n)));
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+function persistPanelSize(key: string, value: number) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    /* ignore */
+  }
+}
+
+const LEFT_CONTENT_WIDTH_KEY = 'nexuz.leftPanelContentWidth';
+const RIGHT_PANEL_WIDTH_KEY = 'nexuz.rightPanelWidth';
+const DEFAULT_LEFT_CONTENT_WIDTH = 280;
+const DEFAULT_RIGHT_PANEL_WIDTH = 384;
+const MIN_LEFT_CONTENT_WIDTH = 200;
+const MAX_LEFT_CONTENT_WIDTH = 520;
+const MIN_RIGHT_PANEL_WIDTH = 280;
+const MAX_RIGHT_PANEL_WIDTH = 640;
 
 async function readNoticeReadId(): Promise<string> {
   try {
@@ -224,6 +252,22 @@ function AppShell() {
   );
   const [rightCollapsed, setRightCollapsed] = useState(() =>
     loadPanelCollapsed('nexuz.rightPanelCollapsed'),
+  );
+  const [leftContentWidth, setLeftContentWidth] = useState(() =>
+    loadPanelSize(
+      LEFT_CONTENT_WIDTH_KEY,
+      DEFAULT_LEFT_CONTENT_WIDTH,
+      MIN_LEFT_CONTENT_WIDTH,
+      MAX_LEFT_CONTENT_WIDTH,
+    ),
+  );
+  const [rightPanelWidth, setRightPanelWidth] = useState(() =>
+    loadPanelSize(
+      RIGHT_PANEL_WIDTH_KEY,
+      DEFAULT_RIGHT_PANEL_WIDTH,
+      MIN_RIGHT_PANEL_WIDTH,
+      MAX_RIGHT_PANEL_WIDTH,
+    ),
   );
   const toggleLeftPanel = useCallback(() => {
     setLeftCollapsed((prev) => {
@@ -1679,22 +1723,39 @@ function AppShell() {
       <div className="flex-1 flex overflow-hidden relative">
         {/* Optional: hide flow side panels while settings is open (pref). */}
         {!settingsFocus && !leftCollapsed ? (
-          <Sidebar
-            themeName={themeName as any}
-            themeMode={themeMode as any}
-            onAddNode={handleAddDemoNode}
-            onAddNexuzNode={handleAddNexuzNode}
-            nexuzSchemas={schemas}
-            onLoadTemplate={handleLoadTemplate}
-            runHistory={runHistory}
-            onClearHistory={clearRunHistory}
-            interactionLocked={isExecuting}
-            currentFlowPath={filePath}
-            onOpenFlowPath={handleOpenFlowPath}
-            onRenameFlow={handleRenameFlow}
-            onNewFlow={handleNewFlow}
-            flowsRefreshToken={flowsRefreshToken}
-          />
+          <>
+            <Sidebar
+              themeName={themeName as any}
+              themeMode={themeMode as any}
+              onAddNode={handleAddDemoNode}
+              onAddNexuzNode={handleAddNexuzNode}
+              nexuzSchemas={schemas}
+              onLoadTemplate={handleLoadTemplate}
+              runHistory={runHistory}
+              onClearHistory={clearRunHistory}
+              interactionLocked={isExecuting}
+              currentFlowPath={filePath}
+              onOpenFlowPath={handleOpenFlowPath}
+              onRenameFlow={handleRenameFlow}
+              onNewFlow={handleNewFlow}
+              flowsRefreshToken={flowsRefreshToken}
+              contentWidth={leftContentWidth}
+            />
+            <SplitHandle
+              orientation="vertical"
+              value={leftContentWidth}
+              onChange={setLeftContentWidth}
+              onCommit={(w) => persistPanelSize(LEFT_CONTENT_WIDTH_KEY, w)}
+              onReset={() => {
+                setLeftContentWidth(DEFAULT_LEFT_CONTENT_WIDTH);
+                persistPanelSize(LEFT_CONTENT_WIDTH_KEY, DEFAULT_LEFT_CONTENT_WIDTH);
+              }}
+              min={MIN_LEFT_CONTENT_WIDTH}
+              max={MAX_LEFT_CONTENT_WIDTH}
+              label="拖动调整左侧宽度"
+              gripColor={colors.secondaryText}
+            />
+          </>
         ) : null}
 
         <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
@@ -1813,7 +1874,23 @@ function AppShell() {
         </div>
 
         {!settingsFocus && !rightCollapsed ? (
-          <Inspector
+          <>
+            <SplitHandle
+              orientation="vertical"
+              value={rightPanelWidth}
+              onChange={setRightPanelWidth}
+              onCommit={(w) => persistPanelSize(RIGHT_PANEL_WIDTH_KEY, w)}
+              onReset={() => {
+                setRightPanelWidth(DEFAULT_RIGHT_PANEL_WIDTH);
+                persistPanelSize(RIGHT_PANEL_WIDTH_KEY, DEFAULT_RIGHT_PANEL_WIDTH);
+              }}
+              min={MIN_RIGHT_PANEL_WIDTH}
+              max={MAX_RIGHT_PANEL_WIDTH}
+              invert
+              label="拖动调整右侧宽度"
+              gripColor={colors.secondaryText}
+            />
+            <Inspector
             selectedNode={selectedNode}
             onUpdateNodeConfig={handleUpdateNodeConfig}
             onUpdateNodeName={handleUpdateNodeName}
@@ -1825,6 +1902,7 @@ function AppShell() {
             runLog={runLog}
             schemaMap={schemaMap}
             bindIssues={bindIssues}
+            width={rightPanelWidth}
             onPickPoint={(method?: string) => runCoordPick('point', method)}
             onPickClick={(mode: string, method?: string) =>
               mode === 'frida_ui'
@@ -1844,6 +1922,7 @@ function AppShell() {
             defaultOutputCoordinateMode={defaultOutputCoordinateMode}
             defaultNodeIntervalMs={defaultNodeIntervalMs}
           />
+          </>
         ) : null}
 
         {screenPickDialog}

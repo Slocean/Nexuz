@@ -32,6 +32,7 @@ import CodeChromePanel from './CodeChromePanel';
 import PythonScriptEditor from './PythonScriptEditor';
 import FlowPathField from './FlowPathField';
 import WindowPickField from './WindowPickField';
+import SplitHandle from './SplitHandle';
 import { listFlowVariableNames } from '../bindValue';
 import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
@@ -93,6 +94,8 @@ interface InspectorProps {
     folder?: string;
   } | null;
   bindIssues?: BindIssue[];
+  /** Inspector panel width in px (default 384). */
+  width?: number;
 }
 
 /** Edit Record<string, string|number> as rows — keys from flow variables when keyMode=variable */
@@ -1080,7 +1083,8 @@ export default function Inspector({
   defaultNodeIntervalMs = 100,
   rawLogs = [],
   runLog = null,
-  bindIssues = []
+  bindIssues = [],
+  width = 384,
 }: InspectorProps) {
   const { alert } = useAppDialog();
   const [copied, setCopied] = React.useState(false);
@@ -1104,11 +1108,25 @@ export default function Inspector({
     }
     return ['runtime'];
   });
+  const LOG_HEIGHT_KEY = 'nexuz.inspectorLogHeight';
+  const DEFAULT_LOG_HEIGHT = 180;
+  const MIN_LOG_HEIGHT = 96;
+  const MIN_TOP_HEIGHT = 140;
+  const [logPanelHeight, setLogPanelHeight] = React.useState(() => {
+    try {
+      const n = Number(localStorage.getItem(LOG_HEIGHT_KEY));
+      if (Number.isFinite(n) && n >= MIN_LOG_HEIGHT) return Math.round(n);
+    } catch {
+      /* ignore */
+    }
+    return DEFAULT_LOG_HEIGHT;
+  });
   const logCopyHintTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const logSelectionRef = React.useRef('');
   const logEndRef = React.useRef<HTMLDivElement | null>(null);
   const logListRef = React.useRef<HTMLDivElement | null>(null);
   const logExpandedListRef = React.useRef<HTMLDivElement | null>(null);
+  const asideRef = React.useRef<HTMLElement | null>(null);
   const pickBusyRef = React.useRef(false);
   const clearLogs = useFlowStore(s => s.clearLogs);
   const colors = getThemeColors(themeName, themeMode);
@@ -1502,16 +1520,47 @@ export default function Inspector({
     </div>
   );
 
+  const commitLogHeight = React.useCallback((h: number) => {
+    try {
+      localStorage.setItem(LOG_HEIGHT_KEY, String(h));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const logSplitMax = Math.max(
+    MIN_LOG_HEIGHT,
+    (asideRef.current?.clientHeight ??
+      (typeof window !== 'undefined' ? window.innerHeight : 720)) - MIN_TOP_HEIGHT,
+  );
+
   const logsPanel = (
     <>
-      <div className="border-t border-black/10 dark:border-white/10 shrink-0 max-h-[40%] select-text min-w-0 max-w-full overflow-hidden">
+      <SplitHandle
+        orientation="horizontal"
+        value={logPanelHeight}
+        onChange={setLogPanelHeight}
+        onCommit={commitLogHeight}
+        onReset={() => {
+          setLogPanelHeight(DEFAULT_LOG_HEIGHT);
+          commitLogHeight(DEFAULT_LOG_HEIGHT);
+        }}
+        min={MIN_LOG_HEIGHT}
+        max={logSplitMax}
+        label="拖动调整日志高度"
+        gripColor={colors.secondaryText}
+      />
+      <div
+        className="shrink-0 select-text min-w-0 max-w-full overflow-hidden flex flex-col"
+        style={{ height: logPanelHeight }}
+      >
         <CodeChromePanel
           title="run.log"
           meta={`${filteredLogs.length} lines`}
           headerRight={logToolbar({ showExpand: true })}
           bodyRef={logListRef}
-          maxHeight={144}
-          className="rounded-none border-0 border-t-0"
+          fill
+          className="rounded-none border-0 h-full min-h-0"
           bodyClassName="!px-2.5 !py-2"
         >
           {renderLogLines(80, true)}
@@ -1720,13 +1769,15 @@ export default function Inspector({
     const warnN = bindIssues.filter(i => i.level === 'warn').length;
     return (
       <aside
+        ref={asideRef}
         style={{
           backgroundColor: colors.surface,
           borderColor: colors.border,
-          color: colors.text
+          color: colors.text,
+          width,
         }}
-        className="w-[24rem] max-w-[24rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0">
+        className="min-w-0 overflow-hidden flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center p-6 opacity-60 min-w-0">
           <div
             className="w-12 h-12 mx-auto rounded-2xl flex items-center justify-center border"
             style={{ borderColor: colors.border, color: colors.secondaryText }}
@@ -2504,12 +2555,14 @@ export default function Inspector({
 
   return (
     <aside
+      ref={asideRef}
       style={{
         backgroundColor: colors.surface,
         borderColor: colors.border,
-        color: colors.text
+        color: colors.text,
+        width,
       }}
-      className="w-[24rem] max-w-[24rem] min-w-0 overflow-hidden border-l flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
+      className="min-w-0 overflow-hidden flex flex-col h-full backdrop-blur-xl z-30 shrink-0">
       <div className="px-3 py-2 border-b border-black/10 dark:border-white/10 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -2520,7 +2573,7 @@ export default function Inspector({
         </Button>
       </div>
 
-      <ScrollArea className="flex-1 min-w-0">
+      <ScrollArea className="flex-1 min-h-0 min-w-0">
         <div className="p-3 space-y-4 min-w-0 max-w-full overflow-x-hidden">
           <div className="bg-black/5 dark:bg-white/5 rounded-xl px-3 py-2 border border-black/10 dark:border-white/10 space-y-2">
             <div className="flex justify-between items-center gap-2">
