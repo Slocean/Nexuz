@@ -678,13 +678,30 @@ class SessionManager:
                 last_usage = turn.usage
 
                 if turn.reasoning:
-                    _emit_process(
-                        {
-                            "kind": "think",
-                            "label": "思考",
-                            "text": turn.reasoning.strip(),
-                        }
-                    )
+                    # Persist final think once. Prefer updating last think step so UI
+                    # process replace does not look like duplicated looping blocks.
+                    think_step = {
+                        "kind": "think",
+                        "label": "思考",
+                        "text": turn.reasoning.strip(),
+                    }
+                    if (
+                        process
+                        and process[-1].get("kind") == "think"
+                        and process[-1].get("label") == "思考"
+                    ):
+                        process[-1] = think_step
+                        on_progress(
+                            {
+                                "type": "process",
+                                "mode": "flow",
+                                "conversation_id": conversation_id,
+                                "assistant_id": assistant_id,
+                                "process": list(process),
+                            }
+                        )
+                    else:
+                        _emit_process(think_step)
                 if turn.content and turn.tool_calls:
                     if not saw_tools:
                         pre_tool_intro = turn.content.strip()

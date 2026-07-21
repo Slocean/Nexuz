@@ -167,6 +167,24 @@ def test_chat_forces_temp_one_for_kimi_k25():
     assert mock_client.post.call_args.kwargs["json"]["temperature"] == 1.0
 
 
+def test_merge_stream_fragment_handles_cumulative_snapshots():
+    from backend.core.ai.providers.openai_compat import _merge_stream_fragment
+
+    parts: list[str] = []
+    assert _merge_stream_fragment(parts, "a") == (True, False)
+    assert "".join(parts) == "a"
+    # cumulative full text so far
+    assert _merge_stream_fragment(parts, "ab") == (True, True)
+    assert "".join(parts) == "ab"
+    assert _merge_stream_fragment(parts, "abc") == (True, True)
+    assert "".join(parts) == "abc"
+    # duplicate snapshot — no emit
+    assert _merge_stream_fragment(parts, "abc") == (False, True)
+    # true delta
+    assert _merge_stream_fragment(parts, "!") == (True, False)
+    assert "".join(parts) == "abc!"
+
+
 def test_config_mask_and_roundtrip(tmp_path: Path, monkeypatch):
     from backend.core.ai import config as ai_config
 

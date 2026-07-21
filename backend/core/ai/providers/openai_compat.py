@@ -46,6 +46,37 @@ def _model_requires_temperature_one(model: str) -> bool:
     return any(m in name for m in _FIXED_TEMP_1_MARKERS)
 
 
+def _merge_stream_fragment(parts: list[str], piece: str) -> tuple[bool, bool]:
+    """Merge one SSE text fragment into parts.
+
+    Returns (should_emit, replace_full):
+    - replace_full=True → emit "".join(parts) and UI should replace (cumulative snapshot)
+    - replace_full=False → emit `piece` and UI should append (true delta)
+    - should_emit=False → skip (duplicate / stale)
+    """
+    if not piece:
+        return False, True
+    prev = "".join(parts)
+    if not prev:
+        parts.append(piece)
+        return True, False
+    # Exact duplicate of full text or last fragment
+    if piece == prev or (parts and piece == parts[-1]):
+        return False, True
+    # Gateway sent full text so far again (very common for reasoning models)
+    if len(piece) > len(prev) and piece.startswith(prev):
+        parts.clear()
+        parts.append(piece)
+        return True, True
+    if prev.startswith(piece):
+        return False, True
+    # Overlapping resend of a tail already present
+    if len(piece) > 8 and piece in prev:
+        return False, True
+    parts.append(piece)
+    return True, False
+
+
 def _normalize_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Pass through OpenAI message shapes, including tool / tool_calls."""
     out: list[dict[str, Any]] = []
@@ -303,15 +334,35 @@ class OpenAiCompatClient:
                     delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
                     piece = delta.get("content")
                     if isinstance(piece, str) and piece:
-                        content_parts.append(piece)
-                        if callable(on_delta):
-                            on_delta({"type": "delta", "text": piece})
+                        should_emit, replace_full = _merge_stream_fragment(
+                            content_parts, piece
+                        )
+                        if should_emit and callable(on_delta):
+                            on_delta(
+                                {
+                                    "type": "delta",
+                                    "text": "".join(content_parts)
+                                    if replace_full
+                                    else piece,
+                                    "replace": replace_full,
+                                }
+                            )
                     for key in ("reasoning_content", "reasoning"):
                         rpiece = delta.get(key)
                         if isinstance(rpiece, str) and rpiece:
-                            reasoning_parts.append(rpiece)
-                            if callable(on_delta):
-                                on_delta({"type": "reasoning", "text": rpiece})
+                            should_emit, replace_full = _merge_stream_fragment(
+                                reasoning_parts, rpiece
+                            )
+                            if should_emit and callable(on_delta):
+                                on_delta(
+                                    {
+                                        "type": "reasoning",
+                                        "text": "".join(reasoning_parts)
+                                        if replace_full
+                                        else rpiece,
+                                        "replace": replace_full,
+                                    }
+                                )
                             break
                     raw_tcs = delta.get("tool_calls")
                     if isinstance(raw_tcs, list):

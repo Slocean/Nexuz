@@ -617,28 +617,51 @@ export default function AIAssistant({
         const piece = String(detail.text || "");
         const replace = !!detail.replace;
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === aid
-              ? {
-                  ...m,
-                  content: replace ? piece : (m.content || "") + piece,
-                  streaming: true,
-                }
-              : m
-          )
+          prev.map((m) => {
+            if (m.id !== aid) return m;
+            if (replace) {
+              return { ...m, content: piece, streaming: true };
+            }
+            const cur = m.content || "";
+            let next = cur;
+            if (!cur) next = piece;
+            else if (piece.startsWith(cur)) next = piece;
+            else if (cur.startsWith(piece) || (piece.length > 8 && cur.includes(piece)))
+              next = cur;
+            else next = cur + piece;
+            if (next === cur) return m;
+            return { ...m, content: next, streaming: true };
+          })
         );
         return;
       }
 
       if (typ === "reasoning" && aid) {
         const piece = String(detail.text || "");
+        const replace = !!detail.replace;
+        if (!piece && !replace) return;
         setMessages((prev) =>
           prev.map((m) => {
             if (m.id !== aid) return m;
             const proc = [...(m.process || [])];
             const last = proc[proc.length - 1];
             if (last?.kind === "think" && last.label === "思考") {
-              proc[proc.length - 1] = { ...last, text: (last.text || "") + piece };
+              const cur = String(last.text || "");
+              let next = cur;
+              if (replace) {
+                next = piece;
+              } else if (!cur) {
+                next = piece;
+              } else if (piece.startsWith(cur)) {
+                // cumulative snapshot mistakenly marked as delta
+                next = piece;
+              } else if (cur.startsWith(piece) || (piece.length > 8 && cur.includes(piece))) {
+                next = cur;
+              } else {
+                next = cur + piece;
+              }
+              if (next === cur) return m;
+              proc[proc.length - 1] = { ...last, text: next };
             } else {
               proc.push({ kind: "think", label: "思考", text: piece });
             }
