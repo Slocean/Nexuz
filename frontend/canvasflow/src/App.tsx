@@ -210,6 +210,10 @@ function AppShell() {
   );
   const settingsFocus = viewMode === 'settings' && hideSidePanelsOnSettings;
   const setViewMode = useFlowStore((s) => s.setViewMode);
+  const [settingsExpandSection, setSettingsExpandSection] = useState<'ai' | null>(null);
+  useEffect(() => {
+    if (viewMode !== 'settings') setSettingsExpandSection(null);
+  }, [viewMode]);
   const themeName = useFlowStore((s) => s.themeName);
   const themeMode = useFlowStore((s) => s.themeMode);
   const setThemeName = useFlowStore((s) => s.setThemeName);
@@ -1808,7 +1812,11 @@ function AppShell() {
             <SettingsPage
               themeName={themeName as any}
               themeMode={themeMode as any}
-              onClose={() => setViewMode(lastFlowViewMode)}
+              expandSection={settingsExpandSection || undefined}
+              onClose={() => {
+                setSettingsExpandSection(null);
+                setViewMode(lastFlowViewMode);
+              }}
             />
           ) : viewMode === 'code' ? (
             <CodeEditor themeName={themeName as any} themeMode={themeMode as any} />
@@ -1951,6 +1959,7 @@ function AppShell() {
             }}
             onOpenSettings={() => {
               setIsAssistantOpen(false);
+              setSettingsExpandSection('ai');
               setViewMode('settings');
             }}
           />

@@ -261,6 +261,7 @@ function HelpHint({
 }
 
 function SettingsSection({
+  id,
   title,
   icon,
   open,
@@ -269,6 +270,7 @@ function SettingsSection({
   headerRight,
   children
 }: {
+  id?: string;
   title: string;
   icon: React.ReactNode;
   open: boolean;
@@ -279,6 +281,7 @@ function SettingsSection({
 }) {
   return (
     <section
+      id={id}
       className="rounded-2xl border overflow-hidden"
       style={{ borderColor: colors.border, backgroundColor: colors.surface }}>
       <div className="flex items-center gap-1 pr-2">
@@ -333,11 +336,14 @@ type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
 export default function SettingsPage({
   themeName,
   themeMode,
-  onClose
+  onClose,
+  expandSection
 }: {
   themeName: ThemeName;
   themeMode: ThemeMode;
   onClose?: () => void;
+  /** Open a settings section on mount (e.g. 'ai' for API Key). */
+  expandSection?: SectionId;
 }) {
   const colors = getThemeColors(themeName, themeMode);
   const { confirm, alert } = useAppDialog();
@@ -1243,11 +1249,26 @@ export default function SettingsPage({
   };
 
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(
-    () => Object.fromEntries(SETTINGS_SECTION_IDS.map(id => [id, false])) as Record<SectionId, boolean>
+    () =>
+      Object.fromEntries(
+        SETTINGS_SECTION_IDS.map(id => [id, expandSection === id])
+      ) as Record<SectionId, boolean>
   );
   const toggleSection = (id: SectionId) => {
     setOpenSections(prev => ({ ...prev, [id]: !prev[id] }));
   };
+
+  useEffect(() => {
+    if (!expandSection) return;
+    setOpenSections(prev => ({ ...prev, [expandSection]: true }));
+    const t = window.setTimeout(() => {
+      document.getElementById(`settings-section-${expandSection}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [expandSection]);
 
   return (
     <div className="flex-1 min-w-0 h-full overflow-auto">
@@ -1337,6 +1358,7 @@ export default function SettingsPage({
         </SettingsSection>
 
         <SettingsSection
+          id="settings-section-ai"
           title="Flow AI"
           icon={<Sparkles className="w-4 h-4" />}
           open={openSections.ai}

@@ -398,7 +398,7 @@ export default function AIAssistant({
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [modelLabel, setModelLabel] = useState("");
-  const [hasKey, setHasKey] = useState(false);
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [statusError, setStatusError] = useState("");
   const [bootstrapping, setBootstrapping] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -476,6 +476,7 @@ export default function AIAssistant({
     } catch {
       /* ignore */
     }
+    setHasKey(false);
     return null;
   }, []);
 
@@ -540,7 +541,8 @@ export default function AIAssistant({
     setBootstrapping(true);
     setStatusError("");
     try {
-      await loadConfig();
+      const cfg = await loadConfig();
+      if (!cfg?.has_api_key) return;
       let list = await refreshList();
       if (!list.length) {
         const created = await bridge.aiCreateConversation(
@@ -1058,6 +1060,64 @@ export default function AIAssistant({
 
   if (!isOpen) return null;
 
+  if (hasKey !== true) {
+    return (
+      <div
+        style={{
+          backgroundColor: colors.background,
+          borderColor: colors.border,
+          color: colors.text,
+        }}
+        className="w-[40rem] max-w-[92vw] border-l h-full flex flex-col z-40 relative shadow-2xl animate-in slide-in-from-right duration-300"
+      >
+        <div className="absolute top-3 right-3 z-10">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose} title="关闭">
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+        {hasKey === null || bootstrapping ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 className="w-5 h-5 animate-spin" style={{ color: colors.secondaryText }} />
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center px-8 py-14 min-h-0">
+            <div className="flex items-center gap-3 mt-[8%]">
+              <img
+                src={`${import.meta.env.BASE_URL}logo.png`}
+                alt=""
+                className="h-14 w-14 object-contain select-none pointer-events-none"
+                draggable={false}
+              />
+              <img
+                src={`${import.meta.env.BASE_URL}logo2.png`}
+                alt="Nexuz"
+                className="h-7 w-auto max-w-[10rem] object-contain select-none pointer-events-none"
+                draggable={false}
+              />
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <p
+                className="text-sm text-center leading-relaxed"
+                style={{ color: colors.secondaryText }}
+              >
+                请先设置ApiKey再使用该功能
+              </p>
+            </div>
+            <Button
+              type="button"
+              className="mb-[8%] h-10 px-8 rounded-xl text-sm font-medium"
+              style={{ backgroundColor: colors.primary, color: "#fff" }}
+              onClick={() => onOpenSettings?.()}
+              disabled={!onOpenSettings}
+            >
+              去设置
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -1146,21 +1206,6 @@ export default function AIAssistant({
           </Button>
         </div>
       </div>
-
-      {!hasKey ? (
-        <div className="px-4 py-2 text-xs border-b border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-          尚未配置 API Key，请先在设置中填写后再对话。
-          {onOpenSettings ? (
-            <button
-              type="button"
-              className="ml-1 underline font-medium"
-              onClick={onOpenSettings}
-            >
-              前往设置
-            </button>
-          ) : null}
-        </div>
-      ) : null}
 
       {statusError ? (
         <div className="px-4 py-2 text-xs border-b border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300">
