@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """
-本地一条命令触发 GitHub Actions 打包发版（不需要安装 gh）。
+本地一条命令触发 GitHub Actions 打包发版（不需要安装 gh / 代码签名证书）。
 
-正式（需签名 Secrets）:
   python trigger_release.py
+  python trigger_release.py 0.5.3
   release.bat
 
-开发 / 绕过签名（打 unsigned-v* tag，标记为 pre-release）:
-  python trigger_release.py --unsigned
-  release_unsigned.bat
-
 版本须与 app_update.json history[0].version 一致。同名 tag 已存在时先删再重打；
-低于同通道远端其他最新版本仍会拒绝。
+低于远端其他最新版本仍会拒绝。
 """
 
 from __future__ import annotations
@@ -24,8 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
-UNSIGNED_TAG_PREFIX = "unsigned-v"
-SIGNED_TAG_PREFIX = "v"
+TAG_PREFIX = "v"
 
 
 def run(cmd: list[str]) -> None:
@@ -50,32 +45,27 @@ def version_key(version: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
-def tag_for_version(version: str, *, unsigned: bool) -> str:
-    return f"{UNSIGNED_TAG_PREFIX}{version}" if unsigned else f"{SIGNED_TAG_PREFIX}{version}"
+def tag_for_version(version: str) -> str:
+    return f"{TAG_PREFIX}{version}"
 
 
-def remote_versions(*, unsigned: bool = False) -> list[str]:
-    pattern = (
-        f"refs/tags/{UNSIGNED_TAG_PREFIX}*"
-        if unsigned
-        else f"refs/tags/{SIGNED_TAG_PREFIX}*"
-    )
-    raw = output(["git", "ls-remote", "--tags", "--refs", "origin", pattern])
+def remote_versions() -> list[str]:
+    raw = output(["git", "ls-remote", "--tags", "--refs", "origin", f"refs/tags/{TAG_PREFIX}*"])
     versions: list[str] = []
-    prefix = f"refs/tags/{UNSIGNED_TAG_PREFIX if unsigned else SIGNED_TAG_PREFIX}"
+    prefix = f"refs/tags/{TAG_PREFIX}"
     for line in raw.splitlines():
         ref = line.rsplit("\t", 1)[-1].strip()
         if not ref.startswith(prefix):
             continue
         version = ref[len(prefix) :]
-        # Signed pattern v* must not pick up odd tags; require canonical X.Y.Z
+        # Pattern v* must not pick up odd tags; require canonical X.Y.Z
         if VERSION_RE.fullmatch(version):
             versions.append(version)
     return versions
 
 
 def ensure_release_version_allowed(version: str, existing: list[str]) -> bool:
-    """Validate version vs remote tags on the same channel.
+    """Validate version vs remote tags.
 
     Returns True when the same-version tag already exists and should be deleted
     before retagging. Versions lower than any *other* remote release are rejected.
@@ -123,23 +113,19 @@ def read_channel_version() -> str:
     return str(data.get("version") or "").strip().lstrip("v") if isinstance(data, dict) else ""
 
 
-def parse_args(argv: list[str]) -> tuple[str, bool]:
-    unsigned = False
+def parse_args(argv: list[str]) -> str:
     version = ""
     for arg in argv:
-        if arg in ("--unsigned", "-u"):
-            unsigned = True
-            continue
         if arg.startswith("-"):
             raise SystemExit(f"未知参数: {arg}")
         if version:
             raise SystemExit("只能指定一个版本号")
         version = arg.strip().lstrip("v")
-    return version, unsigned
+    return version
 
 
 def main(argv: list[str] | None = None) -> None:
-    version, unsigned = parse_args(list(argv if argv is not None else sys.argv[1:]))
+    version = parse_args(list(argv if argv is not None else sys.argv[1:]))
     channel_version = read_channel_version()
     if not version:
         version = channel_version
@@ -152,7 +138,7 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     try:
-        versions = remote_versions(unsigned=unsigned)
+        versions = remote_versions()
     except subprocess.CalledProcessError as exc:
         raise SystemExit(f"无法读取 origin 远端 tag，已中止发布：{exc}") from exc
     replace_existing = ensure_release_version_allowed(version, versions)
@@ -166,22 +152,19 @@ def main(argv: list[str] | None = None) -> None:
     except Exception as exc:
         print(f"! version sync skipped: {exc}")
 
-    tag = tag_for_version(version, unsigned=unsigned)
+    tag = tag_for_version(version)
     local_exists = bool(output(["git", "tag", "--list", tag]))
     if replace_existing or local_exists:
         print(f"发现已有 tag {tag}，先删除后再重打")
         delete_tag(tag, remote=replace_existing)
 
-    channel = "未签名开发包" if unsigned else "正式签名包"
-    print(f"打 tag {tag}（{channel}）并推送到 origin -> 自动触发 Release Action")
+    print(f"打 tag {tag} 并推送到 origin -> 自动触发 Release Action")
     run(["git", "tag", tag])
     run(["git", "push", "origin", tag])
 
     print("OK: 已推送 tag，去看打包进度：")
     print("  https://github.com/Slocean/Nexuz/actions")
     print("  https://github.com/Slocean/Nexuz/releases")
-    if unsigned:
-        print("提示: 未签名包不会写入信任锚，客户端热更新应拒绝此类构建；请仅作内测。")
 
 
 if __name__ == "__main__":

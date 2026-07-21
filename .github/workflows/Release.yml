@@ -1,12 +1,10 @@
 name: Release
 
-# Trigger (no gh needed):
-#   release.bat           → tag vX.Y.Z
-#   release_unsigned.bat  → tag unsigned-vX.Y.Z (pre-release)
+# Trigger (no gh / cert needed):
+#   release.bat  → tag vX.Y.Z
 #   Or Actions UI → Run workflow
 #
-# No Authenticode / cert secrets. Integrity = Nexuz.exe.sha256.
-# Auth for Release upload: built-in GITHUB_TOKEN only.
+# Integrity = Nexuz.exe.sha256. Auth for upload: GITHUB_TOKEN.
 
 on:
   workflow_dispatch:
@@ -21,15 +19,9 @@ on:
         required: false
         type: boolean
         default: false
-      skip_signing:
-        description: "Skip Authenticode (dev / unsigned build)"
-        required: false
-        type: boolean
-        default: false
   push:
     tags:
       - "v*"
-      - "unsigned-v*"
 
 permissions:
   contents: write
@@ -51,35 +43,20 @@ jobs:
         id: ver
         shell: bash
         run: |
-          SKIP_SIGNING=false
           PRERELEASE=false
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             RAW="${{ inputs.version }}"
             if [ -z "$RAW" ]; then
               RAW=$(python -c "import json; d=json.load(open('app_update.json',encoding='utf-8')); h=d.get('history') if isinstance(d,dict) else None; print((h[0].get('version','') if isinstance(h,list) and h else d.get('version','')) if isinstance(d,dict) else '')")
             fi
-            RAW="${RAW#unsigned-v}"
             RAW="${RAW#v}"
-            if [ "${{ inputs.skip_signing }}" = "true" ]; then
-              SKIP_SIGNING=true
-              PRERELEASE=true
-            fi
             if [ "${{ inputs.prerelease }}" = "true" ]; then
               PRERELEASE=true
             fi
-            if [ "$SKIP_SIGNING" = "true" ]; then
-              TAG="unsigned-v${RAW}"
-            else
-              TAG="v${RAW}"
-            fi
+            TAG="v${RAW}"
           else
             REF="${GITHUB_REF_NAME}"
-            if [[ "$REF" == unsigned-v* ]]; then
-              SKIP_SIGNING=true
-              PRERELEASE=true
-              RAW="${REF#unsigned-v}"
-              TAG="$REF"
-            elif [[ "$REF" == v* ]]; then
+            if [[ "$REF" == v* ]]; then
               RAW="${REF#v}"
               TAG="$REF"
             else
@@ -91,23 +68,12 @@ jobs:
             echo "version is empty — set workflow input or app_update.json version" >&2
             exit 1
           fi
-          if [ "$SKIP_SIGNING" = "true" ]; then
-            NAME="Nexuz ${RAW} (unsigned)"
-          else
-            NAME="Nexuz ${RAW}"
-          fi
-          if [ "$SKIP_SIGNING" = "true" ]; then
-            ARTIFACT="Nexuz-${RAW}-unsigned"
-          else
-            ARTIFACT="Nexuz-${RAW}"
-          fi
           echo "version=$RAW" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "skip_signing=$SKIP_SIGNING" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
-          echo "release_name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=$ARTIFACT" >> "$GITHUB_OUTPUT"
-          echo "Resolved version=$RAW tag=$TAG skip_signing=$SKIP_SIGNING"
+          echo "release_name=Nexuz ${RAW}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=Nexuz-${RAW}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=$RAW tag=$TAG prerelease=$PRERELEASE"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -166,12 +132,6 @@ jobs:
           python build_release_notes.py \
             --version "${{ steps.ver.outputs.version }}" \
             -o RELEASE_NOTES.md
-          if [ "${{ steps.ver.outputs.skip_signing }}" = "true" ]; then
-            {
-              echo ""
-              echo "> **Unsigned / pre-release build** — optional channel; same SHA-256 update path as signed tags."
-            } >> RELEASE_NOTES.md
-          fi
           echo "----- RELEASE_NOTES.md -----"
           cat RELEASE_NOTES.md
 

@@ -3,8 +3,8 @@
     {
       "version": "0.5.3",
       "title": "0.5.3 热更新不再卡签名 · 发版无需代码签名证书",
-      "body": "【热更新】\n• 去掉 Authenticode / 发布证书信任锚校验：自签名包不再因「根证书不受信任」导致下载失败\n• 仍校验固定 GitHub Release 域名与 Nexuz.exe.sha256，防止装错包或下载损坏\n\n【发版 / CI】\n• Release Action 不再要求 WINDOWS_CERTIFICATE；release.bat 打 v* 即可打包上传\n• 完整性以 Nexuz.exe.sha256 为准；代码签名改为完全可选（与热更新无关）\n\n【兼容说明】\n• 旧流程无需改动\n• 若仍在 0.5.1 / 0.5.2：客户端里还是旧校验逻辑，请先从 Releases 手动装一次 0.5.3，之后热更新即可正常使用",
-      "notice": "0.5.3：热更新不再校验 Windows 代码签名（只认 Release 地址 + SHA-256）；发版也不再需要证书。若你还在 0.5.1/0.5.2，请先从 Releases 手动装一次本版，之后才能热更新。"
+      "body": "【热更新】\n• 去掉 Authenticode / 发布证书信任锚校验：自签名包不再因「根证书不受信任」导致下载失败\n• 仍校验固定 GitHub Release 域名与 Nexuz.exe.sha256，防止装错包或下载损坏\n\n【发版 / CI】\n• Release Action 与 trigger_release / release.bat 合并为单一 v* 通道，不再区分签名 / 未签名\n• 不再要求 WINDOWS_CERTIFICATE；打 tag 即可打包上传\n• 完整性以 Nexuz.exe.sha256 为准\n\n【兼容说明】\n• 旧流程无需改动\n• 若仍在 0.5.1 / 0.5.2：客户端里还是旧校验逻辑，请先从 Releases 手动装一次 0.5.3，之后热更新即可正常使用",
+      "notice": "0.5.3：热更新不再校验 Windows 代码签名（只认 Release 地址 + SHA-256）；发版合并为单一通道、不需要证书。若你还在 0.5.1/0.5.2，请先从 Releases 手动装一次本版，之后才能热更新。"
     },
     {
       "version": "0.5.2",
