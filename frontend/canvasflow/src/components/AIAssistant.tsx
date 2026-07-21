@@ -262,6 +262,7 @@ function ProcessTimeline({
           ? prev
           : Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
       );
+      setOpen(false);
     }
   }, [streaming]);
 
