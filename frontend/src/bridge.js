@@ -1805,13 +1805,22 @@ function mockCall(method, ...args) {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           model: '',
-          message_count: 0
+          message_count: 0,
+          kind: args[1] === 'flow' ? 'flow' : 'chat'
         }
       });
     case 'ai_get_conversation':
       return Promise.resolve({
         ok: true,
-        meta: { id: args[0], title: '新对话', created_at: '', updated_at: '', model: '', message_count: 0 },
+        meta: {
+          id: args[0],
+          title: '新对话',
+          created_at: '',
+          updated_at: '',
+          model: '',
+          message_count: 0,
+          kind: 'chat'
+        },
         messages: []
       });
     case 'ai_rename_conversation':
@@ -1823,7 +1832,8 @@ function mockCall(method, ...args) {
           created_at: '',
           updated_at: new Date().toISOString(),
           model: '',
-          message_count: 0
+          message_count: 0,
+          kind: 'chat'
         }
       });
     case 'ai_delete_conversation':
@@ -1841,6 +1851,8 @@ function mockCall(method, ...args) {
         status: 'idle',
         tool_trace: []
       });
+    case 'ai_get_orchestration':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持' });
     case 'ai_override_point':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持' });
     case 'ai_apply_draft':
@@ -1975,8 +1987,9 @@ export const bridge = {
   aiGetConfig: () => call('ai_get_config'),
   aiSetConfig: (patch = {}) => call('ai_set_config', patch),
   aiTestConnection: () => call('ai_test_connection'),
-  aiListConversations: () => call('ai_list_conversations'),
-  aiCreateConversation: (title = '新对话') => call('ai_create_conversation', title),
+  aiListConversations: (kind = '') => call('ai_list_conversations', kind || ''),
+  aiCreateConversation: (title = '新对话', kind = 'chat') =>
+    call('ai_create_conversation', title, kind === 'flow' ? 'flow' : 'chat'),
   aiGetConversation: conversationId => call('ai_get_conversation', conversationId),
   aiRenameConversation: (conversationId, title = '') => call('ai_rename_conversation', conversationId, title),
   aiDeleteConversation: conversationId => call('ai_delete_conversation', conversationId),
@@ -1990,8 +2003,11 @@ export const bridge = {
       mode === 'chat' ? 'chat' : 'flow'
     ),
   aiGetDraft: conversationId => call('ai_get_draft', conversationId),
+  aiGetOrchestration: (conversationId, messageId, includeShotImage = false) =>
+    call('ai_get_orchestration', conversationId, messageId, !!includeShotImage),
   aiOverridePoint: (conversationId, pointRef, x, y) =>
     call('ai_override_point', conversationId, pointRef, x, y),
-  aiApplyDraft: conversationId => call('ai_apply_draft', conversationId),
+  aiApplyDraft: (conversationId, messageId = '') =>
+    call('ai_apply_draft', conversationId, messageId || ''),
   aiCancelDraft: conversationId => call('ai_cancel_draft', conversationId)
 };

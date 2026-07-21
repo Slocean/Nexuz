@@ -44,12 +44,26 @@ interface ProcessStep {
   elapsed_ms?: number;
 }
 
+interface OrchestrationCard {
+  summary?: DraftSummary;
+  diff?: DraftDiff;
+  warnings?: string[];
+  tool_trace?: { name?: string; ok?: boolean }[];
+  points?: AiPointPreview[];
+  shot?: AiShotPreview | null;
+  status?: string;
+  has_result?: boolean;
+  result_id?: string;
+}
+
 interface ChatMsg {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
   process?: ProcessStep[];
+  orchestration?: OrchestrationCard | null;
+  streaming?: boolean;
 }
 
 interface ConversationItem {
@@ -58,6 +72,7 @@ interface ConversationItem {
   updated_at?: string;
   message_count?: number;
   model?: string;
+  kind?: "chat" | "flow" | string;
 }
 
 interface DraftDiff {
@@ -124,6 +139,95 @@ function saveAiMode(mode: "chat" | "flow") {
   } catch {
     /* ignore */
   }
+}
+
+function OrchestrationResultCard({
+  card,
+  colors,
+  themeMode,
+  applying,
+  onApply,
+  onDiscard,
+  canApply,
+  showDiscard,
+}: {
+  card: OrchestrationCard;
+  colors: ReturnType<typeof getThemeColors>;
+  themeMode: ThemeMode;
+  applying: boolean;
+  onApply: () => void;
+  onDiscard: () => void;
+  canApply: boolean;
+  showDiscard: boolean;
+}) {
+  const summary = card.summary;
+  const diff = card.diff;
+  const nodeCount = summary?.node_count || 0;
+  const addedCount = diff?.added?.length || 0;
+  const warnings = card.warnings || [];
+  const toolTrace = card.tool_trace || [];
+  const mutedBg =
+    themeMode === "light" ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)";
+
+  return (
+    <div
+      className="mt-2 rounded-xl border p-2.5 space-y-1.5"
+      style={{ borderColor: colors.border, backgroundColor: mutedBg }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs" style={{ color: colors.secondaryText }}>
+          草稿 {nodeCount} 节点
+          {addedCount ? ` · +${addedCount}` : ""}
+          {diff?.removed?.length ? ` · -${diff.removed.length}` : ""}
+        </p>
+        <div className="flex items-center gap-1">
+          {showDiscard ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs px-2"
+              onClick={onDiscard}
+              disabled={applying}
+              title="丢弃当前会话草稿"
+            >
+              <RotateCcw className="w-3 h-3 mr-1" />
+              丢弃
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            className="h-7 text-xs px-2.5"
+            style={{ backgroundColor: colors.primary }}
+            onClick={onApply}
+            disabled={applying || !canApply}
+          >
+            {applying ? (
+              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+            ) : (
+              <Check className="w-3 h-3 mr-1" />
+            )}
+            应用到画布
+          </Button>
+        </div>
+      </div>
+      {summary?.nodes?.some((n) => n.unverified_coords) || warnings.length ? (
+        <p className="text-[11px] text-amber-600 dark:text-amber-300">
+          {warnings[0] || "部分节点含未经验证取点的坐标"}
+        </p>
+      ) : null}
+      {toolTrace.length > 0 ? (
+        <p className="text-[11px] font-mono break-all" style={{ color: colors.secondaryText }}>
+          tools:{" "}
+          {toolTrace
+            .slice(-10)
+            .map((t) => `${t.name}${t.ok === false ? "✗" : "✓"}`)
+            .join(" · ")}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function ProcessTimeline({
@@ -263,18 +367,35 @@ export default function AIAssistant({
   const [toolTrace, setToolTrace] = useState<{ name?: string; ok?: boolean }[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [applying, setApplying] = useState(false);
+  const [applyingMsgId, setApplyingMsgId] = useState<string | null>(null);
   const [aiMode, setAiMode] = useState<"chat" | "flow">(loadAiMode);
 
   const colors = getThemeColors(themeName, themeMode);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isFlowMode = aiMode === "flow";
   const welcomeText = isFlowMode ? WELCOME_FLOW : WELCOME_CHAT;
+  const convKind = isFlowMode ? "flow" : "chat";
 
   const switchMode = useCallback((next: "chat" | "flow") => {
     setAiMode(next);
     saveAiMode(next);
     setAttachShot(false);
     setStatusError("");
+    setActiveId(null);
+    setMessages([
+      {
+        id: "welcome",
+        role: "assistant",
+        content: next === "flow" ? WELCOME_FLOW : WELCOME_CHAT,
+        timestamp: formatTs(),
+      },
+    ]);
+    setDraftSummary(null);
+    setDraftDiff(null);
+    setPoints([]);
+    setShot(null);
+    setToolTrace([]);
+    setWarnings([]);
   }, []);
 
   const sidebarBg =
@@ -328,6 +449,7 @@ export default function AIAssistant({
         content: String(m.content || ""),
         timestamp: formatTs(m.timestamp),
         process: Array.isArray(m.process) ? m.process : undefined,
+        orchestration: m.orchestration && typeof m.orchestration === "object" ? m.orchestration : undefined,
       })) as ChatMsg[];
       setMessages(
         msgs.length
@@ -360,7 +482,7 @@ export default function AIAssistant({
   );
 
   const refreshList = useCallback(async () => {
-    const res = await bridge.aiListConversations();
+    const res = await bridge.aiListConversations(convKind);
     if (!res?.ok) {
       setStatusError(res?.error || "加载会话列表失败");
       return [];
@@ -368,7 +490,7 @@ export default function AIAssistant({
     const list = (res.conversations || []) as ConversationItem[];
     setConversations(list);
     return list;
-  }, []);
+  }, [convKind]);
 
   const ensureConversation = useCallback(async () => {
     setBootstrapping(true);
@@ -377,7 +499,10 @@ export default function AIAssistant({
       await loadConfig();
       let list = await refreshList();
       if (!list.length) {
-        const created = await bridge.aiCreateConversation("新对话");
+        const created = await bridge.aiCreateConversation(
+          isFlowMode ? "新编排" : "新对话",
+          convKind
+        );
         if (!created?.ok) {
           setStatusError(created?.error || "创建会话失败");
           return;
@@ -393,12 +518,177 @@ export default function AIAssistant({
     } finally {
       setBootstrapping(false);
     }
-  }, [loadConfig, refreshList, loadConversation]);
+  }, [loadConfig, refreshList, loadConversation, isFlowMode, convKind]);
 
   useEffect(() => {
     if (!isOpen) return;
     void ensureConversation();
-  }, [isOpen, ensureConversation]);
+  }, [isOpen, ensureConversation, aiMode]);
+
+  // Live stream / process via drain_ui_events → nexuz-ai-progress
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail || {};
+      const cid = detail.conversation_id;
+      if (activeId && cid && cid !== activeId) return;
+      const aid = detail.assistant_id as string | undefined;
+      const typ = detail.type as string;
+
+      if (typ === "start" && aid) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === aid)) return prev;
+          const pendingIdx = [...prev]
+            .map((m, i) => ({ m, i }))
+            .reverse()
+            .find(({ m }) => m.streaming && String(m.id).startsWith("pending-"))?.i;
+          if (pendingIdx != null) {
+            return prev.map((m, i) =>
+              i === pendingIdx
+                ? {
+                    ...m,
+                    id: aid,
+                    process: m.process || [],
+                    streaming: true,
+                  }
+                : m
+            );
+          }
+          return [
+            ...prev.filter((m) => m.id !== "welcome"),
+            {
+              id: aid,
+              role: "assistant",
+              content: "",
+              timestamp: formatTs(),
+              process: [],
+              streaming: true,
+            },
+          ];
+        });
+        return;
+      }
+
+      if (typ === "delta" && aid) {
+        const piece = String(detail.text || "");
+        const replace = !!detail.replace;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aid
+              ? {
+                  ...m,
+                  content: replace ? piece : (m.content || "") + piece,
+                  streaming: true,
+                }
+              : m
+          )
+        );
+        return;
+      }
+
+      if (typ === "reasoning" && aid) {
+        const piece = String(detail.text || "");
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== aid) return m;
+            const proc = [...(m.process || [])];
+            const last = proc[proc.length - 1];
+            if (last?.kind === "think" && last.label === "思考") {
+              proc[proc.length - 1] = { ...last, text: (last.text || "") + piece };
+            } else {
+              proc.push({ kind: "think", label: "思考", text: piece });
+            }
+            return { ...m, process: proc, streaming: true };
+          })
+        );
+        return;
+      }
+
+      if (typ === "process" && aid) {
+        const steps = Array.isArray(detail.process) ? detail.process : null;
+        const step = detail.step;
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== aid) return m;
+            if (steps) return { ...m, process: steps, streaming: true };
+            if (step) return { ...m, process: [...(m.process || []), step], streaming: true };
+            return m;
+          })
+        );
+        return;
+      }
+
+      if (typ === "draft") {
+        if (detail.draft_summary) setDraftSummary(detail.draft_summary);
+        if (detail.diff) setDraftDiff(detail.diff);
+        return;
+      }
+
+      if (typ === "done" && aid) {
+        const am = detail.assistant_message;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aid
+              ? {
+                  ...m,
+                  content: String(am?.content ?? m.content ?? ""),
+                  process: Array.isArray(am?.process) ? am.process : m.process,
+                  orchestration: am?.orchestration || detail.orchestration || m.orchestration,
+                  streaming: false,
+                }
+              : m
+          )
+        );
+        if (detail.orchestration) {
+          applyDraftState({
+            draft_summary: detail.orchestration.summary,
+            diff: detail.orchestration.diff,
+            points: detail.orchestration.points,
+            shot: detail.orchestration.shot,
+            tool_trace: detail.orchestration.tool_trace,
+            warnings: detail.orchestration.warnings,
+          });
+        }
+        return;
+      }
+
+      if (typ === "error") {
+        const errText = String(detail.error || "对话失败");
+        setStatusError(errText);
+        setMessages((prev) => {
+          let replaced = false;
+          const next = prev.map((m) => {
+            if (replaced) return m;
+            const isTarget =
+              (aid && m.id === aid) ||
+              m.streaming ||
+              String(m.id).startsWith("pending-");
+            if (!isTarget || m.role !== "assistant") return m;
+            replaced = true;
+            return {
+              ...m,
+              content: errText,
+              streaming: false,
+              process: m.process?.length ? m.process : undefined,
+            };
+          });
+          return replaced
+            ? next
+            : [
+                ...next,
+                {
+                  id: `err-${Date.now()}`,
+                  role: "assistant" as const,
+                  content: errText,
+                  timestamp: formatTs(),
+                },
+              ];
+        });
+      }
+    };
+    window.addEventListener("nexuz-ai-progress", handler as EventListener);
+    return () => window.removeEventListener("nexuz-ai-progress", handler as EventListener);
+  }, [isOpen, activeId, applyDraftState]);
 
   // Refresh welcome bubble when mode changes and chat is empty / only welcome
   useEffect(() => {
@@ -422,7 +712,10 @@ export default function AIAssistant({
 
   const handleNewChat = async () => {
     if (isLoading) return;
-    const res = await bridge.aiCreateConversation("新对话");
+    const res = await bridge.aiCreateConversation(
+      isFlowMode ? "新编排" : "新对话",
+      convKind
+    );
     if (!res?.ok) {
       setStatusError(res?.error || "新建失败");
       return;
@@ -466,9 +759,22 @@ export default function AIAssistant({
       content: attachShot && isFlowMode ? `${content}\n（附带屏幕截图）` : content,
       timestamp: formatTs(),
     };
+    // Placeholder assistant bubble so UI never shows a second "编排中" row.
+    const pendingAid = `pending-${Date.now()}`;
     setMessages((prev) => {
       const withoutWelcome = prev.filter((m) => m.id !== "welcome");
-      return [...withoutWelcome, optimistic];
+      return [
+        ...withoutWelcome,
+        optimistic,
+        {
+          id: pendingAid,
+          role: "assistant",
+          content: "",
+          timestamp: formatTs(),
+          process: [],
+          streaming: true,
+        },
+      ];
     });
 
     const useShot = isFlowMode && attachShot;
@@ -483,31 +789,65 @@ export default function AIAssistant({
         aiMode
       );
       if (!res?.ok) {
-        setStatusError(res?.error || "对话失败");
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `err-${Date.now()}`,
-            role: "assistant",
-            content: res?.error || "对话失败，请检查设置中的 API Key / Base URL。",
-            timestamp: formatTs(),
-          },
-        ]);
+        const errText = res?.error || "对话失败，请检查设置中的 API Key / Base URL。";
+        setStatusError(errText);
+        setMessages((prev) => {
+          let target = -1;
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const m = prev[i];
+            if (m.role !== "assistant") continue;
+            if (
+              m.id === pendingAid ||
+              m.streaming ||
+              String(m.id).startsWith("pending-") ||
+              m.content === errText
+            ) {
+              target = i;
+              break;
+            }
+          }
+          if (target < 0) {
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].role === "assistant") {
+                target = i;
+                break;
+              }
+            }
+          }
+          if (target >= 0) {
+            return prev
+              .map((m, i) =>
+                i === target ? { ...m, content: errText, streaming: false } : m
+              )
+              .filter(
+                (m, i) => i === target || !String(m.id).startsWith("pending-")
+              );
+          }
+          return [
+            ...prev.filter((m) => !String(m.id).startsWith("pending-")),
+            {
+              id: `err-${Date.now()}`,
+              role: "assistant" as const,
+              content: errText,
+              timestamp: formatTs(),
+            },
+          ];
+        });
         return;
       }
       const assistant = res.assistant_message;
       setMessages((prev) => {
-        const withoutOptimistic = prev.filter((m) => m.id !== optimistic.id);
-        const userSaved = res.user_message
+        const aid = assistant?.id;
+        const userSaved: ChatMsg = res.user_message
           ? {
               id: res.user_message.id || optimistic.id,
-              role: "user" as const,
+              role: "user",
               content: String(res.user_message.content || content),
               timestamp: formatTs(res.user_message.timestamp),
             }
           : optimistic;
         const asst: ChatMsg = {
-          id: assistant?.id || `a-${Date.now()}`,
+          id: aid || `a-${Date.now()}`,
           role: "assistant",
           content: String(assistant?.content || ""),
           timestamp: formatTs(assistant?.timestamp),
@@ -516,8 +856,38 @@ export default function AIAssistant({
             : Array.isArray(res.process)
               ? res.process
               : undefined,
+          orchestration:
+            assistant?.orchestration ||
+            res.orchestration ||
+            (isFlowMode
+              ? {
+                  summary: res.draft_summary,
+                  diff: res.diff,
+                  warnings: res.warnings,
+                  tool_trace: res.tool_trace,
+                  points: res.points,
+                  shot: res.shot,
+                  status: res.status,
+                  has_result: true,
+                  result_id: aid,
+                }
+              : undefined),
+          streaming: false,
         };
-        return [...withoutOptimistic, userSaved, asst];
+        const cleaned = prev.filter(
+          (m) => m.id !== optimistic.id && m.id !== pendingAid && m.id !== aid
+        );
+        const hasStreamed = aid ? prev.some((m) => m.id === aid) : false;
+        if (hasStreamed) {
+          return prev
+            .filter((m) => m.id !== pendingAid)
+            .map((m) => {
+              if (m.id === optimistic.id) return userSaved;
+              if (m.id === aid) return { ...m, ...asst };
+              return m;
+            });
+        }
+        return [...cleaned, userSaved, asst];
       });
       if (res.meta?.title) {
         setConversations((prev) =>
@@ -533,26 +903,61 @@ export default function AIAssistant({
       }
       await refreshList();
     } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `err-${Date.now()}`,
-          role: "assistant",
-          content: String(err?.message || err || "请求失败"),
-          timestamp: formatTs(),
-        },
-      ]);
+      const errText = String(err?.message || err || "请求失败");
+      setStatusError(errText);
+      setMessages((prev) => {
+        let target = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const m = prev[i];
+          if (m.role !== "assistant") continue;
+          if (
+            m.id === pendingAid ||
+            m.streaming ||
+            String(m.id).startsWith("pending-") ||
+            m.content === errText
+          ) {
+            target = i;
+            break;
+          }
+        }
+        if (target < 0) {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].role === "assistant") {
+              target = i;
+              break;
+            }
+          }
+        }
+        if (target >= 0) {
+          return prev
+            .map((m, i) =>
+              i === target ? { ...m, content: errText, streaming: false } : m
+            )
+            .filter((m, i) => i === target || !String(m.id).startsWith("pending-"));
+        }
+        return [
+          ...prev.filter((m) => !String(m.id).startsWith("pending-")),
+          {
+            id: `err-${Date.now()}`,
+            role: "assistant" as const,
+            content: errText,
+            timestamp: formatTs(),
+          },
+        ];
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleApply = async () => {
+  const handleApply = async (messageId?: string) => {
     if (!activeId || applying) return;
+    const mid = (messageId || "").trim();
     setApplying(true);
+    setApplyingMsgId(mid || "__latest__");
     setStatusError("");
     try {
-      const res = await bridge.aiApplyDraft(activeId);
+      const res = await bridge.aiApplyDraft(activeId, mid);
       if (!res?.ok) {
         setStatusError(res?.error || "应用草稿失败");
         return;
@@ -565,6 +970,7 @@ export default function AIAssistant({
       setStatusError(String(e?.message || e || "应用失败"));
     } finally {
       setApplying(false);
+      setApplyingMsgId(null);
     }
   };
 
@@ -584,10 +990,6 @@ export default function AIAssistant({
   };
 
   if (!isOpen) return null;
-
-  const nodeCount = draftSummary?.node_count || 0;
-  const addedCount = draftDiff?.added?.length || 0;
-  const hasDraft = nodeCount > 0 || addedCount > 0;
 
   return (
     <div
@@ -696,64 +1098,6 @@ export default function AIAssistant({
       {statusError ? (
         <div className="px-4 py-2 text-xs border-b border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300">
           {statusError}
-        </div>
-      ) : null}
-
-      {isFlowMode && hasDraft ? (
-        <div
-          className="px-4 py-2 border-b space-y-1.5 shrink-0"
-          style={{ borderColor: colors.border }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs" style={{ color: colors.secondaryText }}>
-              草稿 {nodeCount} 节点
-              {addedCount ? ` · +${addedCount}` : ""}
-              {draftDiff?.removed?.length ? ` · -${draftDiff.removed.length}` : ""}
-            </p>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs px-2"
-                onClick={() => void handleCancelDraft()}
-                disabled={applying || isLoading}
-                title="丢弃草稿"
-              >
-                <RotateCcw className="w-3 h-3 mr-1" />
-                丢弃
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="h-7 text-xs px-2.5"
-                style={{ backgroundColor: colors.primary }}
-                onClick={() => void handleApply()}
-                disabled={applying || isLoading || !onApplyFlow}
-              >
-                {applying ? (
-                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                ) : (
-                  <Check className="w-3 h-3 mr-1" />
-                )}
-                应用到画布
-              </Button>
-            </div>
-          </div>
-          {draftSummary?.nodes?.some((n) => n.unverified_coords) || warnings.length ? (
-            <p className="text-[11px] text-amber-600 dark:text-amber-300">
-              {warnings[0] || "部分节点含未经验证取点的坐标"}
-            </p>
-          ) : null}
-          {toolTrace.length > 0 ? (
-            <p className="text-[11px] font-mono truncate" style={{ color: colors.secondaryText }}>
-              tools:{" "}
-              {toolTrace
-                .slice(-6)
-                .map((t) => `${t.name}${t.ok === false ? "✗" : "✓"}`)
-                .join(" · ")}
-            </p>
-          ) : null}
         </div>
       ) : null}
 
@@ -907,10 +1251,54 @@ export default function AIAssistant({
                           steps={msg.process}
                           themeMode={themeMode}
                           colors={colors}
-                          defaultOpen={true}
+                          defaultOpen={!!msg.streaming}
                         />
                       ) : null}
-                      <p className="whitespace-pre-wrap select-text break-words">{msg.content}</p>
+                      <p className="whitespace-pre-wrap select-text break-words">
+                        {msg.content}
+                        {msg.streaming && !msg.content && !(msg.process && msg.process.length) ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 italic"
+                            style={{ color: colors.secondaryText }}
+                          >
+                            <Loader2
+                              className="w-3.5 h-3.5 animate-spin inline"
+                              style={{ color: colors.primary }}
+                            />
+                            {isFlowMode ? "编排中…" : "思考中…"}
+                          </span>
+                        ) : null}
+                        {msg.streaming && msg.content ? (
+                          <span
+                            className="inline-block w-1.5 h-3.5 ml-0.5 align-middle animate-pulse rounded-sm"
+                            style={{ backgroundColor: colors.primary }}
+                          />
+                        ) : null}
+                      </p>
+                      {isAi && msg.orchestration ? (
+                        <OrchestrationResultCard
+                          card={msg.orchestration}
+                          colors={colors}
+                          themeMode={themeMode}
+                          applying={
+                            applying &&
+                            applyingMsgId ===
+                              (msg.orchestration.result_id || msg.id)
+                          }
+                          canApply={!!onApplyFlow}
+                          showDiscard={
+                            !!msg.orchestration.result_id &&
+                            messages.filter((m) => m.orchestration).at(-1)?.id ===
+                              msg.id
+                          }
+                          onApply={() =>
+                            void handleApply(
+                              msg.orchestration?.result_id || msg.id
+                            )
+                          }
+                          onDiscard={() => void handleCancelDraft()}
+                        />
+                      ) : null}
                     </div>
                     <div
                       className={`text-[11px] font-mono px-1 ${!isAi ? "text-right" : ""}`}
@@ -923,7 +1311,7 @@ export default function AIAssistant({
               );
             })}
 
-            {isLoading && (
+            {isLoading && !messages.some((m) => m.streaming) ? (
               <div className="flex items-start space-x-2.5">
                 <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
                   <img
@@ -946,7 +1334,7 @@ export default function AIAssistant({
                   <span className="italic">{isFlowMode ? "编排中…" : "思考中…"}</span>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
           <form

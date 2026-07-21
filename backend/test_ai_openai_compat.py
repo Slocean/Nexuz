@@ -149,6 +149,24 @@ def test_chat_forces_temp_one_for_reasoner_models():
     assert mock_client.post.call_args.kwargs["json"]["temperature"] == 1.0
 
 
+def test_chat_forces_temp_one_for_kimi_k25():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_resp
+
+    client = OpenAiCompatClient(
+        base_url="https://api.moonshot.cn/v1",
+        api_key="sk-test",
+        model="kimi-k2.5",
+        temperature=0.7,
+        http_client=mock_client,
+    )
+    client.chat([{"role": "user", "content": "hi"}])
+    assert mock_client.post.call_args.kwargs["json"]["temperature"] == 1.0
+
+
 def test_config_mask_and_roundtrip(tmp_path: Path, monkeypatch):
     from backend.core.ai import config as ai_config
 

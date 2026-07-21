@@ -462,6 +462,11 @@ function AppShell() {
           new CustomEvent('nexuz-update-progress', { detail: msg.payload || {} }),
         );
       }
+      if (msg.event === 'ai_progress') {
+        window.dispatchEvent(
+          new CustomEvent('nexuz-ai-progress', { detail: msg.payload || {} }),
+        );
+      }
       if (msg.event === 'hotkey_run') {
         if (msg.payload?.message) {
           appendLog({

@@ -3095,16 +3095,20 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def ai_list_conversations(self) -> dict:
+    def ai_list_conversations(self, kind: str = "") -> dict:
         try:
-            items = self._ai_session().list_conversations()
+            kind_arg = str(kind or "").strip() or None
+            items = self._ai_session().list_conversations(kind=kind_arg)
             return {"ok": True, "conversations": items}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def ai_create_conversation(self, title: str = "新对话") -> dict:
+    def ai_create_conversation(self, title: str = "新对话", kind: str = "chat") -> dict:
         try:
-            meta = self._ai_session().create_conversation(title=title or "新对话")
+            meta = self._ai_session().create_conversation(
+                title=title or "新对话",
+                kind=str(kind or "chat"),
+            )
             return {"ok": True, "conversation": meta}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -3127,6 +3131,8 @@ class Api:
                     }
                     slim_shots[sid]["has_image"] = bool(shot.get("data_url"))
                 data = {**data, "artifacts": {**arts, "shots": slim_shots}}
+            # Drop working draft blob from history load — use ai_get_draft / orch instead
+            data = {**data, "draft": None, "base_flow": None}
             return {"ok": True, **data}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -3165,12 +3171,23 @@ class Api:
                 flow = json.loads(base_flow)
             elif isinstance(base_flow, dict):
                 flow = base_flow
+            cid = str(conversation_id or "")
+
+            def on_progress(ev: dict) -> None:
+                payload = dict(ev or {})
+                payload.setdefault("conversation_id", cid)
+                self._queue_ui_event(
+                    {"event": "ai_progress", "payload": payload},
+                    urgent=True,
+                )
+
             return self._ai_session().chat(
-                str(conversation_id or ""),
+                cid,
                 str(message or ""),
                 mode=str(mode or "flow"),
                 base_flow=flow,
                 attach_screenshot=bool(attach_screenshot),
+                on_progress=on_progress,
             )
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -3178,6 +3195,21 @@ class Api:
     def ai_get_draft(self, conversation_id: str) -> dict:
         try:
             return self._ai_session().get_draft(str(conversation_id or ""))
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_get_orchestration(
+        self,
+        conversation_id: str,
+        message_id: str,
+        include_shot_image: bool = False,
+    ) -> dict:
+        try:
+            return self._ai_session().get_orchestration(
+                str(conversation_id or ""),
+                str(message_id or ""),
+                include_shot_image=bool(include_shot_image),
+            )
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -3198,10 +3230,12 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def ai_apply_draft(self, conversation_id: str) -> dict:
+    def ai_apply_draft(self, conversation_id: str, message_id: str = "") -> dict:
         try:
+            mid = str(message_id or "").strip() or None
             return self._ai_session().apply_draft(
                 str(conversation_id or ""),
+                message_id=mid,
                 validate_fn=self._validate_flow,
             )
         except Exception as exc:

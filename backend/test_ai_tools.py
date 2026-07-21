@@ -380,6 +380,7 @@ def test_session_tool_loop_mock_llm(tmp_path: Path, monkeypatch):
     assert any(p.get("kind") == "tool" and p.get("name") == "draft_add_node" for p in process)
     assert any(p.get("kind") == "tool" and p.get("name") == "draft_connect" for p in process)
     assert res["assistant_message"].get("process")
+    assert res.get("orchestration") or res["assistant_message"].get("orchestration")
 
 
 def test_chat_mode_no_tools(tmp_path: Path, monkeypatch):
@@ -448,6 +449,30 @@ def test_apply_draft_strips_markers(tmp_path: Path):
     assert "_ai_unverified_coords" not in node
     assert "_ai_point_ref" not in node["params"]
     assert node["params"]["x"] == 1
+
+
+def test_apply_historical_orchestration_by_message_id(tmp_path: Path):
+    store = ConversationStore(root=tmp_path / "conversations")
+    meta = store.create(kind="flow")
+    old = draft_builder.empty_draft()
+    old, _ = draft_builder.add_node(old, block_type="click", params={"x": 9, "y": 9}, node_id="old1")
+    new = draft_builder.empty_draft()
+    new, _ = draft_builder.add_node(new, block_type="wait", params={"ms": 100}, node_id="new1")
+    store.save_orchestration_result(
+        meta.id,
+        "hist-1",
+        draft=old,
+        process=[{"kind": "think", "text": "旧版"}],
+        card={"summary": draft_builder.draft_summary(old), "status": "awaiting_confirm"},
+    )
+    # Session draft moved on — historical apply must still return old
+    store.save_session_state(meta.id, draft=new, status="awaiting_confirm")
+    mgr = SessionManager(store=store)
+    res = mgr.apply_draft(meta.id, message_id="hist-1", validate_fn=lambda f: None)
+    assert res["ok"] is True
+    assert res["message_id"] == "hist-1"
+    assert "old1" in res["flow"]["nodes"]
+    assert "new1" not in res["flow"]["nodes"]
 
 
 def test_conversation_store_has_draft(tmp_path: Path):

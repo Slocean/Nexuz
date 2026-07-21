@@ -13,8 +13,9 @@ class ChatMessage:
     timestamp: str = ""
     id: str = ""
     # Timeline of thinking + orchestration for this assistant turn.
-    # [{kind: "think"|"tool", text?, name?, ok?, detail?, elapsed_ms?}, ...]
     process: list[dict[str, Any]] = field(default_factory=list)
+    # Snapshot of draft card attached to this message (persist so UI doesn't vanish).
+    orchestration: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -25,18 +26,22 @@ class ChatMessage:
         }
         if self.process:
             out["process"] = self.process
+        if self.orchestration:
+            out["orchestration"] = self.orchestration
         return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ChatMessage:
         raw_proc = data.get("process")
         process = [p for p in raw_proc if isinstance(p, dict)] if isinstance(raw_proc, list) else []
+        orch = data.get("orchestration") if isinstance(data.get("orchestration"), dict) else None
         return cls(
             id=str(data.get("id") or ""),
             role=str(data.get("role") or "user"),
             content=str(data.get("content") or ""),
             timestamp=str(data.get("timestamp") or ""),
             process=process,
+            orchestration=orch,
         )
 
 
@@ -99,6 +104,11 @@ class AiConfig:
         )
 
 
+def normalize_conversation_kind(kind: Any) -> str:
+    """chat = dialogue; flow = orchestration."""
+    return "flow" if str(kind or "").strip().lower() in {"flow", "orch", "orchestration"} else "chat"
+
+
 @dataclass
 class ConversationMeta:
     id: str
@@ -107,6 +117,7 @@ class ConversationMeta:
     updated_at: str
     model: str = ""
     message_count: int = 0
+    kind: str = "chat"  # chat | flow
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -116,6 +127,7 @@ class ConversationMeta:
             "updated_at": self.updated_at,
             "model": self.model,
             "message_count": int(self.message_count),
+            "kind": normalize_conversation_kind(self.kind),
         }
 
     @classmethod
@@ -127,6 +139,7 @@ class ConversationMeta:
             updated_at=str(data.get("updated_at") or ""),
             model=str(data.get("model") or ""),
             message_count=int(data.get("message_count") or 0),
+            kind=normalize_conversation_kind(data.get("kind")),
         )
 
 
