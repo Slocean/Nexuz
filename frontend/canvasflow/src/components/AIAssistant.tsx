@@ -7,6 +7,8 @@ import {
   User,
   Trash2,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react";
 import { ThemeName, ThemeMode } from "../types";
 import { getThemeColors } from "../theme";
@@ -78,6 +80,7 @@ export default function AIAssistant({
   const [statusError, setStatusError] = useState("");
   const [bootstrapping, setBootstrapping] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [listOpen, setListOpen] = useState(true);
 
   const colors = getThemeColors(themeName, themeMode);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -325,6 +328,16 @@ export default function AIAssistant({
             variant="ghost"
             size="icon"
             className="h-8 w-8"
+            onClick={() => setListOpen((v) => !v)}
+            title={listOpen ? "收起对话列表" : "展开对话列表"}
+            style={listOpen ? { color: colors.primary } : undefined}
+          >
+            {listOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
             onClick={() => void handleNewChat()}
             title="新建对话"
           >
@@ -359,6 +372,7 @@ export default function AIAssistant({
 
       <div className="flex flex-1 min-h-0">
         {/* Conversation list — ChatGPT-like */}
+        {listOpen ? (
         <aside
           className="w-[11.5rem] shrink-0 overflow-y-auto py-3 px-2"
           style={{
@@ -447,6 +461,7 @@ export default function AIAssistant({
             </div>
           )}
         </aside>
+        ) : null}
 
         <div className="flex-1 flex flex-col min-w-0">
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
