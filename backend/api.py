@@ -3063,7 +3063,14 @@ class Api:
             return picked
         return self.capture_template_from_region(picked["region"], filename=filename)
 
-    # ── Flow AI (Phase 0: LLM client + conversations) ─────────────────
+    # ── Flow AI (LLM + tools + draft) ─────────────────────────────────
+
+    def _ai_session(self):
+        from backend.core.ai.session_manager import get_session_manager
+
+        mgr = get_session_manager()
+        mgr.set_capture_fn(self.capture_desktop)
+        return mgr
 
     def ai_get_config(self) -> dict:
         from backend.core.ai.config import public_ai_config
@@ -3083,47 +3090,50 @@ class Api:
             return {"ok": False, "error": str(exc)}
 
     def ai_test_connection(self) -> dict:
-        from backend.core.ai.session_manager import get_session_manager
-
         try:
-            return get_session_manager().test_connection()
+            return self._ai_session().test_connection()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
     def ai_list_conversations(self) -> dict:
-        from backend.core.ai.session_manager import get_session_manager
-
         try:
-            items = get_session_manager().list_conversations()
+            items = self._ai_session().list_conversations()
             return {"ok": True, "conversations": items}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
     def ai_create_conversation(self, title: str = "新对话") -> dict:
-        from backend.core.ai.session_manager import get_session_manager
-
         try:
-            meta = get_session_manager().create_conversation(title=title or "新对话")
+            meta = self._ai_session().create_conversation(title=title or "新对话")
             return {"ok": True, "conversation": meta}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
     def ai_get_conversation(self, conversation_id: str) -> dict:
-        from backend.core.ai.session_manager import get_session_manager
-
         try:
-            data = get_session_manager().get_conversation(str(conversation_id or ""))
+            data = self._ai_session().get_conversation(str(conversation_id or ""))
             if data is None:
                 return {"ok": False, "error": "会话不存在"}
+            # Avoid sending huge shot data_urls in full conversation load
+            arts = data.get("artifacts")
+            if isinstance(arts, dict):
+                shots = arts.get("shots") if isinstance(arts.get("shots"), dict) else {}
+                slim_shots = {}
+                for sid, shot in shots.items():
+                    if not isinstance(shot, dict):
+                        continue
+                    slim_shots[sid] = {
+                        k: v for k, v in shot.items() if k != "data_url"
+                    }
+                    slim_shots[sid]["has_image"] = bool(shot.get("data_url"))
+                data = {**data, "artifacts": {**arts, "shots": slim_shots}}
             return {"ok": True, **data}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
     def ai_rename_conversation(self, conversation_id: str, title: str = "") -> dict:
-        from backend.core.ai.session_manager import get_session_manager
-
         try:
-            meta = get_session_manager().rename_conversation(
+            meta = self._ai_session().rename_conversation(
                 str(conversation_id or ""), str(title or "")
             )
             if meta is None:
@@ -3133,20 +3143,70 @@ class Api:
             return {"ok": False, "error": str(exc)}
 
     def ai_delete_conversation(self, conversation_id: str) -> dict:
-        from backend.core.ai.session_manager import get_session_manager
-
         try:
-            ok = get_session_manager().delete_conversation(str(conversation_id or ""))
+            ok = self._ai_session().delete_conversation(str(conversation_id or ""))
             if not ok:
                 return {"ok": False, "error": "会话不存在"}
             return {"ok": True}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def ai_chat(self, conversation_id: str, message: str = "") -> dict:
-        from backend.core.ai.session_manager import get_session_manager
-
+    def ai_chat(
+        self,
+        conversation_id: str,
+        message: str = "",
+        base_flow=None,
+        attach_screenshot: bool = False,
+    ) -> dict:
         try:
-            return get_session_manager().chat(str(conversation_id or ""), str(message or ""))
+            flow = None
+            if isinstance(base_flow, str) and base_flow.strip():
+                flow = json.loads(base_flow)
+            elif isinstance(base_flow, dict):
+                flow = base_flow
+            return self._ai_session().chat(
+                str(conversation_id or ""),
+                str(message or ""),
+                base_flow=flow,
+                attach_screenshot=bool(attach_screenshot),
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_get_draft(self, conversation_id: str) -> dict:
+        try:
+            return self._ai_session().get_draft(str(conversation_id or ""))
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_override_point(
+        self,
+        conversation_id: str,
+        point_ref: str,
+        x: int = 0,
+        y: int = 0,
+    ) -> dict:
+        try:
+            return self._ai_session().override_point(
+                str(conversation_id or ""),
+                str(point_ref or ""),
+                int(x),
+                int(y),
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_apply_draft(self, conversation_id: str) -> dict:
+        try:
+            return self._ai_session().apply_draft(
+                str(conversation_id or ""),
+                validate_fn=self._validate_flow,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_cancel_draft(self, conversation_id: str) -> dict:
+        try:
+            return self._ai_session().cancel_draft(str(conversation_id or ""))
         except Exception as exc:
             return {"ok": False, "error": str(exc)}

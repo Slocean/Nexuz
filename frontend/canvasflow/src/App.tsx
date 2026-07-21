@@ -1932,6 +1932,18 @@ function AppShell() {
             onClose={() => setIsAssistantOpen(false)}
             themeName={themeName as any}
             themeMode={themeMode as any}
+            currentFlow={flow as any}
+            onApplyFlow={(nextFlow, warnings) => {
+              setFlow(nextFlow as any, filePath, { recordHistory: true });
+              if (warnings?.length) {
+                appendLog({
+                  level: 'warn',
+                  message: `AI 草稿已应用（注意: ${warnings.join('；')}）`,
+                });
+              } else {
+                appendLog({ level: 'ok', message: 'AI 草稿已应用到画布' });
+              }
+            }}
             onOpenSettings={() => {
               setIsAssistantOpen(false);
               setViewMode('settings');

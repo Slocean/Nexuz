@@ -1830,6 +1830,23 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: true });
     case 'ai_chat':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持 AI 对话' });
+    case 'ai_get_draft':
+      return Promise.resolve({
+        ok: true,
+        draft: { flow_id: 'mock', name: 'AI 草稿', nodes: {}, entry: null },
+        summary: { node_count: 0, nodes: [], entry: null },
+        diff: { added: [], removed: [], changed: [] },
+        points: [],
+        shot: null,
+        status: 'idle',
+        tool_trace: []
+      });
+    case 'ai_override_point':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持' });
+    case 'ai_apply_draft':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持' });
+    case 'ai_cancel_draft':
+      return Promise.resolve({ ok: true, summary: { node_count: 0, nodes: [] } });
     default:
       return Promise.resolve({ ok: false, error: `未知方法: ${method}` });
   }
@@ -1963,5 +1980,17 @@ export const bridge = {
   aiGetConversation: conversationId => call('ai_get_conversation', conversationId),
   aiRenameConversation: (conversationId, title = '') => call('ai_rename_conversation', conversationId, title),
   aiDeleteConversation: conversationId => call('ai_delete_conversation', conversationId),
-  aiChat: (conversationId, message = '') => call('ai_chat', conversationId, message)
+  aiChat: (conversationId, message = '', baseFlow = null, attachScreenshot = false) =>
+    call(
+      'ai_chat',
+      conversationId,
+      message,
+      baseFlow != null ? (typeof baseFlow === 'string' ? baseFlow : JSON.stringify(baseFlow)) : null,
+      !!attachScreenshot
+    ),
+  aiGetDraft: conversationId => call('ai_get_draft', conversationId),
+  aiOverridePoint: (conversationId, pointRef, x, y) =>
+    call('ai_override_point', conversationId, pointRef, x, y),
+  aiApplyDraft: conversationId => call('ai_apply_draft', conversationId),
+  aiCancelDraft: conversationId => call('ai_cancel_draft', conversationId)
 };

@@ -1,4 +1,4 @@
-"""Flow AI — LLM client, config, and conversation management (Phase 0)."""
+"""Flow AI — LLM client, tools, draft orchestration, and conversations."""
 
 from __future__ import annotations
 

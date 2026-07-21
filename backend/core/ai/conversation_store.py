@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.core.ai.draft_builder import clone_flow, empty_draft
 from backend.core.ai.types import ChatMessage, ConversationMeta
 from backend.paths import get_data_dir
 
@@ -21,6 +22,10 @@ def ai_conversations_dir(*, create: bool = True) -> Path:
     if create:
         root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _empty_artifacts() -> dict[str, Any]:
+    return {"shots": {}, "points": {}}
 
 
 class ConversationStore:
@@ -88,7 +93,15 @@ class ConversationStore:
         items = self._load_index()
         items.insert(0, meta.to_dict())
         self._save_index(items)
-        self._write_conversation(meta.id, messages=[])
+        self._write_full(
+            meta.id,
+            messages=[],
+            draft=empty_draft(),
+            base_flow=None,
+            artifacts=_empty_artifacts(),
+            tool_trace=[],
+            status="idle",
+        )
         return meta
 
     def get(self, conversation_id: str) -> dict[str, Any] | None:
@@ -96,8 +109,16 @@ class ConversationStore:
         meta = self._find_meta(conversation_id)
         if meta is None:
             return None
-        messages = self._read_messages(conversation_id)
-        return {"meta": meta.to_dict(), "messages": [m.to_dict() for m in messages]}
+        data = self._read_full(conversation_id)
+        return {
+            "meta": meta.to_dict(),
+            "messages": [m.to_dict() for m in data["messages"]],
+            "draft": data["draft"],
+            "base_flow": data["base_flow"],
+            "artifacts": data["artifacts"],
+            "tool_trace": data["tool_trace"],
+            "status": data["status"],
+        }
 
     def rename(self, conversation_id: str, title: str) -> ConversationMeta | None:
         self._validate_id(conversation_id)
@@ -132,14 +153,39 @@ class ConversationStore:
         *,
         title: str | None = None,
         model: str | None = None,
+        draft: dict[str, Any] | None = None,
+        base_flow: dict[str, Any] | None = None,
+        artifacts: dict[str, Any] | None = None,
+        tool_trace: list[dict[str, Any]] | None = None,
+        status: str | None = None,
+        update_draft: bool = False,
+        update_base_flow: bool = False,
+        update_artifacts: bool = False,
+        update_tool_trace: bool = False,
     ) -> ConversationMeta | None:
         self._validate_id(conversation_id)
         meta = self._find_meta(conversation_id)
         if meta is None:
             return None
-        existing = self._read_messages(conversation_id)
+        data = self._read_full(conversation_id)
+        existing = data["messages"]
         existing.extend(messages)
-        self._write_conversation(conversation_id, existing)
+
+        new_draft = draft if update_draft and draft is not None else data["draft"]
+        new_base = base_flow if update_base_flow else data["base_flow"]
+        new_arts = artifacts if update_artifacts and artifacts is not None else data["artifacts"]
+        new_trace = tool_trace if update_tool_trace and tool_trace is not None else data["tool_trace"]
+        new_status = status if status is not None else data["status"]
+
+        self._write_full(
+            conversation_id,
+            messages=existing,
+            draft=new_draft,
+            base_flow=new_base,
+            artifacts=new_arts,
+            tool_trace=new_trace,
+            status=new_status,
+        )
 
         items = self._load_index()
         for item in items:
@@ -154,31 +200,123 @@ class ConversationStore:
                 return ConversationMeta.from_dict(item)
         return meta
 
+    def save_session_state(
+        self,
+        conversation_id: str,
+        *,
+        draft: dict[str, Any] | None = None,
+        base_flow: dict[str, Any] | None = None,
+        artifacts: dict[str, Any] | None = None,
+        tool_trace: list[dict[str, Any]] | None = None,
+        status: str | None = None,
+        set_base_flow: bool = False,
+    ) -> bool:
+        self._validate_id(conversation_id)
+        if self._find_meta(conversation_id) is None:
+            return False
+        data = self._read_full(conversation_id)
+        self._write_full(
+            conversation_id,
+            messages=data["messages"],
+            draft=draft if draft is not None else data["draft"],
+            base_flow=base_flow if set_base_flow else data["base_flow"],
+            artifacts=artifacts if artifacts is not None else data["artifacts"],
+            tool_trace=tool_trace if tool_trace is not None else data["tool_trace"],
+            status=status if status is not None else data["status"],
+        )
+        items = self._load_index()
+        for item in items:
+            if item.get("id") == conversation_id:
+                item["updated_at"] = _utc_now_iso()
+                self._save_index(items)
+                break
+        return True
+
     def _find_meta(self, conversation_id: str) -> ConversationMeta | None:
         for item in self._load_index():
             if item.get("id") == conversation_id:
                 return ConversationMeta.from_dict(item)
         return None
 
-    def _read_messages(self, conversation_id: str) -> list[ChatMessage]:
+    def _read_full(self, conversation_id: str) -> dict[str, Any]:
         path = self._conv_path(conversation_id)
         if not path.is_file():
-            return []
+            return {
+                "messages": [],
+                "draft": empty_draft(),
+                "base_flow": None,
+                "artifacts": _empty_artifacts(),
+                "tool_trace": [],
+                "status": "idle",
+            }
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
-            return []
-        raw_msgs = data.get("messages") if isinstance(data, dict) else None
-        if not isinstance(raw_msgs, list):
-            return []
-        return [ChatMessage.from_dict(m) for m in raw_msgs if isinstance(m, dict)]
+            return {
+                "messages": [],
+                "draft": empty_draft(),
+                "base_flow": None,
+                "artifacts": _empty_artifacts(),
+                "tool_trace": [],
+                "status": "idle",
+            }
+        if not isinstance(data, dict):
+            data = {}
+        raw_msgs = data.get("messages")
+        messages = [
+            ChatMessage.from_dict(m) for m in raw_msgs if isinstance(m, dict)
+        ] if isinstance(raw_msgs, list) else []
+        draft = data.get("draft")
+        if not isinstance(draft, dict):
+            draft = empty_draft()
+        else:
+            draft = clone_flow(draft)
+        base_flow = data.get("base_flow") if isinstance(data.get("base_flow"), dict) else None
+        artifacts = data.get("artifacts")
+        if not isinstance(artifacts, dict):
+            artifacts = _empty_artifacts()
+        else:
+            artifacts = {
+                "shots": artifacts.get("shots")
+                if isinstance(artifacts.get("shots"), dict)
+                else {},
+                "points": artifacts.get("points")
+                if isinstance(artifacts.get("points"), dict)
+                else {},
+            }
+        tool_trace = data.get("tool_trace") if isinstance(data.get("tool_trace"), list) else []
+        status = str(data.get("status") or "idle")
+        return {
+            "messages": messages,
+            "draft": draft,
+            "base_flow": base_flow,
+            "artifacts": artifacts,
+            "tool_trace": tool_trace,
+            "status": status,
+        }
 
-    def _write_conversation(self, conversation_id: str, messages: list[ChatMessage]) -> None:
+    def _write_full(
+        self,
+        conversation_id: str,
+        *,
+        messages: list[ChatMessage],
+        draft: dict[str, Any],
+        base_flow: dict[str, Any] | None,
+        artifacts: dict[str, Any],
+        tool_trace: list[dict[str, Any]],
+        status: str,
+    ) -> None:
         path = self._conv_path(conversation_id)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Persist shot data_urls (needed for UI preview); keep as-is
         payload = {
             "id": conversation_id,
             "messages": [m.to_dict() for m in messages],
+            "draft": draft,
+            "base_flow": base_flow,
+            "artifacts": artifacts,
+            "tool_trace": tool_trace,
+            "status": status,
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
