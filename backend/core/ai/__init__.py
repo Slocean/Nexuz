@@ -9,7 +9,6 @@ from backend.core.ai.config import (
     public_ai_config,
     set_ai_config,
 )
-from backend.core.ai.session_manager import get_session_manager
 
 __all__ = [
     "PROVIDER_PRESETS",
@@ -19,3 +18,10 @@ __all__ = [
     "public_ai_config",
     "set_ai_config",
 ]
+
+
+def get_session_manager():
+    """Lazy import to avoid pulling httpx when only config/store is needed."""
+    from backend.core.ai.session_manager import get_session_manager as _get
+
+    return _get()
