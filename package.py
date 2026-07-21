@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -303,30 +302,6 @@ def inject_version(version: str) -> None:
     print(f"OK: injected version {ver} -> {ROOT / 'backend' / 'version.py'}")
 
 
-def inject_trusted_signer() -> None:
-    fingerprint = re.sub(
-        r"[^0-9A-Fa-f]",
-        "",
-        os.environ.get("NEXUZ_SIGNER_CERT_SHA256", ""),
-    ).upper()
-    if fingerprint and len(fingerprint) != 64:
-        raise SystemExit("NEXUZ_SIGNER_CERT_SHA256 must contain exactly 64 hex characters")
-    path = ROOT / "backend" / "version.py"
-    text = path.read_text(encoding="utf-8")
-    updated, count = re.subn(
-        r'^TRUSTED_SIGNER_CERT_SHA256\s*=\s*"[^"]*"$',
-        f'TRUSTED_SIGNER_CERT_SHA256 = "{fingerprint}"',
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if count != 1:
-        raise SystemExit("backend/version.py is missing TRUSTED_SIGNER_CERT_SHA256")
-    path.write_text(updated, encoding="utf-8")
-    state = fingerprint if fingerprint else "EMPTY (updates disabled)"
-    print(f"OK: injected trusted signer certificate SHA-256: {state}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build Nexuz desktop package")
     parser.add_argument(
@@ -358,7 +333,6 @@ def main() -> None:
         synced = sync_version_from_app_update(root=ROOT)
         if not synced:
             print("! no version from --version / NEXUZ_VERSION / app_update.json")
-    inject_trusted_signer()
 
     if not args.skip_frontend:
         build_frontend()

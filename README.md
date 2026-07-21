@@ -98,26 +98,21 @@ release.bat
 python trigger_release.py
 ```
 
-会打 `v版本号` 的 tag 并推送，GitHub Action 自动打包上传 Release。**不需要安装 gh。**
+会打 `v版本号` 的 tag 并推送，GitHub Action 自动打包上传 Release。**不需要安装 gh，也不需要代码签名证书。**
 
-- **正式签名发版**：`release.bat`（需配置 `WINDOWS_CERTIFICATE` Secrets）
-- **未签名内测发版**：`release_unsigned.bat`（打 `unsigned-v*` tag，跳过 Authenticode；勿当生产热更新源）
+- **正式发版**：`release.bat` / `python trigger_release.py`
+- **预发布 / 内测 tag**：`release_unsigned.bat`（打 `unsigned-v*`，标为 pre-release；热更新仍只跟正式 `v*` 通道）
 
 Release 正文只写入 [`app_update.json`](app_update.json) 里**当前发版版本**那一条的 `title` / `body`，不会再用 GitHub 自动 Changelog 链接，也不会把历史版本全塞进去。
 
 进度：https://github.com/Slocean/Nexuz/actions  
 成品：https://github.com/Slocean/Nexuz/releases
 
-### Windows 代码签名
-
-未签名 exe 容易被 Defender 删。配置方法见 [`docs/WINDOWS_SIGNING.md`](docs/WINDOWS_SIGNING.md)。  
-在 GitHub Secrets 填入 `WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD` 后，Release Action 会自动签名。
-
 ### 客户端热更新与通知
 
 - 通道文件：[`app_update.json`](app_update.json)（累计 `history`）
 - **检查更新**：顶栏 ↑，或「设置 → 关于与更新」
-- **热更新**：下载 Release 中的 `Nexuz.exe` →「立即更新」替换并重启（仅打包后的 exe）
+- **热更新**：下载 Release 中的 `Nexuz.exe`，校验固定仓库域名与 `Nexuz.exe.sha256` 后替换并重启（仅打包后的 exe；**不要求** Authenticode / 代码签名证书）
 - **通知**（喇叭 / 启动弹窗）：读取 `history[].notice`；当前条为空则沿用上一条非空通知；点「我知道了」后同内容不再弹，直到出现新通知
 - **版本更新记录**：仅在「设置 → 更新公告」查看（`title` / `body`）
 

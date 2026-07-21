@@ -46,7 +46,7 @@ def test_checksum_manifest_is_bound_to_expected_asset() -> None:
         raise AssertionError("checksum for a different asset was accepted")
 
 
-def test_download_verifies_hash_and_signature() -> None:
+def test_download_verifies_hash() -> None:
     blob = b"MZ" + (b"x" * (110 * 1024))
     digest = hashlib.sha256(blob).hexdigest()
     release = {
@@ -76,16 +76,10 @@ def test_download_verifies_hash_and_signature() -> None:
                 side_effect=[f"{digest} *Nexuz.exe\n".encode(), blob],
             ),
             patch.object(updater, "exe_dir", return_value=Path(td)),
-            patch.object(
-                updater,
-                "_verify_authenticode",
-                return_value={"subject": "CN=Nexuz", "thumbprint": "ABC"},
-            ) as verify,
         ):
             result = updater.download_update()
         assert result["ok"] is True
         assert result["sha256"] == digest
-        assert verify.call_count == 1
         assert (Path(td) / "Nexuz_update.exe").read_bytes() == blob
         assert (Path(td) / updater.VERIFY_METADATA_NAME).is_file()
 
@@ -93,5 +87,5 @@ def test_download_verifies_hash_and_signature() -> None:
 if __name__ == "__main__":
     test_release_url_allowlist()
     test_checksum_manifest_is_bound_to_expected_asset()
-    test_download_verifies_hash_and_signature()
+    test_download_verifies_hash()
     print("UPDATER OK")

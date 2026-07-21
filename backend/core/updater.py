@@ -22,7 +22,6 @@ from backend.version import (
     GITHUB_OWNER,
     GITHUB_REPO,
     RELEASES_PAGE_URL,
-    TRUSTED_SIGNER_CERT_SHA256,
     __version__,
 )
 
@@ -558,55 +557,6 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _verify_authenticode(path: Path) -> dict[str, str]:
-    """Fail closed unless Windows reports a valid Authenticode signature."""
-    if os.name != "nt":
-        raise RuntimeError("Authenticode 校验仅支持 Windows，已拒绝应用更新")
-    escaped = _ps_escape(str(path.resolve()))
-    command = (
-        "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new();"
-        f"$s=Get-AuthenticodeSignature -LiteralPath '{escaped}';"
-        "if ($s.Status -ne 'Valid') {"
-        "  Write-Error ('Authenticode status: ' + $s.Status + ' ' + $s.StatusMessage); exit 3"
-        "};"
-        "[pscustomobject]@{"
-        "  subject=$s.SignerCertificate.Subject;"
-        "  thumbprint=$s.SignerCertificate.Thumbprint;"
-        "  cert_sha256=([BitConverter]::ToString("
-        "    ([Security.Cryptography.SHA256]::Create().ComputeHash($s.SignerCertificate.RawData))"
-        "  ).Replace('-',''))"
-        "} | ConvertTo-Json -Compress"
-    )
-    completed = subprocess.run(
-        [_powershell_exe(), "-NoProfile", "-NonInteractive", "-Command", command],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=30,
-        creationflags=0x08000000,
-        check=False,
-    )
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "签名无效").strip()
-        raise RuntimeError(f"安装包 Authenticode 校验失败: {detail}")
-    try:
-        payload = json.loads(completed.stdout.strip())
-    except Exception as exc:
-        raise RuntimeError("无法读取 Authenticode 校验结果") from exc
-    result = {
-        "subject": str(payload.get("subject") or ""),
-        "thumbprint": str(payload.get("thumbprint") or ""),
-        "cert_sha256": str(payload.get("cert_sha256") or "").upper(),
-    }
-    trusted = str(TRUSTED_SIGNER_CERT_SHA256 or "").upper()
-    if not re.fullmatch(r"[0-9A-F]{64}", trusted):
-        raise RuntimeError("当前版本未内置受信任的发布签名证书，已拒绝自动更新")
-    if result["cert_sha256"] != trusted:
-        raise RuntimeError("安装包签名有效，但发布者证书与内置信任锚不匹配")
-    return result
-
-
 def download_update(
     *,
     on_progress: Any | None = None,
@@ -687,7 +637,6 @@ def download_update(
                 ),
             }
         partial.write_bytes(blob)
-        signer = _verify_authenticode(partial)
         if dest.exists():
             dest.unlink()
         partial.rename(dest)
@@ -697,8 +646,6 @@ def download_update(
                 {
                     "version": info.get("latest_version"),
                     "sha256": expected_sha256,
-                    "signer_subject": signer["subject"],
-                    "signer_thumbprint": signer["thumbprint"],
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -745,7 +692,6 @@ def download_update(
         "path": str(dest),
         "size": dest.stat().st_size,
         "sha256": expected_sha256,
-        "signer": signer["subject"],
         "latest_version": info.get("latest_version"),
         "current_version": info.get("current_version"),
         "message": f"已下载 {info.get('latest_version')}，可立即更新并重启",
@@ -811,10 +757,6 @@ def apply_update_and_restart() -> dict[str, Any]:
         actual_sha256 = _sha256_file(update_path)
         if actual_sha256 != expected_sha256:
             return {"ok": False, "error": "更新包在下载后发生变化，已拒绝应用"}
-        signer = _verify_authenticode(update_path)
-        recorded_thumbprint = str(metadata.get("signer_thumbprint") or "").upper()
-        if recorded_thumbprint and signer["thumbprint"].upper() != recorded_thumbprint:
-            return {"ok": False, "error": "更新包签名证书在下载后发生变化，已拒绝应用"}
     except OSError as exc:
         return {"ok": False, "error": f"无法读取更新包: {exc}"}
     except Exception as exc:

@@ -8,10 +8,6 @@ from __future__ import annotations
 
 __version__ = "0.5.2"
 
-# Release packaging replaces this with the SHA-256 fingerprint of the trusted
-# Authenticode signing certificate. Empty means updates must fail closed.
-TRUSTED_SIGNER_CERT_SHA256 = ""
-
 GITHUB_OWNER = "Slocean"
 GITHUB_REPO = "Nexuz"
 
