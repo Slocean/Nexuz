@@ -235,104 +235,147 @@ function ProcessTimeline({
   themeMode,
   colors,
   defaultOpen = true,
+  streaming = false,
 }: {
   steps: ProcessStep[];
   themeMode: ThemeMode;
   colors: ReturnType<typeof getThemeColors>;
   defaultOpen?: boolean;
+  streaming?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [elapsedSec, setElapsedSec] = useState<number | null>(null);
+  const startedAtRef = useRef<number>(Date.now());
+  const sawStreamingRef = useRef(streaming);
+
+  useEffect(() => {
+    if (streaming) {
+      sawStreamingRef.current = true;
+      startedAtRef.current = Date.now();
+      setElapsedSec(null);
+      setOpen(true);
+      return;
+    }
+    if (sawStreamingRef.current) {
+      setElapsedSec((prev) =>
+        prev != null
+          ? prev
+          : Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
+      );
+    }
+  }, [streaming]);
+
   if (!steps.length) return null;
 
-  const thinkCount = steps.filter((s) => s.kind === "think").length;
-  const toolCount = steps.filter((s) => s.kind === "tool").length;
-  const mutedBg =
-    themeMode === "light" ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)";
+  const thinkMuted =
+    themeMode === "light" ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.45)";
+  const thinkMutedSoft =
+    themeMode === "light" ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.38)";
+  const spine =
+    themeMode === "light" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.14)";
+
+  const headerLabel = streaming
+    ? "正在思考"
+    : elapsedSec != null
+      ? `已思考（用时 ${elapsedSec} 秒）`
+      : "已思考";
 
   return (
-    <div
-      className="mb-2 rounded-xl border overflow-hidden"
-      style={{ borderColor: colors.border, backgroundColor: mutedBg }}
-    >
+    <div className="mb-2.5">
       <button
         type="button"
-        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-left"
-        style={{ color: colors.secondaryText }}
+        className="inline-flex items-center gap-1 text-[12px] leading-none select-none"
+        style={{ color: thinkMuted }}
         onClick={() => setOpen((v) => !v)}
       >
-        {open ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
-        <span className="font-medium" style={{ color: colors.text }}>
-          思考与编排过程
-        </span>
-        <span className="ml-auto font-mono tabular-nums">
-          {thinkCount ? `${thinkCount} 思考` : ""}
-          {thinkCount && toolCount ? " · " : ""}
-          {toolCount ? `${toolCount} 步骤` : ""}
-        </span>
+        <Brain className="w-3.5 h-3.5 shrink-0" style={{ color: colors.primary }} />
+        <span>{headerLabel}</span>
+        {open ? (
+          <ChevronDown className="w-3 h-3 shrink-0 opacity-80" />
+        ) : (
+          <ChevronRight className="w-3 h-3 shrink-0 opacity-80" />
+        )}
       </button>
+
       {open ? (
-        <div className="px-2.5 pb-2 space-y-1.5 max-h-56 overflow-y-auto">
-          {steps.map((step, idx) => {
-            const isThink = step.kind === "think";
-            return (
-              <div
-                key={`${step.kind}-${idx}`}
-                className="rounded-lg px-2 py-1.5 text-[11px] leading-relaxed border"
-                style={{
-                  borderColor: colors.border,
-                  backgroundColor:
-                    themeMode === "light" ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.2)",
-                }}
-              >
-                <div className="flex items-start gap-1.5">
-                  {isThink ? (
-                    <Brain className="w-3 h-3 mt-0.5 shrink-0" style={{ color: colors.primary }} />
-                  ) : (
-                    <Wrench
-                      className="w-3 h-3 mt-0.5 shrink-0"
-                      style={{ color: step.ok === false ? "#ef4444" : colors.primary }}
-                    />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-medium" style={{ color: colors.text }}>
-                        {step.label || (isThink ? "思考" : step.name || "工具")}
-                      </span>
-                      {!isThink ? (
-                        <span
-                          className="font-mono text-[10px]"
-                          style={{
-                            color: step.ok === false ? "#ef4444" : colors.secondaryText,
-                          }}
-                        >
-                          {step.ok === false ? "失败" : "成功"}
-                          {step.elapsed_ms != null ? ` · ${step.elapsed_ms}ms` : ""}
+        <div className="relative mt-2 pl-3.5">
+          <div
+            className="absolute left-[6px] top-1 bottom-1 w-px"
+            style={{ backgroundColor: spine }}
+            aria-hidden
+          />
+          <div className="space-y-2.5">
+            {steps.map((step, idx) => {
+              const isThink = step.kind === "think";
+              const isLast = idx === steps.length - 1;
+              return (
+                <div key={`${step.kind}-${idx}`} className="relative pl-2.5">
+                  <span
+                    className="absolute -left-[9px] top-1.5 h-1.5 w-1.5 rounded-full"
+                    style={{
+                      backgroundColor:
+                        streaming && isLast ? colors.primary : spine,
+                      boxShadow:
+                        streaming && isLast
+                          ? `0 0 6px ${colors.primary}`
+                          : undefined,
+                    }}
+                    aria-hidden
+                  />
+                  <div className="flex items-start gap-1.5 min-w-0">
+                    {isThink ? (
+                      <Brain
+                        className="w-3 h-3 mt-0.5 shrink-0 opacity-80"
+                        style={{ color: thinkMuted }}
+                      />
+                    ) : (
+                      <Wrench
+                        className="w-3 h-3 mt-0.5 shrink-0"
+                        style={{
+                          color: step.ok === false ? "#ef4444" : thinkMuted,
+                        }}
+                      />
+                    )}
+                    <div
+                      className="min-w-0 flex-1 text-[12px] leading-relaxed"
+                      style={{ color: thinkMutedSoft }}
+                    >
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>
+                          {step.label || (isThink ? "思考" : step.name || "工具")}
                         </span>
-                      ) : null}
-                    </div>
-                    {isThink && step.text ? (
-                      <p
-                        className="mt-0.5 whitespace-pre-wrap break-words"
-                        style={{ color: colors.secondaryText }}
-                      >
-                        {step.text}
-                      </p>
-                    ) : null}
-                    {!isThink ? (
-                      <div className="mt-0.5 space-y-0.5" style={{ color: colors.secondaryText }}>
-                        {step.detail ? (
-                          <p className="font-mono break-all opacity-90">{step.detail}</p>
-                        ) : null}
-                        {step.summary ? (
-                          <p className="break-words">{step.summary}</p>
+                        {!isThink ? (
+                          <span className="font-mono text-[10px] opacity-80">
+                            {step.ok === false ? "失败" : "成功"}
+                            {step.elapsed_ms != null
+                              ? ` · ${step.elapsed_ms}ms`
+                              : ""}
+                          </span>
                         ) : null}
                       </div>
-                    ) : null}
+                      {isThink && step.text ? (
+                        <p className="mt-0.5 whitespace-pre-wrap break-words opacity-90">
+                          {step.text}
+                        </p>
+                      ) : null}
+                      {!isThink ? (
+                        <div className="mt-0.5 space-y-0.5 opacity-90">
+                          {step.detail ? (
+                            <p className="font-mono text-[11px] break-all">
+                              {step.detail}
+                            </p>
+                          ) : null}
+                          {step.summary ? (
+                            <p className="break-words">{step.summary}</p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       ) : null}
     </div>
@@ -1252,6 +1295,7 @@ export default function AIAssistant({
                           themeMode={themeMode}
                           colors={colors}
                           defaultOpen={!!msg.streaming}
+                          streaming={!!msg.streaming}
                         />
                       ) : null}
                       <p className="whitespace-pre-wrap select-text break-words">
