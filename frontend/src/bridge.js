@@ -1756,6 +1756,80 @@ function mockCall(method, ...args) {
       } catch (e) {
         return Promise.resolve({ ok: false, error: String(e) });
       }
+    case 'ai_get_config':
+      return Promise.resolve({
+        ok: true,
+        config: {
+          enabled: false,
+          provider: 'openai_compat',
+          preset: 'custom',
+          base_url: 'https://api.openai.com/v1',
+          model: 'gpt-4o-mini',
+          temperature: 0.7,
+          timeout_s: 120,
+          has_api_key: false,
+          api_key_masked: '',
+          presets: [
+            { id: 'openai', label: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+            { id: 'deepseek', label: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+            { id: 'custom', label: '自定义', base_url: '', model: '' }
+          ]
+        }
+      });
+    case 'ai_set_config':
+      return Promise.resolve({
+        ok: true,
+        config: {
+          enabled: !!(args[0] && args[0].enabled),
+          provider: 'openai_compat',
+          preset: (args[0] && args[0].preset) || 'custom',
+          base_url: (args[0] && args[0].base_url) || '',
+          model: (args[0] && args[0].model) || '',
+          temperature: 0.7,
+          timeout_s: 120,
+          has_api_key: !!(args[0] && args[0].api_key),
+          api_key_masked: args[0] && args[0].api_key ? '****' : '',
+          presets: []
+        }
+      });
+    case 'ai_test_connection':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持连接 LLM' });
+    case 'ai_list_conversations':
+      return Promise.resolve({ ok: true, conversations: [] });
+    case 'ai_create_conversation':
+      return Promise.resolve({
+        ok: true,
+        conversation: {
+          id: 'mock-conv',
+          title: args[0] || '新对话',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          model: '',
+          message_count: 0
+        }
+      });
+    case 'ai_get_conversation':
+      return Promise.resolve({
+        ok: true,
+        meta: { id: args[0], title: '新对话', created_at: '', updated_at: '', model: '', message_count: 0 },
+        messages: []
+      });
+    case 'ai_rename_conversation':
+      return Promise.resolve({
+        ok: true,
+        conversation: {
+          id: args[0],
+          title: args[1] || '新对话',
+          created_at: '',
+          updated_at: new Date().toISOString(),
+          model: '',
+          message_count: 0
+        }
+      });
+    case 'ai_delete_conversation':
+      return Promise.resolve({ ok: true });
+    case 'ai_chat':
+      return Promise.resolve({ ok: false, error: '浏览器预览模式不支持 AI 对话' });
     default:
       return Promise.resolve({ ok: false, error: `未知方法: ${method}` });
   }
@@ -1879,5 +1953,15 @@ export const bridge = {
   getPluginMode: () => call('get_plugin_mode'),
   windowBeginResize: (edge = 'se') => call('window_begin_resize', edge),
   getHotkeys: () => call('get_hotkeys'),
-  setHotkeys: (prefs = {}) => call('set_hotkeys', prefs)
+  setHotkeys: (prefs = {}) => call('set_hotkeys', prefs),
+  // Flow AI
+  aiGetConfig: () => call('ai_get_config'),
+  aiSetConfig: (patch = {}) => call('ai_set_config', patch),
+  aiTestConnection: () => call('ai_test_connection'),
+  aiListConversations: () => call('ai_list_conversations'),
+  aiCreateConversation: (title = '新对话') => call('ai_create_conversation', title),
+  aiGetConversation: conversationId => call('ai_get_conversation', conversationId),
+  aiRenameConversation: (conversationId, title = '') => call('ai_rename_conversation', conversationId, title),
+  aiDeleteConversation: conversationId => call('ai_delete_conversation', conversationId),
+  aiChat: (conversationId, message = '') => call('ai_chat', conversationId, message)
 };

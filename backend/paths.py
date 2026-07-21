@@ -102,3 +102,11 @@ def set_notice_read_id(notice_id: str | None) -> str:
         cfg.pop("notice_read_id", None)
     save_app_config(cfg)
     return value
+
+
+def ai_dir(*, create: bool = False) -> Path:
+    """AI data root: conversations, future drafts — under resolved data_dir."""
+    root = get_data_dir(create=create) / "ai"
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
+    return root

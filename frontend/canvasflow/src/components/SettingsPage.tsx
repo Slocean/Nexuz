@@ -26,7 +26,8 @@ import {
   Type,
   Terminal,
   X,
-  PanelsTopLeft
+  PanelsTopLeft,
+  Sparkles
 } from 'lucide-react';
 import { ThemeMode, ThemeName } from '../types';
 import { getThemeColors } from '../theme';
@@ -315,6 +316,7 @@ function SettingsSection({
 
 const SETTINGS_SECTION_IDS = [
   'about',
+  'ai',
   'data',
   'userBlocks',
   'announce',
@@ -377,6 +379,18 @@ export default function SettingsPage({
 
   const [diagLogging, setDiagLogging] = useState(false);
 
+  type AiPreset = { id: string; label: string; base_url: string; model: string };
+  const [aiPreset, setAiPreset] = useState('custom');
+  const [aiBaseUrl, setAiBaseUrl] = useState('https://api.openai.com/v1');
+  const [aiModel, setAiModel] = useState('gpt-4o-mini');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiHasKey, setAiHasKey] = useState(false);
+  const [aiKeyMasked, setAiKeyMasked] = useState('');
+  const [aiPresets, setAiPresets] = useState<AiPreset[]>([]);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState('');
+  const [aiDirty, setAiDirty] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -399,6 +413,105 @@ export default function SettingsPage({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await bridge.aiGetConfig?.();
+        if (cancelled || !res?.ok || !res.config) return;
+        const c = res.config;
+        setAiPreset(c.preset || 'custom');
+        setAiBaseUrl(c.base_url || '');
+        setAiModel(c.model || '');
+        setAiHasKey(!!c.has_api_key);
+        setAiKeyMasked(c.api_key_masked || '');
+        setAiApiKey('');
+        setAiPresets(Array.isArray(c.presets) ? c.presets : []);
+        setAiDirty(false);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const applyAiPreset = (presetId: string) => {
+    setAiPreset(presetId);
+    setAiDirty(true);
+    const found = aiPresets.find(p => p.id === presetId);
+    if (found && presetId !== 'custom') {
+      if (found.base_url) setAiBaseUrl(found.base_url);
+      if (found.model) setAiModel(found.model);
+    }
+  };
+
+  const handleSaveAiConfig = async () => {
+    if (aiBusy) return;
+    setAiBusy(true);
+    setAiMsg('正在保存…');
+    try {
+      const patch: Record<string, unknown> = {
+        enabled: true,
+        provider: 'openai_compat',
+        preset: aiPreset,
+        base_url: aiBaseUrl.trim(),
+        model: aiModel.trim(),
+        keep_existing_key: true
+      };
+      if (aiApiKey.trim()) {
+        patch.api_key = aiApiKey.trim();
+      }
+      const res = await bridge.aiSetConfig(patch);
+      if (!res?.ok) {
+        setAiMsg(res?.error || '保存失败');
+        return;
+      }
+      const c = res.config || {};
+      setAiPreset(c.preset || aiPreset);
+      setAiBaseUrl(c.base_url || aiBaseUrl);
+      setAiModel(c.model || aiModel);
+      setAiHasKey(!!c.has_api_key);
+      setAiKeyMasked(c.api_key_masked || '');
+      setAiApiKey('');
+      setAiDirty(false);
+      setAiMsg('已保存');
+      appendAuditLog?.('已更新 Flow AI 配置', { preset: c.preset, model: c.model });
+      try {
+        window.dispatchEvent(new CustomEvent('nexuz-ai-config-changed', { detail: c }));
+      } catch {
+        /* ignore */
+      }
+    } catch (e: any) {
+      setAiMsg(String(e?.message || e || '保存失败'));
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const handleTestAiConnection = async () => {
+    if (aiBusy) return;
+    if (aiDirty) {
+      setAiMsg('请先保存配置再测试连接');
+      return;
+    }
+    setAiBusy(true);
+    setAiMsg('正在测试连接…');
+    try {
+      const res = await bridge.aiTestConnection();
+      if (!res?.ok) {
+        setAiMsg(res?.error || '连接失败');
+        return;
+      }
+      setAiMsg(`连接成功（模型 ${res.model || aiModel}）`);
+    } catch (e: any) {
+      setAiMsg(String(e?.message || e || '连接失败'));
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const handleDiagLoggingChange = async (enabled: boolean) => {
     setDiagLogging(enabled);
@@ -1219,6 +1332,115 @@ export default function SettingsPage({
           {updateMsg ? (
             <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
               {updateMsg}
+            </p>
+          ) : null}
+        </SettingsSection>
+
+        <SettingsSection
+          title="Flow AI"
+          icon={<Sparkles className="w-4 h-4" />}
+          open={openSections.ai}
+          onToggle={() => toggleSection('ai')}
+          colors={colors}
+          headerRight={
+            <HelpHint
+              text="API Key 仅保存在本机配置中，不会写入流程文件，也不会发到前端明文。支持任意 OpenAI 兼容网关（DeepSeek、通义、Ollama 等），可自定义 Base URL。"
+              colors={colors}
+              themeMode={themeMode}
+            />
+          }>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                厂商预设
+              </Label>
+              <Select value={aiPreset || 'custom'} onValueChange={v => applyAiPreset(v)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="选择预设" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(aiPresets.length
+                    ? aiPresets
+                    : [
+                        { id: 'openai', label: 'OpenAI' },
+                        { id: 'deepseek', label: 'DeepSeek' },
+                        { id: 'custom', label: '自定义' }
+                      ]
+                  ).map(p => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                模型
+              </Label>
+              <Input
+                value={aiModel}
+                onChange={e => {
+                  setAiModel(e.target.value);
+                  setAiDirty(true);
+                }}
+                placeholder="如 deepseek-chat / gpt-4o-mini"
+                className="h-9 font-mono text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+              Base URL
+            </Label>
+            <Input
+              value={aiBaseUrl}
+              onChange={e => {
+                setAiBaseUrl(e.target.value);
+                setAiDirty(true);
+              }}
+              placeholder="https://api.openai.com/v1"
+              className="h-9 font-mono text-xs"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+              API Key
+            </Label>
+            <Input
+              type="password"
+              value={aiApiKey}
+              onChange={e => {
+                setAiApiKey(e.target.value);
+                setAiDirty(true);
+              }}
+              placeholder={aiHasKey ? `已保存 ${aiKeyMasked || '****'}（留空则保持不变）` : '粘贴厂商 API Key'}
+              className="h-9 font-mono text-xs"
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" disabled={aiBusy} onClick={() => void handleSaveAiConfig()}>
+              保存
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={aiBusy}
+              onClick={() => void handleTestAiConnection()}>
+              测试连接
+            </Button>
+            {aiDirty ? (
+              <span className="text-xs text-amber-600 dark:text-amber-400">有未保存的更改</span>
+            ) : null}
+          </div>
+          {aiMsg ? (
+            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+              {aiMsg}
             </p>
           ) : null}
         </SettingsSection>

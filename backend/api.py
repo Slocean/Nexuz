@@ -3062,3 +3062,91 @@ class Api:
         if not picked.get("ok"):
             return picked
         return self.capture_template_from_region(picked["region"], filename=filename)
+
+    # ── Flow AI (Phase 0: LLM client + conversations) ─────────────────
+
+    def ai_get_config(self) -> dict:
+        from backend.core.ai.config import public_ai_config
+
+        try:
+            return {"ok": True, "config": public_ai_config()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_set_config(self, patch: dict | None = None) -> dict:
+        from backend.core.ai.config import public_ai_config, set_ai_config
+
+        try:
+            cfg = set_ai_config(patch if isinstance(patch, dict) else {})
+            return {"ok": True, "config": public_ai_config(cfg)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_test_connection(self) -> dict:
+        from backend.core.ai.session_manager import get_session_manager
+
+        try:
+            return get_session_manager().test_connection()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_list_conversations(self) -> dict:
+        from backend.core.ai.session_manager import get_session_manager
+
+        try:
+            items = get_session_manager().list_conversations()
+            return {"ok": True, "conversations": items}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_create_conversation(self, title: str = "新对话") -> dict:
+        from backend.core.ai.session_manager import get_session_manager
+
+        try:
+            meta = get_session_manager().create_conversation(title=title or "新对话")
+            return {"ok": True, "conversation": meta}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_get_conversation(self, conversation_id: str) -> dict:
+        from backend.core.ai.session_manager import get_session_manager
+
+        try:
+            data = get_session_manager().get_conversation(str(conversation_id or ""))
+            if data is None:
+                return {"ok": False, "error": "会话不存在"}
+            return {"ok": True, **data}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_rename_conversation(self, conversation_id: str, title: str = "") -> dict:
+        from backend.core.ai.session_manager import get_session_manager
+
+        try:
+            meta = get_session_manager().rename_conversation(
+                str(conversation_id or ""), str(title or "")
+            )
+            if meta is None:
+                return {"ok": False, "error": "会话不存在"}
+            return {"ok": True, "conversation": meta}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_delete_conversation(self, conversation_id: str) -> dict:
+        from backend.core.ai.session_manager import get_session_manager
+
+        try:
+            ok = get_session_manager().delete_conversation(str(conversation_id or ""))
+            if not ok:
+                return {"ok": False, "error": "会话不存在"}
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_chat(self, conversation_id: str, message: str = "") -> dict:
+        from backend.core.ai.session_manager import get_session_manager
+
+        try:
+            return get_session_manager().chat(str(conversation_id or ""), str(message or ""))
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}

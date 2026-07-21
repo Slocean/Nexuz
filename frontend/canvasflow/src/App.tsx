@@ -192,7 +192,6 @@ export default function App() {
 }
 
 function AppShell() {
-  const showFlowAi = Boolean((import.meta as any).env?.DEV);
   const { confirm, alert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
   const flow = useFlowStore((s) => s.flow);
@@ -1690,7 +1689,7 @@ function AppShell() {
         hotkeyLabels={hotkeyLabels}
         onRunWorkflow={handleRunWorkflow}
         isExecuting={isExecuting}
-        showFlowAi={showFlowAi}
+        showFlowAi
         onToggleAssistant={() => setIsAssistantOpen(!isAssistantOpen)}
         isAssistantOpen={isAssistantOpen}
         onClearCanvas={handleClearCanvas}
@@ -1927,14 +1926,16 @@ function AppShell() {
 
         {screenPickDialog}
 
-        {showFlowAi ? (
+        {isAssistantOpen ? (
           <AIAssistant
             isOpen={isAssistantOpen}
             onClose={() => setIsAssistantOpen(false)}
             themeName={themeName as any}
             themeMode={themeMode as any}
-            workflowContext={nodes}
-            onAddCustomNode={(nodeData) => handleAddDemoNode(nodeData.subType)}
+            onOpenSettings={() => {
+              setIsAssistantOpen(false);
+              setViewMode('settings');
+            }}
           />
         ) : null}
       </div>

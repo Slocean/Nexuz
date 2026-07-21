@@ -96,7 +96,7 @@ export default function Toolbar({
   setThemeMode,
   onRunWorkflow,
   isExecuting,
-  showFlowAi = false,
+  showFlowAi = true,
   onToggleAssistant,
   isAssistantOpen = false,
   onClearCanvas,
@@ -656,7 +656,7 @@ export default function Toolbar({
                 size="icon"
                 className="h-8 w-8"
                 onClick={onToggleAssistant}
-                title="Flow AI（开发预览）"
+                title="Flow AI"
                 style={isAssistantOpen ? { color: colors.primary } : undefined}>
                 <Sparkles className="w-4 h-4" />
               </Button>
