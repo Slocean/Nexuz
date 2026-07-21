@@ -17,6 +17,92 @@ from backend.core.ai.tool_catalog import (
 CaptureFn = Callable[..., dict[str, Any]]
 
 
+_TOOL_LABELS = {
+    "list_blocks": "查看积木目录",
+    "get_block_schema": "读取积木参数",
+    "draft_add_node": "添加节点",
+    "draft_update_node": "更新节点",
+    "draft_remove_node": "删除节点",
+    "draft_connect": "连接节点",
+    "draft_set_entry": "设置入口",
+    "draft_get": "查看草稿",
+    "capture_screen": "截取屏幕",
+    "locate_text_on_screen": "OCR 文字定位",
+    "pack_point": "打包坐标",
+    "bind_point_to_node": "绑定点位到节点",
+}
+
+
+def _tool_result_summary(name: str, result: dict[str, Any]) -> str:
+    if not result.get("ok", True) and result.get("error"):
+        return str(result["error"])[:160]
+    if name == "list_blocks":
+        return f"共 {result.get('count', 0)} 个积木"
+    if name == "get_block_schema":
+        schema = result.get("schema") or {}
+        return f"{schema.get('label') or schema.get('type') or 'schema'}"
+    if name == "draft_add_node":
+        return f"已添加 {result.get('type')}（{result.get('node_id')}）"
+    if name == "draft_update_node":
+        return f"已更新 {result.get('node_id')}"
+    if name == "draft_remove_node":
+        return f"已删除 {result.get('removed')}"
+    if name == "draft_connect":
+        return "已连线"
+    if name == "draft_set_entry":
+        return f"入口 → {result.get('entry')}"
+    if name == "draft_get":
+        summary = result.get("summary") or {}
+        return f"草稿 {summary.get('node_count', 0)} 节点"
+    if name == "capture_screen":
+        return f"截图 {result.get('width')}×{result.get('height')}（{result.get('shot_id')}）"
+    if name == "locate_text_on_screen":
+        return (
+            f"命中「{result.get('matched_text')}」→ ({result.get('x')},{result.get('y')}) "
+            f"ref={result.get('point_ref')}"
+        )
+    if name == "pack_point":
+        return f"点 ({result.get('x')},{result.get('y')}) ref={result.get('point_ref')}"
+    if name == "bind_point_to_node":
+        return f"{result.get('point_ref')} → 节点 {result.get('node_id')}"
+    return "完成"
+
+
+def _args_brief(name: str, args: dict[str, Any]) -> str:
+    if not args:
+        return ""
+    if name == "draft_add_node":
+        parts = [str(args.get("type") or "")]
+        if args.get("node_id"):
+            parts.append(f"id={args['node_id']}")
+        params = args.get("params") if isinstance(args.get("params"), dict) else {}
+        if params.get("text"):
+            parts.append(f"text={params['text']!r}")
+        if params.get("ms") is not None:
+            parts.append(f"ms={params['ms']}")
+        if args.get("point_ref"):
+            parts.append(f"point_ref={args['point_ref']}")
+        return " ".join(p for p in parts if p)
+    if name == "draft_connect":
+        return f"{args.get('from_id')} -{args.get('edge') or 'next'}→ {args.get('to_id')}"
+    if name == "locate_text_on_screen":
+        return f"「{args.get('match_text')}」 mode={args.get('match_mode') or 'contains'}"
+    if name == "get_block_schema":
+        return str(args.get("type") or "")
+    if name == "list_blocks" and args.get("category"):
+        return str(args.get("category"))
+    if name == "bind_point_to_node":
+        return f"{args.get('point_ref')} → {args.get('node_id')}"
+    if name == "pack_point":
+        return f"({args.get('x')},{args.get('y')})"
+    # compact JSON
+    try:
+        s = json.dumps(args, ensure_ascii=False, default=str)
+    except Exception:
+        s = str(args)
+    return s[:120]
+
+
 class ToolRuntime:
     def __init__(
         self,
@@ -52,6 +138,7 @@ class ToolRuntime:
             "ok": bool(result.get("ok", True)) if isinstance(result, dict) else True,
             "error": (result.get("error") if isinstance(result, dict) else None),
             "elapsed_ms": int((time.time() - started) * 1000),
+            "summary": _tool_result_summary(name, result if isinstance(result, dict) else {}),
         }
         tool_trace.append(entry)
         if not isinstance(result, dict):

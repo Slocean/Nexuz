@@ -174,9 +174,15 @@ class OpenAiCompatClient:
         except Exception as exc:
             raise LlmError("响应不是合法 JSON") from exc
 
-        content, tool_calls = _extract_message(data)
+        content, tool_calls, reasoning = _extract_message(data)
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
-        return LlmTurn(content=content, tool_calls=tool_calls, usage=usage, raw=data)
+        return LlmTurn(
+            content=content,
+            tool_calls=tool_calls,
+            reasoning=reasoning,
+            usage=usage,
+            raw=data,
+        )
 
 
 def _extract_error_detail(resp: httpx.Response) -> str:
@@ -196,7 +202,21 @@ def _extract_error_detail(resp: httpx.Response) -> str:
     return text[:300] if text else resp.reason_phrase or "unknown error"
 
 
-def _extract_message(data: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+def _extract_reasoning(message: dict[str, Any], first: dict[str, Any]) -> str:
+    """Pull reasoning / thinking fields from OpenAI-compat vendors."""
+    for key in ("reasoning_content", "reasoning", "thinking"):
+        val = message.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    # Some gateways put it on the choice
+    for key in ("reasoning_content", "reasoning"):
+        val = first.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _extract_message(data: dict[str, Any]) -> tuple[str, list[dict[str, Any]], str]:
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
         raise LlmError("响应缺少 choices")
@@ -206,17 +226,19 @@ def _extract_message(data: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     message = first.get("message")
     content = ""
     tool_calls: list[dict[str, Any]] = []
+    reasoning = ""
     if isinstance(message, dict):
         raw_content = message.get("content")
         if raw_content is not None:
             content = str(raw_content)
+        reasoning = _extract_reasoning(message, first)
         raw_calls = message.get("tool_calls")
         if isinstance(raw_calls, list):
             tool_calls = [_normalize_tool_call(c) for c in raw_calls if isinstance(c, dict)]
             tool_calls = [c for c in tool_calls if c.get("id") and c.get("name")]
-        return content, tool_calls
+        return content, tool_calls, reasoning
     if first.get("text") is not None:
-        return str(first["text"]), []
+        return str(first["text"]), [], ""
     raise LlmError("响应缺少 assistant content")
 
 

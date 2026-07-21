@@ -3157,6 +3157,7 @@ class Api:
         message: str = "",
         base_flow=None,
         attach_screenshot: bool = False,
+        mode: str = "flow",
     ) -> dict:
         try:
             flow = None
@@ -3167,6 +3168,7 @@ class Api:
             return self._ai_session().chat(
                 str(conversation_id or ""),
                 str(message or ""),
+                mode=str(mode or "flow"),
                 base_flow=flow,
                 attach_screenshot=bool(attach_screenshot),
             )

@@ -1980,13 +1980,14 @@ export const bridge = {
   aiGetConversation: conversationId => call('ai_get_conversation', conversationId),
   aiRenameConversation: (conversationId, title = '') => call('ai_rename_conversation', conversationId, title),
   aiDeleteConversation: conversationId => call('ai_delete_conversation', conversationId),
-  aiChat: (conversationId, message = '', baseFlow = null, attachScreenshot = false) =>
+  aiChat: (conversationId, message = '', baseFlow = null, attachScreenshot = false, mode = 'flow') =>
     call(
       'ai_chat',
       conversationId,
       message,
       baseFlow != null ? (typeof baseFlow === 'string' ? baseFlow : JSON.stringify(baseFlow)) : null,
-      !!attachScreenshot
+      !!attachScreenshot,
+      mode === 'chat' ? 'chat' : 'flow'
     ),
   aiGetDraft: conversationId => call('ai_get_draft', conversationId),
   aiOverridePoint: (conversationId, pointRef, x, y) =>

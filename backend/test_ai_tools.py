@@ -368,7 +368,7 @@ def test_session_tool_loop_mock_llm(tmp_path: Path, monkeypatch):
         }
     )
 
-    res = mgr.chat(meta.id, "先等待 1 秒再输入 hello")
+    res = mgr.chat(meta.id, "先等待 1 秒再输入 hello", mode="flow")
     assert res["ok"] is True, res
     nodes = {n["id"]: n for n in res["draft_summary"]["nodes"]}
     assert "d1" in nodes
@@ -376,6 +376,48 @@ def test_session_tool_loop_mock_llm(tmp_path: Path, monkeypatch):
     draft = store.get(meta.id)["draft"]
     assert draft["nodes"]["d1"]["next"] == "t1"
     assert "已生成" in res["assistant_message"]["content"]
+    process = res.get("process") or []
+    assert any(p.get("kind") == "tool" and p.get("name") == "draft_add_node" for p in process)
+    assert any(p.get("kind") == "tool" and p.get("name") == "draft_connect" for p in process)
+    assert res["assistant_message"].get("process")
+
+
+def test_chat_mode_no_tools(tmp_path: Path, monkeypatch):
+    store = ConversationStore(root=tmp_path / "conversations")
+    meta = store.create(title="t")
+
+    class FakeClient:
+        def chat(self, messages, tools=None, **kwargs):
+            assert tools is None
+            sys_msg = messages[0]["content"]
+            assert "对话模式" in sys_msg
+            return LlmTurn(content="这是普通对话回复", tool_calls=[])
+
+    import backend.core.ai.session_manager as sm
+    from backend.core.ai import config as ai_config
+
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        ai_config,
+        "load_app_config",
+        lambda: json.loads(cfg_file.read_text(encoding="utf-8") or "{}"),
+    )
+    monkeypatch.setattr(
+        ai_config,
+        "save_app_config",
+        lambda cfg: cfg_file.write_text(json.dumps(cfg), encoding="utf-8"),
+    )
+    monkeypatch.setattr(sm, "create_llm_client", lambda cfg=None: FakeClient())
+    ai_config.set_ai_config(
+        {"base_url": "https://api.openai.com/v1", "api_key": "sk-test", "model": "gpt-test"}
+    )
+    mgr = SessionManager(store=store)
+    res = mgr.chat(meta.id, "delay 积木怎么用？", mode="chat")
+    assert res["ok"] is True
+    assert res["mode"] == "chat"
+    assert res["tool_steps"] == 0
+    assert "普通对话" in res["assistant_message"]["content"]
 
 
 def test_assistant_tool_call_message_shape():

@@ -12,6 +12,10 @@ import {
   Camera,
   Check,
   RotateCcw,
+  ChevronDown,
+  ChevronRight,
+  Wrench,
+  Brain,
 } from "lucide-react";
 import { ThemeName, ThemeMode } from "../types";
 import { getThemeColors } from "../theme";
@@ -29,11 +33,23 @@ import PointConfirmPanel, {
   AiShotPreview,
 } from "./PointConfirmPanel";
 
+interface ProcessStep {
+  kind: "think" | "tool" | string;
+  label?: string;
+  text?: string;
+  name?: string;
+  ok?: boolean;
+  detail?: string;
+  summary?: string;
+  elapsed_ms?: number;
+}
+
 interface ChatMsg {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  process?: ProcessStep[];
 }
 
 interface ConversationItem {
@@ -84,8 +100,140 @@ function formatTs(isoOrLocal?: string): string {
   return isoOrLocal;
 }
 
-const WELCOME =
-  "你好！我是 Nexuz Flow AI。可以用自然语言描述自动化意图，我会编排积木草稿并在需要时截图 OCR 取点。确认后即可应用到画布。";
+const WELCOME_CHAT =
+  "你好！我是 Nexuz Flow AI（对话模式）。可以问积木、取点、流程设计等问题。需要自动生成流程时，请切换到「编排」。";
+
+const WELCOME_FLOW =
+  "你好！我是 Nexuz Flow AI（编排模式）。用自然语言描述自动化意图，我会编排积木草稿并在需要时截图 OCR 取点。确认后即可应用到画布。";
+
+const MODE_STORAGE_KEY = "nexuz.ai.mode";
+
+function loadAiMode(): "chat" | "flow" {
+  try {
+    const v = localStorage.getItem(MODE_STORAGE_KEY);
+    if (v === "chat" || v === "flow") return v;
+  } catch {
+    /* ignore */
+  }
+  return "chat";
+}
+
+function saveAiMode(mode: "chat" | "flow") {
+  try {
+    localStorage.setItem(MODE_STORAGE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+function ProcessTimeline({
+  steps,
+  themeMode,
+  colors,
+  defaultOpen = true,
+}: {
+  steps: ProcessStep[];
+  themeMode: ThemeMode;
+  colors: ReturnType<typeof getThemeColors>;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (!steps.length) return null;
+
+  const thinkCount = steps.filter((s) => s.kind === "think").length;
+  const toolCount = steps.filter((s) => s.kind === "tool").length;
+  const mutedBg =
+    themeMode === "light" ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)";
+
+  return (
+    <div
+      className="mb-2 rounded-xl border overflow-hidden"
+      style={{ borderColor: colors.border, backgroundColor: mutedBg }}
+    >
+      <button
+        type="button"
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-left"
+        style={{ color: colors.secondaryText }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
+        <span className="font-medium" style={{ color: colors.text }}>
+          思考与编排过程
+        </span>
+        <span className="ml-auto font-mono tabular-nums">
+          {thinkCount ? `${thinkCount} 思考` : ""}
+          {thinkCount && toolCount ? " · " : ""}
+          {toolCount ? `${toolCount} 步骤` : ""}
+        </span>
+      </button>
+      {open ? (
+        <div className="px-2.5 pb-2 space-y-1.5 max-h-56 overflow-y-auto">
+          {steps.map((step, idx) => {
+            const isThink = step.kind === "think";
+            return (
+              <div
+                key={`${step.kind}-${idx}`}
+                className="rounded-lg px-2 py-1.5 text-[11px] leading-relaxed border"
+                style={{
+                  borderColor: colors.border,
+                  backgroundColor:
+                    themeMode === "light" ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.2)",
+                }}
+              >
+                <div className="flex items-start gap-1.5">
+                  {isThink ? (
+                    <Brain className="w-3 h-3 mt-0.5 shrink-0" style={{ color: colors.primary }} />
+                  ) : (
+                    <Wrench
+                      className="w-3 h-3 mt-0.5 shrink-0"
+                      style={{ color: step.ok === false ? "#ef4444" : colors.primary }}
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium" style={{ color: colors.text }}>
+                        {step.label || (isThink ? "思考" : step.name || "工具")}
+                      </span>
+                      {!isThink ? (
+                        <span
+                          className="font-mono text-[10px]"
+                          style={{
+                            color: step.ok === false ? "#ef4444" : colors.secondaryText,
+                          }}
+                        >
+                          {step.ok === false ? "失败" : "成功"}
+                          {step.elapsed_ms != null ? ` · ${step.elapsed_ms}ms` : ""}
+                        </span>
+                      ) : null}
+                    </div>
+                    {isThink && step.text ? (
+                      <p
+                        className="mt-0.5 whitespace-pre-wrap break-words"
+                        style={{ color: colors.secondaryText }}
+                      >
+                        {step.text}
+                      </p>
+                    ) : null}
+                    {!isThink ? (
+                      <div className="mt-0.5 space-y-0.5" style={{ color: colors.secondaryText }}>
+                        {step.detail ? (
+                          <p className="font-mono break-all opacity-90">{step.detail}</p>
+                        ) : null}
+                        {step.summary ? (
+                          <p className="break-words">{step.summary}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function AIAssistant({
   isOpen,
@@ -115,9 +263,19 @@ export default function AIAssistant({
   const [toolTrace, setToolTrace] = useState<{ name?: string; ok?: boolean }[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [applying, setApplying] = useState(false);
+  const [aiMode, setAiMode] = useState<"chat" | "flow">(loadAiMode);
 
   const colors = getThemeColors(themeName, themeMode);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isFlowMode = aiMode === "flow";
+  const welcomeText = isFlowMode ? WELCOME_FLOW : WELCOME_CHAT;
+
+  const switchMode = useCallback((next: "chat" | "flow") => {
+    setAiMode(next);
+    saveAiMode(next);
+    setAttachShot(false);
+    setStatusError("");
+  }, []);
 
   const sidebarBg =
     themeMode === "light" ? "rgba(0, 0, 0, 0.02)" : "rgba(255, 255, 255, 0.03)";
@@ -169,6 +327,7 @@ export default function AIAssistant({
         role: m.role === "assistant" ? "assistant" : "user",
         content: String(m.content || ""),
         timestamp: formatTs(m.timestamp),
+        process: Array.isArray(m.process) ? m.process : undefined,
       })) as ChatMsg[];
       setMessages(
         msgs.length
@@ -177,25 +336,27 @@ export default function AIAssistant({
               {
                 id: "welcome",
                 role: "assistant",
-                content: WELCOME,
+                content: welcomeText,
                 timestamp: formatTs(),
               },
             ]
       );
       setStatusError("");
-      const draftRes = await bridge.aiGetDraft(id);
-      if (draftRes?.ok) {
-        applyDraftState(draftRes);
-      } else {
-        setDraftSummary(null);
-        setDraftDiff(null);
-        setPoints([]);
-        setShot(null);
-        setToolTrace([]);
-        setWarnings([]);
+      if (isFlowMode) {
+        const draftRes = await bridge.aiGetDraft(id);
+        if (draftRes?.ok) {
+          applyDraftState(draftRes);
+        } else {
+          setDraftSummary(null);
+          setDraftDiff(null);
+          setPoints([]);
+          setShot(null);
+          setToolTrace([]);
+          setWarnings([]);
+        }
       }
     },
-    [applyDraftState]
+    [applyDraftState, isFlowMode, welcomeText]
   );
 
   const refreshList = useCallback(async () => {
@@ -239,6 +400,26 @@ export default function AIAssistant({
     void ensureConversation();
   }, [isOpen, ensureConversation]);
 
+  // Refresh welcome bubble when mode changes and chat is empty / only welcome
+  useEffect(() => {
+    setMessages((prev) => {
+      if (prev.length === 1 && prev[0]?.id === "welcome") {
+        return [{ ...prev[0], content: welcomeText }];
+      }
+      if (prev.length === 0) {
+        return [
+          {
+            id: "welcome",
+            role: "assistant",
+            content: welcomeText,
+            timestamp: formatTs(),
+          },
+        ];
+      }
+      return prev;
+    });
+  }, [aiMode, welcomeText]);
+
   const handleNewChat = async () => {
     if (isLoading) return;
     const res = await bridge.aiCreateConversation("新对话");
@@ -272,9 +453,9 @@ export default function AIAssistant({
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!inputValue.trim() && !attachShot) || isLoading || !activeId) return;
+    if ((!inputValue.trim() && !(isFlowMode && attachShot)) || isLoading || !activeId) return;
 
-    const content = inputValue.trim() || (attachShot ? "请根据截图帮忙编排/取点" : "");
+    const content = inputValue.trim() || (attachShot && isFlowMode ? "请根据截图帮忙编排/取点" : "");
     setInputValue("");
     setIsLoading(true);
     setStatusError("");
@@ -282,7 +463,7 @@ export default function AIAssistant({
     const optimistic: ChatMsg = {
       id: `local-${Date.now()}`,
       role: "user",
-      content: attachShot ? `${content}\n（附带屏幕截图）` : content,
+      content: attachShot && isFlowMode ? `${content}\n（附带屏幕截图）` : content,
       timestamp: formatTs(),
     };
     setMessages((prev) => {
@@ -290,11 +471,17 @@ export default function AIAssistant({
       return [...withoutWelcome, optimistic];
     });
 
-    const useShot = attachShot;
+    const useShot = isFlowMode && attachShot;
     setAttachShot(false);
 
     try {
-      const res = await bridge.aiChat(activeId, content, currentFlow || null, useShot);
+      const res = await bridge.aiChat(
+        activeId,
+        content,
+        isFlowMode ? currentFlow || null : null,
+        useShot,
+        aiMode
+      );
       if (!res?.ok) {
         setStatusError(res?.error || "对话失败");
         setMessages((prev) => [
@@ -324,6 +511,11 @@ export default function AIAssistant({
           role: "assistant",
           content: String(assistant?.content || ""),
           timestamp: formatTs(assistant?.timestamp),
+          process: Array.isArray(assistant?.process)
+            ? assistant.process
+            : Array.isArray(res.process)
+              ? res.process
+              : undefined,
         };
         return [...withoutOptimistic, userSaved, asst];
       });
@@ -336,7 +528,9 @@ export default function AIAssistant({
           )
         );
       }
-      applyDraftState(res);
+      if (isFlowMode) {
+        applyDraftState(res);
+      }
       await refreshList();
     } catch (err: any) {
       setMessages((prev) => [
@@ -418,6 +612,38 @@ export default function AIAssistant({
             />
             <span className="font-display font-semibold text-base tracking-wide shrink-0">AI</span>
           </div>
+          <div
+            className="flex items-center rounded-lg p-0.5 shrink-0 ml-1"
+            style={{
+              backgroundColor:
+                themeMode === "light" ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)",
+            }}
+          >
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
+              style={{
+                backgroundColor: !isFlowMode ? colors.primary : "transparent",
+                color: !isFlowMode ? "#fff" : colors.secondaryText,
+              }}
+              onClick={() => switchMode("chat")}
+              disabled={isLoading}
+            >
+              对话
+            </button>
+            <button
+              type="button"
+              className="px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
+              style={{
+                backgroundColor: isFlowMode ? colors.primary : "transparent",
+                color: isFlowMode ? "#fff" : colors.secondaryText,
+              }}
+              onClick={() => switchMode("flow")}
+              disabled={isLoading}
+            >
+              编排
+            </button>
+          </div>
           <p
             className="text-xs font-mono tracking-wider truncate ml-1"
             style={{ color: colors.secondaryText }}
@@ -473,7 +699,7 @@ export default function AIAssistant({
         </div>
       ) : null}
 
-      {hasDraft ? (
+      {isFlowMode && hasDraft ? (
         <div
           className="px-4 py-2 border-b space-y-1.5 shrink-0"
           style={{ borderColor: colors.border }}
@@ -531,7 +757,7 @@ export default function AIAssistant({
         </div>
       ) : null}
 
-      {activeId && (shot || points.length > 0) ? (
+      {isFlowMode && activeId && (shot || points.length > 0) ? (
         <PointConfirmPanel
           conversationId={activeId}
           shot={shot}
@@ -676,6 +902,14 @@ export default function AIAssistant({
                         isAi ? "rounded-tl-none" : "border-transparent rounded-tr-none"
                       }`}
                     >
+                      {isAi && msg.process && msg.process.length > 0 ? (
+                        <ProcessTimeline
+                          steps={msg.process}
+                          themeMode={themeMode}
+                          colors={colors}
+                          defaultOpen={true}
+                        />
+                      ) : null}
                       <p className="whitespace-pre-wrap select-text break-words">{msg.content}</p>
                     </div>
                     <div
@@ -709,7 +943,7 @@ export default function AIAssistant({
                   }}
                 >
                   <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: colors.primary }} />
-                  <span className="italic">编排中…</span>
+                  <span className="italic">{isFlowMode ? "编排中…" : "思考中…"}</span>
                 </div>
               </div>
             )}
@@ -721,33 +955,47 @@ export default function AIAssistant({
             style={{ borderColor: colors.border }}
           >
             <div className="relative flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                title={attachShot ? "将附带截图" : "附带屏幕截图"}
-                style={attachShot ? { color: colors.primary } : { color: colors.secondaryText }}
-                onClick={() => setAttachShot((v) => !v)}
-                disabled={isLoading || !activeId}
-              >
-                <Camera className="w-4 h-4" />
-              </Button>
+              {isFlowMode ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  title={attachShot ? "将附带截图" : "附带屏幕截图"}
+                  style={attachShot ? { color: colors.primary } : { color: colors.secondaryText }}
+                  onClick={() => setAttachShot((v) => !v)}
+                  disabled={isLoading || !activeId}
+                >
+                  <Camera className="w-4 h-4" />
+                </Button>
+              ) : null}
               <Input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder={attachShot ? "描述意图（将附带截图）…" : "描述自动化意图…"}
+                placeholder={
+                  isFlowMode
+                    ? attachShot
+                      ? "描述意图（将附带截图）…"
+                      : "描述自动化意图…"
+                    : "输入消息…"
+                }
                 className="pr-11 h-11 rounded-2xl text-sm"
                 disabled={isLoading || !activeId}
               />
               <Button
                 type="submit"
                 size="icon"
-                disabled={(!inputValue.trim() && !attachShot) || isLoading || !activeId}
+                disabled={
+                  (!inputValue.trim() && !(isFlowMode && attachShot)) ||
+                  isLoading ||
+                  !activeId
+                }
                 className="absolute right-1.5 h-8 w-8"
                 style={{
                   backgroundColor:
-                    (inputValue.trim() || attachShot) && !isLoading ? colors.primary : undefined,
+                    (inputValue.trim() || (isFlowMode && attachShot)) && !isLoading
+                      ? colors.primary
+                      : undefined,
                 }}
               >
                 <Send className="w-3.5 h-3.5" />

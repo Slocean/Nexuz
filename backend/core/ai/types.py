@@ -12,22 +12,31 @@ class ChatMessage:
     content: str
     timestamp: str = ""
     id: str = ""
+    # Timeline of thinking + orchestration for this assistant turn.
+    # [{kind: "think"|"tool", text?, name?, ok?, detail?, elapsed_ms?}, ...]
+    process: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "id": self.id,
             "role": self.role,
             "content": self.content,
             "timestamp": self.timestamp,
         }
+        if self.process:
+            out["process"] = self.process
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ChatMessage:
+        raw_proc = data.get("process")
+        process = [p for p in raw_proc if isinstance(p, dict)] if isinstance(raw_proc, list) else []
         return cls(
             id=str(data.get("id") or ""),
             role=str(data.get("role") or "user"),
             content=str(data.get("content") or ""),
             timestamp=str(data.get("timestamp") or ""),
+            process=process,
         )
 
 
@@ -37,6 +46,7 @@ class LlmTurn:
 
     content: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    reasoning: str = ""
     usage: dict[str, Any] | None = None
     raw: dict[str, Any] | None = None
 
