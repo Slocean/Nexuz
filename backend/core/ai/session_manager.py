@@ -595,6 +595,9 @@ class SessionManager:
                 outline=agent_state.get("outline")
                 if isinstance(agent_state.get("outline"), dict)
                 else None,
+                plan_ir=agent_state.get("plan_ir")
+                if isinstance(agent_state.get("plan_ir"), dict)
+                else None,
                 resume_clarify=resume_clarify,
                 pending_clarify=pending_clarify if resume_clarify else None,
                 context_compact=agent_state.get("context_compact")
@@ -638,8 +641,10 @@ class SessionManager:
         )
         next_agent_state = {
             "intent": out.get("intent") or agent_state.get("intent") or "",
+            "intent_tag": out.get("intent_tag") or agent_state.get("intent_tag") or "",
             "known_slots": out.get("known_slots") or agent_state.get("known_slots") or {},
             "outline": out.get("outline") or agent_state.get("outline") or {},
+            "plan_ir": out.get("plan_ir") or agent_state.get("plan_ir") or {},
             "pending_clarify": clarify if status == "needs_clarify" else [],
             "context_compact": out.get("context_compact")
             or agent_state.get("context_compact")
@@ -704,8 +709,10 @@ class SessionManager:
             "user_text": text,
             "status": status,
             "intent": next_agent_state.get("intent") or "",
+            "intent_tag": next_agent_state.get("intent_tag") or "",
             "known_slots": next_agent_state.get("known_slots") or {},
             "outline": next_agent_state.get("outline") or {},
+            "plan_ir": next_agent_state.get("plan_ir") or {},
             "clarify_questions": clarify,
             "plan": out.get("plan") or {},
             "process": process,

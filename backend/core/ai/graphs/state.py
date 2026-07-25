@@ -29,7 +29,9 @@ class FlowGraphState(TypedDict, total=False):
     artifacts: dict[str, Any]
     # Step-wise agent
     intent: str
+    intent_tag: str
     known_slots: dict[str, str]
+    plan_ir: dict[str, Any]
     outline: dict[str, Any]
     gap_rounds: int
     max_gap_rounds: int

@@ -1,4 +1,4 @@
-"""LangGraph step-wise flow graph smoke tests (no live LLM)."""
+"""LangGraph step-wise flow graph smoke tests (compact IR, no live LLM)."""
 
 from __future__ import annotations
 
@@ -13,15 +13,8 @@ sys.path.insert(0, str(ROOT))
 
 from backend.core.registry import register_all_blocks
 from backend.core.ai.draft_builder import empty_draft
+from backend.core.ai.graphs.agent_ir import IrStep, PlanIR, UnderstandIR
 from backend.core.ai.graphs.flow_graph import run_flow_graph
-from backend.core.ai.lc.structured import (
-    GapCheckResult,
-    IntentUnderstanding,
-    OutlineStep,
-    PlanOutline,
-    ToolAction,
-    ToolActionBatch,
-)
 from backend.core.ai.types import AiConfig
 
 
@@ -45,34 +38,19 @@ def _fake_llm_for_delay_type():
             self.schema = schema
 
         def invoke(self, _messages):
-            if self.schema is IntentUnderstanding:
-                return IntentUnderstanding(
-                    intent="等待后输入 hi",
-                    known_slots={"message": "hi"},
-                    ambiguities=[],
+            if self.schema is UnderstandIR:
+                return UnderstandIR(
+                    intent_tag="type_text",
+                    slots={"message": "hi"},
+                    missing=[],
                 )
-            if self.schema is PlanOutline:
-                return PlanOutline(
-                    summary="delay then type",
+            if self.schema is PlanIR:
+                return PlanIR(
                     steps=[
-                        OutlineStep(
-                            id="s1",
-                            goal="等待",
-                            block_hint="delay",
-                            needs_sense="none",
-                            params={"ms": 500},
-                        ),
-                        OutlineStep(
-                            id="s2",
-                            goal="输入 hi",
-                            block_hint="type_text",
-                            needs_sense="none",
-                            params={"text": "hi"},
-                        ),
-                    ],
+                        IrStep(op="wait", a={"ms": "500"}),
+                        IrStep(op="type", a={"text": "hi"}),
+                    ]
                 )
-            if self.schema is GapCheckResult:
-                return GapCheckResult(complete=True, missing=[], hints=[])
             return self.schema()
 
     class FakeLLM:
@@ -80,7 +58,7 @@ def _fake_llm_for_delay_type():
             return FakeStructured(schema)
 
         def bind_tools(self, _tools):
-            return self
+            raise AssertionError("compile_ir should build draft without tools")
 
         def stream(self, _messages):
             yield AIMessage(content="草稿 delay → type_text，请确认。")
@@ -109,17 +87,17 @@ def test_flow_graph_builds_delay_type(monkeypatch):
     types = [n["type"] for n in (out["draft"].get("nodes") or {}).values()]
     assert "delay" in types and "type_text" in types
     assert out["reply"]
-    assert any(p.get("node") == "validate" for p in out["process"])
-    assert any(p.get("node") == "understand" for p in out["process"])
-    assert any(p.get("node") == "plan_outline" for p in out["process"])
     assert any(p.get("node") == "build_loop" for p in out["process"])
-    assert out["draft"].get("nodes")
-    # empty-draft honesty: with nodes, reply should not claim empty
+    assert out.get("plan_ir", {}).get("steps")
     assert "草稿为空" not in (out["reply"] or "")
+    # IR compile path — no tool patch needed
+    assert any(
+        "IR" in str(p.get("text") or "") or p.get("label") in ("落图", "逐步落图")
+        for p in out["process"]
+    )
 
 
 def test_flow_graph_clarify_then_resume(monkeypatch):
-    """First turn asks clarify; resume with answer continues to outline/build."""
     import backend.core.ai.graphs.flow_graph as fg
 
     class FakeStructured:
@@ -128,56 +106,24 @@ def test_flow_graph_clarify_then_resume(monkeypatch):
 
         def invoke(self, messages):
             blob = " ".join(str(getattr(m, "content", m)) for m in messages)
-            if self.schema is IntentUnderstanding:
+            if self.schema is UnderstandIR:
                 if "张三" in blob or "联系人甲" in blob:
-                    return IntentUnderstanding(
-                        intent="发消息",
-                        known_slots={
+                    return UnderstandIR(
+                        intent_tag="send_message",
+                        slots={
                             "contact": "张三",
                             "message": "你好",
                             "window_title": "微信",
                         },
-                        ambiguities=[],
+                        missing=[],
                     )
-                return IntentUnderstanding(
-                    intent="发消息",
-                    known_slots={"message": "你好", "window_title": "微信"},
-                    ambiguities=[
-                        {
-                            "id": "contact",
-                            "prompt": "发给哪位联系人？",
-                            "choices": [],
-                            "allow_free_text": True,
-                        }
-                    ],
+                return UnderstandIR(
+                    intent_tag="send_message",
+                    slots={"message": "你好", "window_title": "微信"},
+                    missing=["contact"],
                 )
-            if self.schema is PlanOutline:
-                return PlanOutline(
-                    summary="wechat once",
-                    steps=[
-                        OutlineStep(
-                            id="s1",
-                            goal="激活微信",
-                            block_hint="window_activate",
-                            params={"title": "微信"},
-                        ),
-                        OutlineStep(
-                            id="s2",
-                            goal="点联系人",
-                            block_hint="ocr_click",
-                            needs_sense="ocr",
-                            match_text="张三",
-                        ),
-                        OutlineStep(
-                            id="s3",
-                            goal="输入",
-                            block_hint="type_text",
-                            params={"text": "你好"},
-                        ),
-                    ],
-                )
-            if self.schema is GapCheckResult:
-                return GapCheckResult(complete=True)
+            if self.schema is PlanIR:
+                return PlanIR(steps=[IrStep(op="send_im", a={})])
             return self.schema()
 
     class FakeLLM:
@@ -185,7 +131,7 @@ def test_flow_graph_clarify_then_resume(monkeypatch):
             return FakeStructured(schema)
 
         def bind_tools(self, _tools):
-            return self
+            raise AssertionError("should not need tools")
 
         def stream(self, _messages):
             yield AIMessage(content="ok")
@@ -206,7 +152,6 @@ def test_flow_graph_clarify_then_resume(monkeypatch):
     )
     assert first["clarify_questions"]
     assert not (first["draft"].get("nodes") or {})
-    assert "补充" in (first["reply"] or "") or "澄清" in str(first.get("process"))
 
     second = run_flow_graph(
         conversation_id="clarify-thread",
@@ -234,12 +179,10 @@ def test_summarize_empty_draft_honest(monkeypatch):
             self.schema = schema
 
         def invoke(self, _messages):
-            if self.schema is IntentUnderstanding:
-                return IntentUnderstanding(intent="空", known_slots={}, ambiguities=[])
-            if self.schema is PlanOutline:
-                return PlanOutline(summary="empty", steps=[])
-            if self.schema is GapCheckResult:
-                return GapCheckResult(complete=True)
+            if self.schema is UnderstandIR:
+                return UnderstandIR(intent_tag="other", slots={}, missing=[])
+            if self.schema is PlanIR:
+                return PlanIR(steps=[])
             return self.schema()
 
     class FakeLLM:
@@ -270,93 +213,35 @@ def test_summarize_empty_draft_honest(monkeypatch):
     assert "空" in reply or "0" in reply or "没有生成" in reply
 
 
-def test_build_loop_uses_structured_json_actions(monkeypatch):
-    """JSON ToolActionBatch path adds nodes without native function-calling."""
+def test_send_utterance_compiles_via_ir(monkeypatch):
+    """Full send utterance → IR compile produces nodes even if LLM fails."""
     import backend.core.ai.graphs.flow_graph as fg
 
-    class JsonToolsLLM:
-        def __init__(self):
-            self._batch_calls = 0
-
+    class BoomLLM:
         def with_structured_output(self, schema, **_kwargs):
-            parent = self
-
-            class FakeStructured:
-                def invoke(self, _messages):
-                    if schema is IntentUnderstanding:
-                        return IntentUnderstanding(
-                            intent="等待后输入 hi",
-                            known_slots={"message": "hi"},
-                            ambiguities=[],
-                        )
-                    if schema is PlanOutline:
-                        return PlanOutline(
-                            summary="delay then type",
-                            steps=[
-                                OutlineStep(
-                                    id="s1",
-                                    goal="等待",
-                                    block_hint="delay",
-                                    params={"ms": 500},
-                                ),
-                                OutlineStep(
-                                    id="s2",
-                                    goal="输入",
-                                    block_hint="type_text",
-                                    params={"text": "hi"},
-                                ),
-                            ],
-                        )
-                    if schema is GapCheckResult:
-                        return GapCheckResult(complete=True)
-                    if schema is ToolActionBatch:
-                        parent._batch_calls += 1
-                        if parent._batch_calls > 1:
-                            return ToolActionBatch(
-                                actions=[ToolAction(name="done", args={})]
-                            )
-                        return ToolActionBatch(
-                            actions=[
-                                ToolAction(
-                                    name="draft_add_node",
-                                    args={"type": "delay", "params": {"ms": 500}},
-                                ),
-                                ToolAction(
-                                    name="draft_add_node",
-                                    args={
-                                        "type": "type_text",
-                                        "params": {"text": "hi"},
-                                    },
-                                ),
-                                ToolAction(name="draft_set_entry", args={}),
-                            ]
-                        )
-                    return schema()
-
-            return FakeStructured()
+            raise RuntimeError("length limit was reached")
 
         def bind_tools(self, _tools):
-            raise AssertionError("native bind_tools should not be needed")
-
-        def invoke(self, _messages):
-            raise AssertionError("native invoke should not be needed")
+            raise AssertionError("compile should not need tools")
 
         def stream(self, _messages):
-            yield AIMessage(content="结构化落图完成")
+            yield AIMessage(content="已生成发送草稿")
 
-    llm = JsonToolsLLM()
-    monkeypatch.setattr(fg, "create_chat_model", lambda *a, **k: llm)
+        def invoke(self, _messages):
+            return AIMessage(content="已生成发送草稿")
+
+    monkeypatch.setattr(fg, "create_chat_model", lambda *a, **k: BoomLLM())
     monkeypatch.setattr(fg, "get_checkpointer", lambda: None)
     cfg = AiConfig(base_url="https://example.com/v1", api_key="k", model="m")
     out = run_flow_graph(
-        conversation_id="structured-bypass",
-        user_text="等待后输入 hi",
+        conversation_id="send-ir",
+        user_text="打开微信给文件传输助手给他发送：你好",
         draft=empty_draft(),
         cfg=cfg,
         use_checkpoint=False,
     )
     assert out["ok"] is True
+    assert (out.get("known_slots") or {}).get("contact") == "文件传输助手"
     types = [n["type"] for n in (out["draft"].get("nodes") or {}).values()]
-    assert "delay" in types and "type_text" in types
-    assert any(p.get("label") == "结构化落图" for p in out["process"])
-    assert any(p.get("kind") == "tool" and p.get("name") == "draft_add_node" for p in out["process"])
+    assert "window_activate" in types and "type_text" in types
+    assert any(p.get("label") == "落图" for p in out["process"])

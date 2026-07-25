@@ -396,6 +396,7 @@
       "click",
       "type_text"
     ],
+    "expected_ops": ["activate", "ocr_click", "type", "ocr_click"],
     "forbid_raw_click_coords": true,
     "expect_binding_on_click": true,
     "forbid_types": ["schedule_trigger"]
@@ -409,6 +410,7 @@
       "click",
       "type_text"
     ],
+    "expected_ops": ["activate", "ocr_click", "type", "ocr_click"],
     "forbid_raw_click_coords": true,
     "forbid_types": ["schedule_trigger"]
   },

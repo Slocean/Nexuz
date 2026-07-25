@@ -15,13 +15,22 @@ from backend.core.ai.context_budget import (
     fit_prompt_blob,
     maybe_compact,
 )
-from backend.core.ai.draft_builder import draft_summary, empty_draft
-from backend.core.ai.graphs.outline_build import build_draft_from_outline
-from backend.core.ai.graphs.slot_extract import (
-    extract_slots_from_utterance,
-    merge_slots,
-    outline_looks_weak,
+from backend.core.ai.draft_builder import draft_summary, empty_draft, set_entry
+from backend.core.ai.graphs.agent_ir import (
+    PlanIR,
+    UnderstandIR,
+    format_ir_for_prompt,
+    gap_from_ir,
+    infer_missing_slots,
+    merge_and_normalize,
+    missing_to_questions,
+    normalize_plan_ir,
+    plan_ir_from_slots,
+    plan_ir_looks_weak,
+    plan_ir_to_dict,
+    plan_ir_to_outline,
 )
+from backend.core.ai.graphs.ir_compile import compile_ir
 from backend.core.ai.graphs.state import (
     FlowGraphState,
     build_draft_context,
@@ -34,18 +43,12 @@ from backend.core.ai.lc.structured_call import invoke_structured
 from backend.core.ai.lc.prompts import (
     BUILD_STRUCTURED_SYSTEM,
     BUILD_SYSTEM,
-    GAP_SYSTEM,
     OUTLINE_SYSTEM,
     REPAIR_SYSTEM,
     SUMMARIZE_SYSTEM,
     UNDERSTAND_SYSTEM,
 )
-from backend.core.ai.lc.structured import (
-    GapCheckResult,
-    IntentUnderstanding,
-    PlanOutline,
-    ToolActionBatch,
-)
+from backend.core.ai.lc.structured import ToolActionBatch
 from backend.core.ai.lc.tools import ToolSession, build_orchestration_tools
 from backend.core.ai.types import AiConfig
 
@@ -686,35 +689,17 @@ def make_flow_nodes(
         user_input = state.get("input") or ""
         prior_slots = dict(state.get("known_slots") or {})
         answers = dict(state.get("clarify_answers") or {})
-        understanding: IntentUnderstanding
-        extracted = extract_slots_from_utterance(user_input)
-        heuristic_slots = merge_slots(
-            merge_slots(prior_slots, extracted), answers
+        heuristic_slots = merge_and_normalize(
+            prior_slots, answers, utterance=user_input
         )
+        intent_tag = "other"
+        uir: UnderstandIR
         try:
             llm = create_chat_model(
-                cfg, temperature=0.1, streaming=False, max_tokens=768
+                cfg, temperature=0.1, streaming=False, max_tokens=384
             )
             full_msgs = [
                 SystemMessage(content=UNDERSTAND_SYSTEM),
-                SystemMessage(
-                    content=fit_prompt_blob(
-                        f"已有槽位：{safe_json(prior_slots)}\n"
-                        f"用户刚补充的答案：{safe_json(answers)}\n"
-                        f"上下文：\n{state.get('context') or ''}",
-                        budget=800,
-                    )
-                ),
-                HumanMessage(content=user_input),
-            ]
-            compact_msgs = [
-                SystemMessage(
-                    content=(
-                        "只输出 IntentUnderstanding JSON："
-                        "intent, known_slots, ambiguities。"
-                        "禁止假确认；ambiguities 仅真缺参。极简。"
-                    )
-                ),
                 HumanMessage(
                     content=(
                         f"话术：{user_input}\n"
@@ -723,16 +708,29 @@ def make_flow_nodes(
                     )
                 ),
             ]
-            understanding = invoke_structured(
-                llm, IntentUnderstanding, full_msgs, compact_messages=compact_msgs
+            compact_msgs = [
+                SystemMessage(content="输出 UnderstandIR：intent_tag,slots,missing。极简。"),
+                HumanMessage(content=user_input),
+            ]
+            raw = invoke_structured(
+                llm, UnderstandIR, full_msgs, compact_messages=compact_msgs
             )
-            if not isinstance(understanding, IntentUnderstanding):
-                understanding = IntentUnderstanding.model_validate(understanding)
+            uir = (
+                raw
+                if isinstance(raw, UnderstandIR)
+                else UnderstandIR.model_validate(raw)
+            )
+            intent_tag = str(uir.intent_tag or "other")
         except Exception as exc:
-            understanding = IntentUnderstanding(
-                intent=user_input[:120],
-                known_slots=heuristic_slots,
-                ambiguities=[],
+            intent_tag = (
+                "send_message"
+                if any(k in user_input for k in ("发送", "发消息", "发给"))
+                else "other"
+            )
+            uir = UnderstandIR(
+                intent_tag=intent_tag,  # type: ignore[arg-type]
+                slots=heuristic_slots,
+                missing=[],
             )
             proc.append(
                 {
@@ -742,39 +740,35 @@ def make_flow_nodes(
                     "text": f"话术抽槽回退：{_short_err(exc)}",
                 }
             )
-        slots = _merge_slots(understanding.known_slots, answers)
-        slots = _merge_slots(prior_slots, slots)
-        # Fill gaps from utterance even when LLM returned empty slots
-        slots = merge_slots(slots, extracted)
-        ambiguities = _ambiguities_to_questions(
-            understanding.ambiguities, known_slots=slots
+        slots = merge_and_normalize(
+            prior_slots, uir.slots, answers, utterance=user_input
         )
-        # If user just answered, drop resolved ambiguity ids
+        missing_ids = list(uir.missing or [])
+        missing_ids.extend(
+            infer_missing_slots(intent_tag, slots, utterance=user_input)
+        )
+        # Drop already-filled
+        missing_ids = [m for m in missing_ids if not slots.get(m)]
+        ambiguities = missing_to_questions(missing_ids)
         if answers:
             answered = set(answers.keys())
             ambiguities = [q for q in ambiguities if q.get("id") not in answered]
-            # Free-text answer to first pending: treat whole message as value for first unanswered
-            if not ambiguities and answers.get("__free_text__"):
-                pass
+        intent_text = intent_tag if intent_tag != "other" else user_input[:120]
         slot_line = "、".join(f"{k}={v}" for k, v in list(slots.items())[:8]) or "（无）"
         proc.append(
             {
                 "kind": "think",
                 "label": "意图",
                 "text": (
-                    f"{understanding.intent or user_input[:80]}\n"
-                    f"槽位：{slot_line}"
-                    + (
-                        f"\n待澄清：{len(ambiguities)} 项"
-                        if ambiguities
-                        else ""
-                    )
+                    f"{intent_text}\n槽位：{slot_line}"
+                    + (f"\n待澄清：{len(ambiguities)} 项" if ambiguities else "")
                 ),
             }
         )
         _broadcast_process(proc)
         return {
-            "intent": understanding.intent or user_input[:120],
+            "intent": intent_text,
+            "intent_tag": intent_tag,
             "known_slots": slots,
             "clarify_questions": ambiguities,
             "process": proc,
@@ -805,7 +799,11 @@ def make_flow_nodes(
                     if str(ch) in user_input or user_input == str(ch):
                         answers[qid] = str(ch)
                         break
-        slots = _merge_slots(state.get("known_slots") or {}, answers)
+        slots = merge_and_normalize(
+            state.get("known_slots") or {},
+            answers,
+            utterance=user_input if resume else "",
+        )
         still = []
         for q in pending:
             qid = str(q.get("id") or "")
@@ -851,7 +849,7 @@ def make_flow_nodes(
             "kind": "node",
             "node": "plan_outline",
             "label": "规划大纲",
-            "text": "分步思路…",
+            "text": "PlanIR…",
         }
         proc = list(state.get("process") or [])
         emit_process(
@@ -859,66 +857,50 @@ def make_flow_nodes(
             conversation_id=conversation_id, assistant_id=assistant_id,
         )
         intent = state.get("intent") or ""
-        slots = dict(state.get("known_slots") or {})
-        hints = list(state.get("gap_hints") or [])
-        outline_prev = state.get("outline") if isinstance(state.get("outline"), dict) else {}
-        slots = merge_slots(
-            slots, extract_slots_from_utterance(state.get("input") or intent)
+        slots = merge_and_normalize(
+            state.get("known_slots") or {},
+            utterance=state.get("input") or intent,
         )
-        outline: dict[str, Any]
-        det = _fallback_outline(intent, slots)
+        hints = list(state.get("gap_hints") or [])
+        prev_ir = state.get("plan_ir") if isinstance(state.get("plan_ir"), dict) else {}
+        det = plan_ir_from_slots(intent, slots, utterance=state.get("input") or "")
+        plan: PlanIR
         try:
             llm = create_chat_model(
-                cfg, temperature=0.2, streaming=False, max_tokens=768
+                cfg, temperature=0.2, streaming=False, max_tokens=384
             )
             full_msgs = [
                 SystemMessage(content=OUTLINE_SYSTEM),
-                SystemMessage(
-                    content=fit_prompt_blob(
-                        f"意图：{intent}\n槽位：{safe_json(slots)}\n"
-                        f"补洞提示：{safe_json(hints)}\n"
-                        f"上一版大纲：{safe_json(outline_prev)}\n"
-                        f"上下文：\n{state.get('context') or ''}",
-                        budget=900,
-                    )
-                ),
-                HumanMessage(content=state.get("input") or intent),
-            ]
-            compact_msgs = [
-                SystemMessage(
-                    content=(
-                        "只输出 PlanOutline JSON：summary + steps[]。"
-                        "每步含 id,goal,block_hint,needs_sense,match_text?,params。"
-                        "步骤尽量少；禁止解释。"
-                    )
-                ),
                 HumanMessage(
                     content=(
                         f"意图：{intent}\n槽位：{safe_json(slots)}\n"
-                        f"补洞：{safe_json(hints)}"
+                        f"补洞：{safe_json(hints)}\n"
+                        f"上一版IR：{format_ir_for_prompt(prev_ir)}\n"
+                        f"话术：{state.get('input') or intent}"
                     )
                 ),
             ]
-            result = invoke_structured(
-                llm, PlanOutline, full_msgs, compact_messages=compact_msgs
+            compact_msgs = [
+                SystemMessage(content="输出 PlanIR：steps[{op,a}]。极简。"),
+                HumanMessage(content=f"意图：{intent}\n槽位：{safe_json(slots)}"),
+            ]
+            raw = invoke_structured(
+                llm, PlanIR, full_msgs, compact_messages=compact_msgs
             )
-            outline = (
-                result.model_dump()
-                if isinstance(result, PlanOutline)
-                else PlanOutline.model_validate(result).model_dump()
-            )
-            if outline_looks_weak(outline) and slots:
-                outline = det if not outline_looks_weak(det) else outline
+            plan = raw if isinstance(raw, PlanIR) else PlanIR.model_validate(raw)
+            plan = normalize_plan_ir(plan, slots)
+            if plan_ir_looks_weak(plan):
+                plan = det
                 proc.append(
                     {
                         "kind": "info",
                         "node": "plan_outline",
-                        "label": "大纲补强",
-                        "text": "模型大纲过弱，已用槽位确定性重建",
+                        "label": "IR补强",
+                        "text": "模型 PlanIR 过弱，已用槽位重建",
                     }
                 )
         except Exception as exc:
-            outline = det
+            plan = det
             proc.append(
                 {
                     "kind": "warn",
@@ -927,34 +909,31 @@ def make_flow_nodes(
                     "text": _short_err(exc),
                 }
             )
-        # Strip schedule if user said once
+        # Strip schedule if once
         t = state.get("input") or ""
         if any(k in t for k in ("执行一次", "马上", "立刻", "立即")) or str(
             slots.get("schedule") or ""
         ).lower() in ("false", "0", "no"):
-            outline["steps"] = [
-                s
-                for s in (outline.get("steps") or [])
-                if str((s or {}).get("block_hint") or "")
-                not in ("schedule_trigger", "schedule_at", "schedule")
-            ]
-        step_goals = [
-            str(s.get("goal") or s.get("block_hint") or "")
-            for s in (outline.get("steps") or [])
-            if isinstance(s, dict)
-        ]
+            plan = PlanIR(
+                steps=[st for st in plan.steps if st.op != "schedule"]
+            )
+        outline = plan_ir_to_outline(plan, summary=intent[:80], slots=slots)
         proc.append(
             {
                 "kind": "think",
                 "label": "大纲",
                 "text": (
-                    f"{len(step_goals)} 步：{outline.get('summary') or ''}\n"
-                    + (" → ".join(g for g in step_goals if g) or "（空）")
+                    f"{len(plan.steps)} 步 IR\n{format_ir_for_prompt(plan)}"
                 ),
             }
         )
         _broadcast_process(proc)
-        return {"outline": outline, "known_slots": slots, "process": proc}
+        return {
+            "plan_ir": plan_ir_to_dict(plan),
+            "outline": outline,
+            "known_slots": slots,
+            "process": proc,
+        }
 
     def gap_check(state: FlowGraphState) -> dict[str, Any]:
         step = {
@@ -969,47 +948,14 @@ def make_flow_nodes(
             conversation_id=conversation_id, assistant_id=assistant_id,
         )
         rounds = int(state.get("gap_rounds") or 0)
-        outline = state.get("outline") if isinstance(state.get("outline"), dict) else {}
-        slots = dict(state.get("known_slots") or {})
         intent = state.get("intent") or ""
-        slots = merge_slots(
-            slots, extract_slots_from_utterance(state.get("input") or intent)
+        slots = merge_and_normalize(
+            state.get("known_slots") or {},
+            utterance=state.get("input") or intent,
         )
-        try:
-            llm = create_chat_model(
-                cfg, temperature=0, streaming=False, max_tokens=256
-            )
-            full_msgs = [
-                SystemMessage(content=GAP_SYSTEM),
-                HumanMessage(
-                    content=(
-                        f"意图：{intent}\n槽位：{safe_json(slots)}\n"
-                        f"大纲：{safe_json(outline)}"
-                    )
-                ),
-            ]
-            compact_msgs = [
-                SystemMessage(content="输出 GapCheckResult JSON：complete, missing, hints。极简。"),
-                HumanMessage(
-                    content=f"意图：{intent}\n槽位：{safe_json(slots)}\n步数：{len(outline.get('steps') or [])}"
-                ),
-            ]
-            result = invoke_structured(
-                llm, GapCheckResult, full_msgs, compact_messages=compact_msgs
-            )
-            gap = (
-                result.model_dump()
-                if isinstance(result, GapCheckResult)
-                else GapCheckResult.model_validate(result).model_dump()
-            )
-        except Exception:
-            gap = _fallback_gap(intent, slots, outline)
+        plan_ir = state.get("plan_ir") if isinstance(state.get("plan_ir"), dict) else {}
+        gap = gap_from_ir(plan_ir, slots, intent=intent)
         complete = bool(gap.get("complete"))
-        # Soft local checks
-        steps = outline.get("steps") or []
-        if not steps:
-            complete = False
-            gap.setdefault("missing", []).append("大纲为空")
         proc.append(
             {
                 "kind": "think",
@@ -1033,7 +979,7 @@ def make_flow_nodes(
             "kind": "node",
             "node": "build_loop",
             "label": "逐步落图",
-            "text": "调用工具添加节点…",
+            "text": "IR 编译落图…",
         }
         proc = list(state.get("process") or [])
         emit_process(
@@ -1045,103 +991,106 @@ def make_flow_nodes(
             state.get("artifacts") or {"shots": {}, "points": {}}
         )
         trace = list(state.get("tool_trace") or [])
-        outline = state.get("outline") if isinstance(state.get("outline"), dict) else {}
-        slots = merge_slots(
-            dict(state.get("known_slots") or {}),
-            extract_slots_from_utterance(
-                state.get("input") or state.get("intent") or ""
-            ),
+        slots = merge_and_normalize(
+            state.get("known_slots") or {},
+            utterance=state.get("input") or state.get("intent") or "",
         )
-        # Tool-calling often broken on local models; never build from delay-only outline
-        if outline_looks_weak(outline):
-            outline = _fallback_outline(
-                state.get("intent") or state.get("input") or "", slots
+        plan_ir = state.get("plan_ir") if isinstance(state.get("plan_ir"), dict) else {}
+        if plan_ir_looks_weak(plan_ir):
+            plan_ir = plan_ir_to_dict(
+                plan_ir_from_slots(
+                    state.get("intent") or "",
+                    slots,
+                    utterance=state.get("input") or "",
+                )
             )
             proc.append(
                 {
-                    "kind": "warn",
+                    "kind": "info",
                     "node": "build_loop",
-                    "label": "大纲重建",
-                    "text": "落图前大纲过弱，已按槽位重建步骤",
-                }
-            )
-        session = ToolSession(
-            draft=draft,
-            artifacts=artifacts,
-            tool_trace=trace,
-            capture_fn=capture_fn,
-            allow_dangerous=bool(state.get("allow_dangerous")),
-            strict_coords=bool(state.get("strict_coords", True)),
-        )
-        tools = build_orchestration_tools(session, cfg=cfg)
-        used_tools = False
-        try:
-            llm = create_chat_model(
-                cfg, temperature=0.1, streaming=False, max_tokens=768
-            )
-            before = len(session.draft.get("nodes") or {})
-            proc = _run_tool_loop(
-                llm=llm,
-                tools=tools,
-                system=BUILD_SYSTEM,
-                user_blob=(
-                    f"意图：{state.get('intent')}\n槽位：{safe_json(slots)}\n"
-                    f"大纲：{safe_json(outline)}\n"
-                    f"当前草稿：\n{fit_prompt_blob(state.get('context') or '', budget=800)}\n"
-                    "请按大纲逐步用工具落图。"
-                ),
-                session=session,
-                on_progress=on_progress,
-                conversation_id=conversation_id,
-                assistant_id=assistant_id,
-                proc=proc,
-            )
-            after = len(session.draft.get("nodes") or {})
-            used_tools = after > before or any(
-                p.get("kind") == "tool" for p in proc[-20:]
-            )
-        except Exception as exc:
-            proc.append(
-                {
-                    "kind": "warn",
-                    "node": "build_loop",
-                    "label": "工具失败",
-                    "text": _short_err(exc),
+                    "label": "IR重建",
+                    "text": "落图前 PlanIR 过弱，已按槽位重建",
                 }
             )
 
-        # Fallback: deterministic outline expansion if tools produced nothing
-        if not (session.draft.get("nodes") or {}):
-            applied = build_draft_from_outline(
-                session.draft,
-                outline,
-                slots=slots,
-                artifacts=session.artifacts,
-                tool_trace=session.tool_trace,
+        applied = compile_ir(
+            plan_ir,
+            slots,
+            draft,
+            artifacts=artifacts,
+            tool_trace=trace,
+            strict_coords=bool(state.get("strict_coords", True)),
+            utterance=state.get("input") or "",
+            summary=str(state.get("intent") or "")[:80],
+        )
+        draft = applied["draft"]
+        artifacts = applied["artifacts"]
+        trace = applied["tool_trace"]
+        outline = applied.get("outline") or plan_ir_to_outline(
+            plan_ir, slots=slots
+        )
+        for err in applied.get("errors") or []:
+            proc.append(
+                {
+                    "kind": "warn",
+                    "node": "build_loop",
+                    "label": "IR编译",
+                    "text": err,
+                }
+            )
+        proc.append(
+            {
+                "kind": "think",
+                "label": "落图",
+                "text": f"IR 编译：\n{applied.get('ir_prompt') or format_ir_for_prompt(plan_ir)}",
+            }
+        )
+
+        # Patch hole with tools only when compile produced nothing
+        if not (draft.get("nodes") or {}):
+            session = ToolSession(
+                draft=draft,
+                artifacts=artifacts,
+                tool_trace=trace,
+                capture_fn=capture_fn,
+                allow_dangerous=bool(state.get("allow_dangerous")),
                 strict_coords=bool(state.get("strict_coords", True)),
             )
-            session.draft = applied["draft"]
-            session.artifacts = applied["artifacts"]
-            for err in applied.get("errors") or []:
+            tools = build_orchestration_tools(session, cfg=cfg)
+            try:
+                llm = create_chat_model(
+                    cfg, temperature=0.1, streaming=False, max_tokens=512
+                )
+                proc = _run_tool_loop(
+                    llm=llm,
+                    tools=tools,
+                    system=BUILD_SYSTEM,
+                    user_blob=(
+                        f"意图：{state.get('intent')}\n槽位：{safe_json(slots)}\n"
+                        f"IR：{format_ir_for_prompt(plan_ir)}\n"
+                        "编译无产出，请用最少工具补洞落图。"
+                    ),
+                    session=session,
+                    on_progress=on_progress,
+                    conversation_id=conversation_id,
+                    assistant_id=assistant_id,
+                    proc=proc,
+                    max_iters=6,
+                )
+                draft = session.draft
+                artifacts = session.artifacts
+                trace = session.tool_trace
+            except Exception as exc:
                 proc.append(
                     {
                         "kind": "warn",
                         "node": "build_loop",
-                        "label": "大纲落图",
-                        "text": err,
+                        "label": "补洞失败",
+                        "text": _short_err(exc),
                     }
                 )
-            proc.append(
-                {
-                    "kind": "think",
-                    "label": "落图",
-                    "text": "工具无产出，已用大纲确定性展开"
-                    if not used_tools
-                    else "补全大纲展开",
-                }
-            )
 
-        ncount = len(session.draft.get("nodes") or {})
+        ncount = len(draft.get("nodes") or {})
         proc.append(
             {
                 "kind": "think",
@@ -1150,11 +1099,13 @@ def make_flow_nodes(
             }
         )
         _broadcast_process(proc)
-        warnings = collect_coord_warnings(session.draft)
+        warnings = collect_coord_warnings(draft)
         return {
-            "draft": session.draft,
-            "artifacts": session.artifacts,
-            "tool_trace": session.tool_trace,
+            "draft": draft,
+            "artifacts": artifacts,
+            "tool_trace": trace,
+            "plan_ir": plan_ir_to_dict(normalize_plan_ir(plan_ir, slots)),
+            "outline": outline,
             "process": proc,
             "warnings": warnings,
             "needs_locate": False,
@@ -1209,7 +1160,7 @@ def make_flow_nodes(
             "kind": "node",
             "node": "repair",
             "label": "修复",
-            "text": "根据校验错误修补…",
+            "text": "确定性修补…",
         }
         proc = list(state.get("process") or [])
         emit_process(
@@ -1221,6 +1172,18 @@ def make_flow_nodes(
         artifacts = copy.deepcopy(
             state.get("artifacts") or {"shots": {}, "points": {}}
         )
+        # Code-first: set entry if missing
+        nodes = draft.get("nodes") if isinstance(draft.get("nodes"), dict) else {}
+        if nodes and not draft.get("entry"):
+            draft = set_entry(draft, next(iter(nodes.keys())))
+            proc.append(
+                {
+                    "kind": "info",
+                    "node": "repair",
+                    "label": "补入口",
+                    "text": f"已设置 entry={draft.get('entry')}",
+                }
+            )
         session = ToolSession(
             draft=draft,
             artifacts=artifacts,
@@ -1229,31 +1192,42 @@ def make_flow_nodes(
             allow_dangerous=bool(state.get("allow_dangerous")),
             strict_coords=bool(state.get("strict_coords", True)),
         )
-        tools = build_orchestration_tools(session, cfg=cfg)
-        try:
-            llm = create_chat_model(cfg, temperature=0, streaming=False)
-            proc = _run_tool_loop(
-                llm=llm,
-                tools=tools,
-                system=REPAIR_SYSTEM,
-                user_blob=(
-                    f"校验错误：{safe_json(state.get('validation_errors'))}\n"
-                    f"大纲：{safe_json(state.get('outline'))}\n"
-                    "请最小修补。"
-                ),
-                session=session,
-                on_progress=on_progress,
-                conversation_id=conversation_id,
-                assistant_id=assistant_id,
-                proc=proc,
-                max_iters=6,
-            )
-        except Exception as exc:
-            proc.append({"kind": "warn", "node": "repair", "label": "修复失败", "text": str(exc)})
-        # Ensure entry if single chain
+        # Only tool-patch if still have validation errors beyond entry
+        errors = [e for e in (state.get("validation_errors") or []) if "入口" not in str(e)]
+        if errors:
+            tools = build_orchestration_tools(session, cfg=cfg)
+            try:
+                llm = create_chat_model(
+                    cfg, temperature=0, streaming=False, max_tokens=384
+                )
+                proc = _run_tool_loop(
+                    llm=llm,
+                    tools=tools,
+                    system=REPAIR_SYSTEM,
+                    user_blob=(
+                        f"校验错误：{safe_json(errors)}\n"
+                        f"IR：{format_ir_for_prompt(state.get('plan_ir'))}\n"
+                        "请最小修补。"
+                    ),
+                    session=session,
+                    on_progress=on_progress,
+                    conversation_id=conversation_id,
+                    assistant_id=assistant_id,
+                    proc=proc,
+                    max_iters=4,
+                )
+            except Exception as exc:
+                proc.append(
+                    {
+                        "kind": "warn",
+                        "node": "repair",
+                        "label": "修复失败",
+                        "text": _short_err(exc),
+                    }
+                )
         nodes = session.draft.get("nodes") if isinstance(session.draft.get("nodes"), dict) else {}
         if nodes and not session.draft.get("entry"):
-            session.draft["entry"] = next(iter(nodes.keys()))
+            session.draft = set_entry(session.draft, next(iter(nodes.keys())))
         _broadcast_process(proc)
         return {
             "draft": session.draft,
@@ -1352,136 +1326,13 @@ def make_flow_nodes(
 
 
 def _fallback_outline(intent: str, slots: dict[str, str]) -> dict[str, Any]:
-    """Offline outline from slots (+ utterance extract) — no invented contacts."""
-    slots = merge_slots(slots, extract_slots_from_utterance(intent))
-    steps: list[dict[str, Any]] = []
-    i = 1
-    if slots.get("run_at") or str(slots.get("schedule") or "").lower() in ("true", "1", "yes"):
-        steps.append(
-            {
-                "id": f"s{i}",
-                "goal": "定时触发",
-                "block_hint": "schedule_trigger",
-                "needs_sense": "none",
-                "params": {"run_at": slots.get("run_at") or ""},
-            }
-        )
-        i += 1
-    if slots.get("window_title"):
-        steps.append(
-            {
-                "id": f"s{i}",
-                "goal": f"激活窗口 {slots['window_title']}",
-                "block_hint": "window_activate",
-                "needs_sense": "none",
-                "params": {"title": slots["window_title"]},
-            }
-        )
-        i += 1
-    if slots.get("contact"):
-        steps.append(
-            {
-                "id": f"s{i}",
-                "goal": f"定位联系人 {slots['contact']}",
-                "block_hint": "ocr_click",
-                "needs_sense": "ocr",
-                "match_text": slots["contact"],
-                "params": {
-                    "window_title": slots.get("window_title") or "",
-                },
-            }
-        )
-        i += 1
-    if slots.get("message"):
-        steps.append(
-            {
-                "id": f"s{i}",
-                "goal": "输入消息",
-                "block_hint": "type_text",
-                "needs_sense": "none",
-                "params": {"text": slots["message"]},
-            }
-        )
-        i += 1
-        steps.append(
-            {
-                "id": f"s{i}",
-                "goal": "点击发送",
-                "block_hint": "ocr_click",
-                "needs_sense": "ocr",
-                "match_text": "发送",
-                "params": {
-                    "window_title": slots.get("window_title") or "",
-                },
-            }
-        )
-        i += 1
-    if not steps:
-        import re
-
-        typed = slots.get("message") or ""
-        if not typed:
-            m = re.search(
-                r"(?:输入|键入|打字)\s*[「\"'『]?([^」\"'』\n]{1,80})",
-                intent or "",
-            )
-            if m:
-                typed = m.group(1).strip()
-        if typed:
-            steps.append(
-                {
-                    "id": "s1",
-                    "goal": "短暂等待",
-                    "block_hint": "delay",
-                    "needs_sense": "none",
-                    "params": {"ms": 500},
-                }
-            )
-            steps.append(
-                {
-                    "id": "s2",
-                    "goal": f"输入 {typed}",
-                    "block_hint": "type_text",
-                    "needs_sense": "none",
-                    "params": {"text": typed},
-                }
-            )
-        else:
-            steps.append(
-                {
-                    "id": "s1",
-                    "goal": "占位延时",
-                    "block_hint": "delay",
-                    "needs_sense": "none",
-                    "params": {"ms": 500},
-                }
-            )
-    return {"summary": intent[:80], "steps": steps}
-
-
-def _fallback_gap(
-    intent: str, slots: dict[str, str], outline: dict[str, Any]
-) -> dict[str, Any]:
-    missing: list[str] = []
-    steps = outline.get("steps") or []
-    hints_join = " ".join(
-        str((s or {}).get("block_hint") or "") for s in steps if isinstance(s, dict)
+    """Compat: slots → PlanOutline via PlanIR."""
+    s = merge_and_normalize(slots, utterance=intent)
+    return plan_ir_to_outline(
+        plan_ir_from_slots(intent, s, utterance=intent),
+        summary=(intent or "")[:80],
+        slots=s,
     )
-    # Send-message style intents
-    if any(k in (intent or "") for k in ("发", "发送", "消息")):
-        if not slots.get("message") and "type_text" not in hints_join:
-            missing.append("缺少消息内容或输入步骤")
-        if not slots.get("window_title") and "window_activate" not in hints_join:
-            missing.append("缺少应用窗口")
-        if not slots.get("contact") and "ocr_click" not in hints_join:
-            missing.append("缺少联系人定位步骤")
-    if not steps:
-        missing.append("大纲无步骤")
-    return {
-        "complete": not missing,
-        "missing": missing,
-        "hints": missing,
-    }
 
 
 def _route_after_load(state: FlowGraphState) -> Literal["understand", "clarify"]:
@@ -1594,6 +1445,7 @@ def run_flow_graph(
     known_slots: dict[str, str] | None = None,
     intent: str = "",
     outline: dict[str, Any] | None = None,
+    plan_ir: dict[str, Any] | None = None,
     resume_clarify: bool = False,
     pending_clarify: list[dict[str, Any]] | None = None,
     context_compact: dict[str, Any] | None = None,
@@ -1630,6 +1482,8 @@ def run_flow_graph(
         "clarify_answers": dict(clarify_answers or {}),
         "known_slots": dict(known_slots or {}),
         "intent": intent or "",
+        "intent_tag": "",
+        "plan_ir": plan_ir if isinstance(plan_ir, dict) else {},
         "outline": outline or {},
         "clarify_questions": list(pending_clarify or []),
         "resume_clarify": bool(resume_clarify),
@@ -1650,11 +1504,14 @@ def run_flow_graph(
         "reply": final.get("reply") or "",
         "clarify_questions": final.get("clarify_questions") or [],
         "intent": final.get("intent") or "",
+        "intent_tag": final.get("intent_tag") or "",
         "known_slots": final.get("known_slots") or {},
+        "plan_ir": final.get("plan_ir") or {},
         "outline": final.get("outline") or {},
         "plan": {
             "intent_summary": final.get("intent") or "",
             "outline": final.get("outline") or {},
+            "plan_ir": final.get("plan_ir") or {},
         },
         "status_hint": final.get("status_hint") or "",
         "validation_errors": final.get("validation_errors") or [],

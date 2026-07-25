@@ -1,4 +1,4 @@
-"""Offline AI eval runner (heuristic / FlowSpec apply, no live LLM required)."""
+"""Offline AI eval runner (heuristic FlowSpec + optional PlanIR compile)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from backend.core.ai.draft_builder import empty_draft, params_need_coord_refs
+from backend.core.ai.graphs.agent_ir import (
+    merge_and_normalize,
+    plan_ir_from_slots,
+)
+from backend.core.ai.graphs.ir_compile import compile_ir
 from backend.core.ai.graphs.recipes import apply_flow_spec, heuristic_plan_from_text
 from backend.core.ai.lc.structured import flow_spec_to_dict
 from backend.core.registry import register_all_blocks
@@ -89,10 +94,26 @@ def _has_raw_click_coords(draft: dict[str, Any]) -> bool:
 
 def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     utterance = str(case.get("utterance") or "")
+    expected_ops = case.get("expected_ops")
+    use_ir = bool(case.get("use_ir")) or expected_ops is not None
+
     plan = heuristic_plan_from_text(utterance)
     draft = empty_draft()
-    applied = apply_flow_spec(draft, plan, strict_coords=True)
-    draft = applied["draft"]
+    applied: dict[str, Any]
+    ir_ops: list[str] = []
+
+    if use_ir:
+        slots = merge_and_normalize(utterance=utterance)
+        plan_ir = plan_ir_from_slots(utterance, slots, utterance=utterance)
+        ir_ops = [st.op for st in plan_ir.steps]
+        applied = compile_ir(
+            plan_ir, slots, empty_draft(), strict_coords=True, utterance=utterance
+        )
+        draft = applied["draft"]
+    else:
+        applied = apply_flow_spec(draft, plan, strict_coords=True)
+        draft = applied["draft"]
+
     types = _node_types(draft)
     expected = list(case.get("expected_types") or [])
     optional = set(case.get("optional_types") or [])
@@ -124,7 +145,6 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
             core = [t for t in expected if t not in optional][:2]
         missing = [t for t in core if t not in types]
     else:
-        # Multiset soft match: each expected type must appear at least once
         missing = []
         for t in required:
             if t not in types:
@@ -134,6 +154,11 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
     clarify_only = bool(case.get("clarify_only"))
     if missing and not clarify_only:
         errors.append(f"missing types {missing}; got {types}")
+    if expected_ops is not None:
+        exp = [str(x) for x in expected_ops]
+        for op in exp:
+            if op not in ir_ops:
+                errors.append(f"missing ir op {op}; got {ir_ops}")
     if case.get("expect_connected") and not _is_connected(draft) and not clarify_only:
         errors.append("nodes not connected from entry")
     if case.get("forbid_raw_click_coords") and _has_raw_click_coords(draft):
@@ -160,6 +185,7 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         "ok": not errors,
         "errors": errors,
         "types": types,
+        "ir_ops": ir_ops,
         "utterance": utterance,
     }
 

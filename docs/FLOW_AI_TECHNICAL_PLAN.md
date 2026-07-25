@@ -467,9 +467,24 @@ capture_screen
 
 ---
 
-## 15. 下一步
+## 15. Compact IR（已落地）
 
-1. 评审本计划（尤其：tool 原语集合、坐标硬约束、确认 UX）。  
-2. 冻结 Phase 0–2 验收用例。  
-3. 开工 `backend/core/ai/` 骨架 + Bridge 方法空实现。  
-4. 同步改 README「Flow AI」状态说明。
+主路径已改为：**LLM 输出瘦 IR → 代码解释器编译草稿**，避免本地模型输出完整 schema 触顶。
+
+| 模块 | 路径 |
+| ---- | ---- |
+| IR 定义 / 槽位归一 / PlanIR | `backend/core/ai/graphs/agent_ir.py` |
+| 编译器 | `backend/core/ai/graphs/ir_compile.py` |
+| 图接线 | `backend/core/ai/graphs/flow_graph.py` |
+| 网关结构化调用 | `backend/core/ai/lc/structured_call.py` |
+| 文档 | `docs/FLOW_AI_LANGGRAPH.md` |
+
+`ToolActionBatch` / native tools 仅作编译失败后的补洞通道；`FlowSpec`+`recipes` 仍服务 offline eval 与宏展开后端。
+
+---
+
+## 16. 下一步
+
+1. 扩展更多 `expected_ops` 评测用例。  
+2. 长尾 opcode（vision / 复杂控制流）补洞策略打磨。  
+3. 同步 README「Flow AI」状态说明。
