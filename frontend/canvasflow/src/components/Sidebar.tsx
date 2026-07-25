@@ -37,7 +37,7 @@ interface SidebarProps {
   onRenameFlow?: (path: string, newName: string) => Promise<boolean>;
   onNewFlow?: () => void;
   flowsRefreshToken?: number;
-  /** Width of the content column (excluding the 56px icon rail). Default 280. */
+  /** Width of the content column (excluding the 56px icon rail). Default 308. */
   contentWidth?: number;
 }
 
@@ -143,7 +143,7 @@ export default function Sidebar({
   onRenameFlow,
   onNewFlow,
   flowsRefreshToken = 0,
-  contentWidth = 280,
+  contentWidth = 308,
 }: SidebarProps) {
   const colors = getThemeColors(themeName, themeMode);
   const [query, setQuery] = useState('');

@@ -3,12 +3,7 @@
  * Unused design-only UI (AI Assistant, demo templates) kept as-is.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-} from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Canvas from './components/Canvas';
@@ -39,7 +34,7 @@ import {
   listBindableParams,
   mapLogLevel,
   paramInName,
-  pickBestBindParam,
+  pickBestBindParam
 } from './nexuzAdapter';
 import { parseNodeRef } from './bindValue';
 import { collectFlowBindIssues } from './bindValidate';
@@ -67,7 +62,10 @@ function persistPanelCollapsed(key: string, collapsed: boolean) {
 
 function loadPanelSize(key: string, fallback: number, min: number, max: number): number {
   try {
-    const n = Number(localStorage.getItem(key));
+    // getItem missing → null; Number(null) === 0, which would clamp to `min`.
+    const raw = localStorage.getItem(key);
+    if (raw == null || raw.trim() === '') return fallback;
+    const n = Number(raw);
     if (Number.isFinite(n)) return Math.min(max, Math.max(min, Math.round(n)));
   } catch {
     /* ignore */
@@ -85,8 +83,8 @@ function persistPanelSize(key: string, value: number) {
 
 const LEFT_CONTENT_WIDTH_KEY = 'nexuz.leftPanelContentWidth';
 const RIGHT_PANEL_WIDTH_KEY = 'nexuz.rightPanelWidth';
-const DEFAULT_LEFT_CONTENT_WIDTH = 280;
-const DEFAULT_RIGHT_PANEL_WIDTH = 384;
+const DEFAULT_LEFT_CONTENT_WIDTH = 260;
+const DEFAULT_RIGHT_PANEL_WIDTH = 330;
 const MIN_LEFT_CONTENT_WIDTH = 200;
 const MAX_LEFT_CONTENT_WIDTH = 520;
 const MIN_RIGHT_PANEL_WIDTH = 280;
@@ -131,7 +129,7 @@ const REQUIRED_BLOCK_TYPES = [
   'screenshot',
   'wait_until',
   'schedule_trigger',
-  'call_subflow',
+  'call_subflow'
 ];
 
 function mergeSchemas(list: any[] | null | undefined) {
@@ -142,7 +140,7 @@ function mergeSchemas(list: any[] | null | undefined) {
   }
   // Ensure P1 vision blocks always visible even if backend registry is stale
   for (const t of REQUIRED_BLOCK_TYPES) {
-    const mock = MOCK_SCHEMAS.find((s) => s.type === t);
+    const mock = MOCK_SCHEMAS.find(s => s.type === t);
     if (mock && !byType.has(t)) byType.set(t, mock);
   }
   return Array.from(byType.values());
@@ -194,93 +192,80 @@ export default function App() {
 function AppShell() {
   const { confirm, alert } = useAppDialog();
   const { openUpdate } = useUpdateDialog();
-  const flow = useFlowStore((s) => s.flow);
-  const schemas = useFlowStore((s) => s.schemas);
-  const schemaMap = useFlowStore((s) => s.schemaMap);
-  const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
-  const selectNode = useFlowStore((s) => s.selectNode);
-  const viewMode = useFlowStore((s) => s.viewMode);
-  const lastFlowViewMode = useFlowStore((s) =>
-    s.lastFlowViewMode === 'code' || s.lastFlowViewMode === 'flowchart'
-      ? s.lastFlowViewMode
-      : 'canvas',
+  const flow = useFlowStore(s => s.flow);
+  const schemas = useFlowStore(s => s.schemas);
+  const schemaMap = useFlowStore(s => s.schemaMap);
+  const selectedNodeId = useFlowStore(s => s.selectedNodeId);
+  const selectNode = useFlowStore(s => s.selectNode);
+  const viewMode = useFlowStore(s => s.viewMode);
+  const lastFlowViewMode = useFlowStore(s =>
+    s.lastFlowViewMode === 'code' || s.lastFlowViewMode === 'flowchart' ? s.lastFlowViewMode : 'canvas'
   );
-  const hideSidePanelsOnSettings = useFlowStore(
-    (s) => s.hideSidePanelsOnSettings !== false,
-  );
+  const hideSidePanelsOnSettings = useFlowStore(s => s.hideSidePanelsOnSettings !== false);
   const settingsFocus = viewMode === 'settings' && hideSidePanelsOnSettings;
-  const setViewMode = useFlowStore((s) => s.setViewMode);
+  const setViewMode = useFlowStore(s => s.setViewMode);
   const [settingsExpandSection, setSettingsExpandSection] = useState<'ai' | null>(null);
   useEffect(() => {
     if (viewMode !== 'settings') setSettingsExpandSection(null);
   }, [viewMode]);
-  const themeName = useFlowStore((s) => s.themeName);
-  const themeMode = useFlowStore((s) => s.themeMode);
-  const setThemeName = useFlowStore((s) => s.setThemeName);
-  const setThemeMode = useFlowStore((s) => s.setThemeMode);
-  const execStatus = useFlowStore((s) => s.execStatus);
-  const execNodeId = useFlowStore((s) => s.execNodeId);
-  const execNodeStates = useFlowStore((s) => s.execNodeStates);
-  const debugMode = useFlowStore((s) => s.debugMode);
-  const toggleDebugMode = useFlowStore((s) => s.toggleDebugMode);
-  const toggleBreakpoint = useFlowStore((s) => s.toggleBreakpoint);
-  const nodeOutputs = useFlowStore((s) => s.nodeOutputs);
-  const logs = useFlowStore((s) => s.logs);
-  const runLog = useFlowStore((s) => s.runLog);
-  const runHistory = useFlowStore((s) => s.runHistory);
-  const clearRunHistory = useFlowStore((s) => s.clearRunHistory);
-  const filePath = useFlowStore((s) => s.filePath);
-  const hideWindowOnRecord = useFlowStore((s) => s.hideWindowOnRecord);
-  const autoSaveEnabled = useFlowStore((s) => s.autoSaveEnabled);
-  const autoSaveIntervalSec = useFlowStore((s) => s.autoSaveIntervalSec);
-  const saveAfterRun = useFlowStore((s) => s.saveAfterRun);
-  const hotkeys = useFlowStore((s) => s.hotkeys);
+  const themeName = useFlowStore(s => s.themeName);
+  const themeMode = useFlowStore(s => s.themeMode);
+  const setThemeName = useFlowStore(s => s.setThemeName);
+  const setThemeMode = useFlowStore(s => s.setThemeMode);
+  const execStatus = useFlowStore(s => s.execStatus);
+  const execNodeId = useFlowStore(s => s.execNodeId);
+  const execNodeStates = useFlowStore(s => s.execNodeStates);
+  const debugMode = useFlowStore(s => s.debugMode);
+  const toggleDebugMode = useFlowStore(s => s.toggleDebugMode);
+  const toggleBreakpoint = useFlowStore(s => s.toggleBreakpoint);
+  const nodeOutputs = useFlowStore(s => s.nodeOutputs);
+  const logs = useFlowStore(s => s.logs);
+  const runLog = useFlowStore(s => s.runLog);
+  const runHistory = useFlowStore(s => s.runHistory);
+  const clearRunHistory = useFlowStore(s => s.clearRunHistory);
+  const filePath = useFlowStore(s => s.filePath);
+  const hideWindowOnRecord = useFlowStore(s => s.hideWindowOnRecord);
+  const autoSaveEnabled = useFlowStore(s => s.autoSaveEnabled);
+  const autoSaveIntervalSec = useFlowStore(s => s.autoSaveIntervalSec);
+  const saveAfterRun = useFlowStore(s => s.saveAfterRun);
+  const hotkeys = useFlowStore(s => s.hotkeys);
   const hotkeyLabels = useMemo(() => {
     const h = hotkeys || DEFAULT_HOTKEYS;
     return {
       start_run: formatHotkeyLabel(h.start_run) || 'X+F3',
       stop_run: formatHotkeyLabel(h.stop_run) || 'X+F4',
       pause_run: formatHotkeyLabel(h.pause_run) || 'X+F5',
-      record_stop: formatHotkeyLabel(h.record_stop) || 'X+F10',
+      record_stop: formatHotkeyLabel(h.record_stop) || 'X+F10'
     };
   }, [hotkeys]);
   const recordStopLabel = hotkeyLabels.record_stop;
-  const defaultCaptureMode = useFlowStore((s) => s.defaultCaptureMode);
-  const defaultPickMethod = useFlowStore((s) => s.defaultPickMethod);
-  const defaultCoordinateMode = useFlowStore((s) => s.defaultCoordinateMode);
-  const defaultOutputCoordinateMode = useFlowStore((s) => s.defaultOutputCoordinateMode);
-  const defaultNodeIntervalMs = useFlowStore((s) => s.defaultNodeIntervalMs);
-  const [leftCollapsed, setLeftCollapsed] = useState(() =>
-    loadPanelCollapsed('nexuz.leftPanelCollapsed'),
-  );
-  const [rightCollapsed, setRightCollapsed] = useState(() =>
-    loadPanelCollapsed('nexuz.rightPanelCollapsed'),
-  );
+  const defaultCaptureMode = useFlowStore(s => s.defaultCaptureMode);
+  const defaultPickMethod = useFlowStore(s => s.defaultPickMethod);
+  const defaultCoordinateMode = useFlowStore(s => s.defaultCoordinateMode);
+  const defaultOutputCoordinateMode = useFlowStore(s => s.defaultOutputCoordinateMode);
+  const defaultNodeIntervalMs = useFlowStore(s => s.defaultNodeIntervalMs);
+  const [leftCollapsed, setLeftCollapsed] = useState(() => loadPanelCollapsed('nexuz.leftPanelCollapsed'));
+  const [rightCollapsed, setRightCollapsed] = useState(() => loadPanelCollapsed('nexuz.rightPanelCollapsed'));
   const [leftContentWidth, setLeftContentWidth] = useState(() =>
     loadPanelSize(
       LEFT_CONTENT_WIDTH_KEY,
       DEFAULT_LEFT_CONTENT_WIDTH,
       MIN_LEFT_CONTENT_WIDTH,
-      MAX_LEFT_CONTENT_WIDTH,
-    ),
+      MAX_LEFT_CONTENT_WIDTH
+    )
   );
   const [rightPanelWidth, setRightPanelWidth] = useState(() =>
-    loadPanelSize(
-      RIGHT_PANEL_WIDTH_KEY,
-      DEFAULT_RIGHT_PANEL_WIDTH,
-      MIN_RIGHT_PANEL_WIDTH,
-      MAX_RIGHT_PANEL_WIDTH,
-    ),
+    loadPanelSize(RIGHT_PANEL_WIDTH_KEY, DEFAULT_RIGHT_PANEL_WIDTH, MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH)
   );
   const toggleLeftPanel = useCallback(() => {
-    setLeftCollapsed((prev) => {
+    setLeftCollapsed(prev => {
       const next = !prev;
       persistPanelCollapsed('nexuz.leftPanelCollapsed', next);
       return next;
     });
   }, []);
   const toggleRightPanel = useCallback(() => {
-    setRightCollapsed((prev) => {
+    setRightCollapsed(prev => {
       const next = !prev;
       persistPanelCollapsed('nexuz.rightPanelCollapsed', next);
       return next;
@@ -290,7 +275,7 @@ function AppShell() {
     pickPoint: screenshotPickPoint,
     pickRegion: screenshotPickRegion,
     captureTemplate: screenshotCaptureTemplate,
-    dialog: screenPickDialog,
+    dialog: screenPickDialog
   } = useScreenshotPick({ hideWindow: hideWindowOnRecord });
 
   const runCoordPick = useCallback(
@@ -313,37 +298,37 @@ function AppShell() {
       hideWindowOnRecord,
       screenshotPickPoint,
       screenshotPickRegion,
-      screenshotCaptureTemplate,
-    ],
+      screenshotCaptureTemplate
+    ]
   );
 
-  const setSchemas = useFlowStore((s) => s.setSchemas);
-  const setBridgeReady = useFlowStore((s) => s.setBridgeReady);
-  const updateFlowMeta = useFlowStore((s) => s.updateFlowMeta);
-  const addNodeFromSchema = useFlowStore((s) => s.addNodeFromSchema);
-  const updateNodeParams = useFlowStore((s) => s.updateNodeParams);
-  const updateNodeName = useFlowStore((s) => s.updateNodeName);
-  const setNodeCollapsed = useFlowStore((s) => s.setNodeCollapsed);
-  const setNodesCollapsed = useFlowStore((s) => s.setNodesCollapsed);
-  const setBreakpointsForNodes = useFlowStore((s) => s.setBreakpointsForNodes);
-  const setNodesDisabled = useFlowStore((s) => s.setNodesDisabled);
-  const disconnectNodes = useFlowStore((s) => s.disconnectNodes);
-  const clearNodesFlowOuts = useFlowStore((s) => s.clearNodesFlowOuts);
-  const updateNodePosition = useFlowStore((s) => s.updateNodePosition);
-  const setNodeLink = useFlowStore((s) => s.setNodeLink);
-  const removeNodeLink = useFlowStore((s) => s.removeNodeLink);
-  const deleteNodes = useFlowStore((s) => s.deleteNodes);
-  const duplicateNodes = useFlowStore((s) => s.duplicateNodes);
-  const updateNodePositions = useFlowStore((s) => s.updateNodePositions);
-  const setFlow = useFlowStore((s) => s.setFlow);
-  const undo = useFlowStore((s) => s.undo);
-  const redo = useFlowStore((s) => s.redo);
-  const canUndo = useFlowStore((s) => (s.past?.length || 0) > 0);
-  const canRedo = useFlowStore((s) => (s.future?.length || 0) > 0);
-  const clearLogs = useFlowStore((s) => s.clearLogs);
-  const appendLog = useFlowStore((s) => s.appendLog);
-  const onRuntimeEvent = useFlowStore((s) => s.onRuntimeEvent);
-  const appendRecordedNodes = useFlowStore((s) => s.appendRecordedNodes);
+  const setSchemas = useFlowStore(s => s.setSchemas);
+  const setBridgeReady = useFlowStore(s => s.setBridgeReady);
+  const updateFlowMeta = useFlowStore(s => s.updateFlowMeta);
+  const addNodeFromSchema = useFlowStore(s => s.addNodeFromSchema);
+  const updateNodeParams = useFlowStore(s => s.updateNodeParams);
+  const updateNodeName = useFlowStore(s => s.updateNodeName);
+  const setNodeCollapsed = useFlowStore(s => s.setNodeCollapsed);
+  const setNodesCollapsed = useFlowStore(s => s.setNodesCollapsed);
+  const setBreakpointsForNodes = useFlowStore(s => s.setBreakpointsForNodes);
+  const setNodesDisabled = useFlowStore(s => s.setNodesDisabled);
+  const disconnectNodes = useFlowStore(s => s.disconnectNodes);
+  const clearNodesFlowOuts = useFlowStore(s => s.clearNodesFlowOuts);
+  const updateNodePosition = useFlowStore(s => s.updateNodePosition);
+  const setNodeLink = useFlowStore(s => s.setNodeLink);
+  const removeNodeLink = useFlowStore(s => s.removeNodeLink);
+  const deleteNodes = useFlowStore(s => s.deleteNodes);
+  const duplicateNodes = useFlowStore(s => s.duplicateNodes);
+  const updateNodePositions = useFlowStore(s => s.updateNodePositions);
+  const setFlow = useFlowStore(s => s.setFlow);
+  const undo = useFlowStore(s => s.undo);
+  const redo = useFlowStore(s => s.redo);
+  const canUndo = useFlowStore(s => (s.past?.length || 0) > 0);
+  const canRedo = useFlowStore(s => (s.future?.length || 0) > 0);
+  const clearLogs = useFlowStore(s => s.clearLogs);
+  const appendLog = useFlowStore(s => s.appendLog);
+  const onRuntimeEvent = useFlowStore(s => s.onRuntimeEvent);
+  const appendRecordedNodes = useFlowStore(s => s.appendRecordedNodes);
 
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -381,10 +366,7 @@ function AppShell() {
     });
   };
 
-  const bindIssues = useMemo(
-    () => collectFlowBindIssues(flow, schemaMap),
-    [flow, schemaMap],
-  );
+  const bindIssues = useMemo(() => collectFlowBindIssues(flow, schemaMap), [flow, schemaMap]);
 
   // Avoid stuffing every nodeOutputs blob into the canvas graph — Inspector
   // reads the selected node's output separately, which cuts React retention.
@@ -409,21 +391,18 @@ function AppShell() {
         issueByConn.set(`${base}|${leaf}`, mark);
       }
     }
-    const nodes = base.nodes.map((n) => {
+    const nodes = base.nodes.map(n => {
       const count = errCount.get(n.id) || 0;
       return count ? { ...n, bindErrorCount: count } : n;
     });
-    const connections = base.connections.map((c) => {
+    const connections = base.connections.map(c => {
       if (c.kind !== 'data') return c;
       const field = isDataOutSocket(c.sourceSocketId)
         ? dataOutField(c.sourceSocketId)
         : (c.label || '').split('→')[0];
-      const param = isParamInSocket(c.targetSocketId)
-        ? paramInName(c.targetSocketId)
-        : '';
+      const param = isParamInSocket(c.targetSocketId) ? paramInName(c.targetSocketId) : '';
       const base = `${c.sourceNodeId}|${c.targetNodeId}|${field}`;
-      const hit =
-        (param && issueByConn.get(`${base}|${param}`)) || issueByConn.get(`${base}|`);
+      const hit = (param && issueByConn.get(`${base}|${param}`)) || issueByConn.get(`${base}|`);
       if (!hit) return c;
       return { ...c, bindIssue: hit };
     });
@@ -431,7 +410,7 @@ function AppShell() {
   }, [flow, schemaMap, execNodeStates, execNodeId, bindIssues]);
 
   const selectedNode = useMemo(() => {
-    const n = nodes.find((node) => node.id === selectedNodeId) || null;
+    const n = nodes.find(node => node.id === selectedNodeId) || null;
     if (!n) return null;
     const outputData = nodeOutputs[n.id] ?? null;
     return outputData ? { ...n, outputData } : n;
@@ -450,9 +429,9 @@ function AppShell() {
         nodeId: l.nodeId || undefined,
         nodeName: undefined,
         detail: l.detail,
-        ts: l.ts,
+        ts: l.ts
       })),
-    [logs],
+    [logs]
   );
 
   const handleRunWorkflowRef = useRef<() => void>(() => {});
@@ -462,14 +441,10 @@ function AppShell() {
     const handleRuntimeMessage = (msg: any) => {
       if (!msg) return;
       if (msg.event === 'update_download_progress') {
-        window.dispatchEvent(
-          new CustomEvent('nexuz-update-progress', { detail: msg.payload || {} }),
-        );
+        window.dispatchEvent(new CustomEvent('nexuz-update-progress', { detail: msg.payload || {} }));
       }
       if (msg.event === 'ai_progress') {
-        window.dispatchEvent(
-          new CustomEvent('nexuz-ai-progress', { detail: msg.payload || {} }),
-        );
+        window.dispatchEvent(new CustomEvent('nexuz-ai-progress', { detail: msg.payload || {} }));
       }
       if (msg.event === 'hotkey_run') {
         if (msg.payload?.message) {
@@ -477,7 +452,7 @@ function AppShell() {
             level: 'info',
             category: 'system',
             scope: 'app',
-            message: String(msg.payload.message),
+            message: String(msg.payload.message)
           });
         }
         void handleRunWorkflowRef.current?.();
@@ -501,7 +476,8 @@ function AppShell() {
     const pollUiEvents = () => {
       if (cancelled || drainBusy) return;
       drainBusy = true;
-      void bridge.drainUiEvents?.()
+      void bridge
+        .drainUiEvents?.()
         .then((res: any) => {
           const messages = res?.messages;
           if (!Array.isArray(messages) || !messages.length) return;
@@ -541,14 +517,14 @@ function AppShell() {
           level: 'info',
           category: 'system',
           scope: 'app',
-          message: `桥接: ${ping?.message || 'ok'} (DPI ${ping?.dpi_scale ?? '?'})`,
+          message: `桥接: ${ping?.message || 'ok'} (DPI ${ping?.dpi_scale ?? '?'})`
         });
       } catch (e: any) {
         appendLog({
           level: 'error',
           category: 'system',
           scope: 'app',
-          message: String(e),
+          message: String(e)
         });
       }
       try {
@@ -558,7 +534,7 @@ function AppShell() {
             level: 'info',
             category: 'system',
             scope: 'app',
-            message: `版本 ${info.version}`,
+            message: `版本 ${info.version}`
           });
         }
       } catch {
@@ -568,14 +544,12 @@ function AppShell() {
       if (!cancelled) {
         const merged = mergeSchemas(list);
         setSchemas(merged);
-        const hasOcr = merged.some((s) => s.type === 'ocr_recognize');
+        const hasOcr = merged.some(s => s.type === 'ocr_recognize');
         appendLog({
           level: 'info',
           category: 'system',
           scope: 'app',
-          message: hasOcr
-            ? `积木已加载 ${merged.length} 个（含 OCR / 找图）`
-            : `积木已加载 ${merged.length} 个`,
+          message: hasOcr ? `积木已加载 ${merged.length} 个（含 OCR / 找图）` : `积木已加载 ${merged.length} 个`
         });
       }
 
@@ -590,7 +564,7 @@ function AppShell() {
               await alert({
                 title: n.title || '通知',
                 description: String(n.body),
-                okText: '我知道了',
+                okText: '我知道了'
               });
               await writeNoticeReadId(String(n.id));
             }
@@ -613,7 +587,7 @@ function AppShell() {
             if (upd?.ok && upd.update_available) {
               appendLog({
                 level: 'info',
-                message: `有可用更新：${upd.current_version} → ${upd.latest_version}`,
+                message: `有可用更新：${upd.current_version} → ${upd.latest_version}`
               });
               await openUpdate(upd);
             }
@@ -650,18 +624,16 @@ function AppShell() {
       appendLog({
         level: 'warn',
         message:
-          execStatus === 'stopping'
-            ? '正在停止中，请稍候…'
-            : '流程正在运行，请先暂停/停止，或使用调试栏「单步」',
+          execStatus === 'stopping' ? '正在停止中，请稍候…' : '流程正在运行，请先暂停/停止，或使用调试栏「单步」'
       });
       return;
     }
     clearLogs();
-    const errN = bindIssues.filter((i) => i.level === 'error').length;
+    const errN = bindIssues.filter(i => i.level === 'error').length;
     if (errN > 0) {
       appendLog({
         level: 'error',
-        message: `无法运行：有 ${errN} 个配置错误（如未取点、绑定失效），请先在画布/检查器中修复`,
+        message: `无法运行：有 ${errN} 个配置错误（如未取点、绑定失效），请先在画布/检查器中修复`
       });
       return;
     }
@@ -673,14 +645,11 @@ function AppShell() {
         ? `调试运行…${bps.length ? `（${bps.length} 个断点）` : '（无断点）'}`
         : hideWindowOnRecord
           ? '开始运行流程（已隐藏窗口，避免点击落到本程序上）…'
-          : '开始运行流程…',
+          : '开始运行流程…'
     });
     const prepared = applyDefaultOutputCoordinateMode(
-      applyDefaultCoordinateMode(
-        applyDefaultCaptureMode(flow, defaultCaptureMode),
-        defaultCoordinateMode,
-      ),
-      defaultOutputCoordinateMode,
+      applyDefaultCoordinateMode(applyDefaultCaptureMode(flow, defaultCaptureMode), defaultCoordinateMode),
+      defaultOutputCoordinateMode
     );
     const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
     const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
@@ -723,31 +692,29 @@ function AppShell() {
     useFlowStore.setState({
       execStatus: 'idle',
       execNodeId: null,
-      execNodeStates: {},
+      execNodeStates: {}
     });
     appendLog({ level: 'warn', message: '正在强制重置…' });
     try {
       const res = await Promise.race([
         bridge.forceReset(),
-        new Promise((resolve) =>
-          setTimeout(() => resolve({ ok: false, error: 'timeout' }), 4000),
-        ),
+        new Promise(resolve => setTimeout(() => resolve({ ok: false, error: 'timeout' }), 4000))
       ]);
       if (res?.ok === false && res?.error === 'timeout') {
         appendLog({
           level: 'warn',
-          message: '后端响应超时，界面已解锁；若仍异常请重启程序',
+          message: '后端响应超时，界面已解锁；若仍异常请重启程序'
         });
         return;
       }
       appendLog({
         level: 'ok',
-        message: (res as any)?.message || '已强制重置，可以重新运行',
+        message: (res as any)?.message || '已强制重置，可以重新运行'
       });
     } catch (e: any) {
       appendLog({
         level: 'warn',
-        message: `界面已解锁（后端：${e?.message || e || '调用失败'}）`,
+        message: `界面已解锁（后端：${e?.message || e || '调用失败'}）`
       });
     }
   };
@@ -771,9 +738,7 @@ function AppShell() {
     toggleDebugMode();
     appendLog({
       level: 'info',
-      message: next
-        ? '已开启调试：可在节点左侧设断点，使用画布上方调试栏'
-        : '已关闭调试模式',
+      message: next ? '已开启调试：可在节点左侧设断点，使用画布上方调试栏' : '已关闭调试模式'
     });
   };
 
@@ -785,11 +750,7 @@ function AppShell() {
     const bps = Array.isArray(flow.breakpoints) ? flow.breakpoints : [];
 
     // Already running / at BP → step one node
-    if (
-      execStatus === 'breakpoint' ||
-      execStatus === 'paused' ||
-      execStatus === 'running'
-    ) {
+    if (execStatus === 'breakpoint' || execStatus === 'paused' || execStatus === 'running') {
       if (!debugMode) useFlowStore.setState({ debugMode: true });
       const res = await bridge.stepFlow();
       if (res?.ok === false) {
@@ -800,22 +761,19 @@ function AppShell() {
 
     // idle → start debug run, break before first node
     if (!debugMode) useFlowStore.setState({ debugMode: true });
-    const errN = bindIssues.filter((i) => i.level === 'error').length;
+    const errN = bindIssues.filter(i => i.level === 'error').length;
     if (errN > 0) {
       appendLog({
         level: 'error',
-        message: `无法调试：有 ${errN} 个配置错误，请先修复`,
+        message: `无法调试：有 ${errN} 个配置错误，请先修复`
       });
       return;
     }
     clearLogs();
     appendLog({ level: 'info', message: '调试单步启动：将在首个节点暂停…' });
     const prepared = applyDefaultOutputCoordinateMode(
-      applyDefaultCoordinateMode(
-        applyDefaultCaptureMode(flow, defaultCaptureMode),
-        defaultCoordinateMode,
-      ),
-      defaultOutputCoordinateMode,
+      applyDefaultCoordinateMode(applyDefaultCaptureMode(flow, defaultCaptureMode), defaultCoordinateMode),
+      defaultOutputCoordinateMode
     );
     const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
     const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
@@ -828,9 +786,7 @@ function AppShell() {
 
   const handleToggleBreakpoint = useCallback(
     (nodeId: string) => {
-      const before = new Set(
-        (useFlowStore.getState().flow.breakpoints || []).map(String),
-      );
+      const before = new Set((useFlowStore.getState().flow.breakpoints || []).map(String));
       const adding = !before.has(nodeId);
       toggleBreakpoint(nodeId);
       queueMicrotask(() => {
@@ -841,11 +797,11 @@ function AppShell() {
         }
         appendLog({
           level: 'info',
-          message: adding ? `已设置断点: ${nodeId}` : `已取消断点: ${nodeId}`,
+          message: adding ? `已设置断点: ${nodeId}` : `已取消断点: ${nodeId}`
         });
       });
     },
-    [toggleBreakpoint, appendLog],
+    [toggleBreakpoint, appendLog]
   );
 
   const buildAutoFlowName = (curFlow: { name?: string; nodes?: Record<string, unknown> }) => {
@@ -877,10 +833,10 @@ function AppShell() {
         if (res?.ok) {
           useFlowStore.setState({ filePath: res.path || null });
           updateFlowMeta({ name: res.name || autoName });
-          setFlowsRefreshToken((n) => n + 1);
+          setFlowsRefreshToken(n => n + 1);
           appendLog({
             level: 'ok',
-            message: `运行后已自动保存: ${res.name || autoName}`,
+            message: `运行后已自动保存: ${res.name || autoName}`
           });
           return true;
         }
@@ -893,18 +849,18 @@ function AppShell() {
       if (res?.ok) {
         useFlowStore.setState({ filePath: res.path || path });
         if (res.name) updateFlowMeta({ name: res.name });
-        setFlowsRefreshToken((n) => n + 1);
+        setFlowsRefreshToken(n => n + 1);
         if (mode === 'manual') {
           appendLog({ level: 'ok', message: `已保存: ${res.name || curFlow.name || '流程'}` });
         } else if (mode === 'after_run') {
           appendLog({
             level: 'ok',
-            message: `运行后已自动保存: ${res.name || curFlow.name || '流程'}`,
+            message: `运行后已自动保存: ${res.name || curFlow.name || '流程'}`
           });
         } else {
           appendLog({
             level: 'info',
-            message: `自动保存: ${res.name || curFlow.name || '流程'}`,
+            message: `自动保存: ${res.name || curFlow.name || '流程'}`
           });
         }
         return true;
@@ -912,12 +868,12 @@ function AppShell() {
       if (!res?.cancelled) {
         appendLog({
           level: 'error',
-          message: res?.error || (mode === 'manual' ? '保存失败' : '自动保存失败'),
+          message: res?.error || (mode === 'manual' ? '保存失败' : '自动保存失败')
         });
       }
       return false;
     },
-    [appendLog, updateFlowMeta],
+    [appendLog, updateFlowMeta]
   );
 
   const handleSave = async () => saveCurrentFlow('manual');
@@ -952,7 +908,7 @@ function AppShell() {
     const res = await bridge.saveFlow(payload, null, name);
     if (res?.ok) {
       useFlowStore.setState({ filePath: res.path });
-      setFlowsRefreshToken((n) => n + 1);
+      setFlowsRefreshToken(n => n + 1);
       appendLog({ level: 'ok', message: `已保存: ${name}` });
       return true;
     }
@@ -963,18 +919,10 @@ function AppShell() {
   const handleImport = async () => {
     const preview = await bridge.importFlow();
     if (preview?.ok && preview.import_token) {
-      const capabilities = Array.isArray(preview.risks?.capabilities)
-        ? preview.risks.capabilities
-        : [];
-      const unknownTypes = Array.isArray(preview.risks?.unknown_types)
-        ? preview.risks.unknown_types
-        : [];
-      const capabilityLines = capabilities.map(
-        (item: any) => `• ${item.label || item.type} × ${item.count || 1}`,
-      );
-      const unknownLines = unknownTypes.map(
-        (item: any) => `• 未知/自定义积木 ${item.type} × ${item.count || 1}`,
-      );
+      const capabilities = Array.isArray(preview.risks?.capabilities) ? preview.risks.capabilities : [];
+      const unknownTypes = Array.isArray(preview.risks?.unknown_types) ? preview.risks.unknown_types : [];
+      const capabilityLines = capabilities.map((item: any) => `• ${item.label || item.type} × ${item.count || 1}`);
+      const unknownLines = unknownTypes.map((item: any) => `• 未知/自定义积木 ${item.type} × ${item.count || 1}`);
       const detected = [...capabilityLines, ...unknownLines];
       const trusted = await confirm({
         title: preview.risks?.needs_strong_warning ? '导入含高权限能力的流程？' : '导入外部流程？',
@@ -982,10 +930,10 @@ function AppShell() {
           `文件：${preview.name || '未命名流程'}`,
           '运行外部流程可操控键鼠，并可能以当前用户权限读写文件、访问网络或执行代码。',
           detected.length ? `\n检测到的能力：\n${detected.join('\n')}` : '\n未检测到脚本、命令或网络类积木。',
-          '\n请仅在你已审查并完全信任文件来源时继续。',
+          '\n请仅在你已审查并完全信任文件来源时继续。'
         ].join('\n'),
         confirmText: '我信任此来源，继续导入',
-        destructive: true,
+        destructive: true
       });
       if (!trusted) return;
       const res = await bridge.commitImportFlow(preview.import_token);
@@ -995,12 +943,12 @@ function AppShell() {
         return;
       }
       setFlow(res.flow, res.path);
-      setFlowsRefreshToken((n) => n + 1);
+      setFlowsRefreshToken(n => n + 1);
       const fmt = res.format === 'zip' ? '（已解压模板图片）' : '';
       const name = res.name || res.flow.name || '流程';
       useFlowStore.getState().appendAuditLog?.(`导入流程${fmt}: ${name}`, {
         path: res.path,
-        format: res.format,
+        format: res.format
       });
     } else if (!preview?.cancelled) {
       appendLog({ level: 'error', category: 'system', message: preview?.error || '导入失败' });
@@ -1011,10 +959,10 @@ function AppShell() {
     const res = await bridge.exportFlow(flow, flow.name || null);
     if (res?.ok) {
       const fmt = res.format === 'zip' ? '（含模板图片的流程包）' : '';
-      useFlowStore.getState().appendAuditLog?.(
-        `导出流程${fmt}: ${res.path || flow.name || '流程'}`,
-        { path: res.path, format: res.format },
-      );
+      useFlowStore.getState().appendAuditLog?.(`导出流程${fmt}: ${res.path || flow.name || '流程'}`, {
+        path: res.path,
+        format: res.format
+      });
     } else if (!res?.cancelled) {
       appendLog({ level: 'error', category: 'system', message: res?.error || '导出失败' });
     }
@@ -1039,11 +987,13 @@ function AppShell() {
       return false;
     }
     const normalizePath = (value: string | null | undefined) =>
-      String(value || '').replace(/\\/g, '/').toLowerCase();
+      String(value || '')
+        .replace(/\\/g, '/')
+        .toLowerCase();
     if (normalizePath(filePath) === normalizePath(path)) {
       updateFlowMeta({ name: res.name || newName });
     }
-    setFlowsRefreshToken((n) => n + 1);
+    setFlowsRefreshToken(n => n + 1);
     appendLog({ level: 'ok', message: `流程已重命名为: ${res.name || newName}` });
     return true;
   };
@@ -1054,18 +1004,21 @@ function AppShell() {
         title: '新建流程',
         description: '新建流程将清空当前画布，是否继续？',
         confirmText: '新建',
-        destructive: true,
+        destructive: true
       });
       if (!ok) return;
     }
-    setFlow({
-      flow_id: `flow_${Date.now()}`,
-      name: '',
-      version: 1,
-      variables: {},
-      entry: null,
-      nodes: {},
-    }, null);
+    setFlow(
+      {
+        flow_id: `flow_${Date.now()}`,
+        name: '',
+        version: 1,
+        variables: {},
+        entry: null,
+        nodes: {}
+      },
+      null
+    );
     appendLog({ level: 'info', message: '已新建空白流程' });
   };
 
@@ -1074,7 +1027,7 @@ function AppShell() {
       title: '清空画布',
       description: '确定清空当前画布上的全部节点？可用撤销恢复。',
       confirmText: '清空',
-      destructive: true,
+      destructive: true
     });
     if (!ok) return;
     const ids = Object.keys(flow.nodes || {});
@@ -1101,7 +1054,7 @@ function AppShell() {
           : '';
       appendLog({
         level: 'ok',
-        message: `录制结束，追加 ${nodes.length || 0} 个节点${btnHint}`,
+        message: `录制结束，追加 ${nodes.length || 0} 个节点${btnHint}`
       });
     }
   };
@@ -1109,9 +1062,7 @@ function AppShell() {
   const handleToggleRecord = async () => {
     if (!recording) {
       const hide = !!hideWindowOnRecord;
-      const mode = (defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord') as
-        | 'coord'
-        | 'frida_ui';
+      const mode = (defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord') as 'coord' | 'frida_ui';
       const modeLabel = mode === 'frida_ui' ? 'Frida UI（游戏内点击组件）' : '坐标（屏幕鼠键）';
       const ok = await confirm({
         title: '开始录制',
@@ -1123,16 +1074,11 @@ function AppShell() {
             : hide
               ? `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n\n已开启隐藏窗口：用右上角浮窗或 ${recordStopLabel} 停止。`
               : `模式：${modeLabel}\n\n录制支持：点击 / 按键 / 延迟 / 滚轮。\n不含：拖拽、悬停、文本输入（请手动加节点）。\n右上角浮层或 ${recordStopLabel} 停止。`,
-        confirmText: '开始录制',
+        confirmText: '开始录制'
       });
       if (!ok) return;
 
-      const res = await bridge.startRecording(
-        50,
-        hide,
-        mode,
-        defaultCoordinateMode || 'window_client',
-      );
+      const res = await bridge.startRecording(50, hide, mode, defaultCoordinateMode || 'window_client');
       if (res?.ok) {
         setRecording(true);
         setRecordingMode(mode);
@@ -1141,12 +1087,12 @@ function AppShell() {
           level: 'info',
           message: hide
             ? `开始录制 [${modeLabel}]（窗口已隐藏）。停止：外部浮窗 或 ${stopHint}`
-            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 ${stopHint}`,
+            : `开始录制 [${modeLabel}]。点右上角浮层「停止录制」或按 ${stopHint}`
         });
       } else {
         appendLog({
           level: 'error',
-          message: res?.error || res?.message || '无法开始录制',
+          message: res?.error || res?.message || '无法开始录制'
         });
       }
     } else {
@@ -1160,30 +1106,30 @@ function AppShell() {
         blockType,
         position || {
           x: 250 + Math.random() * 80,
-          y: 150 + Math.random() * 80,
-        },
+          y: 150 + Math.random() * 80
+        }
       );
       if (id) appendLog({ level: 'info', message: `已添加节点: ${blockType}` });
       else appendLog({ level: 'warn', message: `未知积木类型: ${blockType}` });
     },
-    [addNodeFromSchema, appendLog],
+    [addNodeFromSchema, appendLog]
   );
 
   const handleDropBlock = useCallback(
     (blockType: string, x: number, y: number) => {
       handleAddNexuzNode(blockType, {
         x: Math.round(x / 10) * 10,
-        y: Math.round(y / 10) * 10,
+        y: Math.round(y / 10) * 10
       });
     },
-    [handleAddNexuzNode],
+    [handleAddNexuzNode]
   );
 
   // Design-only demo nodes (unused for backend) — keep Sidebar/AI API shape
   const handleAddDemoNode = (subType: string) => {
     appendLog({
       level: 'warn',
-      message: `设计稿节点「${subType}」未接入 Nexuz 后端，请从 Nodes 中选择动作/识别/控制积木`,
+      message: `设计稿节点「${subType}」未接入 Nexuz 后端，请从 Nodes 中选择动作/识别/控制积木`
     });
   };
 
@@ -1203,17 +1149,17 @@ function AppShell() {
               params: { times: 3 },
               body: 'n3',
               next: null,
-              position: { x: 360, y: 180 },
+              position: { x: 360, y: 180 }
             },
             n3: {
               type: 'click',
               params: { x: 100, y: 100, button: 'left', click_type: 'single', move_duration: 0 },
               next: null,
-              position: { x: 620, y: 180 },
-            },
-          },
+              position: { x: 620, y: 180 }
+            }
+          }
         },
-        null,
+        null
       );
       appendLog({ level: 'info', message: '已加载点击循环模板' });
       return;
@@ -1232,13 +1178,13 @@ function AppShell() {
               params: { x: 10, y: 10, target_color: '#FF0000', tolerance: 30 },
               then: 'c2',
               else: 'c3',
-              position: { x: 120, y: 180 },
+              position: { x: 120, y: 180 }
             },
             c2: { type: 'delay', params: { ms: 100 }, next: null, position: { x: 400, y: 80 } },
-            c3: { type: 'delay', params: { ms: 100 }, next: null, position: { x: 400, y: 280 } },
-          },
+            c3: { type: 'delay', params: { ms: 100 }, next: null, position: { x: 400, y: 280 } }
+          }
         },
-        null,
+        null
       );
       appendLog({ level: 'info', message: '已加载颜色分支模板' });
       return;
@@ -1246,7 +1192,7 @@ function AppShell() {
     // Unknown builtin id
     appendLog({
       level: 'warn',
-      message: `未知模板「${templateId}」`,
+      message: `未知模板「${templateId}」`
     });
   };
 
@@ -1254,32 +1200,25 @@ function AppShell() {
     (nodeId: string, x: number, y: number) => {
       updateNodePosition(nodeId, { x, y });
     },
-    [updateNodePosition],
+    [updateNodePosition]
   );
 
   const handleUpdateNodePositions = useCallback(
     (updates: { id: string; x: number; y: number }[]) => {
       updateNodePositions(updates);
     },
-    [updateNodePositions],
+    [updateNodePositions]
   );
 
   const handleAddConnection = useCallback(
-    (
-      sourceNodeId: string,
-      sourceSocketId: string,
-      targetNodeId: string,
-      targetSocketId: string,
-    ) => {
+    (sourceNodeId: string, sourceSocketId: string, targetNodeId: string, targetSocketId: string) => {
       // Data port → write {{source.field}} into target param
       if (isDataOutSocket(sourceSocketId)) {
         const field = dataOutField(sourceSocketId);
         const targetNode = flow?.nodes?.[targetNodeId];
         if (!targetNode) return;
         const schema = schemaMap[targetNode.type] || {};
-        let paramName: string | null = isParamInSocket(targetSocketId)
-          ? paramInName(targetSocketId)
-          : null;
+        let paramName: string | null = isParamInSocket(targetSocketId) ? paramInName(targetSocketId) : null;
         if (!paramName) {
           const srcSchema = schemaMap[flow?.nodes?.[sourceNodeId]?.type] || {};
           const outMeta = (srcSchema.outputs || []).find((o: any) => o.name === field);
@@ -1291,7 +1230,7 @@ function AppShell() {
             level: 'warn',
             message: available.length
               ? `无法自动绑定：请拖到目标节点左侧的参数口（如 ${available[0].label}）`
-              : '目标节点没有可绑定的参数',
+              : '目标节点没有可绑定的参数'
           });
           return;
         }
@@ -1299,7 +1238,7 @@ function AppShell() {
         updateNodeParams(targetNodeId, { [paramName]: ref });
         appendLog({
           level: 'info',
-          message: `已绑定 ${ref} → ${targetNodeId}.${paramName}`,
+          message: `已绑定 ${ref} → ${targetNodeId}.${paramName}`
         });
         return;
       }
@@ -1315,19 +1254,19 @@ function AppShell() {
       if (sourceNodeId === targetNodeId) {
         appendLog({
           level: 'warn',
-          message: '不能连回自身（容易死循环）；重试请用循环节点',
+          message: '不能连回自身（容易死循环）；重试请用循环节点'
         });
         return;
       }
       setNodeLink(sourceNodeId, handle, targetNodeId);
       appendLog({ level: 'info', message: `已连接 ${sourceNodeId}.${handle} → ${targetNodeId}` });
     },
-    [setNodeLink, appendLog, flow, schemaMap, updateNodeParams],
+    [setNodeLink, appendLog, flow, schemaMap, updateNodeParams]
   );
 
   const handleRemoveConnection = useCallback(
     (connectionId: string) => {
-      const conn = connections.find((c) => c.id === connectionId);
+      const conn = connections.find(c => c.id === connectionId);
       if (!conn) return;
       if (conn.kind === 'data') {
         const targetNode = flow?.nodes?.[conn.targetNodeId];
@@ -1336,13 +1275,11 @@ function AppShell() {
           ? dataOutField(conn.sourceSocketId)
           : conn.label?.split('→')[0] || '';
         const expected = formatNodeRef(conn.sourceNodeId, field);
-        let paramName = isParamInSocket(conn.targetSocketId)
-          ? paramInName(conn.targetSocketId)
-          : null;
+        let paramName = isParamInSocket(conn.targetSocketId) ? paramInName(conn.targetSocketId) : null;
         if (!paramName) {
           const params = targetNode.params || {};
           paramName =
-            Object.keys(params).find((k) => {
+            Object.keys(params).find(k => {
               const v = params[k];
               return typeof v === 'string' && (v.trim() === expected || parseNodeRef(v)?.field === field);
             }) || null;
@@ -1361,7 +1298,7 @@ function AppShell() {
       removeNodeLink(conn.sourceNodeId, conn.sourceSocketId);
       appendLog({ level: 'info', message: '已移除连线' });
     },
-    [connections, removeNodeLink, appendLog, flow, schemaMap, updateNodeParams],
+    [connections, removeNodeLink, appendLog, flow, schemaMap, updateNodeParams]
   );
 
   const handleRemoveNode = useCallback(
@@ -1369,7 +1306,7 @@ function AppShell() {
       deleteNodes([nodeId]);
       appendLog({ level: 'info', message: `已删除节点 ${nodeId}` });
     },
-    [deleteNodes, appendLog],
+    [deleteNodes, appendLog]
   );
 
   const handleRemoveNodes = useCallback(
@@ -1378,7 +1315,7 @@ function AppShell() {
       deleteNodes(nodeIds);
       appendLog({ level: 'info', message: `已删除 ${nodeIds.length} 个节点` });
     },
-    [deleteNodes, appendLog],
+    [deleteNodes, appendLog]
   );
 
   const handleDuplicateNodes = useCallback(
@@ -1389,21 +1326,21 @@ function AppShell() {
       }
       return newIds || [];
     },
-    [duplicateNodes, appendLog],
+    [duplicateNodes, appendLog]
   );
 
   const handleUpdateNodeConfig = useCallback(
     (nodeId: string, updatedConfig: any) => {
       updateNodeParams(nodeId, updatedConfig);
     },
-    [updateNodeParams],
+    [updateNodeParams]
   );
 
   const handleUpdateNodeName = useCallback(
     (nodeId: string, name: string) => {
       updateNodeName(nodeId, name);
     },
-    [updateNodeName],
+    [updateNodeName]
   );
 
   const handleToggleNodeCollapsed = useCallback(
@@ -1412,14 +1349,14 @@ function AppShell() {
       if (!node) return;
       setNodeCollapsed(nodeId, !node.collapsed);
     },
-    [setNodeCollapsed],
+    [setNodeCollapsed]
   );
 
   const handleSetNodesCollapsed = useCallback(
     (nodeIds: string[], collapsed: boolean) => {
       setNodesCollapsed(nodeIds, collapsed);
     },
-    [setNodesCollapsed],
+    [setNodesCollapsed]
   );
 
   const handleSetBreakpointsForNodes = useCallback(
@@ -1433,13 +1370,11 @@ function AppShell() {
         }
         appendLog({
           level: 'info',
-          message: enabled
-            ? `已设置断点 ×${nodeIds.length}`
-            : `已取消断点 ×${nodeIds.length}`,
+          message: enabled ? `已设置断点 ×${nodeIds.length}` : `已取消断点 ×${nodeIds.length}`
         });
       });
     },
-    [setBreakpointsForNodes, appendLog],
+    [setBreakpointsForNodes, appendLog]
   );
 
   const handleSetNodesDisabled = useCallback(
@@ -1447,12 +1382,10 @@ function AppShell() {
       setNodesDisabled(nodeIds, disabled);
       appendLog({
         level: 'info',
-        message: disabled
-          ? `已禁用 ${nodeIds.length} 个节点`
-          : `已启用 ${nodeIds.length} 个节点`,
+        message: disabled ? `已禁用 ${nodeIds.length} 个节点` : `已启用 ${nodeIds.length} 个节点`
       });
     },
-    [setNodesDisabled, appendLog],
+    [setNodesDisabled, appendLog]
   );
 
   const handleDisconnectNodes = useCallback(
@@ -1463,19 +1396,19 @@ function AppShell() {
         title: '断开全部连线',
         description: `将清除 ${ids.length} 个节点的全部执行连线与相关数据绑定，是否继续？`,
         confirmText: '断开',
-        destructive: true,
+        destructive: true
       });
       if (!ok) return;
       disconnectNodes(ids);
       appendLog({ level: 'info', message: `已断开 ${ids.length} 个节点的连线` });
     },
-    [confirm, disconnectNodes, appendLog],
+    [confirm, disconnectNodes, appendLog]
   );
 
   const handleDeleteOtherNodes = useCallback(
     async (keepId: string) => {
       const all = Object.keys(flow?.nodes || {});
-      const others = all.filter((id) => id !== keepId);
+      const others = all.filter(id => id !== keepId);
       if (!others.length) {
         appendLog({ level: 'info', message: '没有其他节点可删' });
         return;
@@ -1484,7 +1417,7 @@ function AppShell() {
         title: '删除其他节点',
         description: `将删除其余 ${others.length} 个节点，仅保留当前节点，是否继续？`,
         confirmText: '删除',
-        destructive: true,
+        destructive: true
       });
       if (!ok) return;
       deleteNodes(others);
@@ -1494,7 +1427,7 @@ function AppShell() {
       selectNode(keepId);
       appendLog({ level: 'warn', message: `已删除其他节点 ×${others.length}` });
     },
-    [flow, confirm, deleteNodes, appendLog, selectNode],
+    [flow, confirm, deleteNodes, appendLog, selectNode]
   );
 
   const handleDeleteDownstreamNodes = useCallback(
@@ -1508,14 +1441,14 @@ function AppShell() {
         title: '删除后续节点',
         description: `将删除从当前节点可达的 ${down.length} 个后续节点（保留本节点），是否继续？`,
         confirmText: '删除',
-        destructive: true,
+        destructive: true
       });
       if (!ok) return;
       deleteNodes(down);
       clearNodesFlowOuts([startId]);
       appendLog({ level: 'warn', message: `已删除后续节点 ×${down.length}` });
     },
-    [flow, confirm, deleteNodes, clearNodesFlowOuts, appendLog],
+    [flow, confirm, deleteNodes, clearNodesFlowOuts, appendLog]
   );
 
   const handleRunFromNode = useCallback(
@@ -1523,7 +1456,7 @@ function AppShell() {
       if (isExecuting) {
         appendLog({
           level: 'warn',
-          message: '已有流程在执行，请先停止后再运行',
+          message: '已有流程在执行，请先停止后再运行'
         });
         return;
       }
@@ -1535,15 +1468,12 @@ function AppShell() {
       clearLogs();
       appendLog({
         level: 'info',
-        message: `从此节点开始运行 [${nodeId}] ${src.type || ''}…`,
+        message: `从此节点开始运行 [${nodeId}] ${src.type || ''}…`
       });
       const fromFlow = { ...flow, entry: nodeId };
       const prepared = applyDefaultOutputCoordinateMode(
-        applyDefaultCoordinateMode(
-          applyDefaultCaptureMode(fromFlow, defaultCaptureMode),
-          defaultCoordinateMode,
-        ),
-        defaultOutputCoordinateMode,
+        applyDefaultCoordinateMode(applyDefaultCaptureMode(fromFlow, defaultCaptureMode), defaultCoordinateMode),
+        defaultOutputCoordinateMode
       );
       const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
       const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
@@ -1572,8 +1502,8 @@ function AppShell() {
       defaultNodeIntervalMs,
       filePath,
       hideWindowOnRecord,
-      debugMode,
-    ],
+      debugMode
+    ]
   );
 
   const handleRunSingleNode = useCallback(
@@ -1581,7 +1511,7 @@ function AppShell() {
       if (isExecuting) {
         appendLog({
           level: 'warn',
-          message: '已有流程在执行，请先停止后再单节点运行',
+          message: '已有流程在执行，请先停止后再单节点运行'
         });
         return;
       }
@@ -1602,10 +1532,8 @@ function AppShell() {
         if (Array.isArray(soloNode.params.cases)) {
           soloNode.params = {
             ...soloNode.params,
-            cases: soloNode.params.cases.map((c: any) =>
-              c && typeof c === 'object' ? { ...c, node_id: '' } : c,
-            ),
-            default: '',
+            cases: soloNode.params.cases.map((c: any) => (c && typeof c === 'object' ? { ...c, node_id: '' } : c)),
+            default: ''
           };
         }
       }
@@ -1613,19 +1541,16 @@ function AppShell() {
         ...flow,
         entry: nodeId,
         nodes: { [nodeId]: soloNode },
-        breakpoints: [],
+        breakpoints: []
       };
       clearLogs();
       appendLog({
         level: 'info',
-        message: `单节点运行 [${nodeId}] ${src.type || ''}…`,
+        message: `单节点运行 [${nodeId}] ${src.type || ''}…`
       });
       const prepared = applyDefaultOutputCoordinateMode(
-        applyDefaultCoordinateMode(
-          applyDefaultCaptureMode(soloFlow, defaultCaptureMode),
-          defaultCoordinateMode,
-        ),
-        defaultOutputCoordinateMode,
+        applyDefaultCoordinateMode(applyDefaultCaptureMode(soloFlow, defaultCaptureMode), defaultCoordinateMode),
+        defaultOutputCoordinateMode
       );
       const runtimeFlow = { ...prepared, __global_node_interval_ms: defaultNodeIntervalMs };
       const payload = filePath ? { ...runtimeFlow, __file_path__: filePath } : runtimeFlow;
@@ -1651,22 +1576,19 @@ function AppShell() {
       defaultNodeIntervalMs,
       filePath,
       hideWindowOnRecord,
-      debugMode,
-    ],
+      debugMode
+    ]
   );
 
   if (runMonitorActive) {
     const node = execNodeId ? flow?.nodes?.[execNodeId] : null;
-    const nodeName = node
-      ? String(node.name || node.type || execNodeId)
-      : execNodeId || '—';
+    const nodeName = node ? String(node.name || node.type || execNodeId) : execNodeId || '—';
     const nodeLabel = execNodeId && node ? `${nodeName} (${execNodeId})` : nodeName;
     return (
       <div
         className="plugin-shell h-screen w-screen overflow-hidden font-sans"
         style={{ backgroundColor: '#0c0e14' }}
-        data-plugin-chrome
-      >
+        data-plugin-chrome>
         <WindowResizeHandles />
         <RunMonitorView
           flowName={runMonitorFlowName || flow?.name || ''}
@@ -1687,8 +1609,7 @@ function AppShell() {
     <div
       style={{ backgroundColor: colors.background }}
       className="plugin-shell flex flex-col h-screen w-screen overflow-hidden font-sans"
-      data-plugin-chrome
-    >
+      data-plugin-chrome>
       <WindowResizeHandles />
       <Toolbar
         themeName={themeName as any}
@@ -1719,13 +1640,8 @@ function AppShell() {
         debugMode={debugMode}
         execStatus={execStatus}
         viewMode={viewMode as 'canvas' | 'code' | 'flowchart' | 'settings'}
-        flowViewMode={
-          (viewMode === 'settings' ? lastFlowViewMode : viewMode) as
-            | 'canvas'
-            | 'code'
-            | 'flowchart'
-        }
-        onViewModeChange={(m) => setViewMode(m)}
+        flowViewMode={(viewMode === 'settings' ? lastFlowViewMode : viewMode) as 'canvas' | 'code' | 'flowchart'}
+        onViewModeChange={m => setViewMode(m)}
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -1753,7 +1669,7 @@ function AppShell() {
               orientation="vertical"
               value={leftContentWidth}
               onChange={setLeftContentWidth}
-              onCommit={(w) => persistPanelSize(LEFT_CONTENT_WIDTH_KEY, w)}
+              onCommit={w => persistPanelSize(LEFT_CONTENT_WIDTH_KEY, w)}
               onReset={() => {
                 setLeftContentWidth(DEFAULT_LEFT_CONTENT_WIDTH);
                 persistPanelSize(LEFT_CONTENT_WIDTH_KEY, DEFAULT_LEFT_CONTENT_WIDTH);
@@ -1778,9 +1694,8 @@ function AppShell() {
                 style={{
                   backgroundColor: colors.surface,
                   borderColor: colors.border,
-                  color: colors.text,
-                }}
-              >
+                  color: colors.text
+                }}>
                 {leftCollapsed ? (
                   <PanelLeftOpen className="w-3.5 h-3.5" />
                 ) : (
@@ -1796,9 +1711,8 @@ function AppShell() {
                 style={{
                   backgroundColor: colors.surface,
                   borderColor: colors.border,
-                  color: colors.text,
-                }}
-              >
+                  color: colors.text
+                }}>
                 {rightCollapsed ? (
                   <PanelRightOpen className="w-3.5 h-3.5" />
                 ) : (
@@ -1845,9 +1759,7 @@ function AppShell() {
                   onPause={handlePause}
                 />
               ) : null}
-              {debugMode ? (
-                <DebugWatchPanel themeName={themeName as any} themeMode={themeMode as any} />
-              ) : null}
+              {debugMode ? <DebugWatchPanel themeName={themeName as any} themeMode={themeMode as any} /> : null}
               <Canvas
                 nodes={nodes}
                 connections={connections}
@@ -1891,7 +1803,7 @@ function AppShell() {
               orientation="vertical"
               value={rightPanelWidth}
               onChange={setRightPanelWidth}
-              onCommit={(w) => persistPanelSize(RIGHT_PANEL_WIDTH_KEY, w)}
+              onCommit={w => persistPanelSize(RIGHT_PANEL_WIDTH_KEY, w)}
               onReset={() => {
                 setRightPanelWidth(DEFAULT_RIGHT_PANEL_WIDTH);
                 persistPanelSize(RIGHT_PANEL_WIDTH_KEY, DEFAULT_RIGHT_PANEL_WIDTH);
@@ -1903,37 +1815,37 @@ function AppShell() {
               gripColor={colors.secondaryText}
             />
             <Inspector
-            selectedNode={selectedNode}
-            onUpdateNodeConfig={handleUpdateNodeConfig}
-            onUpdateNodeName={handleUpdateNodeName}
-            onDeselect={() => selectNode(null)}
-            themeName={themeName as any}
-            themeMode={themeMode as any}
-            logs={canvasLogs}
-            rawLogs={logs}
-            runLog={runLog}
-            schemaMap={schemaMap}
-            bindIssues={bindIssues}
-            width={rightPanelWidth}
-            onPickPoint={(method?: string) => runCoordPick('point', method)}
-            onPickClick={(mode: string, method?: string) =>
-              mode === 'frida_ui'
-                ? bridge.pickClick(mode, hideWindowOnRecord, defaultCoordinateMode || 'window_client')
-                : runCoordPick('point', method)
-            }
-            onPickRegion={(method?: string) => runCoordPick('region', method)}
-            onCaptureTemplate={(method?: string) => runCoordPick('template', method)}
-            onRemoveNode={(id: string) => {
-              deleteNodes([id]);
-              appendLog({ level: 'info', message: `已删除节点 ${id}` });
-            }}
-            onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
-            defaultCaptureMode={defaultCaptureMode}
-            defaultPickMethod={defaultPickMethod}
-            defaultCoordinateMode={defaultCoordinateMode}
-            defaultOutputCoordinateMode={defaultOutputCoordinateMode}
-            defaultNodeIntervalMs={defaultNodeIntervalMs}
-          />
+              selectedNode={selectedNode}
+              onUpdateNodeConfig={handleUpdateNodeConfig}
+              onUpdateNodeName={handleUpdateNodeName}
+              onDeselect={() => selectNode(null)}
+              themeName={themeName as any}
+              themeMode={themeMode as any}
+              logs={canvasLogs}
+              rawLogs={logs}
+              runLog={runLog}
+              schemaMap={schemaMap}
+              bindIssues={bindIssues}
+              width={rightPanelWidth}
+              onPickPoint={(method?: string) => runCoordPick('point', method)}
+              onPickClick={(mode: string, method?: string) =>
+                mode === 'frida_ui'
+                  ? bridge.pickClick(mode, hideWindowOnRecord, defaultCoordinateMode || 'window_client')
+                  : runCoordPick('point', method)
+              }
+              onPickRegion={(method?: string) => runCoordPick('region', method)}
+              onCaptureTemplate={(method?: string) => runCoordPick('template', method)}
+              onRemoveNode={(id: string) => {
+                deleteNodes([id]);
+                appendLog({ level: 'info', message: `已删除节点 ${id}` });
+              }}
+              onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
+              defaultCaptureMode={defaultCaptureMode}
+              defaultPickMethod={defaultPickMethod}
+              defaultCoordinateMode={defaultCoordinateMode}
+              defaultOutputCoordinateMode={defaultOutputCoordinateMode}
+              defaultNodeIntervalMs={defaultNodeIntervalMs}
+            />
           </>
         ) : null}
 
@@ -1951,7 +1863,7 @@ function AppShell() {
               if (warnings?.length) {
                 appendLog({
                   level: 'warn',
-                  message: `AI 草稿已应用（注意: ${warnings.join('；')}）`,
+                  message: `AI 草稿已应用（注意: ${warnings.join('；')}）`
                 });
               } else {
                 appendLog({ level: 'ok', message: 'AI 草稿已应用到画布' });
@@ -1995,7 +1907,7 @@ function AppShell() {
         open={saveDialogOpen}
         initialName={flow.name || ''}
         onCancel={() => setSaveDialogOpen(false)}
-        onConfirm={(name) => {
+        onConfirm={name => {
           void handleSaveWithName(name);
         }}
       />

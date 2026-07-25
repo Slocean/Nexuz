@@ -94,7 +94,7 @@ interface InspectorProps {
     folder?: string;
   } | null;
   bindIssues?: BindIssue[];
-  /** Inspector panel width in px (default 384). */
+  /** Inspector panel width in px (default 422). */
   width?: number;
 }
 
@@ -1102,7 +1102,7 @@ export default function Inspector({
   rawLogs = [],
   runLog = null,
   bindIssues = [],
-  width = 384,
+  width = 422,
 }: InspectorProps) {
   const { alert } = useAppDialog();
   const [copied, setCopied] = React.useState(false);

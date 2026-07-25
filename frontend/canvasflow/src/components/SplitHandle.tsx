@@ -45,6 +45,12 @@ export default function SplitHandle({
   const horizontal = orientation === 'horizontal';
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Second click of a double-click must not start a drag — otherwise a tiny
+    // move can clamp to `min` and onCommit writes min before/around onReset.
+    if (e.detail >= 2) {
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = {
@@ -87,7 +93,10 @@ export default function SplitHandle({
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      onDoubleClick={() => onReset?.()}
+      onDoubleClick={() => {
+        dragRef.current = null;
+        onReset?.();
+      }}
     >
       <div
         className={[
