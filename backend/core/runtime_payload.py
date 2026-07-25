@@ -9,8 +9,18 @@ _MAX_LIST = 24
 _MAX_DICT_KEYS = 40
 _MAX_DEPTH = 6
 _HEAVY_KEYS = frozenset({"box", "image", "bitmap", "pixels", "raw", "screenshot"})
+# Large OCR lists: keep bindable structure, drop only heavy nested keys.
 _LIGHT_LIST_KEYS = frozenset({"boxes", "matches"})
-_GEOM_KEYS = ("left", "top", "width", "height", "cx", "cy", "x", "y")
+_WINDOW_TARGET_KEYS = (
+    "pid",
+    "process_name",
+    "class_name",
+    "title",
+    "client_width",
+    "client_height",
+    "dpi",
+    "point_norm",
+)
 
 
 def _compact_window_target(value: Any) -> Any:
@@ -20,16 +30,7 @@ def _compact_window_target(value: Any) -> Any:
     if not isinstance(value, dict):
         return None
     out: dict[str, Any] = {}
-    for key in (
-        "pid",
-        "process_name",
-        "class_name",
-        "title",
-        "client_width",
-        "client_height",
-        "dpi",
-        "point_norm",
-    ):
+    for key in _WINDOW_TARGET_KEYS:
         if key not in value:
             continue
         val = value.get(key)
@@ -45,59 +46,63 @@ def _compact_window_target(value: Any) -> Any:
     return out or None
 
 
-def _compact_ocr_item(item: dict[str, Any], *, as_box: bool) -> dict[str, Any]:
-    entry: dict[str, Any] = {}
-    if "text" in item or as_box:
-        entry["text"] = str(item.get("text") or "")[:120]
-    if "confidence" in item:
-        entry["confidence"] = item.get("confidence")
-    if "query" in item:
-        entry["query"] = str(item.get("query") or "")[:120]
-    if "matched_text" in item:
-        mt = item.get("matched_text")
-        if isinstance(mt, list):
-            entry["matched_text"] = [str(x or "")[:80] for x in mt[:24]]
-        else:
-            entry["matched_text"] = str(mt or "")[:120]
-    if "found" in item:
-        entry["found"] = bool(item.get("found"))
-    if "count" in item:
-        entry["count"] = item.get("count")
-    for geom_key in _GEOM_KEYS:
-        if geom_key not in item or item[geom_key] is None:
-            continue
-        val = item[geom_key]
-        if isinstance(val, (list, tuple)):
-            nums = []
-            for x in list(val)[:24]:
-                if isinstance(x, (bool, int, float)):
-                    nums.append(x)
-                else:
-                    try:
-                        nums.append(int(round(float(x))))
-                    except (TypeError, ValueError):
-                        continue
-            entry[geom_key] = nums
-        elif isinstance(val, (bool, int, float)):
-            entry[geom_key] = val
+def _compact_scalar_list(value: list[Any] | tuple[Any, ...], *, str_limit: int = 80) -> list[Any]:
+    head: list[Any] = []
+    for x in list(value)[:_MAX_LIST]:
+        if isinstance(x, (bool, int, float)) or x is None:
+            head.append(x)
+        elif isinstance(x, str):
+            head.append(x[:str_limit])
+        elif isinstance(x, dict):
+            head.append(_compact_structured_dict(x, depth=1))
         else:
             try:
-                entry[geom_key] = int(round(float(val)))
+                head.append(int(round(float(x))))
             except (TypeError, ValueError):
-                pass
-    wt = _compact_window_target(item.get("window_target"))
-    if wt is not None:
-        entry["window_target"] = wt
-    if item.get("coordinate_mode"):
-        entry["coordinate_mode"] = str(item.get("coordinate_mode"))
+                head.append(str(x)[:str_limit])
+    return head
+
+
+def _compact_structured_dict(item: dict[str, Any], *, depth: int = 0) -> dict[str, Any]:
+    """Preserve real keys/structure; only strip heavy payloads and truncate sizes.
+
+    Previously a fixed OCR field whitelist dropped ``*_all`` / ``primary_index`` etc.,
+    which broke downstream path digs that follow the live output shape.
+    """
+    entry: dict[str, Any] = {}
+    for i, (key, val) in enumerate(item.items()):
+        if i >= _MAX_DICT_KEYS:
+            entry["…"] = f"+{len(item) - _MAX_DICT_KEYS} keys"
+            break
+        lk = str(key).lower()
+        if lk in _HEAVY_KEYS:
+            continue
+        if lk == "window_target":
+            wt = _compact_window_target(val)
+            if wt is not None:
+                entry[key] = wt
+            continue
+        if val is None or isinstance(val, (bool, int, float)):
+            entry[key] = val
+        elif isinstance(val, str):
+            entry[key] = val[:120] if len(val) > 120 else val
+        elif isinstance(val, (list, tuple)):
+            entry[key] = _compact_scalar_list(val)
+        elif isinstance(val, dict):
+            if depth >= 3:
+                entry[key] = "{…}"
+            else:
+                entry[key] = _compact_structured_dict(val, depth=depth + 1)
+        else:
+            entry[key] = str(val)[:120]
     return entry
 
 
-def _compact_ocr_list(value: list[Any], *, as_box: bool) -> list[dict[str, Any]]:
+def _compact_structured_list(value: list[Any]) -> list[dict[str, Any]]:
     compact: list[dict[str, Any]] = []
     for item in value[:80]:
         if isinstance(item, dict):
-            compact.append(_compact_ocr_item(item, as_box=as_box))
+            compact.append(_compact_structured_dict(item))
     return compact
 
 
@@ -115,7 +120,7 @@ def summarize_value(value: Any, *, depth: int = 0, key: str | None = None) -> An
 
     leaf = str(key).lower() if key else ""
     if leaf in _LIGHT_LIST_KEYS and isinstance(value, list):
-        return _compact_ocr_list(value, as_box=(leaf == "boxes"))
+        return _compact_structured_list(value)
     if leaf in _HEAVY_KEYS:
         if isinstance(value, list):
             return {"_omitted": leaf, "count": len(value)}
@@ -265,11 +270,14 @@ def summarize_node_outcome(
 
 
 def compact_context_value(key: str, value: Any) -> Any:
-    """Keep context bindable but drop heavy OCR/geometry payloads."""
+    """Keep context bindable but drop heavy OCR/geometry payloads.
+
+    Structure follows the live value — do not rewrite to a fixed field set.
+    """
     k = str(key)
     leaf = k.rsplit(".", 1)[-1].lower()
     if leaf in ("boxes", "matches") and isinstance(value, list):
-        return _compact_ocr_list(value, as_box=(leaf == "boxes"))
+        return _compact_structured_list(value)
     if leaf in ("box", "image", "bitmap", "pixels") and isinstance(value, (list, dict)):
         return None
     return value

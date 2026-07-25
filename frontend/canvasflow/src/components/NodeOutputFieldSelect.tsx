@@ -1,5 +1,6 @@
 /**
  * Pick a node output field, with optional nested path (e.g. colors.0 / matches.0.x).
+ * Path suggestions come from runtime value or declared output schema — never field-name hardcoding.
  */
 import React, { useMemo } from 'react';
 import {
@@ -9,9 +10,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { listValuePaths, splitVarPath } from '../bindValue';
+import { listOutputPaths, splitVarPath, type PathSchema } from '../bindValue';
 
-export type OutputMeta = { name: string; type?: string; label?: string };
+export type OutputMeta = {
+  name: string;
+  type?: string;
+  label?: string;
+  fields?: PathSchema['fields'];
+  itemType?: string;
+};
 
 const ROOT_PATH = '__root__';
 
@@ -21,11 +28,22 @@ function normalizeOutType(t?: string): string {
   return s || 'any';
 }
 
+function toPathSchema(out: OutputMeta | undefined): PathSchema | undefined {
+  if (!out) return undefined;
+  return {
+    type: out.type,
+    fields: out.fields,
+    itemType: out.itemType,
+  };
+}
+
 /** Fields that commonly hold arrays/objects and need index/path picking. */
 export function outputSupportsPath(out: OutputMeta | undefined, runtimeVal?: unknown): boolean {
   if (!out) return false;
   const t = normalizeOutType(out.type);
   if (t === 'any' || t === 'array' || t === 'object') return true;
+  if (out.fields && Object.keys(out.fields).length > 0) return true;
+  if (out.itemType) return true;
   if (runtimeVal != null && (Array.isArray(runtimeVal) || typeof runtimeVal === 'object')) {
     return true;
   }
@@ -60,14 +78,7 @@ export default function NodeOutputFieldSelect({
 
   const pathSuggestions = useMemo(() => {
     if (!showPath) return [];
-    if (runtimeRootValue != null && (Array.isArray(runtimeRootValue) || typeof runtimeRootValue === 'object')) {
-      return listValuePaths(runtimeRootValue, 3).filter(Boolean);
-    }
-    const t = normalizeOutType(selected?.type);
-    if (t === 'array' || t === 'any' || selected?.name === 'colors' || selected?.name === 'matches') {
-      return Array.from({ length: 8 }, (_, i) => String(i));
-    }
-    return [];
+    return listOutputPaths(runtimeRootValue, toPathSchema(selected), 3);
   }, [showPath, runtimeRootValue, selected]);
 
   const emit = (nextRoot: string, nextPath: string) => {

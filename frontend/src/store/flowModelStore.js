@@ -126,7 +126,6 @@ function emitAuditToBridge(message, detail) {
 }
 const HEAVY_KEYS = new Set(['box', 'image', 'bitmap', 'pixels', 'raw', 'screenshot']);
 const LIGHT_LIST_KEYS = new Set(['boxes', 'matches']);
-const GEOM_KEYS = ['left', 'top', 'width', 'height', 'cx', 'cy', 'x', 'y'];
 
 function uid(prefix = 'node') {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -185,32 +184,70 @@ function clearFlowHistory() {
   return { past: [], future: [] };
 }
 
-function compactOcrItem(item, asBox) {
-  const entry = {};
-  if ('text' in item || asBox) entry.text = String(item.text || '').slice(0, 120);
-  if ('confidence' in item) entry.confidence = item.confidence;
-  if ('query' in item) entry.query = String(item.query || '').slice(0, 120);
-  if ('matched_text' in item) {
-    const mt = item.matched_text;
-    entry.matched_text = Array.isArray(mt)
-      ? mt.slice(0, 24).map(x => String(x || '').slice(0, 80))
-      : String(mt || '').slice(0, 120);
-  }
-  if ('found' in item) entry.found = !!item.found;
-  if ('count' in item) entry.count = item.count;
-  for (const gk of GEOM_KEYS) {
-    if (item[gk] == null) continue;
-    const val = item[gk];
-    if (Array.isArray(val)) {
-      entry[gk] = val
-        .slice(0, 24)
-        .map(x => (typeof x === 'number' ? x : Number(x)))
-        .filter(x => Number.isFinite(x));
-    } else if (typeof val === 'number') {
-      entry[gk] = val;
+function compactWindowTarget(value) {
+  if (Array.isArray(value)) return value.slice(0, 24).map(compactWindowTarget).filter(Boolean);
+  if (!value || typeof value !== 'object') return null;
+  const out = {};
+  for (const key of [
+    'pid',
+    'process_name',
+    'class_name',
+    'title',
+    'client_width',
+    'client_height',
+    'dpi',
+    'point_norm'
+  ]) {
+    if (!(key in value)) continue;
+    const val = value[key];
+    if (key === 'point_norm' && Array.isArray(val) && val.length >= 2) {
+      const a = Number(val[0]);
+      const b = Number(val[1]);
+      if (Number.isFinite(a) && Number.isFinite(b)) out[key] = [a, b];
+    } else if (key === 'process_name' || key === 'class_name' || key === 'title') {
+      out[key] = String(val || '').slice(0, 160);
     } else {
-      const n = Number(val);
-      if (Number.isFinite(n)) entry[gk] = n;
+      out[key] = val;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** Preserve live keys/structure; only strip heavy payloads and truncate sizes. */
+function compactStructuredDict(item, depth = 0) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return {};
+  const entry = {};
+  const keys = Object.keys(item);
+  for (let i = 0; i < keys.length; i++) {
+    if (i >= 40) {
+      entry['…'] = `+${keys.length - 40} keys`;
+      break;
+    }
+    const key = keys[i];
+    const lk = String(key).toLowerCase();
+    if (HEAVY_KEYS.has(lk)) continue;
+    const val = item[key];
+    if (lk === 'window_target') {
+      const wt = compactWindowTarget(val);
+      if (wt != null) entry[key] = wt;
+      continue;
+    }
+    if (val == null || typeof val === 'boolean' || typeof val === 'number') {
+      entry[key] = val;
+    } else if (typeof val === 'string') {
+      entry[key] = val.length > 120 ? val.slice(0, 120) : val;
+    } else if (Array.isArray(val)) {
+      entry[key] = val.slice(0, 24).map(x => {
+        if (x == null || typeof x === 'boolean' || typeof x === 'number') return x;
+        if (typeof x === 'string') return x.slice(0, 80);
+        if (x && typeof x === 'object' && !Array.isArray(x)) return compactStructuredDict(x, depth + 1);
+        const n = Number(x);
+        return Number.isFinite(n) ? n : String(x).slice(0, 80);
+      });
+    } else if (typeof val === 'object') {
+      entry[key] = depth >= 3 ? '{…}' : compactStructuredDict(val, depth + 1);
+    } else {
+      entry[key] = String(val).slice(0, 120);
     }
   }
   return entry;
@@ -227,8 +264,8 @@ function summarizeRuntimeValue(value, depth = 0, key = null) {
   if (LIGHT_LIST_KEYS.has(leaf) && Array.isArray(value)) {
     return value
       .slice(0, 80)
-      .filter(v => v && typeof v === 'object')
-      .map(v => compactOcrItem(v, leaf === 'boxes'));
+      .filter(v => v && typeof v === 'object' && !Array.isArray(v))
+      .map(v => compactStructuredDict(v));
   }
   if (HEAVY_KEYS.has(leaf)) {
     if (Array.isArray(value)) return { _omitted: leaf, count: value.length };

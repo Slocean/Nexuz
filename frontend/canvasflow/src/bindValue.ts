@@ -123,6 +123,187 @@ export function listValuePaths(value: unknown, maxDepth = 3, prefix = ''): strin
   return out;
 }
 
+/** Nested output / variable schema used for path suggestions (no runtime yet). */
+export type PathSchema = {
+  type?: string;
+  /** object fields, or object-array item fields */
+  fields?: Record<string, string | PathSchema>;
+  /** scalar / object item type for arrays */
+  itemType?: string;
+};
+
+function normalizeSchemaType(t?: string): string {
+  const s = String(t || 'any').toLowerCase();
+  if (s === 'object_array' || s === 'list') return s === 'object_array' ? 'object_array' : 'array';
+  if (s === 'dict' || s === 'map') return 'object';
+  return s || 'any';
+}
+
+function asPathSchema(raw: string | PathSchema | undefined): PathSchema | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === 'string') return { type: raw };
+  return raw;
+}
+
+/**
+ * Build relative path suggestions from a declared schema (not hardcoded field names).
+ * Arrays sample index 0 (and 1 when depth allows).
+ */
+export function listSchemaPaths(
+  schema: PathSchema | undefined,
+  maxDepth = 3,
+  prefix = '',
+): string[] {
+  if (!schema || maxDepth < 0) return prefix ? [prefix] : [];
+  const out: string[] = [];
+  if (prefix) out.push(prefix);
+
+  const t = normalizeSchemaType(schema.type);
+  const fields = schema.fields || {};
+
+  if (t === 'object' || (t === 'any' && Object.keys(fields).length > 0 && !schema.itemType)) {
+    for (const [k, raw] of Object.entries(fields)) {
+      if (!/^[A-Za-z0-9_]+$/.test(k)) continue;
+      const child = asPathSchema(raw) || { type: 'any' };
+      const next = prefix ? `${prefix}.${k}` : k;
+      out.push(...listSchemaPaths({ ...child, type: child.type || String(raw) }, maxDepth - 1, next));
+    }
+    return Array.from(new Set(out));
+  }
+
+  if (t === 'array' || t === 'object_array' || t === 'any') {
+    const itemFields = fields;
+    const itemType = normalizeSchemaType(schema.itemType || (t === 'object_array' ? 'object' : ''));
+    const hasItemFields = Object.keys(itemFields).length > 0;
+    const indexes = maxDepth >= 1 ? (maxDepth >= 2 ? [0, 1] : [0]) : [];
+    for (const i of indexes) {
+      const next = prefix ? `${prefix}.${i}` : String(i);
+      if (hasItemFields || itemType === 'object' || t === 'object_array') {
+        out.push(
+          ...listSchemaPaths(
+            { type: 'object', fields: itemFields },
+            maxDepth - 1,
+            next,
+          ),
+        );
+      } else if (itemType === 'array') {
+        out.push(...listSchemaPaths({ type: 'array', itemType: 'any' }, maxDepth - 1, next));
+      } else {
+        out.push(next);
+      }
+    }
+    return Array.from(new Set(out));
+  }
+
+  return out;
+}
+
+/** Prefer live runtime structure; fall back to declared output schema. */
+export function listOutputPaths(
+  runtimeValue: unknown,
+  schema?: PathSchema,
+  maxDepth = 3,
+): string[] {
+  if (runtimeValue != null && (Array.isArray(runtimeValue) || typeof runtimeValue === 'object')) {
+    const fromValue = listValuePaths(runtimeValue, maxDepth).filter(Boolean);
+    if (fromValue.length) return fromValue;
+  }
+  return listSchemaPaths(schema, maxDepth).filter(Boolean);
+}
+
+/**
+ * Dig path chips for a typed root like `ocr1.matches` using runtime nodeOutputs
+ * and/or block output schema — never field-name hardcoding.
+ */
+export function listPathHintsForRoot(
+  root: string,
+  opts: {
+    nodeOutputs?: Record<string, Record<string, unknown> | undefined>;
+    flowNodes?: Record<string, { type?: string } | undefined>;
+    schemaMap?: Record<string, { outputs?: Array<PathSchema & { name?: string }> }>;
+  } = {},
+  maxDepth = 2,
+): string[] {
+  const trimmed = String(root || '').trim().replace(/^\{\{\s*|\s*\}\}$/g, '');
+  if (!trimmed) return [];
+  const parts = trimmed.split('.').filter(Boolean);
+  if (!parts.length) return [];
+
+  const { nodeOutputs, flowNodes, schemaMap } = opts;
+  let runtimeCur: unknown;
+  let schemaCur: PathSchema | undefined;
+
+  // nodeId.field(.path...)
+  if (parts.length >= 2 && flowNodes?.[parts[0]]) {
+    const nodeId = parts[0];
+    const field = parts[1];
+    const rest = parts.slice(2);
+    runtimeCur = nodeOutputs?.[nodeId]?.[field];
+    const outs = schemaMap?.[String(flowNodes[nodeId]?.type || '')]?.outputs;
+    const hit = Array.isArray(outs) ? outs.find((o: any) => o?.name === field) : undefined;
+    schemaCur = hit
+      ? { type: hit.type, fields: hit.fields, itemType: hit.itemType }
+      : undefined;
+    for (const seg of rest) {
+      if (runtimeCur != null) {
+        if (Array.isArray(runtimeCur) && /^\d+$/.test(seg)) {
+          runtimeCur = runtimeCur[Number(seg)];
+        } else if (runtimeCur && typeof runtimeCur === 'object') {
+          runtimeCur = (runtimeCur as Record<string, unknown>)[seg];
+        } else {
+          runtimeCur = undefined;
+        }
+      }
+      if (schemaCur) {
+        const t = normalizeSchemaType(schemaCur.type);
+        if ((t === 'array' || t === 'object_array') && /^\d+$/.test(seg)) {
+          schemaCur = {
+            type: 'object',
+            fields: schemaCur.fields,
+          };
+        } else if (schemaCur.fields?.[seg] != null) {
+          schemaCur = asPathSchema(schemaCur.fields[seg]);
+        } else {
+          schemaCur = undefined;
+        }
+      }
+    }
+  } else if (parts.length >= 1 && nodeOutputs) {
+    // bare field name — scan all node outputs for a matching root key
+    for (const bag of Object.values(nodeOutputs)) {
+      if (bag && typeof bag === 'object' && parts[0] in bag) {
+        runtimeCur = (bag as Record<string, unknown>)[parts[0]];
+        for (const seg of parts.slice(1)) {
+          if (runtimeCur == null) break;
+          if (Array.isArray(runtimeCur) && /^\d+$/.test(seg)) {
+            runtimeCur = runtimeCur[Number(seg)];
+          } else if (runtimeCur && typeof runtimeCur === 'object') {
+            runtimeCur = (runtimeCur as Record<string, unknown>)[seg];
+          } else {
+            runtimeCur = undefined;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  const rel = listOutputPaths(runtimeCur, schemaCur, maxDepth);
+  if (rel.length) return rel.map((p) => `${trimmed}.${p}`);
+
+  // Last resort: only when schema/runtime say complex, suggest first index
+  const t = normalizeSchemaType(schemaCur?.type);
+  if (
+    Array.isArray(runtimeCur) ||
+    t === 'array' ||
+    t === 'object_array' ||
+    (runtimeCur != null && typeof runtimeCur === 'object')
+  ) {
+    return [`${trimmed}.0`];
+  }
+  return [];
+}
+
 export function literalToDisplay(value: unknown, inputType?: string): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;

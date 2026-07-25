@@ -391,7 +391,7 @@ export const MOCK_SCHEMAS = [
     ],
     outputs: [
       { name: 'color', type: 'string' },
-      { name: 'colors', type: 'array', canvas: false },
+      { name: 'colors', type: 'array', itemType: 'string', canvas: false },
       { name: 'count', type: 'number' }
     ]
   },
@@ -632,17 +632,90 @@ export const MOCK_SCHEMAS = [
       { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
-      { name: 'window_target', type: 'object', canvas: false },
+      {
+        name: 'window_target',
+        type: 'object',
+        fields: {
+          pid: 'number',
+          process_name: 'string',
+          class_name: 'string',
+          title: 'string',
+          client_width: 'number',
+          client_height: 'number',
+          dpi: 'number',
+          point_norm: { type: 'array', itemType: 'number' }
+        }
+      },
       { name: 'coordinate_mode', type: 'string', canvas: false },
       { name: 'matched_text', type: 'string' },
       { name: 'match_count', type: 'number' },
       { name: 'primary_index', type: 'number' },
       { name: 'text', type: 'string' },
       { name: 'confidence', type: 'number' },
-      { name: 'matches', type: 'array', canvas: false },
-      { name: 'boxes', type: 'array', canvas: false },
-      { name: 'region', type: 'object', canvas: false },
-      { name: 'anchor', type: 'object', canvas: false }
+      {
+        name: 'matches',
+        type: 'array',
+        itemType: 'object',
+        canvas: false,
+        fields: {
+          found: 'boolean',
+          x: 'number',
+          y: 'number',
+          left: 'number',
+          top: 'number',
+          width: 'number',
+          height: 'number',
+          matched_text: 'string',
+          query: 'string',
+          count: 'number',
+          primary_index: 'number',
+          x_all: { type: 'array', itemType: 'number' },
+          y_all: { type: 'array', itemType: 'number' },
+          matched_text_all: { type: 'array', itemType: 'string' },
+          window_target: {
+            type: 'object',
+            fields: {
+              pid: 'number',
+              process_name: 'string',
+              class_name: 'string',
+              title: 'string',
+              client_width: 'number',
+              client_height: 'number',
+              dpi: 'number',
+              point_norm: { type: 'array', itemType: 'number' }
+            }
+          },
+          coordinate_mode: 'string'
+        }
+      },
+      {
+        name: 'boxes',
+        type: 'array',
+        itemType: 'object',
+        canvas: false,
+        fields: {
+          text: 'string',
+          confidence: 'number',
+          left: 'number',
+          top: 'number',
+          width: 'number',
+          height: 'number',
+          cx: 'number',
+          cy: 'number'
+        }
+      },
+      {
+        name: 'region',
+        type: 'object',
+        canvas: false,
+        fields: { left: 'number', top: 'number', width: 'number', height: 'number' }
+      },
+      {
+        name: 'anchor',
+        type: 'object',
+        canvas: false,
+        fields: { x: 'number', y: 'number', score: 'number', found: 'boolean' }
+      }
     ]
   },
   {

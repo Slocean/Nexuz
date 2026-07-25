@@ -20,7 +20,7 @@ import { WorkflowNode, ThemeName, ThemeMode, ExecutionLog, LogCategory } from '.
 import { useFlowStore } from '@/store/flowModelStore';
 import { getThemeColors } from '../theme';
 import { logsToText } from '../nexuzAdapter';
-import { isBindableInput } from '../bindValue';
+import { isBindableInput, listPathHintsForRoot } from '../bindValue';
 import { type BindIssue } from '../bindValidate';
 import BindableInput, { OutputRefChip } from './BindableInput';
 import VariableSelect from './VariableSelect';
@@ -122,6 +122,8 @@ function KeyMapEditor({
   keySuggestions?: string[];
 }) {
   const variables = useFlowStore(s => s.flow.variables || {});
+  const flowNodes = useFlowStore(s => s.flow.nodes || {});
+  const nodeOutputs = useFlowStore(s => s.nodeOutputs || {});
   const varNames = listFlowVariableNames(variables);
   const entries = Object.entries(value && typeof value === 'object' ? value : {});
   const usedKeys = entries.map(([k]) => String(k).replace(/^\$/, ''));
@@ -160,15 +162,9 @@ function KeyMapEditor({
     onChange({ ...Object.fromEntries(entries), [key]: '' });
   };
 
-  const pathHints = (root: string) => {
-    // Common digs when user picks a known array/object root key
-    if (root.endsWith('.colors') || root === 'colors') return [`${root}.0`, `${root}.1`];
-    if (root.endsWith('.matches') || root === 'matches') {
-      return [`${root}.0`, `${root}.0.text`, `${root}.0.x`, `${root}.0.y`];
-    }
-    if (root.endsWith('.boxes') || root === 'boxes') return [`${root}.0`, `${root}.0.text`];
-    return [`${root}.0`];
-  };
+  /** Nested dig chips from upstream runtime / output schema (not field-name hardcoding). */
+  const pathHints = (root: string) =>
+    listPathHintsForRoot(root, { nodeOutputs, flowNodes, schemaMap }, 2);
 
   return (
     <div className="space-y-2 w-full min-w-0">
@@ -179,7 +175,8 @@ function KeyMapEditor({
       )}
       {valueMode === 'subflow_key' && (
         <p className="text-[11px] opacity-55 leading-snug">
-          取回值填子流程内键，支持嵌套路径，如 <code className="font-mono">ocr1.matches.0.text</code>、
+          取回值填子流程内键，支持嵌套路径，如{' '}
+          <code className="font-mono">ocr1.matches.0.matched_text</code>、
           <code className="font-mono">color1.colors.0</code>、<code className="font-mono">$result</code>
         </p>
       )}
@@ -274,20 +271,22 @@ function KeyMapEditor({
                 </>
               ) : valueMode === 'subflow_key' ? (
                 <div className="flex flex-wrap gap-1">
-                  {['.0', '.0.text', '.0.x', '.0.y'].map(suf => (
-                    <button
-                      type="button"
-                      key={suf}
-                      className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100"
-                      disabled={!String(v || '').trim()}
-                      onClick={() => {
-                        const base = String(v || '').trim().replace(/\.(0|0\..*)$/, '');
-                        if (!base) return;
-                        setEntry(idx, k, `${base}${suf}`);
-                      }}>
-                      {suf}
-                    </button>
-                  ))}
+                  {pathHints(String(v || '').trim())
+                    .slice(0, 6)
+                    .map(p => {
+                      const base = String(v || '').trim();
+                      const suf = base && p.startsWith(base) ? p.slice(base.length) : `.${p}`;
+                      return (
+                        <button
+                          type="button"
+                          key={p}
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100"
+                          disabled={!base}
+                          onClick={() => setEntry(idx, k, p)}>
+                          {suf || p}
+                        </button>
+                      );
+                    })}
                 </div>
               ) : null}
             </div>

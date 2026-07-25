@@ -14,11 +14,12 @@ import {
 import {
   formatVarRef,
   listFlowVariableNames,
-  listValuePaths,
+  listOutputPaths,
   lookupFlowVariable,
   parseVarRef,
   splitVarPath,
 } from '../bindValue';
+import { COMPLEX_TYPES, lookupVariableSchema } from '../varTypes';
 
 type Props = {
   /** Current value: `$name`, `$name.0.x`, bare name, or empty */
@@ -67,6 +68,7 @@ export default function VariableSelect({
   disabled,
 }: Props) {
   const variables = useFlowStore((s) => s.flow.variables || {});
+  const variableSchemas = useFlowStore((s) => (s.flow as any).variable_schemas || {});
   const names = useMemo(() => {
     const all = listFlowVariableNames(variables);
     if (!exclude.length) return all;
@@ -87,10 +89,11 @@ export default function VariableSelect({
   }, [names, currentRoot, variables]);
 
   const rootValue = currentRoot ? lookupFlowVariable(variables, currentRoot) : undefined;
+  const rootSchema = currentRoot ? lookupVariableSchema(currentRoot, variableSchemas) : undefined;
   const pathSuggestions = useMemo(() => {
-    if (!allowPath || bare || !isComplex(rootValue)) return [];
-    return listValuePaths(rootValue, 3).filter(Boolean);
-  }, [allowPath, bare, rootValue]);
+    if (!allowPath || bare || !currentRoot) return [];
+    return listOutputPaths(rootValue, rootSchema, 3);
+  }, [allowPath, bare, currentRoot, rootValue, rootSchema]);
 
   const emit = (root: string, path: string) => {
     const r = root.replace(/^\$/, '').trim();
@@ -105,7 +108,10 @@ export default function VariableSelect({
     onChange(formatVarRef(r, path));
   };
 
-  const showPath = allowPath && !bare && !!currentRoot && isComplex(rootValue);
+  const schemaIsComplex =
+    !!rootSchema && (COMPLEX_TYPES as string[]).includes(String(rootSchema.type));
+  const showPath =
+    allowPath && !bare && !!currentRoot && (isComplex(rootValue) || schemaIsComplex);
   const pathSelectValue = currentPath || ROOT_PATH;
   const pathOptions = useMemo(() => {
     const set = new Set(pathSuggestions);
