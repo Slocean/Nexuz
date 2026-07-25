@@ -6,21 +6,139 @@ import re
 from typing import Any
 
 
-def match_text(actual: str, expect: str, mode: str) -> bool:
-    """Match `actual` against `expect` with contains / exact / regex."""
+def find_match_span(actual: str, expect: str, mode: str) -> tuple[int, int] | None:
+    """Return [start, end) character indices of the match inside `actual`.
+
+    OCR engines usually return line-level boxes (e.g. 「没有账号？注册」).
+    Callers use this span to crop geometry to the matched substring.
+    """
     mode = str(mode or "contains")
     expect = str(expect or "")
     actual = str(actual or "")
     if mode == "exact":
-        return actual.strip() == expect.strip()
+        a = actual.strip()
+        e = expect.strip()
+        if not e:
+            return None
+        if a == e:
+            # Prefer the stripped content span within the raw string.
+            start = actual.find(a)
+            if start < 0:
+                start = 0
+            return (start, start + len(a))
+        # Line-level OCR: allow exact needle as a contiguous substring.
+        idx = actual.find(e)
+        if idx >= 0:
+            return (idx, idx + len(e))
+        return None
     if mode == "regex":
         try:
-            return bool(re.search(expect, actual))
+            m = re.search(expect, actual)
         except re.error as exc:
             raise ValueError(f"无效正则: {exc}") from exc
+        if not m:
+            return None
+        return (m.start(), m.end())
     if not expect:
-        return False
-    return expect in actual
+        return None
+    idx = actual.find(expect)
+    if idx < 0:
+        return None
+    return (idx, idx + len(expect))
+
+
+def match_text(actual: str, expect: str, mode: str) -> bool:
+    """Match `actual` against `expect` with contains / exact / regex."""
+    return find_match_span(actual, expect, mode) is not None
+
+
+def refine_box_to_span(
+    entry: dict[str, Any],
+    start: int,
+    end: int,
+    *,
+    matched_text: str | None = None,
+) -> dict[str, Any]:
+    """Crop a line-level OCR box to an approximate substring AABB (LTR).
+
+    Character widths are estimated proportionally across the box width.
+    """
+    text = str(entry.get("text") or "")
+    n = len(text)
+    out = dict(entry)
+    if n <= 0:
+        if matched_text is not None:
+            out["text"] = matched_text
+        return out
+
+    start = max(0, min(int(start), n))
+    end = max(start, min(int(end), n))
+    span_text = text[start:end] if matched_text is None else str(matched_text)
+    out["text"] = span_text
+    out["match_span"] = [start, end]
+
+    # Full-line hit: keep original geometry (center of whole box).
+    if start <= 0 and end >= n:
+        return out
+
+    left = int(entry.get("left") or 0)
+    top = int(entry.get("top") or 0)
+    width = int(entry.get("width") or 0)
+    height = int(entry.get("height") or 0)
+    if width <= 0:
+        return out
+
+    ratio_l = start / n
+    ratio_r = end / n
+    new_left = left + int(round(width * ratio_l))
+    new_right = left + int(round(width * ratio_r))
+    new_width = max(1, new_right - new_left)
+    new_cx = new_left + new_width // 2
+    cy = entry.get("cy")
+    if cy is None:
+        cy = top + height // 2
+    out.update(
+        {
+            "left": new_left,
+            "top": top,
+            "width": new_width,
+            "height": height,
+            "cx": new_cx,
+            "cy": int(cy),
+        }
+    )
+
+    poly = entry.get("box")
+    if isinstance(poly, list) and poly:
+        xs: list[float] = []
+        for pt in poly:
+            if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                try:
+                    xs.append(float(pt[0]))
+                except (TypeError, ValueError):
+                    pass
+        if xs:
+            min_x, max_x = min(xs), max(xs)
+            span_min = min_x + (max_x - min_x) * ratio_l
+            span_max = min_x + (max_x - min_x) * ratio_r
+            refined_poly: list[list[int]] = []
+            for pt in poly:
+                if not isinstance(pt, (list, tuple)) or len(pt) < 2:
+                    continue
+                try:
+                    px, py = float(pt[0]), float(pt[1])
+                except (TypeError, ValueError):
+                    continue
+                # Map x into the span band; keep relative position within old width.
+                if max_x > min_x:
+                    t = (px - min_x) / (max_x - min_x)
+                    nx = span_min + t * (span_max - span_min)
+                else:
+                    nx = span_min
+                refined_poly.append([int(round(nx)), int(round(py))])
+            if refined_poly:
+                out["box"] = refined_poly
+    return out
 
 
 def aabb_from_polygon(
@@ -141,16 +259,78 @@ def find_all_matching_boxes(
     expect: str,
     mode: str,
 ) -> list[dict[str, Any]]:
-    """Return all boxes whose text matches expect (scan order)."""
+    """Return matching boxes; crop geometry to the matched substring when possible."""
     expect = str(expect or "")
-    if not expect:
+    mode = str(mode or "contains")
+    # Regex may be empty? treat like others — require non-empty expect for contains/exact.
+    if mode != "regex" and not expect:
+        return []
+    if mode == "regex" and not expect:
         return []
     out: list[dict[str, Any]] = []
     for item in boxes or []:
         if not isinstance(item, dict):
             continue
-        if match_text(str(item.get("text") or ""), expect, mode):
-            out.append(item)
+        text = str(item.get("text") or "")
+        span = find_match_span(text, expect, mode)
+        if span is None:
+            continue
+        start, end = span
+        span_text = text[start:end]
+        out.append(
+            refine_box_to_span(item, start, end, matched_text=span_text)
+        )
+    return out
+
+
+def apply_click_offset(
+    payload: dict[str, Any] | None,
+    *,
+    offset_x: int = 0,
+    offset_y: int = 0,
+) -> dict[str, Any]:
+    """Add click offsets to geometry fields (top-level + matches). Does not alter raw boxes."""
+    if not isinstance(payload, dict):
+        return {}
+    dx, dy = int(offset_x or 0), int(offset_y or 0)
+    if dx == 0 and dy == 0:
+        return dict(payload)
+
+    def _add(value: Any, *, key: str) -> Any:
+        if value is None:
+            return value
+        if key in ("x", "left", "cx"):
+            delta = dx
+        elif key in ("y", "top", "cy"):
+            delta = dy
+        else:
+            return value
+        if isinstance(value, list):
+            out_list = []
+            for item in value:
+                try:
+                    out_list.append(int(round(float(item))) + delta)
+                except (TypeError, ValueError):
+                    out_list.append(item)
+            return out_list
+        try:
+            return int(round(float(value))) + delta
+        except (TypeError, ValueError):
+            return value
+
+    def _shift_one(entry: dict[str, Any]) -> dict[str, Any]:
+        shifted = dict(entry)
+        for key in _GEOM_KEYS:
+            if key in shifted:
+                shifted[key] = _add(shifted[key], key=key)
+        return shifted
+
+    out = _shift_one(payload)
+    matches = out.get("matches")
+    if isinstance(matches, list):
+        out["matches"] = [
+            _shift_one(m) if isinstance(m, dict) else m for m in matches
+        ]
     return out
 
 
@@ -308,6 +488,77 @@ def shift_coordinate_fields(
     return out
 
 
+def _point_xy(payload: dict[str, Any]) -> tuple[int, int] | None:
+    """Prefer x/y; boxes often only have cx/cy."""
+    raw_x = payload.get("x", payload.get("cx"))
+    raw_y = payload.get("y", payload.get("cy"))
+    if isinstance(raw_x, (list, tuple)) or isinstance(raw_y, (list, tuple)):
+        return None
+    try:
+        if raw_x is None or raw_y is None or raw_x == "" or raw_y == "":
+            return None
+        return int(round(float(raw_x))), int(round(float(raw_y)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _attach_window_targets(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep screen-abs geometry; attach window_target / list from live window under point.
+
+    OCR does not detect windows itself — we bind the top-level HWND under the
+    click point (WindowFromPoint). Skip empty / (0,0) results so we don't latch
+    onto whatever sits at the desktop origin (often the IDE).
+    """
+    if not isinstance(payload, dict):
+        return {}
+    out = dict(payload)
+    if out.get("found") is False:
+        return out
+    try:
+        from backend.core.window_coords import capture_window_target, retarget_window_point
+    except Exception:
+        return out
+
+    raw_x = out.get("x", out.get("cx"))
+    raw_y = out.get("y", out.get("cy"))
+    if isinstance(raw_x, (list, tuple)) and isinstance(raw_y, (list, tuple)):
+        targets: list[Any] = []
+        base = None
+        for xi, yi in zip(raw_x, raw_y):
+            try:
+                px, py = int(round(float(xi))), int(round(float(yi)))
+            except (TypeError, ValueError):
+                targets.append(None)
+                continue
+            if px == 0 and py == 0:
+                targets.append(None)
+                continue
+            try:
+                if base is None:
+                    base = capture_window_target(px, py)
+                    targets.append(base)
+                elif isinstance(base, dict):
+                    targets.append(retarget_window_point(base, px, py))
+                else:
+                    targets.append(capture_window_target(px, py))
+            except Exception:
+                targets.append(None)
+        if any(isinstance(t, dict) for t in targets):
+            out["window_target"] = targets
+        return out
+
+    pt = _point_xy(out)
+    if pt is None or (pt[0] == 0 and pt[1] == 0):
+        return out
+    try:
+        target = capture_window_target(pt[0], pt[1])
+    except Exception:
+        target = None
+    if isinstance(target, dict):
+        out["window_target"] = target
+    return out
+
+
 def apply_output_coordinate_mode(
     result: dict[str, Any],
     *,
@@ -317,27 +568,73 @@ def apply_output_coordinate_mode(
 ) -> dict[str, Any]:
     """
     Transform OCR / find-image style results.
-    screen_abs: unchanged; region_rel: subtract recognition/search region origin.
+
+    - screen_abs: unchanged desktop pixels
+    - region_rel: subtract recognition/search region origin
+    - window_client: keep screen pixels, attach window_target (point_norm) for click replay
     """
     mode_key = str(mode or "screen_abs").strip().lower() or "screen_abs"
-    if mode_key != "region_rel":
-        return result
+    if mode_key == "region_rel":
+        ox, oy = int(origin_x or 0), int(origin_y or 0)
+        out = shift_coordinate_fields(result, origin_x=ox, origin_y=oy)
 
-    ox, oy = int(origin_x or 0), int(origin_y or 0)
-    out = shift_coordinate_fields(result, origin_x=ox, origin_y=oy)
+        boxes = out.get("boxes")
+        if isinstance(boxes, list):
+            out["boxes"] = [
+                shift_coordinate_fields(b, origin_x=ox, origin_y=oy) if isinstance(b, dict) else b
+                for b in boxes
+            ]
 
+        matches = out.get("matches")
+        if isinstance(matches, list):
+            out["matches"] = [
+                shift_coordinate_fields(m, origin_x=ox, origin_y=oy) if isinstance(m, dict) else m
+                for m in matches
+            ]
+        out["coordinate_mode"] = "region_rel"
+        return out
+
+    if mode_key != "window_client":
+        out = dict(result) if isinstance(result, dict) else {}
+        out["coordinate_mode"] = "screen_abs"
+        return out
+
+    out = dict(result) if isinstance(result, dict) else {}
+    # Prefer the window under the OCR region center (stable). OCR does not
+    # "see" windows — we bind HWND after the fact via Win32.
+    base_wt = None
+    region = out.get("region")
+    if isinstance(region, (list, tuple)) and len(region) >= 4:
+        try:
+            from backend.core.window_coords import capture_window_target, retarget_window_point
+
+            rcx = (int(region[0]) + int(region[2])) // 2
+            rcy = (int(region[1]) + int(region[3])) // 2
+            base_wt = capture_window_target(rcx, rcy)
+        except Exception:
+            base_wt = None
+
+    def _bind(payload: dict[str, Any]) -> dict[str, Any]:
+        attached = _attach_window_targets(payload)
+        if not isinstance(base_wt, dict):
+            return attached
+        pt = _point_xy(attached)
+        if pt is None:
+            return attached
+        try:
+            from backend.core.window_coords import retarget_window_point
+
+            attached["window_target"] = retarget_window_point(base_wt, pt[0], pt[1])
+        except Exception:
+            pass
+        return attached
+
+    out = _bind(out)
     boxes = out.get("boxes")
     if isinstance(boxes, list):
-        out["boxes"] = [
-            shift_coordinate_fields(b, origin_x=ox, origin_y=oy) if isinstance(b, dict) else b
-            for b in boxes
-        ]
-
+        out["boxes"] = [_bind(b) if isinstance(b, dict) else b for b in boxes]
     matches = out.get("matches")
     if isinstance(matches, list):
-        out["matches"] = [
-            shift_coordinate_fields(m, origin_x=ox, origin_y=oy) if isinstance(m, dict) else m
-            for m in matches
-        ]
-
+        out["matches"] = [_bind(m) if isinstance(m, dict) else m for m in matches]
+    out["coordinate_mode"] = "window_client"
     return out

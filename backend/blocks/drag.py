@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pyautogui
-
 from backend.blocks._helpers import resolve_point, require_configured_point
 
 SCHEMA = {
@@ -84,8 +82,8 @@ def handler(params, context, **kwargs):
     )
     duration = float(params.get("duration", 300) or 0) / 1000.0
     from backend.core.host_window import yield_host_mouse
+    from backend.core.input.win32_mouse import drag_to
 
     with yield_host_mouse():
-        pyautogui.moveTo(fx, fy)
-        pyautogui.dragTo(tx, ty, duration=duration, button="left")
+        drag_to(fx, fy, tx, ty, duration=duration, button="left")
     return {"from_x": fx, "from_y": fy, "to_x": tx, "to_y": ty}

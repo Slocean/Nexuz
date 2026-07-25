@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pyautogui
-
 from backend.blocks._helpers import (
     interruptible_sleep,
     require_configured_point,
@@ -107,9 +105,10 @@ def _hover_at(
     require_configured_point(params, label="悬停坐标")
     x, y = resolve_point(params)
     from backend.core.host_window import yield_host_mouse
+    from backend.core.input.win32_mouse import move_to
 
     with yield_host_mouse():
-        pyautogui.moveTo(x, y, duration=max(0.0, move_duration))
+        move_to(x, y, duration=max(0.0, move_duration))
     if hold_ms > 0:
         interruptible_sleep(hold_ms / 1000.0, should_stop, cooperate=cooperate)
     return x, y

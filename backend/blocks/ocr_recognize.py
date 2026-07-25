@@ -14,6 +14,7 @@ from backend.blocks._helpers import (
 )
 from backend.blocks._ocr_match import (
     aabb_from_polygon,
+    apply_click_offset,
     apply_output_coordinate_mode,
     empty_match_outputs,
     match_all_queries,
@@ -206,10 +207,24 @@ SCHEMA = {
             "options": ["contains", "exact", "regex"],
             "default": "contains",
             "option_labels": {
-                "contains": "包含",
-                "exact": "完全相等",
-                "regex": "正则",
+                "contains": "包含（裁到子串）",
+                "exact": "精确（整行或子串）",
+                "regex": "正则（裁到命中）",
             },
+        },
+        {
+            "name": "offset_x",
+            "type": "number",
+            "label": "点击偏移 X",
+            "default": 0,
+            "placeholder": "相对命中中心，像素",
+        },
+        {
+            "name": "offset_y",
+            "type": "number",
+            "label": "点击偏移 Y",
+            "default": 0,
+            "placeholder": "相对命中中心，像素",
         },
         {
             "name": "include_box_geometry",
@@ -226,11 +241,12 @@ SCHEMA = {
             "name": "output_coordinate_mode",
             "type": "select",
             "label": "输出坐标",
-            "options": ["screen_abs", "region_rel"],
-            "default": "region_rel",
+            "options": ["screen_abs", "region_rel", "window_client"],
+            "default": "window_client",
             "option_labels": {
                 "screen_abs": "屏幕绝对",
                 "region_rel": "区域相对",
+                "window_client": "目标窗口相对（推荐）",
             },
         },
     ],
@@ -242,6 +258,8 @@ SCHEMA = {
         {"name": "top", "type": "number"},
         {"name": "width", "type": "number"},
         {"name": "height", "type": "number"},
+        {"name": "window_target", "type": "object"},
+        {"name": "coordinate_mode", "type": "string"},
         {"name": "matched_text", "type": "string"},
         {"name": "match_count", "type": "number"},
         {"name": "text", "type": "string"},
@@ -361,15 +379,17 @@ def _is_ocr_memory_error(exc: BaseException) -> bool:
 
 def _prepare_ocr_image(img):
     """
-    Scale tiny crops for readability and cap large inputs; return (image, scale).
-    Caller must scale OCR box coords back by 1/scale.
+    Scale tiny crops for readability and cap large inputs.
+
+    Returns ``(image, scale_x, scale_y)`` — actual resize ratios (nw/w, nh/h),
+    not the intended uniform scale, so box coords map back without axis drift.
     """
     try:
         w, h = img.size
     except Exception:
-        return img, 1.0
+        return img, 1.0, 1.0
     if w <= 0 or h <= 0:
-        return img, 1.0
+        return img, 1.0, 1.0
     short = min(w, h)
     area = w * h
     scale = 1.0
@@ -383,7 +403,7 @@ def _prepare_ocr_image(img):
         scale = _OCR_MAX_SIDE / float(longest)
     if scale <= 1.01:
         if scale >= 0.99:
-            return img, 1.0
+            return img, 1.0, 1.0
     nw = max(1, int(round(w * scale)))
     nh = max(1, int(round(h * scale)))
     try:
@@ -393,9 +413,9 @@ def _prepare_ocr_image(img):
     except Exception:
         resample = 1  # LANCZOS
     try:
-        return img.resize((nw, nh), resample), scale
+        return img.resize((nw, nh), resample), (nw / float(w)), (nh / float(h))
     except Exception:
-        return img, 1.0
+        return img, 1.0, 1.0
 
 
 def _normalize_ocr_array(arr):
@@ -601,9 +621,11 @@ def run_ocr(params: dict) -> dict:
 
     import numpy as np
 
-    ocr_img, scale = _prepare_ocr_image(img)
-    # Copy out of the PIL buffer so we can close the screenshot immediately.
+    ocr_img, scale_x, scale_y = _prepare_ocr_image(img)
+    # RapidOCR treats bare ndarray as BGR; PIL pixels are RGB — convert explicitly.
     arr = np.ascontiguousarray(np.asarray(ocr_img))
+    if arr.ndim == 3 and arr.shape[2] >= 3:
+        arr = np.ascontiguousarray(arr[:, :, ::-1])
     try:
         result, _elapsed = _infer_ocr(arr)
     finally:
@@ -629,7 +651,8 @@ def run_ocr(params: dict) -> dict:
     include_geometry = str(params.get("include_box_geometry", "false")).lower() == "true"
     match_mode = str(params.get("match_mode") or "contains")
     queries = parse_match_queries(params)
-    inv_scale = 1.0 / scale if scale and scale != 1.0 else 1.0
+    inv_x = 1.0 / scale_x if scale_x and abs(scale_x - 1.0) > 1e-6 else 1.0
+    inv_y = 1.0 / scale_y if scale_y and abs(scale_y - 1.0) > 1e-6 else 1.0
 
     texts: list[str] = []
     scores: list[float] = []
@@ -643,9 +666,9 @@ def run_ocr(params: dict) -> dict:
         texts.append(str(text))
         scores.append(score)
         poly = _compact_box(box)
-        if inv_scale != 1.0 and poly:
+        if (inv_x != 1.0 or inv_y != 1.0) and poly:
             poly = [
-                [int(round(pt[0] * inv_scale)), int(round(pt[1] * inv_scale))]
+                [int(round(pt[0] * inv_x)), int(round(pt[1] * inv_y))]
                 for pt in poly
             ]
         geom = aabb_from_polygon(poly, offset_x=x1, offset_y=y1)
@@ -684,6 +707,15 @@ def run_ocr(params: dict) -> dict:
         "region": region,
         "anchor": anchor,
     }
+    try:
+        click_dx = int(round(float(params.get("offset_x") or 0)))
+    except (TypeError, ValueError):
+        click_dx = 0
+    try:
+        click_dy = int(round(float(params.get("offset_y") or 0)))
+    except (TypeError, ValueError):
+        click_dy = 0
+    result = apply_click_offset(result, offset_x=click_dx, offset_y=click_dy)
     return apply_output_coordinate_mode(
         result,
         mode=str(params.get("output_coordinate_mode") or "screen_abs"),

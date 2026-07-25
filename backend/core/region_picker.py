@@ -28,6 +28,22 @@ def _virtual_screen() -> tuple[int, int, int, int]:
     return 0, 0, w, h
 
 
+def _cursor_pos_screen() -> tuple[int, int] | None:
+    """Physical screen cursor via Win32 — avoids Tk DPI/event.x drift."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        pt = wintypes.POINT()
+        if not ctypes.windll.user32.GetCursorPos(ctypes.byref(pt)):
+            return None
+        return int(pt.x), int(pt.y)
+    except Exception:
+        return None
+
+
 def pick_region_overlay(timeout: float = 120.0) -> dict[str, Any]:
     """
     Show a dim fullscreen overlay; drag to select a rectangle.
@@ -85,8 +101,17 @@ def pick_region_overlay(timeout: float = 120.0) -> dict[str, Any]:
             result.update({"ok": False, "cancelled": True})
             root.quit()
 
+        # Track press in screen space (GetCursorPos). Tk event.x drifts under DPI.
+        press_screen: list[int | None] = [None, None]
+
         def on_press(event):
-            start[0], start[1] = int(event.x), int(event.y)
+            cur = _cursor_pos_screen()
+            if cur is not None:
+                press_screen[0], press_screen[1] = cur
+                start[0], start[1] = cur[0] - left, cur[1] - top
+            else:
+                press_screen[0] = press_screen[1] = None
+                start[0], start[1] = int(event.x), int(event.y)
             if rect_id["id"] is not None:
                 canvas.delete(rect_id["id"])
                 rect_id["id"] = None
@@ -94,8 +119,12 @@ def pick_region_overlay(timeout: float = 120.0) -> dict[str, Any]:
         def on_drag(event):
             if start[0] is None or start[1] is None:
                 return
+            cur = _cursor_pos_screen()
+            if cur is not None:
+                x1, y1 = cur[0] - left, cur[1] - top
+            else:
+                x1, y1 = int(event.x), int(event.y)
             x0, y0 = start[0], start[1]
-            x1, y1 = int(event.x), int(event.y)
             if rect_id["id"] is not None:
                 canvas.delete(rect_id["id"])
             rect_id["id"] = canvas.create_rectangle(
@@ -110,12 +139,17 @@ def pick_region_overlay(timeout: float = 120.0) -> dict[str, Any]:
             )
 
         def on_release(event):
-            if start[0] is None or start[1] is None:
-                return
-            x0, y0 = start[0], start[1]
-            x1, y1 = int(event.x), int(event.y)
-            ax1, ay1 = left + min(x0, x1), top + min(y0, y1)
-            ax2, ay2 = left + max(x0, x1), top + max(y0, y1)
+            cur = _cursor_pos_screen()
+            if press_screen[0] is not None and press_screen[1] is not None and cur is not None:
+                ax1, ay1 = min(press_screen[0], cur[0]), min(press_screen[1], cur[1])
+                ax2, ay2 = max(press_screen[0], cur[0]), max(press_screen[1], cur[1])
+            else:
+                if start[0] is None or start[1] is None:
+                    return
+                x0, y0 = start[0], start[1]
+                x1, y1 = int(event.x), int(event.y)
+                ax1, ay1 = left + min(x0, x1), top + min(y0, y1)
+                ax2, ay2 = left + max(x0, x1), top + max(y0, y1)
             if ax2 - ax1 < 4 or ay2 - ay1 < 4:
                 return
             result.clear()
@@ -195,8 +229,12 @@ def pick_point_overlay(timeout: float = 120.0) -> dict[str, Any]:
             root.quit()
 
         def on_click(event):
-            x = left + int(event.x)
-            y = top + int(event.y)
+            cur = _cursor_pos_screen()
+            if cur is not None:
+                x, y = cur
+            else:
+                x = left + int(event.x)
+                y = top + int(event.y)
             color = None
             try:
                 from backend.blocks._helpers import pixel_color

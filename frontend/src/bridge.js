@@ -526,7 +526,25 @@ export const MOCK_SCHEMAS = [
         label: '匹配模式',
         options: ['contains', 'exact', 'regex'],
         default: 'contains',
-        option_labels: { contains: '包含', exact: '完全相等', regex: '正则' }
+        option_labels: {
+          contains: '包含（裁到子串）',
+          exact: '精确（整行或子串）',
+          regex: '正则（裁到命中）'
+        }
+      },
+      {
+        name: 'offset_x',
+        type: 'number',
+        label: '点击偏移 X',
+        default: 0,
+        placeholder: '相对命中中心，像素'
+      },
+      {
+        name: 'offset_y',
+        type: 'number',
+        label: '点击偏移 Y',
+        default: 0,
+        placeholder: '相对命中中心，像素'
       },
       {
         name: 'include_box_geometry',
@@ -543,11 +561,12 @@ export const MOCK_SCHEMAS = [
         name: 'output_coordinate_mode',
         type: 'select',
         label: '输出坐标',
-        options: ['screen_abs', 'region_rel'],
-        default: 'region_rel',
+        options: ['screen_abs', 'region_rel', 'window_client'],
+        default: 'window_client',
         option_labels: {
           screen_abs: '屏幕绝对',
-          region_rel: '区域相对'
+          region_rel: '区域相对',
+          window_client: '目标窗口相对（推荐）'
         }
       }
     ],
@@ -559,6 +578,8 @@ export const MOCK_SCHEMAS = [
       { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
+      { name: 'window_target', type: 'object', canvas: false },
+      { name: 'coordinate_mode', type: 'string', canvas: false },
       { name: 'matched_text', type: 'string' },
       { name: 'match_count', type: 'number' },
       { name: 'text', type: 'string' },
@@ -589,7 +610,25 @@ export const MOCK_SCHEMAS = [
         label: '匹配模式',
         options: ['contains', 'exact', 'regex'],
         default: 'contains',
-        option_labels: { contains: '包含', exact: '完全相等', regex: '正则' }
+        option_labels: {
+          contains: '包含（裁到子串）',
+          exact: '精确（整行或子串）',
+          regex: '正则（裁到命中）'
+        }
+      },
+      {
+        name: 'offset_x',
+        type: 'number',
+        label: '点击偏移 X',
+        default: 0,
+        placeholder: '相对命中中心，像素'
+      },
+      {
+        name: 'offset_y',
+        type: 'number',
+        label: '点击偏移 Y',
+        default: 0,
+        placeholder: '相对命中中心，像素'
       }
     ],
     outputs: [
@@ -665,7 +704,28 @@ export const MOCK_SCHEMAS = [
         type: 'select',
         label: '匹配模式',
         options: ['contains', 'exact', 'regex'],
-        default: 'contains'
+        default: 'contains',
+        option_labels: {
+          contains: '包含（裁到子串）',
+          exact: '精确（整行或子串）',
+          regex: '正则（裁到命中）'
+        }
+      },
+      {
+        name: 'offset_x',
+        type: 'number',
+        label: '点击偏移 X',
+        default: 0,
+        placeholder: '相对命中中心，像素',
+        show_when: { source_mode: ['capture', 'image'] }
+      },
+      {
+        name: 'offset_y',
+        type: 'number',
+        label: '点击偏移 Y',
+        default: 0,
+        placeholder: '相对命中中心，像素',
+        show_when: { source_mode: ['capture', 'image'] }
       },
       {
         name: 'lang',
@@ -708,11 +768,12 @@ export const MOCK_SCHEMAS = [
         name: 'output_coordinate_mode',
         type: 'select',
         label: '输出坐标',
-        options: ['screen_abs', 'region_rel'],
-        default: 'region_rel',
+        options: ['screen_abs', 'region_rel', 'window_client'],
+        default: 'window_client',
         option_labels: {
           screen_abs: '屏幕绝对',
-          region_rel: '区域相对'
+          region_rel: '区域相对',
+          window_client: '目标窗口相对（推荐）'
         }
       }
     ],
@@ -725,7 +786,9 @@ export const MOCK_SCHEMAS = [
       { name: 'left', type: 'number' },
       { name: 'top', type: 'number' },
       { name: 'width', type: 'number' },
-      { name: 'height', type: 'number' }
+      { name: 'height', type: 'number' },
+      { name: 'window_target', type: 'object', canvas: false },
+      { name: 'coordinate_mode', type: 'string', canvas: false }
     ]
   },
   {

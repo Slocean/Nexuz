@@ -24,6 +24,110 @@ def resolve_variables(params: dict[str, Any], context: dict[str, Any]) -> dict[s
     return {k: resolve_value(v, context) for k, v in (params or {}).items()}
 
 
+_COORD_LEAF_SUFFIXES = (".x", ".y", ".cx", ".cy")
+
+
+def infer_window_target_from_coord_binding(
+    raw_params: dict[str, Any] | None,
+    context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """When click x/y is ``{{ocr.x}}`` / ``{{ocr.matches.0.x}}``, pull sibling window_target.
+
+    OCR window_client mode attaches window_target next to geometry; users usually only
+    bind x/y onto the click node.
+    """
+    if not isinstance(raw_params, dict) or not isinstance(context, dict):
+        return None
+
+    def _pick_wt(wt: Any) -> dict[str, Any] | None:
+        if isinstance(wt, dict) and wt.get("point_norm") is not None:
+            return wt
+        if isinstance(wt, list):
+            for item in wt:
+                if isinstance(item, dict) and item.get("point_norm") is not None:
+                    return item
+        return None
+
+    def _from_path(path: str) -> dict[str, Any] | None:
+        path = str(path or "").strip()
+        if not path:
+            return None
+        lower = path.lower()
+        bases: list[str] = []
+        for suffix in _COORD_LEAF_SUFFIXES:
+            if lower.endswith(suffix):
+                bases.append(path[: -len(suffix)])
+                break
+        if not bases:
+            bases.append(path)
+
+        for base in bases:
+            found = _pick_wt(_lookup(f"{base}.window_target", context))
+            if found is not None:
+                return found
+
+        # Node-level fallback only when NOT addressing a specific matches[N] entry.
+        # Otherwise ocr.matches.1.x must not inherit ocr.window_target (primary hit).
+        if ".matches." not in lower:
+            head = path.split(".", 1)[0]
+            if head and head not in bases:
+                found = _pick_wt(_lookup(f"{head}.window_target", context))
+                if found is not None:
+                    return found
+        return None
+
+    for key in ("x", "y", "from_x", "from_y", "to_x", "to_y"):
+        raw = raw_params.get(key)
+        if not isinstance(raw, str):
+            continue
+        m = VAR_PATTERN.fullmatch(raw.strip())
+        if not m:
+            continue
+        found = _from_path(m.group(1))
+        if found is not None:
+            return found
+    return None
+
+
+def attach_inferred_window_target(
+    raw_params: dict[str, Any] | None,
+    resolved_params: dict[str, Any] | None,
+    context: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Fill / override window_target for window_client clicks bound from OCR outputs.
+
+    Prefer the OCR-bound window_target (with OCR-time point_norm) over a stale
+    take-point left on the click node.
+
+    Do NOT recompute point_norm from bound screen x/y at click time: those abs
+    coords go stale if the window moved/activated, and retargeting them against
+    the new client origin shifts clicks left/up of the real text.
+    """
+    params = dict(resolved_params or {})
+    mode = str(params.get("coordinate_mode") or params.get("coord_mode") or "").strip()
+    if mode != "window_client":
+        return params
+
+    nested = params.get("coord") if isinstance(params.get("coord"), dict) else None
+    inferred = infer_window_target_from_coord_binding(raw_params, context)
+    if isinstance(inferred, dict) and inferred.get("point_norm") is not None:
+        params["window_target"] = inferred
+        if nested is not None:
+            params["coord"] = {
+                **nested,
+                "window_target": inferred,
+                "coordinate_mode": "window_client",
+            }
+        return params
+
+    # No OCR bind → keep node / nested take-point target.
+    if isinstance(params.get("window_target"), dict):
+        return params
+    if nested and isinstance(nested.get("window_target"), dict):
+        params["window_target"] = nested["window_target"]
+    return params
+
+
 def _dig(root: Any, parts: list[str]) -> Any:
     cur = root
     for part in parts:

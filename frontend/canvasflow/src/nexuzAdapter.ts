@@ -600,7 +600,12 @@ export function applyDefaultOutputCoordinateMode(
   defaultOutputCoordinateMode: string = 'screen_abs',
 ) {
   if (!flow?.nodes || typeof flow.nodes !== 'object') return flow;
-  const mode = defaultOutputCoordinateMode === 'region_rel' ? 'region_rel' : 'screen_abs';
+  const mode =
+    defaultOutputCoordinateMode === 'region_rel' ||
+    defaultOutputCoordinateMode === 'window_client' ||
+    defaultOutputCoordinateMode === 'screen_abs'
+      ? defaultOutputCoordinateMode
+      : 'window_client';
   let changed = false;
   const nodes: Record<string, any> = {};
   for (const [id, node] of Object.entries(flow.nodes)) {

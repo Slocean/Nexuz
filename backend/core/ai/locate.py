@@ -71,8 +71,10 @@ def _ocr_boxes_from_data_url(data_url: str, *, offset_x: int = 0, offset_y: int 
     raw_b64 = data_url.split(",", 1)[1]
     raw = base64.b64decode(raw_b64)
     img = Image.open(io.BytesIO(raw)).convert("RGB")
-    ocr_img, scale = _prepare_ocr_image(img)
+    ocr_img, scale_x, scale_y = _prepare_ocr_image(img)
     arr = np.ascontiguousarray(np.asarray(ocr_img))
+    if arr.ndim == 3 and arr.shape[2] >= 3:
+        arr = np.ascontiguousarray(arr[:, :, ::-1])
     try:
         result, _elapsed = _infer_ocr(arr)
     finally:
@@ -90,7 +92,8 @@ def _ocr_boxes_from_data_url(data_url: str, *, offset_x: int = 0, offset_y: int 
     if not result:
         return []
 
-    inv_scale = 1.0 / scale if scale and scale != 1.0 else 1.0
+    inv_x = 1.0 / scale_x if scale_x and abs(scale_x - 1.0) > 1e-6 else 1.0
+    inv_y = 1.0 / scale_y if scale_y and abs(scale_y - 1.0) > 1e-6 else 1.0
     boxes: list[dict] = []
     for item in result:
         if not item or len(item) < 3:
@@ -99,9 +102,9 @@ def _ocr_boxes_from_data_url(data_url: str, *, offset_x: int = 0, offset_y: int 
         if score < 0.3:
             continue
         poly = _compact_box(box)
-        if inv_scale != 1.0 and poly:
+        if (inv_x != 1.0 or inv_y != 1.0) and poly:
             poly = [
-                [int(round(pt[0] * inv_scale)), int(round(pt[1] * inv_scale))]
+                [int(round(pt[0] * inv_x)), int(round(pt[1] * inv_y))]
                 for pt in poly
             ]
         geom = aabb_from_polygon(poly, offset_x=offset_x, offset_y=offset_y)

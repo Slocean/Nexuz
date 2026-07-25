@@ -464,13 +464,16 @@ function loadDefaultCoordinateMode() {
   }
 }
 
+function normalizeOutputCoordinateMode(v) {
+  if (v === 'region_rel' || v === 'screen_abs' || v === 'window_client') return v;
+  return 'window_client';
+}
+
 function loadDefaultOutputCoordinateMode() {
   try {
-    const v = localStorage.getItem('nexuz.defaultOutputCoordinateMode');
-    if (v === 'region_rel' || v === 'screen_abs') return v;
-    return 'region_rel';
+    return normalizeOutputCoordinateMode(localStorage.getItem('nexuz.defaultOutputCoordinateMode'));
   } catch {
-    return 'region_rel';
+    return 'window_client';
   }
 }
 
@@ -796,7 +799,7 @@ export const useFlowStore = create((set, get) => ({
   },
 
   setDefaultOutputCoordinateMode: defaultOutputCoordinateMode => {
-    const mode = defaultOutputCoordinateMode === 'region_rel' ? 'region_rel' : 'screen_abs';
+    const mode = normalizeOutputCoordinateMode(defaultOutputCoordinateMode);
     try {
       localStorage.setItem('nexuz.defaultOutputCoordinateMode', mode);
     } catch {
@@ -886,7 +889,7 @@ export const useFlowStore = create((set, get) => ({
   /** Force OCR / find_image nodes to use the given output_coordinate_mode. */
   syncAllOutputCoordinateModes: mode =>
     set(state => {
-      const m = mode === 'region_rel' ? 'region_rel' : 'screen_abs';
+      const m = normalizeOutputCoordinateMode(mode);
       const nodes = { ...state.flow.nodes };
       let changed = false;
       for (const [id, node] of Object.entries(nodes)) {
@@ -1146,7 +1149,7 @@ export const useFlowStore = create((set, get) => ({
       params.coordinate_mode = get().defaultCoordinateMode || 'window_client';
     }
     if (OUTPUT_COORD_NODE_TYPES.has(type)) {
-      params.output_coordinate_mode = get().defaultOutputCoordinateMode || 'region_rel';
+      params.output_coordinate_mode = get().defaultOutputCoordinateMode || 'window_client';
     }
     const node = {
       type,

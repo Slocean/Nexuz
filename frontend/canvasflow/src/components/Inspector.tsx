@@ -2025,9 +2025,11 @@ export default function Inspector({
           <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
             <p className="text-xs leading-relaxed opacity-90">
               匹配次数：<code className="font-mono">{'{{ocr.match_count}}'}</code>
+              ；坐标：<code className="font-mono">{'{{ocr.x}}'}</code>/<code className="font-mono">{'{{ocr.y}}'}</code>
+              （文字框几何中心）
+              ；若只要点「注册」这类后缀，请把匹配词收窄，不要整句
+              ；OCR 不认窗口，窗口由点位下方自动绑定
               ；多字：<code className="font-mono">{'{{ocr.matches.0.x}}'}</code>
-              （同一字出现多次时 x/y 等为数组）
-              ；或「文字定位」复用 <code className="font-mono">boxes</code>
             </p>
             {onPickRegion && (
               <div className="flex items-center gap-2">

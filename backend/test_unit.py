@@ -174,19 +174,19 @@ def test_ocr_memory_helpers():
     assert not _is_ocr_memory_error(ValueError("请框选识别区域"))
 
     tiny = Image.new("RGB", (20, 10), color=(255, 255, 255))
-    scaled, scale = _prepare_ocr_image(tiny)
-    assert scale > 1.0
+    scaled, scale_x, scale_y = _prepare_ocr_image(tiny)
+    assert scale_x > 1.0 and scale_y > 1.0
     assert scaled.size[0] > tiny.size[0]
     assert scaled.size[1] > tiny.size[1]
     big = Image.new("RGB", (200, 80), color=(255, 255, 255))
-    same, scale2 = _prepare_ocr_image(big)
-    assert scale2 == 1.0
+    same, scale2x, scale2y = _prepare_ocr_image(big)
+    assert scale2x == 1.0 and scale2y == 1.0
     assert same.size == big.size
 
     # Large inputs are capped before RapidOCR and their coordinate scale is kept.
     huge = Image.new("RGB", (3200, 800), color=(255, 255, 255))
-    reduced, scale3 = _prepare_ocr_image(huge)
-    assert scale3 == 0.5
+    reduced, scale3x, scale3y = _prepare_ocr_image(huge)
+    assert scale3x == 0.5 and scale3y == 0.5
     assert reduced.size == (1600, 400)
 
     with tempfile.TemporaryDirectory() as td:
@@ -295,6 +295,119 @@ def test_ocr_memory_helpers():
     )
 
 
+def test_ocr_window_client_output_and_click_bind():
+    from backend.blocks._ocr_match import apply_output_coordinate_mode
+    from backend.core.variable_resolver import attach_inferred_window_target
+
+    fake_wt = {
+        "process_name": "chrome.exe",
+        "title": "Demo",
+        "class_name": "Chrome_WidgetWin_1",
+        "point_norm": [0.25, 0.5],
+        "client_width": 800,
+        "client_height": 600,
+        "pid": 1,
+    }
+    stale_wt = {
+        "process_name": "chrome.exe",
+        "title": "Demo",
+        "class_name": "Chrome_WidgetWin_1",
+        "point_norm": [0.9, 0.9],
+        "client_width": 800,
+        "client_height": 600,
+        "pid": 1,
+    }
+
+    with patch(
+        "backend.core.window_coords.capture_window_target",
+        return_value=dict(fake_wt),
+    ):
+        out = apply_output_coordinate_mode(
+            {
+                "found": True,
+                "x": 120,
+                "y": 240,
+                "matches": [{"found": True, "x": 120, "y": 240, "query": "登录"}],
+            },
+            mode="window_client",
+        )
+    assert out["coordinate_mode"] == "window_client"
+    assert out["x"] == 120 and out["y"] == 240
+    assert out["window_target"]["point_norm"] == [0.25, 0.5]
+    assert out["matches"][0]["window_target"]["process_name"] == "chrome.exe"
+
+    raw = {
+        "coordinate_mode": "window_client",
+        "x": "{{ocr1.x}}",
+        "y": "{{ocr1.y}}",
+        # Stale take-point left on the click node — must not win over OCR bind.
+        "window_target": dict(stale_wt),
+        "coord": {"coordinate_mode": "window_client", "window_target": dict(stale_wt)},
+    }
+    ctx = {
+        "ocr1.x": 120,
+        "ocr1.y": 240,
+        "ocr1.window_target": dict(fake_wt),
+    }
+    resolved = resolve_variables(raw, ctx)
+    merged = attach_inferred_window_target(raw, resolved, ctx)
+    assert merged["x"] == 120 and merged["y"] == 240
+    # Must keep OCR-time point_norm (not retarget from abs x/y — that biases left if window moved).
+    assert merged["window_target"]["point_norm"] == [0.25, 0.5]
+    assert merged["coord"]["window_target"]["point_norm"] == [0.25, 0.5]
+    assert merged["window_target"]["point_norm"] != stale_wt["point_norm"]
+
+
+def test_ocr_substring_span_and_click_offset():
+    from backend.blocks._ocr_match import (
+        apply_click_offset,
+        find_all_matching_boxes,
+        find_match_span,
+        match_text,
+    )
+
+    line = "没有账号？注册"
+    # Line-level OCR: exact needle must hit as substring, not only full-line equality.
+    assert match_text(line, "注册", "exact")
+    assert find_match_span(line, "注册", "exact") == (5, 7)
+    assert find_match_span(line, "注册", "contains") == (5, 7)
+
+    box = {
+        "text": line,
+        "left": 100,
+        "top": 200,
+        "width": 140,  # 7 chars → 20px each
+        "height": 20,
+        "cx": 170,
+        "cy": 210,
+    }
+    hits = find_all_matching_boxes([box], "注册", "contains")
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit["text"] == "注册"
+    # Chars [5,7) → left 100+100=200, width 40, center 220
+    assert hit["left"] == 200
+    assert hit["width"] == 40
+    assert hit["cx"] == 220
+    assert hit["cy"] == 210
+
+    exact_hits = find_all_matching_boxes([box], "注册", "exact")
+    assert exact_hits and exact_hits[0]["cx"] == 220
+
+    # Full-line exact keeps whole box center.
+    full = find_all_matching_boxes([box], line, "exact")
+    assert full and full[0]["cx"] == 170
+    assert full[0]["width"] == 140
+
+    shifted = apply_click_offset(
+        {"found": True, "x": 220, "y": 210, "left": 200, "top": 200, "cx": 220, "cy": 210},
+        offset_x=8,
+        offset_y=-4,
+    )
+    assert shifted["x"] == 228 and shifted["y"] == 206
+    assert shifted["left"] == 208 and shifted["top"] == 196
+
+
 if __name__ == "__main__":
     test_variables()
     test_expressions()
@@ -304,4 +417,6 @@ if __name__ == "__main__":
     test_coordinate_modes()
     test_runtime_logs_are_scoped_per_flow()
     test_ocr_memory_helpers()
+    test_ocr_window_client_output_and_click_bind()
+    test_ocr_substring_span_and_click_offset()
     print("UNIT OK")

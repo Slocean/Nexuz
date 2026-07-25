@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.blocks._ocr_match import (
+    apply_click_offset,
     empty_match_outputs,
     find_all_matching_boxes,
     match_outputs_from_boxes,
@@ -33,10 +34,24 @@ SCHEMA = {
             "options": ["contains", "exact", "regex"],
             "default": "contains",
             "option_labels": {
-                "contains": "包含",
-                "exact": "完全相等",
-                "regex": "正则",
+                "contains": "包含（裁到子串）",
+                "exact": "精确（整行或子串）",
+                "regex": "正则（裁到命中）",
             },
+        },
+        {
+            "name": "offset_x",
+            "type": "number",
+            "label": "点击偏移 X",
+            "default": 0,
+            "placeholder": "相对命中中心，像素",
+        },
+        {
+            "name": "offset_y",
+            "type": "number",
+            "label": "点击偏移 Y",
+            "default": 0,
+            "placeholder": "相对命中中心，像素",
         },
     ],
     "outputs": [
@@ -79,4 +94,12 @@ def handler(params, context, **kwargs):
     hits = find_all_matching_boxes(boxes, expect, mode)
     out = match_outputs_from_boxes(hits)
     out["match_count"] = int(out.get("count") or 0)
-    return out
+    try:
+        click_dx = int(round(float(params.get("offset_x") or 0)))
+    except (TypeError, ValueError):
+        click_dx = 0
+    try:
+        click_dy = int(round(float(params.get("offset_y") or 0)))
+    except (TypeError, ValueError):
+        click_dy = 0
+    return apply_click_offset(out, offset_x=click_dx, offset_y=click_dy)

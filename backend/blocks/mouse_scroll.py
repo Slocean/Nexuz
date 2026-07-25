@@ -81,10 +81,11 @@ def handler(params, context, **kwargs):
         x, y = resolve_point(params)
 
     from backend.core.host_window import yield_host_mouse
+    from backend.core.input.win32_mouse import move_to
 
     with yield_host_mouse():
         if configured or move_first:
-            pyautogui.moveTo(x, y)
+            move_to(x, y)
             time.sleep(0.05)
 
         def _vscroll(amount: int) -> None:

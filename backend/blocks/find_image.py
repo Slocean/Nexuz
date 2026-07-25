@@ -33,11 +33,12 @@ SCHEMA = {
             "name": "output_coordinate_mode",
             "type": "select",
             "label": "输出坐标",
-            "options": ["screen_abs", "region_rel"],
-            "default": "region_rel",
+            "options": ["screen_abs", "region_rel", "window_client"],
+            "default": "window_client",
             "option_labels": {
                 "screen_abs": "屏幕绝对",
                 "region_rel": "区域相对",
+                "window_client": "目标窗口相对（推荐）",
             },
         },
     ],
@@ -51,6 +52,8 @@ SCHEMA = {
         {"name": "top", "type": "number"},
         {"name": "width", "type": "number"},
         {"name": "height", "type": "number"},
+        {"name": "window_target", "type": "object"},
+        {"name": "coordinate_mode", "type": "string"},
     ],
 }
 

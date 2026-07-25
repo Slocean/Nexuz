@@ -16,7 +16,11 @@ from .runtime_payload import (
     summarize_params,
     summarize_result,
 )
-from .variable_resolver import resolve_value, resolve_variables
+from .variable_resolver import (
+    attach_inferred_window_target,
+    resolve_value,
+    resolve_variables,
+)
 
 
 def node_pre_delay_ms(index: int, item_delay: Any, default_interval: Any = 0) -> int:
@@ -479,7 +483,10 @@ class FlowInterpreter:
             if handler is None:
                 raise ValueError(f"未知 Block 类型: {block_type}")
 
-            params = resolve_variables(node.get("params") or {}, context)
+            raw_params = node.get("params") or {}
+            params = resolve_variables(raw_params, context)
+            if block_type in ("click", "mouse_hover", "drag"):
+                params = attach_inferred_window_target(raw_params, params, context)
             wait_ms = node_pre_delay_ms(
                 node_index,
                 params.get("node_delay_ms"),

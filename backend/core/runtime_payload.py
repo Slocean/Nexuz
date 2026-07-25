@@ -13,6 +13,38 @@ _LIGHT_LIST_KEYS = frozenset({"boxes", "matches"})
 _GEOM_KEYS = ("left", "top", "width", "height", "cx", "cy", "x", "y")
 
 
+def _compact_window_target(value: Any) -> Any:
+    """Keep fields needed for window_client click replay after OCR compacting."""
+    if isinstance(value, list):
+        return [_compact_window_target(v) for v in value[:24]]
+    if not isinstance(value, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key in (
+        "pid",
+        "process_name",
+        "class_name",
+        "title",
+        "client_width",
+        "client_height",
+        "dpi",
+        "point_norm",
+    ):
+        if key not in value:
+            continue
+        val = value.get(key)
+        if key == "point_norm" and isinstance(val, (list, tuple)) and len(val) >= 2:
+            try:
+                out[key] = [float(val[0]), float(val[1])]
+            except (TypeError, ValueError):
+                continue
+        elif key in ("process_name", "class_name", "title"):
+            out[key] = str(val or "")[:160]
+        else:
+            out[key] = val
+    return out or None
+
+
 def _compact_ocr_item(item: dict[str, Any], *, as_box: bool) -> dict[str, Any]:
     entry: dict[str, Any] = {}
     if "text" in item or as_box:
@@ -53,6 +85,11 @@ def _compact_ocr_item(item: dict[str, Any], *, as_box: bool) -> dict[str, Any]:
                 entry[geom_key] = int(round(float(val)))
             except (TypeError, ValueError):
                 pass
+    wt = _compact_window_target(item.get("window_target"))
+    if wt is not None:
+        entry["window_target"] = wt
+    if item.get("coordinate_mode"):
+        entry["coordinate_mode"] = str(item.get("coordinate_mode"))
     return entry
 
 
@@ -142,6 +179,8 @@ def summarize_node_outcome(
 
     if t == "click":
         x, y = r.get("x", r.get("screen_x")), r.get("y", r.get("screen_y"))
+        ax, ay = r.get("actual_x"), r.get("actual_y")
+        hit = r.get("hit_process") or r.get("hit_title")
         try:
             count = int(r.get("count") or 1)
         except (TypeError, ValueError):
@@ -160,7 +199,12 @@ def summarize_node_outcome(
                 return f"多点点击 {count} 次 · 末点 ({x}, {y}){ms}"
             return f"多点点击 {count} 次{ms}"
         if x is not None and y is not None:
-            return f"点击 ({x}, {y}){ms}"
+            extra = ""
+            if ax is not None and ay is not None and (ax != x or ay != y):
+                extra += f" · 实际光标 ({ax}, {ay})"
+            if hit:
+                extra += f" · 命中 {hit}"
+            return f"点击 ({x}, {y}){extra}{ms}"
         return f"点击完成{ms}"
     if t == "drag":
         return f"拖拽完成{ms}"

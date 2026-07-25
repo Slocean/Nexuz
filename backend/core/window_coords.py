@@ -192,6 +192,37 @@ def _find_window(target: dict[str, Any]) -> int:
     return max(ranked, default=(0, 0))[1]
 
 
+def retarget_window_point(
+    target: dict[str, Any],
+    x: int,
+    y: int,
+) -> dict[str, Any]:
+    """Return a copy of ``target`` whose ``point_norm`` matches screen ``(x, y)``.
+
+    Used when a click binds OCR absolute x/y plus a window identity: recompute
+    the normalized point on that window so playback hits the OCR report, not a
+    stale take-point ``point_norm`` left on the click node.
+    """
+    if not _supported() or not isinstance(target, dict):
+        return target if isinstance(target, dict) else {}
+    try:
+        xi, yi = int(x), int(y)
+    except (TypeError, ValueError):
+        return dict(target)
+    hwnd = _find_window(target)
+    if hwnd:
+        fresh = _window_target_from_hwnd(hwnd, xi, yi)
+        if isinstance(fresh, dict):
+            # Keep identity hints from the OCR bind; refresh geometry + norm.
+            out = dict(target)
+            out.update(fresh)
+            return out
+    captured = capture_window_target(xi, yi)
+    if isinstance(captured, dict):
+        return captured
+    return dict(target)
+
+
 def resolve_window_point(
     target: dict[str, Any],
     *,
@@ -202,8 +233,14 @@ def resolve_window_point(
     ``activate`` should be True for the first playback against a window. Re-activating
     before every multi-click point steals/eats earlier clicks on many games (Unity).
     """
-    if not _supported() or not isinstance(target, dict):
-        raise RuntimeError("窗口相对坐标仅支持 Windows")
+    if not _supported():
+        raise RuntimeError("窗口相对坐标仅支持 Windows 操作系统")
+    if not isinstance(target, dict):
+        raise RuntimeError(
+            "缺少目标窗口绑定（window_target）。"
+            "请先对点击节点「重新录入/取点」以绑定窗口，"
+            "或将坐标基准改为「屏幕绝对坐标」。"
+        )
     hwnd = _find_window(target)
     if not hwnd:
         raise RuntimeError(

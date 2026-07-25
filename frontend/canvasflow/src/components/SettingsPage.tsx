@@ -617,19 +617,23 @@ export default function SettingsPage({
   };
 
   const handleDefaultOutputCoordinateModeChange = async (next: string) => {
-    const mode = next === 'region_rel' ? 'region_rel' : 'screen_abs';
+    const mode =
+      next === 'region_rel' || next === 'window_client' || next === 'screen_abs'
+        ? next
+        : 'window_client';
     if (mode === defaultOutputCoordinateMode) return;
 
     const differing = Object.values(flowNodes).filter((n: any) => {
       if (n?.type !== 'ocr_recognize' && n?.type !== 'find_image') return false;
-      const cur = n.params?.output_coordinate_mode || defaultOutputCoordinateMode || 'region_rel';
+      const cur = n.params?.output_coordinate_mode || defaultOutputCoordinateMode || 'window_client';
       return cur !== mode;
     });
 
     if (differing.length > 0) {
       const labels: Record<string, string> = {
         screen_abs: '屏幕绝对',
-        region_rel: '区域相对'
+        region_rel: '区域相对',
+        window_client: '目标窗口相对',
       };
       const ok = await confirm({
         title: '修改默认输出坐标',
@@ -1845,13 +1849,13 @@ export default function SettingsPage({
                 默认输出坐标
               </Label>
               <HelpHint
-                text="OCR取字、图像模板匹配等识别节点输出的坐标格式。屏幕绝对=桌面像素；区域相对=相对识别/搜索区域左上角。「区域相对」便于在区域内做二次计算。修改时若画布上已有不同设置的识别节点，将先提示并同步。"
+                text="OCR取字、图像模板匹配等识别节点输出的坐标格式。屏幕绝对=桌面像素；区域相对=相对识别/搜索区域左上角；目标窗口相对=附带窗口绑定，可直接给鼠标节点用（窗口挪动后仍准）。修改时若画布上已有不同设置的识别节点，将先提示并同步。"
                 colors={colors}
                 themeMode={themeMode}
               />
             </div>
             <Select
-              value={defaultOutputCoordinateMode || 'region_rel'}
+              value={defaultOutputCoordinateMode || 'window_client'}
               onValueChange={v => {
                 void handleDefaultOutputCoordinateModeChange(v);
               }}>
@@ -1861,6 +1865,7 @@ export default function SettingsPage({
               <SelectContent>
                 <SelectItem value="screen_abs">屏幕绝对</SelectItem>
                 <SelectItem value="region_rel">区域相对</SelectItem>
+                <SelectItem value="window_client">目标窗口相对（推荐）</SelectItem>
               </SelectContent>
             </Select>
           </div>

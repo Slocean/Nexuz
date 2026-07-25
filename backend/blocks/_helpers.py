@@ -255,6 +255,18 @@ def resolve_point(params: dict, x_key: str = "x", y_key: str = "y") -> tuple[int
             nested = params.get("coord")
             if isinstance(nested, dict):
                 target = nested.get("window_target")
+        # OCR / {{node.x}} binds often keep coordinate_mode=window_client but
+        # only supply absolute x/y — fall back instead of a misleading OS error.
+        if not isinstance(target, dict):
+            if has_abs:
+                return validate_point(
+                    int(round(float(raw_x))), int(round(float(raw_y)))
+                )
+            raise ValueError(
+                "目标窗口相对模式需要先绑定窗口："
+                "请对点击节点「重新录入/取点」，"
+                "或将坐标基准改为「屏幕绝对坐标」。"
+            )
         from backend.core.window_coords import resolve_window_point
 
         # Multi-click passes activate_window=False after the first point so we
