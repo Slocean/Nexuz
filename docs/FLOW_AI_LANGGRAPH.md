@@ -46,7 +46,7 @@ load_context → understand → clarify? → plan_outline → gap_check ↔ outl
 3. **clarify**：有歧义且未答 → `needs_clarify` 中断；用户作答后同会话 `resume_clarify` 续跑  
 4. **plan_outline**：有序 `steps[]`（goal / block_hint / needs_sense），**不是**完整 Flow JSON  
 5. **gap_check**：查漏补缺；缺则有界回 `plan_outline`（最多 2 次）  
-6. **build_loop**：ReAct/tool-calling 逐步落图；需要感知则 OCR 或 Vision；失败时 `outline_build` 确定性展开  
+6. **build_loop**：优先原生 `bind_tools` ReAct 落图；LM Studio/坏 chat template 导致 jinja 400 时自动切 **结构化 `ToolActionBatch` 旁路**（仍逐步调同一套工具）；再失败才 `outline_build` 确定性展开 
 7. **validate / repair**：入口与坐标门禁；repair 用工具最小修补，最多 2 轮  
 8. **summarize**：仅陈述事实；`node_count==0` 禁止「已准备好」
 

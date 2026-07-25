@@ -19,6 +19,8 @@ from backend.core.ai.lc.structured import (
     IntentUnderstanding,
     OutlineStep,
     PlanOutline,
+    ToolAction,
+    ToolActionBatch,
 )
 from backend.core.ai.types import AiConfig
 
@@ -257,3 +259,101 @@ def test_summarize_empty_draft_honest(monkeypatch):
     reply = out["reply"] or ""
     assert "已准备好" not in reply
     assert "空" in reply or "0" in reply or "没有生成" in reply
+
+
+def test_build_loop_falls_back_to_structured_actions(monkeypatch):
+    """Native tools jinja/400 → structured ToolActionBatch still adds nodes."""
+    import backend.core.ai.graphs.flow_graph as fg
+
+    class BrokenToolsLLM:
+        def __init__(self):
+            self._batch_calls = 0
+
+        def with_structured_output(self, schema):
+            parent = self
+
+            class FakeStructured:
+                def invoke(self, _messages):
+                    if schema is IntentUnderstanding:
+                        return IntentUnderstanding(
+                            intent="等待后输入 hi",
+                            known_slots={"message": "hi"},
+                            ambiguities=[],
+                        )
+                    if schema is PlanOutline:
+                        return PlanOutline(
+                            summary="delay then type",
+                            steps=[
+                                OutlineStep(
+                                    id="s1",
+                                    goal="等待",
+                                    block_hint="delay",
+                                    params={"ms": 500},
+                                ),
+                                OutlineStep(
+                                    id="s2",
+                                    goal="输入",
+                                    block_hint="type_text",
+                                    params={"text": "hi"},
+                                ),
+                            ],
+                        )
+                    if schema is GapCheckResult:
+                        return GapCheckResult(complete=True)
+                    if schema is ToolActionBatch:
+                        parent._batch_calls += 1
+                        if parent._batch_calls > 1:
+                            return ToolActionBatch(
+                                actions=[ToolAction(name="done", args={})]
+                            )
+                        return ToolActionBatch(
+                            actions=[
+                                ToolAction(
+                                    name="draft_add_node",
+                                    args={"type": "delay", "params": {"ms": 500}},
+                                ),
+                                ToolAction(
+                                    name="draft_add_node",
+                                    args={
+                                        "type": "type_text",
+                                        "params": {"text": "hi"},
+                                    },
+                                ),
+                                ToolAction(name="draft_set_entry", args={}),
+                            ]
+                        )
+                    return schema()
+
+            return FakeStructured()
+
+        def bind_tools(self, _tools):
+            return self
+
+        def invoke(self, _messages):
+            raise RuntimeError(
+                'Error rendering prompt with jinja template: '
+                '"Cannot call something that is not a function: got UndefinedValue"'
+            )
+
+        def stream(self, _messages):
+            yield AIMessage(content="结构化落图完成")
+
+    llm = BrokenToolsLLM()
+    monkeypatch.setattr(fg, "create_chat_model", lambda *a, **k: llm)
+    monkeypatch.setattr(fg, "get_checkpointer", lambda: None)
+    cfg = AiConfig(base_url="https://example.com/v1", api_key="k", model="m")
+    out = run_flow_graph(
+        conversation_id="structured-bypass",
+        user_text="等待后输入 hi",
+        draft=empty_draft(),
+        cfg=cfg,
+        use_checkpoint=False,
+    )
+    assert out["ok"] is True
+    types = [n["type"] for n in (out["draft"].get("nodes") or {}).values()]
+    assert "delay" in types and "type_text" in types
+    assert any(
+        p.get("label") == "结构化落图" or "结构化旁路" in str(p.get("text") or "")
+        for p in out["process"]
+    )
+    assert any(p.get("kind") == "tool" and p.get("name") == "draft_add_node" for p in out["process"])

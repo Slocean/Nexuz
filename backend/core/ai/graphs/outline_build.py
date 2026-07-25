@@ -114,11 +114,19 @@ def _apply_outline_step(
         return nid
 
     if hint in ("key_press", "key"):
-        key = params.get("key") or "enter"
+        raw_key = params.get("key")
+        if raw_key is None:
+            raw_key = params.get("keys")
+        if isinstance(raw_key, list):
+            keys = [str(k) for k in raw_key if str(k).strip()]
+        elif raw_key is not None and str(raw_key).strip():
+            keys = [str(raw_key).strip()]
+        else:
+            keys = ["enter"]
         draft, nid = draft_builder.add_node(
             draft,
             block_type="key_press",
-            params={"key_mode": "single", "keys": [key] if isinstance(key, str) else list(key)},
+            params={"key_mode": "single", "keys": keys},
         )
         _auto_connect(draft, last_node_id, nid)
         return nid

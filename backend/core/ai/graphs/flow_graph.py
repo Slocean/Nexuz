@@ -31,6 +31,7 @@ from backend.core.ai.graphs.state import (
 from backend.core.ai.graphs.streaming import emit_delta, emit_process, stream_chat_model
 from backend.core.ai.lc.models import create_chat_model
 from backend.core.ai.lc.prompts import (
+    BUILD_STRUCTURED_SYSTEM,
     BUILD_SYSTEM,
     GAP_SYSTEM,
     OUTLINE_SYSTEM,
@@ -42,6 +43,7 @@ from backend.core.ai.lc.structured import (
     GapCheckResult,
     IntentUnderstanding,
     PlanOutline,
+    ToolActionBatch,
 )
 from backend.core.ai.lc.tools import ToolSession, build_orchestration_tools
 from backend.core.ai.types import AiConfig
@@ -216,6 +218,196 @@ def _ambiguities_to_questions(
     return out
 
 
+def _is_native_tools_broken(exc: BaseException) -> bool:
+    """LM Studio / bad chat templates often 400 on OpenAI-style tools."""
+    msg = str(exc).lower()
+    needles = (
+        "jinja",
+        "prompt template",
+        "undefinedvalue",
+        "not a function",
+        "does not support tools",
+        "tools is not supported",
+        "tool calling is not supported",
+        "function calling",
+        "tool_choice",
+        "unsupported.*tool",
+    )
+    return any(n in msg for n in needles)
+
+
+def _emit_tool_step(
+    *,
+    proc: list[dict[str, Any]],
+    name: str,
+    result: str,
+    on_progress: ProgressFn | None,
+    conversation_id: str,
+    assistant_id: str,
+    node: str = "build_loop",
+) -> None:
+    proc.append(
+        {
+            "kind": "tool",
+            "node": node,
+            "label": str(name),
+            "name": str(name),
+            "text": str(result)[:240],
+            "ok": '"ok": false' not in str(result).lower(),
+        }
+    )
+    if on_progress:
+        on_progress(
+            {
+                "type": "process",
+                "mode": "flow",
+                "conversation_id": conversation_id,
+                "assistant_id": assistant_id,
+                "step": proc[-1],
+                "process": proc,
+                "node": node,
+            }
+        )
+
+
+def _invoke_named_tool(tool_map: dict[str, Any], name: str, args: Any) -> str:
+    tool = tool_map.get(str(name))
+    if tool is None:
+        return json.dumps({"ok": False, "error": f"未知工具 {name}"}, ensure_ascii=False)
+    try:
+        return str(tool.invoke(args or {}))
+    except Exception as exc:
+        return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+
+
+def _run_structured_action_loop(
+    *,
+    llm: Any,
+    tool_map: dict[str, Any],
+    user_blob: str,
+    session: ToolSession,
+    on_progress: ProgressFn | None,
+    conversation_id: str,
+    assistant_id: str,
+    proc: list[dict[str, Any]],
+    max_iters: int = 10,
+    node: str = "build_loop",
+) -> list[dict[str, Any]]:
+    """ReAct via structured ToolActionBatch — bypasses broken native tool templates."""
+    proc.append(
+        {
+            "kind": "info",
+            "node": node,
+            "label": "结构化落图",
+            "text": "原生 tools 不可用，改用结构化动作逐步落图",
+        }
+    )
+    if on_progress:
+        on_progress(
+            {
+                "type": "process",
+                "mode": "flow",
+                "conversation_id": conversation_id,
+                "assistant_id": assistant_id,
+                "step": proc[-1],
+                "process": proc,
+                "node": node,
+            }
+        )
+    try:
+        structured = llm.with_structured_output(ToolActionBatch)
+    except Exception as exc:
+        proc.append(
+            {
+                "kind": "warn",
+                "node": node,
+                "label": "结构化落图失败",
+                "text": str(exc),
+            }
+        )
+        return proc
+
+    tool_names = ", ".join(sorted(tool_map.keys()))
+    last_results = "(无)"
+    for _ in range(max_iters):
+        draft_blob = fit_prompt_blob(
+            safe_json(draft_summary(session.draft)),
+            budget=900,
+        )
+        try:
+            batch = structured.invoke(
+                [
+                    SystemMessage(content=BUILD_STRUCTURED_SYSTEM),
+                    HumanMessage(
+                        content=(
+                            f"{user_blob}\n\n可用工具：{tool_names}\n"
+                            f"当前草稿：{draft_blob}\n"
+                            f"上一轮工具结果：{last_results}\n"
+                            "请输出下一轮 actions；全部完成则 [{name:done}]。"
+                        )
+                    ),
+                ]
+            )
+        except Exception as exc:
+            proc.append(
+                {
+                    "kind": "warn",
+                    "node": node,
+                    "label": "结构化落图",
+                    "text": str(exc),
+                }
+            )
+            break
+        if hasattr(batch, "model_dump"):
+            actions = list(getattr(batch, "actions", None) or [])
+        elif isinstance(batch, dict):
+            actions = list(batch.get("actions") or [])
+        else:
+            break
+        if not actions:
+            break
+
+        names: list[str] = []
+        for action in actions:
+            if hasattr(action, "model_dump"):
+                ad = action.model_dump()
+            elif isinstance(action, dict):
+                ad = action
+            else:
+                continue
+            names.append(str(ad.get("name") or "").strip())
+        if names and all(n.lower() == "done" for n in names if n):
+            break
+
+        result_lines: list[str] = []
+        for action in actions:
+            if hasattr(action, "model_dump"):
+                ad = action.model_dump()
+            elif isinstance(action, dict):
+                ad = action
+            else:
+                continue
+            name = str(ad.get("name") or "").strip()
+            if not name or name.lower() == "done":
+                continue
+            args = ad.get("args") if isinstance(ad.get("args"), dict) else {}
+            result = _invoke_named_tool(tool_map, name, args)
+            result_lines.append(f"{name}: {str(result)[:400]}")
+            _emit_tool_step(
+                proc=proc,
+                name=name,
+                result=result,
+                on_progress=on_progress,
+                conversation_id=conversation_id,
+                assistant_id=assistant_id,
+                node=node,
+            )
+        if not result_lines:
+            break
+        last_results = "\n".join(result_lines)[:2000]
+    return proc
+
+
 def _run_tool_loop(
     *,
     llm: Any,
@@ -229,12 +421,31 @@ def _run_tool_loop(
     proc: list[dict[str, Any]],
     max_iters: int = 10,
 ) -> list[dict[str, Any]]:
-    """Simple bind_tools loop; mutates session.draft in place."""
+    """Native bind_tools loop; on template/tool failures, structured action bypass."""
     tool_map = {t.name: t for t in tools}
     try:
         bound = llm.bind_tools(tools)
-    except Exception:
-        return proc
+    except Exception as exc:
+        proc.append(
+            {
+                "kind": "warn",
+                "node": "build_loop",
+                "label": "bind_tools",
+                "text": str(exc),
+            }
+        )
+        return _run_structured_action_loop(
+            llm=llm,
+            tool_map=tool_map,
+            user_blob=user_blob,
+            session=session,
+            on_progress=on_progress,
+            conversation_id=conversation_id,
+            assistant_id=assistant_id,
+            proc=proc,
+            max_iters=max_iters,
+        )
+
     messages: list[Any] = [
         SystemMessage(content=system),
         HumanMessage(content=user_blob),
@@ -243,6 +454,26 @@ def _run_tool_loop(
         try:
             ai = bound.invoke(messages)
         except Exception as exc:
+            if _is_native_tools_broken(exc):
+                proc.append(
+                    {
+                        "kind": "warn",
+                        "node": "build_loop",
+                        "label": "原生 tools",
+                        "text": f"网关 tool 模板失败，切换结构化旁路：{exc}",
+                    }
+                )
+                return _run_structured_action_loop(
+                    llm=llm,
+                    tool_map=tool_map,
+                    user_blob=user_blob,
+                    session=session,
+                    on_progress=on_progress,
+                    conversation_id=conversation_id,
+                    assistant_id=assistant_id,
+                    proc=proc,
+                    max_iters=max_iters,
+                )
             proc.append(
                 {"kind": "warn", "node": "build_loop", "label": "工具循环", "text": str(exc)}
             )
@@ -257,36 +488,15 @@ def _run_tool_loop(
             name = call.get("name") if isinstance(call, dict) else getattr(call, "name", "")
             args = call.get("args") if isinstance(call, dict) else getattr(call, "args", {})
             tid = call.get("id") if isinstance(call, dict) else getattr(call, "id", "")
-            tool = tool_map.get(str(name))
-            if tool is None:
-                result = json.dumps({"ok": False, "error": f"未知工具 {name}"})
-            else:
-                try:
-                    result = tool.invoke(args or {})
-                except Exception as exc:
-                    result = json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
-            proc.append(
-                {
-                    "kind": "tool",
-                    "node": "build_loop",
-                    "label": str(name),
-                    "name": str(name),
-                    "text": str(result)[:240],
-                    "ok": '"ok": false' not in str(result).lower(),
-                }
+            result = _invoke_named_tool(tool_map, str(name), args)
+            _emit_tool_step(
+                proc=proc,
+                name=str(name),
+                result=result,
+                on_progress=on_progress,
+                conversation_id=conversation_id,
+                assistant_id=assistant_id,
             )
-            if on_progress:
-                on_progress(
-                    {
-                        "type": "process",
-                        "mode": "flow",
-                        "conversation_id": conversation_id,
-                        "assistant_id": assistant_id,
-                        "step": proc[-1],
-                        "process": proc,
-                        "node": "build_loop",
-                    }
-                )
             messages.append(
                 ToolMessage(content=str(result)[:4000], tool_call_id=str(tid or name))
             )

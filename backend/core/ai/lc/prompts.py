@@ -50,6 +50,17 @@ BUILD_SYSTEM = """你是 Nexuz 编排 Agent 的「落图」阶段。用工具逐
 6. 完成后停止调用工具。
 """
 
+BUILD_STRUCTURED_SYSTEM = """你是 Nexuz 编排 Agent 的「落图」阶段。
+当前环境不支持原生 function calling，请用结构化 JSON 输出本轮工具动作（ToolActionBatch）。
+
+规则与 BUILD 相同：
+1. 按 outline 顺序逐步：draft_add_node → draft_connect → 需要时 draft_set_entry。
+2. 文字点击：ocr 节点 + click，坐标用 {{ocr节点id.x}} / {{ocr节点id.y}}；禁止裸坐标。
+3. 每轮只输出 1～4 个 actions；根据上一轮结果继续；全部完成后 actions=[{name:done}]。
+4. args 必须是合法 JSON 对象；draft_add_node 的 type 为积木类型，params 为参数。
+5. 不要编造联系人/窗口；不要清空无关已有节点。
+"""
+
 REPAIR_SYSTEM = """你是 Nexuz 流程修复器。
 根据校验错误，用工具做最小修补（补连线、补入口、改绑定），不要无故清空草稿，不要编造裸坐标。
 """

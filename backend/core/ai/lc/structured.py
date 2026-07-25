@@ -66,6 +66,30 @@ class GapCheckResult(BaseModel):
     )
 
 
+class ToolAction(BaseModel):
+    """One tool invocation expressed as JSON (no native function-calling API)."""
+
+    name: str = Field(
+        description=(
+            "工具名：draft_add_node / draft_connect / draft_set_entry / draft_update_node / "
+            "draft_get / draft_remove_node / list_blocks / get_block_schema / "
+            "capture_screen / locate_text_on_screen / locate_on_screenshot_vision / "
+            "pack_point / bind_point_to_node / call_skill；完成则 done"
+        )
+    )
+    args: dict[str, Any] = Field(default_factory=dict, description="工具参数")
+
+
+class ToolActionBatch(BaseModel):
+    """One ReAct round without OpenAI/LM Studio native tools / jinja templates."""
+
+    actions: list[ToolAction] = Field(
+        default_factory=list,
+        description="本轮要执行的工具调用；全部完成时输出 [{name:done}]",
+    )
+    rationale: str = Field(default="", description="简短说明本轮意图")
+
+
 # --- Legacy FlowSpec (kept for recipes / optional call_skill / eval heuristics) ---
 
 
