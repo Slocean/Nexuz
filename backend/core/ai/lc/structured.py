@@ -1,4 +1,4 @@
-"""Structured FlowSpec for planner / repair (LangChain with_structured_output)."""
+"""Structured outputs for step-wise Agent orchestration."""
 
 from __future__ import annotations
 
@@ -7,8 +7,70 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class ClarifyQuestion(BaseModel):
+    id: str = Field(default="q1", description="问题 id")
+    prompt: str = Field(description="向用户展示的问题")
+    choices: list[str] = Field(default_factory=list, description="可选项；空则自由填写")
+    allow_free_text: bool = Field(default=True)
+
+
+class IntentUnderstanding(BaseModel):
+    """Phase 1: understand user intent (no Flow JSON)."""
+
+    intent: str = Field(default="", description="一句话真实意图")
+    known_slots: dict[str, str] = Field(
+        default_factory=dict,
+        description="已从话术抽出的槽位：contact/message/window_title/run_at/schedule 等",
+    )
+    ambiguities: list[ClarifyQuestion] = Field(
+        default_factory=list,
+        description="仅真歧义/缺参；禁止假确认题",
+    )
+
+
+class OutlineStep(BaseModel):
+    """One high-level orchestration step (not a Flow node yet)."""
+
+    id: str = Field(default="s1")
+    goal: str = Field(description="这一步要达成什么")
+    block_hint: str = Field(
+        default="",
+        description="建议积木：delay/type_text/key_press/window_activate/ocr_click/"
+        "schedule_trigger/click/wait_until/find_image/…",
+    )
+    needs_sense: Literal["none", "ocr", "vision"] = Field(
+        default="none",
+        description="配参感知：文字点选用 ocr；无字图标用 vision；否则 none",
+    )
+    match_text: str | None = Field(default=None, description="OCR/点击匹配文字")
+    params: dict[str, Any] = Field(default_factory=dict, description="已知关键参数")
+    note: str = Field(default="")
+
+
+class PlanOutline(BaseModel):
+    """Phase 3: ordered approach before tool building."""
+
+    summary: str = Field(default="")
+    steps: list[OutlineStep] = Field(default_factory=list)
+
+
+class GapCheckResult(BaseModel):
+    complete: bool = Field(default=True)
+    missing: list[str] = Field(
+        default_factory=list,
+        description="相对意图仍缺的步骤或槽位说明",
+    )
+    hints: list[str] = Field(
+        default_factory=list,
+        description="给下一轮 outline 的补洞提示",
+    )
+
+
+# --- Legacy FlowSpec (kept for recipes / optional call_skill / eval heuristics) ---
+
+
 class PlanStep(BaseModel):
-    """One planned automation step (not a raw Flow JSON node)."""
+    """One planned automation step (recipe / skill expansion)."""
 
     action: Literal[
         "add",
@@ -22,55 +84,25 @@ class PlanStep(BaseModel):
         "key_press",
         "recipe",
         "call_skill",
-    ] = Field(
-        default="add",
-        description="步骤动作：add 加节点；call_skill/recipe 调用技能；ocr_click 等为快捷意图",
-    )
-    block_type: str | None = Field(
-        default=None,
-        description="积木类型，如 delay / type_text / click；recipe/ocr_click 时可空",
-    )
-    node_id: str | None = Field(default=None, description="指定节点 id（更新/删除/连线时）")
-    from_id: str | None = Field(default=None, description="连线起点")
-    to_id: str | None = Field(default=None, description="连线终点")
-    edge: str = Field(default="next", description="边类型 next/then/else/body/catch/finally")
-    params: dict[str, Any] = Field(default_factory=dict, description="关键参数意图")
-    match_text: str | None = Field(default=None, description="OCR 点击要匹配的文字")
-    recipe: str | None = Field(
-        default=None,
-        description="配方名：ocr_click_chain / delay_type / type_enter",
-    )
-    note: str | None = Field(default=None, description="给人看的简短说明")
-
-
-class ClarifyQuestion(BaseModel):
-    id: str = Field(default="q1", description="问题 id")
-    prompt: str = Field(description="向用户展示的问题")
-    choices: list[str] = Field(default_factory=list, description="可选项；空则自由填写")
-    allow_free_text: bool = Field(default=True)
+    ] = Field(default="add")
+    block_type: str | None = Field(default=None)
+    node_id: str | None = Field(default=None)
+    from_id: str | None = Field(default=None)
+    to_id: str | None = Field(default=None)
+    edge: str = Field(default="next")
+    params: dict[str, Any] = Field(default_factory=dict)
+    match_text: str | None = Field(default=None)
+    recipe: str | None = Field(default=None)
+    note: str | None = Field(default=None)
 
 
 class FlowSpec(BaseModel):
-    """Planner output: ordered steps to build or patch a draft."""
-
-    intent_summary: str = Field(default="", description="一句话概括用户意图")
-    needs_locate: bool = Field(
-        default=False,
-        description="是否需要截图/OCR/多模态取点",
-    )
-    prefer_vision: bool = Field(
-        default=False,
-        description="若模型支持多模态，优先看图定点（图标/无字）",
-    )
-    steps: list[PlanStep] = Field(default_factory=list, description="有序步骤")
-    locate_texts: list[str] = Field(
-        default_factory=list,
-        description="需要在屏幕上定位的文字/目标描述列表",
-    )
-    clarify_questions: list[ClarifyQuestion] = Field(
-        default_factory=list,
-        description="编排前需用户回答的问题（多候选/缺参）",
-    )
+    intent_summary: str = Field(default="")
+    needs_locate: bool = Field(default=False)
+    prefer_vision: bool = Field(default=False)
+    steps: list[PlanStep] = Field(default_factory=list)
+    locate_texts: list[str] = Field(default_factory=list)
+    clarify_questions: list[ClarifyQuestion] = Field(default_factory=list)
 
 
 def flow_spec_to_dict(spec: FlowSpec | dict[str, Any] | None) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-"""Shared LangGraph state for chat and flow orchestration."""
+"""Shared LangGraph state for chat and step-wise flow Agent."""
 
 from __future__ import annotations
 
@@ -25,9 +25,20 @@ class FlowGraphState(TypedDict, total=False):
     draft: dict[str, Any]
     base_flow: dict[str, Any] | None
     artifacts: dict[str, Any]
-    plan: dict[str, Any]
-    needs_locate: bool
-    locate_texts: list[str]
+    # Step-wise agent
+    intent: str
+    known_slots: dict[str, str]
+    outline: dict[str, Any]
+    gap_rounds: int
+    max_gap_rounds: int
+    build_rounds: int
+    # Clarify / status
+    clarify_questions: list[dict[str, Any]]
+    clarify_answers: dict[str, Any]
+    resume_clarify: bool
+    gap_hints: list[str]
+    status_hint: str
+    # Validation
     validation_errors: list[str]
     repair_rounds: int
     max_repair_rounds: int
@@ -38,24 +49,20 @@ class FlowGraphState(TypedDict, total=False):
     error: str
     allow_dangerous: bool
     strict_coords: bool
-    clarify_questions: list[dict[str, Any]]
-    clarify_answers: dict[str, Any]
-    status_hint: str
     prefer_vision: bool
+    # Legacy fields (compat)
+    plan: dict[str, Any]
+    needs_locate: bool
+    locate_texts: list[str]
 
 
-# High-frequency blocks for context injection (avoid discovery tax).
 FREQUENT_BLOCKS_HINT = """
-高频积木（优先使用，不必先 list_blocks）：
-- delay: params.ms 毫秒
-- type_text: params.text
-- key_press: keys=['enter'] key_mode=single
-- click: 必须 {{绑定}} 或 point_ref，禁止裸坐标
-- ocr_recognize / find_image / color_detect: 感知定位，输出 x/y
-- screenshot: 截图供多模态或 OCR
-- wait_until: wait_type=text + expect_text
+高频积木（落图时优先）：
+- delay / type_text / key_press
 - window_activate / schedule_trigger
-技能优先：text_click, type_submit, wait_then_act, window_focus, schedule_at, find_image_click, color_click, if_text, loop_n, wechat_send_message
+- ocr_recognize → click 绑定 {{id.x}}/{{id.y}}（禁止裸坐标）
+- find_image / color_detect / screenshot / wait_until
+可选工具 call_skill：标准宏（非必须）
 """
 
 
@@ -64,8 +71,9 @@ def build_draft_context(
     artifacts: dict[str, Any] | None = None,
     *,
     allow_dangerous: bool = False,
+    slots: dict[str, str] | None = None,
+    intent: str = "",
 ) -> str:
-    """Inject draft summary + points + AI cards + skills into planner context."""
     summary = draft_summary(draft or {})
     arts = artifacts if isinstance(artifacts, dict) else {}
     points = arts.get("points") if isinstance(arts.get("points"), dict) else {}
@@ -91,10 +99,8 @@ def build_draft_context(
                 for k in list(node["params"])[:6]
                 if k in node["params"]
             }
-        disconnected = not n.get("next") and summary.get("node_count", 0) > 1
         node_lines.append(
-            f"- {nid}: type={n.get('type')} next={n.get('next')} "
-            f"params={params} orphan_hint={disconnected}"
+            f"- {nid}: type={n.get('type')} next={n.get('next')} params={params}"
         )
 
     try:
@@ -102,7 +108,7 @@ def build_draft_context(
 
         cards = list_ai_block_cards(allow_dangerous=allow_dangerous)[:48]
         block_lines = [
-            f"- {c['type']}: {c.get('description')} | keys={c.get('key_params')} | {c.get('ai_hints')}"
+            f"- {c['type']}: {c.get('description')} | keys={c.get('key_params')}"
             for c in cards
         ]
     except Exception:
@@ -122,13 +128,15 @@ def build_draft_context(
 
     parts = [
         FREQUENT_BLOCKS_HINT.strip(),
+        f"intent: {intent or '(未定)'}",
+        f"slots: {json.dumps(slots or {}, ensure_ascii=False)}",
         f"entry: {summary.get('entry')}",
         f"node_count: {summary.get('node_count')}",
         "nodes:",
         "\n".join(node_lines) or "(空)",
         "points:",
         "\n".join(point_lines) or "(无)",
-        "skills:",
+        "optional_skills:",
         "\n".join(skill_lines) or "(none)",
         "blocks:",
         "\n".join(block_lines) or "(unavailable)",

@@ -62,6 +62,13 @@ interface OrchestrationCard {
   has_result?: boolean;
   result_id?: string;
   clarify_questions?: ClarifyQuestion[];
+  plan?: {
+    intent_summary?: string;
+    outline?: {
+      summary?: string;
+      steps?: { id?: string; goal?: string; block_hint?: string }[];
+    };
+  };
 }
 
 interface ChatMsg {
@@ -222,7 +229,7 @@ function OrchestrationResultCard({
             className="h-7 text-xs px-2.5"
             style={{ backgroundColor: colors.primary }}
             onClick={onApply}
-            disabled={applying || !canApply || needsClarify}
+            disabled={applying || !canApply || needsClarify || nodeCount <= 0}
           >
             {applying ? (
               <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -236,6 +243,16 @@ function OrchestrationResultCard({
       {riskHints.length || warnings.length ? (
         <p className="text-[11px] text-amber-600 dark:text-amber-300">
           {riskHints[0] || warnings[0] || "部分节点含未经验证取点的坐标"}
+        </p>
+      ) : null}
+      {!needsClarify && (card.plan?.outline?.steps?.length || 0) > 0 ? (
+        <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+          大纲：
+          {(card.plan?.outline?.steps || [])
+            .slice(0, 6)
+            .map((s) => s.goal || s.block_hint || s.id)
+            .filter(Boolean)
+            .join(" → ")}
         </p>
       ) : null}
       {needsClarify ? (

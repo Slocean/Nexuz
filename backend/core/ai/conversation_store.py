@@ -67,6 +67,7 @@ def lean_orchestration_card(card: dict[str, Any] | None, *, message_id: str) -> 
         "clarify_questions": list(card.get("clarify_questions") or [])
         if isinstance(card.get("clarify_questions"), list)
         else [],
+        "plan": card.get("plan") if isinstance(card.get("plan"), dict) else {},
     }
 
 
@@ -190,6 +191,7 @@ class ConversationStore:
             "artifacts": data["artifacts"],
             "tool_trace": data["tool_trace"],
             "status": data["status"],
+            "agent_state": data.get("agent_state") or {},
         }
 
     def rename(self, conversation_id: str, title: str) -> ConversationMeta | None:
@@ -290,6 +292,7 @@ class ConversationStore:
         tool_trace: list[dict[str, Any]] | None = None,
         status: str | None = None,
         set_base_flow: bool = False,
+        agent_state: dict[str, Any] | None = None,
     ) -> bool:
         self._validate_id(conversation_id)
         meta = self._find_meta(conversation_id)
@@ -309,6 +312,7 @@ class ConversationStore:
             tool_trace=tool_trace if tool_trace is not None else data["tool_trace"],
             status=status if status is not None else data["status"],
             kind=meta.kind,
+            agent_state=agent_state if agent_state is not None else data.get("agent_state") or {},
         )
         items = self._load_index()
         for item in items:
@@ -490,6 +494,7 @@ class ConversationStore:
                 "tool_trace": [],
                 "status": "idle",
                 "kind": "chat",
+                "agent_state": {},
             }
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -502,6 +507,7 @@ class ConversationStore:
                 "tool_trace": [],
                 "status": "idle",
                 "kind": "chat",
+                "agent_state": {},
             }
         if not isinstance(data, dict):
             data = {}
@@ -532,6 +538,7 @@ class ConversationStore:
         tool_trace = data.get("tool_trace") if isinstance(data.get("tool_trace"), list) else []
         status = str(data.get("status") or "idle")
         kind = normalize_conversation_kind(data.get("kind"))
+        agent_state = data.get("agent_state") if isinstance(data.get("agent_state"), dict) else {}
         return {
             "messages": messages,
             "draft": draft,
@@ -540,6 +547,7 @@ class ConversationStore:
             "tool_trace": tool_trace,
             "status": status,
             "kind": kind,
+            "agent_state": agent_state,
         }
 
     def _write_full(
@@ -553,11 +561,21 @@ class ConversationStore:
         tool_trace: list[dict[str, Any]],
         status: str,
         kind: str = "chat",
+        agent_state: dict[str, Any] | None = None,
     ) -> None:
         path = self._conv_path(conversation_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Persist shots externally; keep only lean refs in main JSON
         arts = self._persist_shot_blobs(conversation_id, artifacts)
+        # Preserve prior agent_state when not explicitly passed
+        prev = {}
+        try:
+            if path.is_file():
+                old = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(old, dict) and isinstance(old.get("agent_state"), dict):
+                    prev = old["agent_state"]
+        except Exception:
+            prev = {}
         payload = {
             "id": conversation_id,
             "kind": normalize_conversation_kind(kind),
@@ -567,6 +585,7 @@ class ConversationStore:
             "artifacts": arts,
             "tool_trace": tool_trace,
             "status": status,
+            "agent_state": agent_state if agent_state is not None else prev,
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

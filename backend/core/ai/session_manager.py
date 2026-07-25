@@ -501,7 +501,7 @@ class SessionManager:
         allow_dangerous: bool = False,
         on_progress: ProgressFn = _noop_progress,
     ) -> dict[str, Any]:
-        """编排模式：LangGraph plan→build→locate→validate→repair→summarize。"""
+        """编排模式：understand→clarify→outline→gap→build→validate→summarize。"""
         text = (message or "").strip()
         if not text and not attach_screenshot:
             return {"ok": False, "error": "消息不能为空"}
@@ -518,6 +518,10 @@ class SessionManager:
         artifacts = conv.get("artifacts") or {"shots": {}, "points": {}}
         tool_trace: list[dict[str, Any]] = list(conv.get("tool_trace") or [])
         existing_base = conv.get("base_flow")
+        agent_state = dict(conv.get("agent_state") or {})
+        prior_status = str(conv.get("status") or "")
+        pending_clarify = list(agent_state.get("pending_clarify") or [])
+        resume_clarify = prior_status == "needs_clarify" and bool(pending_clarify)
 
         set_base = False
         if isinstance(base_flow, dict) and base_flow.get("nodes") is not None:
@@ -574,6 +578,13 @@ class SessionManager:
                 assistant_id=assistant_id,
                 allow_dangerous=allow_dangerous,
                 use_checkpoint=True,
+                known_slots=dict(agent_state.get("known_slots") or {}),
+                intent=str(agent_state.get("intent") or ""),
+                outline=agent_state.get("outline")
+                if isinstance(agent_state.get("outline"), dict)
+                else None,
+                resume_clarify=resume_clarify,
+                pending_clarify=pending_clarify if resume_clarify else None,
             )
         except Exception as exc:
             on_progress(
@@ -610,6 +621,12 @@ class SessionManager:
         status = "needs_clarify" if clarify else (
             "awaiting_confirm" if (draft.get("nodes") or {}) else "idle"
         )
+        next_agent_state = {
+            "intent": out.get("intent") or agent_state.get("intent") or "",
+            "known_slots": out.get("known_slots") or agent_state.get("known_slots") or {},
+            "outline": out.get("outline") or agent_state.get("outline") or {},
+            "pending_clarify": clarify if status == "needs_clarify" else [],
+        }
         points_prev = _points_preview(artifacts)
         # 仅在有可修正点位时带截图；OCR 绑定链不需要常驻「点位预览」
         shot_prev = (
@@ -643,6 +660,11 @@ class SessionManager:
                     "warnings": warnings[:5],
                     "clarify": bool(clarify),
                     "plan_summary": (out.get("plan") or {}).get("intent_summary"),
+                    "outline_steps": len(
+                        ((out.get("outline") or {}).get("steps") or [])
+                        if isinstance(out.get("outline"), dict)
+                        else []
+                    ),
                 }
             )
         except Exception:
@@ -670,6 +692,7 @@ class SessionManager:
             tool_trace=tool_trace,
             status=status,
             set_base_flow=set_base,
+            agent_state=next_agent_state,
         )
         self._store.save_orchestration_result(
             conversation_id,

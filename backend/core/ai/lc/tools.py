@@ -112,7 +112,21 @@ class BindPointArgs(BaseModel):
     node_id: str
 
 
-def build_orchestration_tools(session: ToolSession) -> list[StructuredTool]:
+class VisionLocateArgs(BaseModel):
+    query: str = Field(description="要在截图中找的目标描述")
+    shot_ref: str | None = Field(default=None, description="截图 id；默认最近一张")
+
+
+class CallSkillArgs(BaseModel):
+    skill_id: str = Field(description="技能 id，如 text_click / wechat_send_message")
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+def build_orchestration_tools(
+    session: ToolSession,
+    *,
+    cfg: Any | None = None,
+) -> list[StructuredTool]:
     """Tools bound to a live ToolSession (draft/artifacts mutated in place)."""
 
     def list_blocks(category: str | None = None) -> str:
@@ -206,6 +220,45 @@ def build_orchestration_tools(session: ToolSession) -> list[StructuredTool]:
             session.run("bind_point_to_node", {"point_ref": point_ref, "node_id": node_id})
         )
 
+    def locate_on_screenshot_vision(query: str, shot_ref: str | None = None) -> str:
+        from backend.core.ai.vision_locate import locate_on_screenshot_vision as _vision
+
+        return _json_result(
+            _vision(session.artifacts, query=query, shot_ref=shot_ref, cfg=cfg)
+        )
+
+    def call_skill(skill_id: str, params: dict[str, Any] | None = None) -> str:
+        """Optional macro: expand a skill pack into draft nodes."""
+        from backend.core.ai.graphs.recipes import apply_flow_spec
+        from backend.core.ai.lc.structured import FlowSpec, PlanStep
+
+        spec = FlowSpec(
+            steps=[
+                PlanStep(
+                    action="call_skill",
+                    recipe=str(skill_id or "").strip(),
+                    params=dict(params or {}),
+                )
+            ]
+        )
+        out = apply_flow_spec(
+            session.draft,
+            spec,
+            artifacts=session.artifacts,
+            allow_dangerous=session.runtime.allow_dangerous,
+            strict_coords=session.runtime.strict_coords,
+            tool_trace=session.tool_trace,
+        )
+        session.draft = out["draft"]
+        session.artifacts = out["artifacts"]
+        return _json_result(
+            {
+                "ok": out.get("ok"),
+                "errors": out.get("errors"),
+                "node_count": len((session.draft.get("nodes") or {})),
+            }
+        )
+
     return [
         StructuredTool.from_function(
             func=list_blocks,
@@ -277,5 +330,17 @@ def build_orchestration_tools(session: ToolSession) -> list[StructuredTool]:
             name="bind_point_to_node",
             description="把 point_ref 绑定到节点坐标参数",
             args_schema=BindPointArgs,
+        ),
+        StructuredTool.from_function(
+            func=locate_on_screenshot_vision,
+            name="locate_on_screenshot_vision",
+            description="多模态看截图定点，返回 point_ref（需先 capture_screen）",
+            args_schema=VisionLocateArgs,
+        ),
+        StructuredTool.from_function(
+            func=call_skill,
+            name="call_skill",
+            description="可选：调用技能宏展开节点（参数必须来自用户/澄清）",
+            args_schema=CallSkillArgs,
         ),
     ]

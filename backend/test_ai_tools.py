@@ -244,28 +244,58 @@ def test_chat_parses_tool_calls():
 
 
 def test_session_flow_graph_mock_llm(tmp_path: Path, monkeypatch):
-    """LangGraph flow path: mocked structured planner + summarize."""
+    """LangGraph step-wise path: understand→outline→build + summarize."""
     from langchain_core.messages import AIMessage
 
-    from backend.core.ai.lc.structured import FlowSpec, PlanStep
+    from backend.core.ai.lc.structured import (
+        GapCheckResult,
+        IntentUnderstanding,
+        OutlineStep,
+        PlanOutline,
+    )
 
     store = ConversationStore(root=tmp_path / "conversations")
     meta = store.create(title="t", kind="flow")
 
     class FakeStructured:
+        def __init__(self, schema):
+            self.schema = schema
+
         def invoke(self, _messages):
-            return FlowSpec(
-                intent_summary="等待后输入 hello",
-                needs_locate=False,
-                steps=[
-                    PlanStep(action="delay", params={"ms": 1000}, node_id="d1"),
-                    PlanStep(action="type_text", params={"text": "hello"}, node_id="t1"),
-                ],
-            )
+            if self.schema is IntentUnderstanding:
+                return IntentUnderstanding(
+                    intent="等待后输入 hello",
+                    known_slots={"message": "hello"},
+                    ambiguities=[],
+                )
+            if self.schema is PlanOutline:
+                return PlanOutline(
+                    summary="delay then type",
+                    steps=[
+                        OutlineStep(
+                            id="s1",
+                            goal="等待",
+                            block_hint="delay",
+                            params={"ms": 1000},
+                        ),
+                        OutlineStep(
+                            id="s2",
+                            goal="输入",
+                            block_hint="type_text",
+                            params={"text": "hello"},
+                        ),
+                    ],
+                )
+            if self.schema is GapCheckResult:
+                return GapCheckResult(complete=True)
+            return self.schema()
 
     class FakeLLM:
-        def with_structured_output(self, _schema):
-            return FakeStructured()
+        def with_structured_output(self, schema):
+            return FakeStructured(schema)
+
+        def bind_tools(self, _tools):
+            return self
 
         def stream(self, _messages):
             yield AIMessage(content="已生成 delay → type_text 草稿，请确认。")
@@ -310,14 +340,17 @@ def test_session_flow_graph_mock_llm(tmp_path: Path, monkeypatch):
     draft = store.get(meta.id)["draft"]
     entry = draft["entry"]
     assert entry
-    # delay should connect to type_text
     delay_id = next(i for i, n in draft["nodes"].items() if n["type"] == "delay")
     type_id = next(i for i, n in draft["nodes"].items() if n["type"] == "type_text")
     assert draft["nodes"][delay_id]["next"] == type_id
-    assert "已生成" in res["assistant_message"]["content"] or res["draft_summary"]["node_count"] >= 2
+    assert res["draft_summary"]["node_count"] >= 2
     assert res.get("orchestration") or res["assistant_message"].get("orchestration")
     process = res.get("process") or []
-    assert any(p.get("node") == "planner" or p.get("label") == "规划 FlowSpec" for p in process)
+    assert any(p.get("node") == "understand" for p in process)
+    assert any(p.get("node") == "build_loop" for p in process)
+    agent = store.get(meta.id).get("agent_state") or {}
+    assert agent.get("intent")
+    assert isinstance(agent.get("outline"), dict)
 
 
 def test_chat_mode_no_tools(tmp_path: Path, monkeypatch):
