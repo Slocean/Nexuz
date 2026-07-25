@@ -3070,6 +3070,7 @@ class Api:
 
         mgr = get_session_manager()
         mgr.set_capture_fn(self.capture_desktop)
+        mgr.set_validate_fn(self._validate_flow)
         return mgr
 
     def ai_get_config(self) -> dict:
@@ -3094,6 +3095,18 @@ class Api:
             return self._ai_session().test_connection()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def ai_list_models(self, base_url: str = "", api_key: str = "") -> dict:
+        """List models from an OpenAI-compatible gateway (LM Studio / Ollama / cloud)."""
+        try:
+            from backend.core.ai.lc.models import list_remote_models
+
+            return list_remote_models(
+                base_url=(base_url or "").strip() or None,
+                api_key=(api_key or "").strip() or None,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "models": []}
 
     def ai_list_conversations(self, kind: str = "") -> dict:
         try:

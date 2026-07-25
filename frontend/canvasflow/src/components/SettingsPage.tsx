@@ -396,6 +396,7 @@ export default function SettingsPage({
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState('');
   const [aiDirty, setAiDirty] = useState(false);
+  const [aiRemoteModels, setAiRemoteModels] = useState<{ id: string; owned_by?: string }[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -444,13 +445,67 @@ export default function SettingsPage({
     };
   }, []);
 
+  const fetchAiModels = async (
+    baseUrl?: string,
+    apiKey?: string,
+    opts?: { silent?: boolean }
+  ) => {
+    const silent = !!opts?.silent;
+    const url = (baseUrl ?? aiBaseUrl).trim();
+    if (!url) {
+      if (!silent) setAiMsg('请先填写 Base URL');
+      return;
+    }
+    if (!silent) {
+      setAiBusy(true);
+      setAiMsg('正在从网关拉取模型列表…');
+    }
+    try {
+      const res = await bridge.aiListModels?.(url, (apiKey ?? aiApiKey).trim());
+      if (!res?.ok) {
+        setAiRemoteModels([]);
+        if (!silent) {
+          setAiMsg(res?.error || '拉取模型失败');
+        }
+        return;
+      }
+      const models = Array.isArray(res.models) ? res.models : [];
+      setAiRemoteModels(models);
+      if (models.length && !aiModel.trim()) {
+        setAiModel(models[0].id);
+        setAiDirty(true);
+      }
+      if (!silent) {
+        setAiMsg(
+          models.length
+            ? `已拉取 ${models.length} 个模型（可在下方选择）`
+            : '服务已响应，但未返回任何模型（请在 LM Studio 中 Load 模型）'
+        );
+      }
+    } catch (e: any) {
+      setAiRemoteModels([]);
+      if (!silent) setAiMsg(String(e?.message || e || '拉取模型失败'));
+    } finally {
+      if (!silent) setAiBusy(false);
+    }
+  };
+
   const applyAiPreset = (presetId: string) => {
     setAiPreset(presetId);
     setAiDirty(true);
     const found = aiPresets.find(p => p.id === presetId);
+    let nextUrl = aiBaseUrl;
     if (found && presetId !== 'custom') {
-      if (found.base_url) setAiBaseUrl(found.base_url);
+      if (found.base_url) {
+        nextUrl = found.base_url;
+        setAiBaseUrl(found.base_url);
+      }
       if (found.model) setAiModel(found.model);
+      else if (presetId === 'lmstudio') setAiModel('');
+    }
+    // Local OpenAI-compat servers: auto-discover loaded models
+    if (presetId === 'lmstudio' || presetId === 'ollama') {
+      void fetchAiModels(nextUrl, aiApiKey);
     }
   };
 
@@ -1370,7 +1425,7 @@ export default function SettingsPage({
           colors={colors}
           headerRight={
             <HelpHint
-              text="API Key 仅保存在本机配置中，不会写入流程文件，也不会发到前端明文。支持任意 OpenAI 兼容网关（DeepSeek、通义、Ollama 等），可自定义 Base URL。"
+              text="API Key 仅保存在本机。支持 OpenAI 兼容网关（DeepSeek、通义、Ollama、LM Studio 等）。选 LM Studio 会自动拉取本机已加载模型；本地服务 API Key 可留空。"
               colors={colors}
               themeMode={themeMode}
             />
@@ -1390,6 +1445,8 @@ export default function SettingsPage({
                     : [
                         { id: 'openai', label: 'OpenAI' },
                         { id: 'deepseek', label: 'DeepSeek' },
+                        { id: 'lmstudio', label: 'LM Studio' },
+                        { id: 'ollama', label: 'Ollama' },
                         { id: 'custom', label: '自定义' }
                       ]
                   ).map(p => (
@@ -1404,17 +1461,54 @@ export default function SettingsPage({
               <Label className="text-xs opacity-70" style={{ color: colors.text }}>
                 模型
               </Label>
+              {aiRemoteModels.length > 0 ? (
+                <Select
+                  value={aiModel || aiRemoteModels[0]?.id}
+                  onValueChange={v => {
+                    setAiModel(v);
+                    setAiDirty(true);
+                  }}>
+                  <SelectTrigger className="h-9 font-mono text-xs">
+                    <SelectValue placeholder="选择已拉取的模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {aiRemoteModels.map(m => (
+                      <SelectItem key={m.id} value={m.id} className="font-mono text-xs">
+                        {m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={aiModel}
+                  onChange={e => {
+                    setAiModel(e.target.value);
+                    setAiDirty(true);
+                  }}
+                  placeholder="如 qwen2.5-7b / gpt-4o-mini"
+                  className="h-9 font-mono text-xs"
+                />
+              )}
+            </div>
+          </div>
+
+          {aiRemoteModels.length > 0 ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                或手动填写模型 ID
+              </Label>
               <Input
                 value={aiModel}
                 onChange={e => {
                   setAiModel(e.target.value);
                   setAiDirty(true);
                 }}
-                placeholder="如 deepseek-chat / gpt-4o-mini"
+                placeholder="可覆盖上方选择"
                 className="h-9 font-mono text-xs"
               />
             </div>
-          </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label className="text-xs opacity-70" style={{ color: colors.text }}>
@@ -1426,7 +1520,7 @@ export default function SettingsPage({
                 setAiBaseUrl(e.target.value);
                 setAiDirty(true);
               }}
-              placeholder="https://api.openai.com/v1"
+              placeholder="http://127.0.0.1:1234/v1"
               className="h-9 font-mono text-xs"
             />
           </div>
@@ -1442,7 +1536,13 @@ export default function SettingsPage({
                 setAiApiKey(e.target.value);
                 setAiDirty(true);
               }}
-              placeholder={aiHasKey ? `已保存 ${aiKeyMasked || '****'}（留空则保持不变）` : '粘贴厂商 API Key'}
+              placeholder={
+                aiHasKey
+                  ? `已保存 ${aiKeyMasked || '****'}（留空则保持不变）`
+                  : aiPreset === 'lmstudio' || aiPreset === 'ollama'
+                    ? '本地服务可留空'
+                    : '粘贴厂商 API Key'
+              }
               className="h-9 font-mono text-xs"
               autoComplete="off"
             />
@@ -1451,6 +1551,14 @@ export default function SettingsPage({
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" disabled={aiBusy} onClick={() => void handleSaveAiConfig()}>
               保存
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={aiBusy}
+              onClick={() => void fetchAiModels()}>
+              拉取模型
             </Button>
             <Button
               type="button"

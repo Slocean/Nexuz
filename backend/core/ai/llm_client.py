@@ -1,4 +1,4 @@
-"""Factory: build LlmClient from AiConfig."""
+"""Legacy factory (deprecated). Prefer backend.core.ai.lc.models.create_chat_model."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from backend.core.ai.types import AiConfig, LlmError
 
 
 def create_llm_client(cfg: AiConfig | None = None) -> LlmClient:
+    """Kept for unit tests of OpenAiCompatClient; production uses LangChain ChatOpenAI."""
     c = cfg or get_ai_config()
     provider = (c.provider or "openai_compat").strip().lower()
     if provider in ("openai_compat", "openai", "compat"):

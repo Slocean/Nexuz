@@ -26,6 +26,12 @@ PROVIDER_PRESETS: list[dict[str, str]] = [
         "model": "glm-4-flash",
     },
     {"id": "ollama", "label": "Ollama", "base_url": "http://127.0.0.1:11434/v1", "model": "llama3.2"},
+    {
+        "id": "lmstudio",
+        "label": "LM Studio",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "model": "",
+    },
     {"id": "custom", "label": "自定义", "base_url": "", "model": ""},
 ]
 

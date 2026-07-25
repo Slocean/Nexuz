@@ -110,7 +110,7 @@ class ToolRuntime:
         capture_fn: CaptureFn | None = None,
         allow_dangerous: bool = False,
         allowlist: set[str] | None = None,
-        strict_coords: bool = False,
+        strict_coords: bool = True,
     ):
         self.capture_fn = capture_fn
         self.allow_dangerous = allow_dangerous

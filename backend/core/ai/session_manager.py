@@ -1,4 +1,4 @@
-"""Orchestrate chat: LLM + tool loop + draft persistence."""
+"""Orchestrate chat: LangGraph graphs + draft persistence (Bridge facade)."""
 
 from __future__ import annotations
 
@@ -14,22 +14,17 @@ from backend.core.ai.conversation_store import (
     slim_shot_preview,
 )
 from backend.core.ai.draft_builder import clone_flow, diff_nodes, draft_summary, empty_draft
-from backend.core.ai.llm_client import create_llm_client
+from backend.core.ai.graphs.chat_graph import run_chat_graph
+from backend.core.ai.graphs.flow_graph import run_flow_graph
+from backend.core.ai.lc.models import test_chat_model
 from backend.core.ai.locate import override_point
-from backend.core.ai.prompts import build_system_prompt, normalize_ai_mode
-from backend.core.ai.tool_catalog import openai_tools
-from backend.core.ai.tool_runtime import (
-    ToolRuntime,
-    _TOOL_LABELS,
-    _args_brief,
-    assistant_tool_call_message,
-    tool_result_message,
-)
-from backend.core.ai.types import ChatMessage, LlmError, normalize_conversation_kind
+from backend.core.ai.prompts import normalize_ai_mode
+from backend.core.ai.types import ChatMessage, normalize_conversation_kind
 
-MAX_TOOL_STEPS = 12
+MAX_TOOL_STEPS = 12  # retained for tests / legacy references
 CaptureFn = Callable[..., dict[str, Any]]
 ProgressFn = Callable[[dict[str, Any]], None]
+ValidateFn = Callable[[dict[str, Any]], str | None]
 
 
 def _utc_now_iso() -> str:
@@ -143,13 +138,18 @@ class SessionManager:
         *,
         capture_fn: CaptureFn | None = None,
         max_tool_steps: int = MAX_TOOL_STEPS,
+        validate_fn: ValidateFn | None = None,
     ):
         self._store = store or get_conversation_store()
         self._capture_fn = capture_fn
         self._max_tool_steps = max_tool_steps
+        self._validate_fn = validate_fn
 
     def set_capture_fn(self, fn: CaptureFn | None) -> None:
         self._capture_fn = fn
+
+    def set_validate_fn(self, fn: ValidateFn | None) -> None:
+        self._validate_fn = fn
 
     def list_conversations(self, *, kind: str | None = None) -> list[dict[str, Any]]:
         return [m.to_dict() for m in self._store.list_conversations(kind=kind)]
@@ -213,26 +213,7 @@ class SessionManager:
         return self._store.delete(conversation_id)
 
     def test_connection(self) -> dict[str, Any]:
-        cfg = get_ai_config()
-        if not cfg.base_url.strip():
-            return {"ok": False, "error": "未配置 Base URL"}
-        try:
-            client = create_llm_client(cfg)
-            turn = client.chat(
-                [
-                    {"role": "system", "content": "Reply with exactly: ok"},
-                    {"role": "user", "content": "ping"},
-                ],
-            )
-            return {
-                "ok": True,
-                "model": cfg.model,
-                "reply_preview": (turn.content or "")[:200],
-            }
-        except LlmError as exc:
-            return {"ok": False, "error": exc.message}
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+        return test_chat_model(get_ai_config())
 
     def get_draft(self, conversation_id: str) -> dict[str, Any]:
         conv = self._store.get(conversation_id)
@@ -395,7 +376,7 @@ class SessionManager:
         *,
         on_progress: ProgressFn,
     ) -> dict[str, Any]:
-        """对话模式：流式纯文本，无 tools，不改草稿。"""
+        """对话模式：LangGraph + LangChain 流式纯文本，无 tools。"""
         text = (message or "").strip()
         if not text:
             return {"ok": False, "error": "消息不能为空"}
@@ -426,55 +407,29 @@ class SessionManager:
         )
 
         history = conv.get("messages") or []
-        llm_messages: list[dict[str, Any]] = [
-            {"role": "system", "content": build_system_prompt(mode="chat")}
-        ]
-        for m in history:
-            role = m.get("role")
-            if role in ("user", "assistant", "system") and m.get("content"):
-                llm_messages.append({"role": role, "content": str(m["content"])})
-        llm_messages.append({"role": "user", "content": text})
-
-        process: list[dict[str, Any]] = []
         try:
-            client = create_llm_client(cfg)
-            stream_fn = getattr(client, "chat_stream", None)
-
-            def _delta(ev: dict[str, Any]) -> None:
+            out = run_chat_graph(
+                conversation_id=conversation_id,
+                user_text=text,
+                history=history,
+                cfg=cfg,
+                on_progress=on_progress,
+                assistant_id=assistant_id,
+                use_checkpoint=True,
+            )
+            if not out.get("ok"):
+                err = out.get("error") or "对话失败"
                 on_progress(
                     {
-                        **ev,
-                        "mode": "chat",
+                        "type": "error",
+                        "error": err,
                         "conversation_id": conversation_id,
                         "assistant_id": assistant_id,
                     }
                 )
-
-            if callable(stream_fn):
-                turn = stream_fn(llm_messages, tools=None, on_delta=_delta)
-            else:
-                turn = client.chat(llm_messages, tools=None)
-                if turn.reasoning:
-                    _delta({"type": "reasoning", "text": turn.reasoning})
-                if turn.content:
-                    _delta({"type": "delta", "text": turn.content})
-
-            if turn.reasoning:
-                process.append(
-                    {"kind": "think", "label": "思考", "text": turn.reasoning.strip()}
-                )
-            assistant_text = (turn.content or "").strip() or "好的。"
-            usage = turn.usage
-        except LlmError as exc:
-            on_progress(
-                {
-                    "type": "error",
-                    "error": exc.message,
-                    "conversation_id": conversation_id,
-                    "assistant_id": assistant_id,
-                }
-            )
-            return {"ok": False, "error": exc.message}
+                return {"ok": False, "error": err}
+            assistant_text = out.get("reply") or "好的。"
+            process = list(out.get("process") or [])
         except Exception as exc:
             on_progress(
                 {
@@ -485,10 +440,6 @@ class SessionManager:
                 }
             )
             return {"ok": False, "error": str(exc)}
-
-        if process and process[-1].get("kind") == "think":
-            if str(process[-1].get("text") or "").strip() == assistant_text:
-                process.pop()
 
         assistant_msg = ChatMessage(
             id=assistant_id,
@@ -518,7 +469,7 @@ class SessionManager:
             "user_message": user_msg.to_dict(),
             "assistant_message": assistant_msg.to_dict(),
             "meta": updated.to_dict() if updated else meta_raw,
-            "usage": usage,
+            "usage": None,
             "draft_summary": draft_summary(draft),
             "diff": diff_nodes(conv.get("base_flow"), draft),
             "points": _points_preview(artifacts),
@@ -550,6 +501,7 @@ class SessionManager:
         allow_dangerous: bool = False,
         on_progress: ProgressFn = _noop_progress,
     ) -> dict[str, Any]:
+        """编排模式：LangGraph plan→build→locate→validate→repair→summarize。"""
         text = (message or "").strip()
         if not text and not attach_screenshot:
             return {"ok": False, "error": "消息不能为空"}
@@ -577,12 +529,6 @@ class SessionManager:
             elif existing_base is None:
                 existing_base = clone_flow(base_flow)
                 set_base = True
-
-        runtime = ToolRuntime(
-            capture_fn=self._capture_fn,
-            allow_dangerous=allow_dangerous,
-            strict_coords=False,
-        )
 
         if attach_screenshot:
             if self._capture_fn is None:
@@ -614,188 +560,21 @@ class SessionManager:
             }
         )
 
-        history = conv.get("messages") or []
-        llm_messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": build_system_prompt(
-                    mode="flow", has_base_flow=bool(existing_base)
-                ),
-            }
-        ]
-        for m in history:
-            role = m.get("role")
-            if role in ("user", "assistant", "system") and m.get("content"):
-                llm_messages.append({"role": role, "content": str(m["content"])})
-        llm_messages.append({"role": "user", "content": text})
-
-        tools = openai_tools()
-        assistant_text = ""
-        pre_tool_intro = ""
-        saw_tools = False
-        steps = 0
-        last_usage = None
-        process: list[dict[str, Any]] = []
-        turn_tool_trace: list[dict[str, Any]] = []
-
-        def _emit_process(step: dict[str, Any]) -> None:
-            process.append(step)
-            on_progress(
-                {
-                    "type": "process",
-                    "mode": "flow",
-                    "conversation_id": conversation_id,
-                    "assistant_id": assistant_id,
-                    "step": step,
-                    "process": list(process),
-                }
-            )
-
         try:
-            client = create_llm_client(cfg)
-            stream_fn = getattr(client, "chat_stream", None)
-
-            def _forward_delta(ev: dict[str, Any]) -> None:
-                on_progress(
-                    {
-                        **ev,
-                        "mode": "flow",
-                        "conversation_id": conversation_id,
-                        "assistant_id": assistant_id,
-                    }
-                )
-
-            while steps < self._max_tool_steps:
-                # Prefer true SSE streaming so UI gets reasoning/content token-by-token.
-                if callable(stream_fn):
-                    turn = stream_fn(llm_messages, tools=tools, on_delta=_forward_delta)
-                else:
-                    turn = client.chat(llm_messages, tools=tools)
-                    if turn.reasoning:
-                        _forward_delta({"type": "reasoning", "text": turn.reasoning})
-                    if turn.content:
-                        _forward_delta({"type": "delta", "text": turn.content})
-                last_usage = turn.usage
-
-                if turn.reasoning:
-                    # Persist final think once. Prefer updating last think step so UI
-                    # process replace does not look like duplicated looping blocks.
-                    think_step = {
-                        "kind": "think",
-                        "label": "思考",
-                        "text": turn.reasoning.strip(),
-                    }
-                    if (
-                        process
-                        and process[-1].get("kind") == "think"
-                        and process[-1].get("label") == "思考"
-                    ):
-                        process[-1] = think_step
-                        on_progress(
-                            {
-                                "type": "process",
-                                "mode": "flow",
-                                "conversation_id": conversation_id,
-                                "assistant_id": assistant_id,
-                                "process": list(process),
-                            }
-                        )
-                    else:
-                        _emit_process(think_step)
-                if turn.content and turn.tool_calls:
-                    if not saw_tools:
-                        pre_tool_intro = turn.content.strip()
-                    _emit_process(
-                        {
-                            "kind": "think",
-                            "label": "编排说明",
-                            "text": turn.content.strip(),
-                        }
-                    )
-                    # Intro already streamed into bubble; move it into process timeline only.
-                    on_progress(
-                        {
-                            "type": "delta",
-                            "mode": "flow",
-                            "conversation_id": conversation_id,
-                            "assistant_id": assistant_id,
-                            "text": "",
-                            "replace": True,
-                        }
-                    )
-                if turn.content and not turn.tool_calls:
-                    assistant_text = turn.content.strip()
-                if not turn.tool_calls:
-                    break
-
-                saw_tools = True
-                llm_messages.append(
-                    assistant_tool_call_message(turn.content or "", turn.tool_calls)
-                )
-                for tc in turn.tool_calls:
-                    steps += 1
-                    if steps > self._max_tool_steps:
-                        break
-                    tname = str(tc.get("name") or "")
-                    targs = (
-                        tc.get("arguments")
-                        if isinstance(tc.get("arguments"), dict)
-                        else {}
-                    )
-                    result = runtime.execute(
-                        tname,
-                        targs,
-                        draft=draft,
-                        artifacts=artifacts,
-                        tool_trace=tool_trace,
-                    )
-                    if tool_trace:
-                        turn_tool_trace.append(tool_trace[-1])
-                    ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
-                    step = {
-                        "kind": "tool",
-                        "label": _TOOL_LABELS.get(tname, tname),
-                        "name": tname,
-                        "ok": ok,
-                        "detail": _args_brief(tname, targs),
-                        "summary": (
-                            (tool_trace[-1].get("summary") if tool_trace else None)
-                            or (result.get("error") if isinstance(result, dict) else None)
-                            or "完成"
-                        ),
-                        "elapsed_ms": tool_trace[-1].get("elapsed_ms") if tool_trace else None,
-                    }
-                    _emit_process(step)
-                    on_progress(
-                        {
-                            "type": "draft",
-                            "mode": "flow",
-                            "conversation_id": conversation_id,
-                            "assistant_id": assistant_id,
-                            "draft_summary": draft_summary(draft),
-                            "diff": diff_nodes(existing_base, draft),
-                        }
-                    )
-                    llm_messages.append(
-                        tool_result_message(
-                            str(tc.get("id") or ""),
-                            tname,
-                            result,
-                        )
-                    )
-            else:
-                if not assistant_text:
-                    assistant_text = "已达到本轮工具调用上限，请查看下方草稿卡片确认。"
-        except LlmError as exc:
-            on_progress(
-                {
-                    "type": "error",
-                    "error": exc.message,
-                    "conversation_id": conversation_id,
-                    "assistant_id": assistant_id,
-                }
+            out = run_flow_graph(
+                conversation_id=conversation_id,
+                user_text=text,
+                draft=draft,
+                artifacts=artifacts,
+                base_flow=existing_base,
+                cfg=cfg,
+                capture_fn=self._capture_fn,
+                validate_fn=self._validate_fn,
+                on_progress=on_progress,
+                assistant_id=assistant_id,
+                allow_dangerous=allow_dangerous,
+                use_checkpoint=True,
             )
-            return {"ok": False, "error": exc.message}
         except Exception as exc:
             on_progress(
                 {
@@ -807,67 +586,14 @@ class SessionManager:
             )
             return {"ok": False, "error": str(exc)}
 
-        warnings = self._collect_warnings(draft)
-        # Don't keep pre-tool intro as the only reply after tools ran
-        if saw_tools and (
-            not (assistant_text or "").strip()
-            or (assistant_text or "").strip() == (pre_tool_intro or "").strip()
-        ):
-            # Prefer one streaming summary turn without tools
-            try:
-                llm_messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "工具调用已完成。请用中文总结本次编排结果："
-                            "添加/修改了哪些节点、连线关系、取点情况，以及用户需要确认什么。"
-                            "不要再调用任何工具。"
-                        ),
-                    }
-                )
-
-                def _sum_delta(ev: dict[str, Any]) -> None:
-                    on_progress(
-                        {
-                            **ev,
-                            "mode": "flow",
-                            "conversation_id": conversation_id,
-                            "assistant_id": assistant_id,
-                        }
-                    )
-
-                # Clear intro leftovers so summary streams into a clean bubble.
-                _sum_delta({"type": "delta", "text": "", "replace": True})
-
-                if callable(stream_fn):
-                    sum_turn = stream_fn(
-                        llm_messages, tools=None, on_delta=_sum_delta
-                    )
-                else:
-                    sum_turn = client.chat(llm_messages, tools=None)
-                    if sum_turn.reasoning:
-                        _sum_delta({"type": "reasoning", "text": sum_turn.reasoning})
-                    if sum_turn.content:
-                        _sum_delta({"type": "delta", "text": sum_turn.content})
-                if (sum_turn.content or "").strip():
-                    assistant_text = sum_turn.content.strip()
-                else:
-                    assistant_text = _synthesize_flow_summary(draft, process, warnings)
-                    _sum_delta({"type": "delta", "text": assistant_text, "replace": True})
-            except Exception:
-                assistant_text = _synthesize_flow_summary(draft, process, warnings)
-                on_progress(
-                    {
-                        "type": "delta",
-                        "mode": "flow",
-                        "conversation_id": conversation_id,
-                        "assistant_id": assistant_id,
-                        "text": assistant_text,
-                        "replace": True,
-                    }
-                )
-
-        if not (assistant_text or "").strip():
+        draft = out.get("draft") or draft
+        artifacts = out.get("artifacts") or artifacts
+        process = list(out.get("process") or [])
+        turn_tool_trace = list(out.get("tool_trace") or [])
+        tool_trace = (tool_trace + turn_tool_trace)[-50:]
+        warnings = list(out.get("warnings") or []) or self._collect_warnings(draft)
+        assistant_text = (out.get("reply") or "").strip()
+        if not assistant_text:
             assistant_text = _synthesize_flow_summary(draft, process, warnings)
             on_progress(
                 {
@@ -885,12 +611,13 @@ class SessionManager:
             "summary": draft_summary(draft),
             "diff": diff_nodes(existing_base, draft),
             "warnings": warnings,
-            "tool_trace": turn_tool_trace or tool_trace[-12:],
+            "tool_trace": turn_tool_trace[-12:],
             "points": _points_preview(artifacts),
             "shot": _latest_shot_preview(artifacts, include_image=False),
             "status": status,
             "has_result": True,
             "result_id": assistant_id,
+            "plan": out.get("plan") or {},
         }
         orch = lean_orchestration_card(orch_raw, message_id=assistant_id) or orch_raw
 
@@ -913,11 +640,10 @@ class SessionManager:
             draft=draft,
             base_flow=existing_base if set_base else None,
             artifacts=artifacts,
-            tool_trace=tool_trace[-50:],
+            tool_trace=tool_trace,
             status=status,
             set_base_flow=set_base,
         )
-        # Full draft / process live in sidecar for apply-by-message + lean history load
         self._store.save_orchestration_result(
             conversation_id,
             assistant_id,
@@ -934,7 +660,6 @@ class SessionManager:
             model=cfg.model,
         )
 
-        # Live response may include shot image for immediate point confirm UI
         orch_live = {
             **orch,
             "shot": _latest_shot_preview(artifacts, include_image=True),
@@ -950,14 +675,14 @@ class SessionManager:
                 "orchestration": orch_live,
             },
             "meta": updated.to_dict() if updated else meta_raw,
-            "usage": last_usage,
+            "usage": None,
             "draft_summary": orch["summary"],
             "diff": orch["diff"],
             "points": orch["points"],
             "shot": orch_live["shot"],
             "tool_trace": orch["tool_trace"],
             "process": process,
-            "tool_steps": steps,
+            "tool_steps": len(turn_tool_trace),
             "status": status,
             "warnings": warnings,
             "orchestration": orch_live,
@@ -973,6 +698,7 @@ class SessionManager:
             }
         )
         return result
+
 
 
 _manager: SessionManager | None = None

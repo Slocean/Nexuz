@@ -1922,6 +1922,8 @@ function mockCall(method, ...args) {
           presets: [
             { id: 'openai', label: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
             { id: 'deepseek', label: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+            { id: 'lmstudio', label: 'LM Studio', base_url: 'http://127.0.0.1:1234/v1', model: '' },
+            { id: 'ollama', label: 'Ollama', base_url: 'http://127.0.0.1:11434/v1', model: 'llama3.2' },
             { id: 'custom', label: '自定义', base_url: '', model: '' }
           ]
         }
@@ -1944,6 +1946,12 @@ function mockCall(method, ...args) {
       });
     case 'ai_test_connection':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持连接 LLM' });
+    case 'ai_list_models':
+      return Promise.resolve({
+        ok: false,
+        error: '浏览器预览模式不支持拉取本地模型',
+        models: []
+      });
     case 'ai_list_conversations':
       return Promise.resolve({ ok: true, conversations: [] });
     case 'ai_create_conversation':
@@ -2137,6 +2145,7 @@ export const bridge = {
   aiGetConfig: () => call('ai_get_config'),
   aiSetConfig: (patch = {}) => call('ai_set_config', patch),
   aiTestConnection: () => call('ai_test_connection'),
+  aiListModels: (baseUrl = '', apiKey = '') => call('ai_list_models', baseUrl || '', apiKey || ''),
   aiListConversations: (kind = '') => call('ai_list_conversations', kind || ''),
   aiCreateConversation: (title = '新对话', kind = 'chat') =>
     call('ai_create_conversation', title, kind === 'flow' ? 'flow' : 'chat'),

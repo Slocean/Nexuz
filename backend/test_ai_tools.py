@@ -24,9 +24,6 @@ from backend.core.ai.tool_runtime import ToolRuntime, assistant_tool_call_messag
 from backend.core.ai.providers.openai_compat import OpenAiCompatClient
 from backend.core.ai.conversation_store import ConversationStore
 from backend.core.ai.session_manager import SessionManager
-from backend.core.ai.types import LlmTurn
-
-
 @pytest.fixture(scope="module", autouse=True)
 def _blocks():
     register_all_blocks()
@@ -246,108 +243,42 @@ def test_chat_parses_tool_calls():
     assert body["tool_choice"] == "auto"
 
 
-def test_session_tool_loop_mock_llm(tmp_path: Path, monkeypatch):
+def test_session_flow_graph_mock_llm(tmp_path: Path, monkeypatch):
+    """LangGraph flow path: mocked structured planner + summarize."""
+    from langchain_core.messages import AIMessage
+
+    from backend.core.ai.lc.structured import FlowSpec, PlanStep
+
     store = ConversationStore(root=tmp_path / "conversations")
-    meta = store.create(title="t")
+    meta = store.create(title="t", kind="flow")
 
-    class FakeClient:
-        def __init__(self):
-            self.n = 0
+    class FakeStructured:
+        def invoke(self, _messages):
+            return FlowSpec(
+                intent_summary="等待后输入 hello",
+                needs_locate=False,
+                steps=[
+                    PlanStep(action="delay", params={"ms": 1000}, node_id="d1"),
+                    PlanStep(action="type_text", params={"text": "hello"}, node_id="t1"),
+                ],
+            )
 
-        def chat(self, messages, tools=None, **kwargs):
-            self.n += 1
-            if self.n == 1:
-                return LlmTurn(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "c1",
-                            "name": "draft_add_node",
-                            "arguments": {
-                                "type": "delay",
-                                "params": {"ms": 1000},
-                                "node_id": "d1",
-                            },
-                            "raw": {
-                                "id": "c1",
-                                "type": "function",
-                                "function": {
-                                    "name": "draft_add_node",
-                                    "arguments": json.dumps(
-                                        {
-                                            "type": "delay",
-                                            "params": {"ms": 1000},
-                                            "node_id": "d1",
-                                        }
-                                    ),
-                                },
-                            },
-                        },
-                        {
-                            "id": "c2",
-                            "name": "draft_add_node",
-                            "arguments": {
-                                "type": "type_text",
-                                "params": {"text": "hello"},
-                                "node_id": "t1",
-                            },
-                            "raw": {
-                                "id": "c2",
-                                "type": "function",
-                                "function": {
-                                    "name": "draft_add_node",
-                                    "arguments": json.dumps(
-                                        {
-                                            "type": "type_text",
-                                            "params": {"text": "hello"},
-                                            "node_id": "t1",
-                                        }
-                                    ),
-                                },
-                            },
-                        },
-                    ],
-                )
-            if self.n == 2:
-                return LlmTurn(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "c3",
-                            "name": "draft_connect",
-                            "arguments": {
-                                "from_id": "d1",
-                                "to_id": "t1",
-                                "edge": "next",
-                            },
-                            "raw": {
-                                "id": "c3",
-                                "type": "function",
-                                "function": {
-                                    "name": "draft_connect",
-                                    "arguments": json.dumps(
-                                        {
-                                            "from_id": "d1",
-                                            "to_id": "t1",
-                                            "edge": "next",
-                                        }
-                                    ),
-                                },
-                            },
-                        }
-                    ],
-                )
-            return LlmTurn(content="已生成 delay → type_text 草稿，请确认。", tool_calls=[])
+    class FakeLLM:
+        def with_structured_output(self, _schema):
+            return FakeStructured()
 
-    mgr = SessionManager(store=store)
-    fake = FakeClient()
+        def stream(self, _messages):
+            yield AIMessage(content="已生成 delay → type_text 草稿，请确认。")
 
-    import backend.core.ai.session_manager as sm
+        def invoke(self, _messages):
+            return AIMessage(content="已生成 delay → type_text 草稿，请确认。")
+
     from backend.core.ai import config as ai_config
+    import backend.core.ai.graphs.flow_graph as fg
+    import backend.core.ai.graphs.chat_graph as cg
 
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text("{}", encoding="utf-8")
-
     monkeypatch.setattr(
         ai_config,
         "load_app_config",
@@ -358,7 +289,9 @@ def test_session_tool_loop_mock_llm(tmp_path: Path, monkeypatch):
         "save_app_config",
         lambda cfg: cfg_file.write_text(json.dumps(cfg), encoding="utf-8"),
     )
-    monkeypatch.setattr(sm, "create_llm_client", lambda cfg=None: fake)
+    monkeypatch.setattr(fg, "create_chat_model", lambda *a, **k: FakeLLM())
+    monkeypatch.setattr(cg, "create_chat_model", lambda *a, **k: FakeLLM())
+    monkeypatch.setattr(fg, "get_checkpointer", lambda: None)
 
     ai_config.set_ai_config(
         {
@@ -368,34 +301,44 @@ def test_session_tool_loop_mock_llm(tmp_path: Path, monkeypatch):
         }
     )
 
+    mgr = SessionManager(store=store)
     res = mgr.chat(meta.id, "先等待 1 秒再输入 hello", mode="flow")
     assert res["ok"] is True, res
-    nodes = {n["id"]: n for n in res["draft_summary"]["nodes"]}
-    assert "d1" in nodes
-    assert "t1" in nodes
+    types = [n["type"] for n in res["draft_summary"]["nodes"]]
+    assert "delay" in types
+    assert "type_text" in types
     draft = store.get(meta.id)["draft"]
-    assert draft["nodes"]["d1"]["next"] == "t1"
-    assert "已生成" in res["assistant_message"]["content"]
-    process = res.get("process") or []
-    assert any(p.get("kind") == "tool" and p.get("name") == "draft_add_node" for p in process)
-    assert any(p.get("kind") == "tool" and p.get("name") == "draft_connect" for p in process)
-    assert res["assistant_message"].get("process")
+    entry = draft["entry"]
+    assert entry
+    # delay should connect to type_text
+    delay_id = next(i for i, n in draft["nodes"].items() if n["type"] == "delay")
+    type_id = next(i for i, n in draft["nodes"].items() if n["type"] == "type_text")
+    assert draft["nodes"][delay_id]["next"] == type_id
+    assert "已生成" in res["assistant_message"]["content"] or res["draft_summary"]["node_count"] >= 2
     assert res.get("orchestration") or res["assistant_message"].get("orchestration")
+    process = res.get("process") or []
+    assert any(p.get("node") == "planner" or p.get("label") == "规划 FlowSpec" for p in process)
 
 
 def test_chat_mode_no_tools(tmp_path: Path, monkeypatch):
+    from langchain_core.messages import AIMessage
+
     store = ConversationStore(root=tmp_path / "conversations")
     meta = store.create(title="t")
 
-    class FakeClient:
-        def chat(self, messages, tools=None, **kwargs):
-            assert tools is None
-            sys_msg = messages[0]["content"]
-            assert "对话模式" in sys_msg
-            return LlmTurn(content="这是普通对话回复", tool_calls=[])
+    class FakeLLM:
+        def stream(self, messages):
+            # system prompt should be chat mode
+            sys = messages[0]
+            content = getattr(sys, "content", "") or ""
+            assert "对话模式" in content
+            yield AIMessage(content="这是普通对话回复")
 
-    import backend.core.ai.session_manager as sm
+        def invoke(self, messages):
+            return AIMessage(content="这是普通对话回复")
+
     from backend.core.ai import config as ai_config
+    import backend.core.ai.graphs.chat_graph as cg
 
     cfg_file = tmp_path / "config.json"
     cfg_file.write_text("{}", encoding="utf-8")
@@ -409,7 +352,8 @@ def test_chat_mode_no_tools(tmp_path: Path, monkeypatch):
         "save_app_config",
         lambda cfg: cfg_file.write_text(json.dumps(cfg), encoding="utf-8"),
     )
-    monkeypatch.setattr(sm, "create_llm_client", lambda cfg=None: FakeClient())
+    monkeypatch.setattr(cg, "create_chat_model", lambda *a, **k: FakeLLM())
+    monkeypatch.setattr(cg, "get_checkpointer", lambda: None)
     ai_config.set_ai_config(
         {"base_url": "https://api.openai.com/v1", "api_key": "sk-test", "model": "gpt-test"}
     )

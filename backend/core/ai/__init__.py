@@ -1,4 +1,4 @@
-"""Flow AI — LLM client, tools, draft orchestration, and conversations."""
+"""Flow AI — LangChain/LangGraph orchestration, tools, drafts, conversations."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ __all__ = [
 
 
 def get_session_manager():
-    """Lazy import to avoid pulling httpx when only config/store is needed."""
+    """Lazy import to avoid pulling LangGraph when only config/store is needed."""
     from backend.core.ai.session_manager import get_session_manager as _get
 
     return _get()

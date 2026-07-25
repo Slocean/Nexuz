@@ -1,7 +1,7 @@
 # Nexuz Flow AI 技术计划
 
-更新日期：2026-07-21  
-状态：设计稿 / 待排期  
+更新日期：2026-07-25  
+状态：LangGraph 已接入（见 [`FLOW_AI_LANGGRAPH.md`](./FLOW_AI_LANGGRAPH.md)）  
 关联：[`2026-07-19-平台功能不足分析.md`](./2026-07-19-平台功能不足分析.md)、[`schemas/flow_schema.json`](../schemas/flow_schema.json)、[`02-架构文档.md`](../02-架构文档.md)
 
 ---

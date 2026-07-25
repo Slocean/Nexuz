@@ -1,0 +1,189 @@
+"""AiConfig → LangChain ChatOpenAI (OpenAI-compatible gateways)."""
+
+from __future__ import annotations
+
+from typing import Any
+from urllib.parse import urljoin
+
+import httpx
+from langchain_openai import ChatOpenAI
+
+from backend.core.ai.config import get_ai_config
+from backend.core.ai.types import AiConfig, LlmError
+
+# Models that reject non-default temperature (must be 1 or omitted).
+_FIXED_TEMP_1_MARKERS = (
+    "o1",
+    "o3",
+    "o4",
+    "gpt-5",
+    "reasoner",
+    "deepseek-r1",
+    "kimi",
+    "k2.5",
+    "k2-",
+)
+
+
+def _model_requires_temperature_one(model: str) -> bool:
+    name = (model or "").strip().lower()
+    if not name:
+        return False
+    return any(m in name for m in _FIXED_TEMP_1_MARKERS)
+
+
+def _normalize_base_url(base_url: str) -> str:
+    url = (base_url or "").strip().rstrip("/")
+    if not url:
+        raise LlmError("未配置 Base URL")
+    # ChatOpenAI expects base ending at /v1 (without /chat/completions)
+    if url.endswith("/chat/completions"):
+        url = url[: -len("/chat/completions")].rstrip("/")
+    return url
+
+
+def create_chat_model(
+    cfg: AiConfig | None = None,
+    *,
+    temperature: float | None = None,
+    streaming: bool = True,
+    **kwargs: Any,
+) -> ChatOpenAI:
+    """Build a ChatOpenAI client from Nexuz AiConfig (OpenAI-compatible)."""
+    c = cfg or get_ai_config()
+    if not (c.base_url or "").strip():
+        raise LlmError("未配置 Base URL")
+
+    use_temp = c.temperature if temperature is None else float(temperature)
+    if _model_requires_temperature_one(c.model):
+        use_temp = 1.0
+
+    base = _normalize_base_url(c.base_url)
+    api_key = (c.api_key or "").strip() or "not-needed"
+    timeout = float(c.timeout_s or 120.0)
+
+    return ChatOpenAI(
+        model=c.model or "gpt-4o-mini",
+        api_key=api_key,
+        base_url=base,
+        temperature=use_temp,
+        timeout=timeout,
+        streaming=streaming,
+        **kwargs,
+    )
+
+
+def test_chat_model(cfg: AiConfig | None = None) -> dict[str, Any]:
+    """Ping the configured gateway; used by ai_test_connection."""
+    c = cfg or get_ai_config()
+    if not (c.base_url or "").strip():
+        return {"ok": False, "error": "未配置 Base URL"}
+    try:
+        llm = create_chat_model(c, temperature=0, streaming=False)
+        msg = llm.invoke(
+            [
+                ("system", "Reply with exactly: ok"),
+                ("user", "ping"),
+            ]
+        )
+        content = getattr(msg, "content", None)
+        if isinstance(content, list):
+            # multimodal content blocks
+            text = "".join(
+                str(part.get("text", "")) if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        else:
+            text = str(content or "")
+        return {
+            "ok": True,
+            "model": c.model,
+            "reply_preview": text[:200],
+        }
+    except LlmError as exc:
+        return {"ok": False, "error": exc.message}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def list_remote_models(
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    timeout_s: float = 8.0,
+    cfg: AiConfig | None = None,
+) -> dict[str, Any]:
+    """
+    GET {base_url}/models — works for LM Studio / Ollama / OpenAI-compatible gateways.
+    Returns {ok, models:[{id, owned_by?...}], base_url, error?}.
+    """
+    c = cfg or get_ai_config()
+    raw_base = (base_url if base_url is not None else c.base_url) or ""
+    try:
+        base = _normalize_base_url(raw_base)
+    except LlmError as exc:
+        return {"ok": False, "error": exc.message, "models": [], "base_url": raw_base}
+
+    key = (api_key if api_key is not None else c.api_key) or ""
+    key = key.strip()
+    # LM Studio / some local gateways require Authorization even when auth is off.
+    if not key:
+        key = "lm-studio"
+    url = urljoin(base.rstrip("/") + "/", "models")
+    headers: dict[str, str] = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {key}",
+    }
+
+    try:
+        with httpx.Client(timeout=float(timeout_s)) as client:
+            resp = client.get(url, headers=headers)
+        if resp.status_code >= 400:
+            hint = ""
+            if "127.0.0.1" in base or "localhost" in base:
+                hint = "（请确认 LM Studio / Ollama 本地服务已启动，并已加载模型）"
+            return {
+                "ok": False,
+                "error": f"HTTP {resp.status_code}: {(resp.text or '')[:200]}{hint}",
+                "models": [],
+                "base_url": base,
+            }
+        data = resp.json()
+        items = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            # Ollama native sometimes differs; OpenAI compat should use data[]
+            return {
+                "ok": False,
+                "error": "响应不是 OpenAI /models 格式（缺少 data 数组）",
+                "models": [],
+                "base_url": base,
+            }
+        models: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            mid = str(item.get("id") or item.get("name") or "").strip()
+            if not mid:
+                continue
+            models.append(
+                {
+                    "id": mid,
+                    "owned_by": str(item.get("owned_by") or item.get("object") or ""),
+                }
+            )
+        models.sort(key=lambda m: m["id"].lower())
+        return {
+            "ok": True,
+            "models": models,
+            "base_url": base,
+            "count": len(models),
+        }
+    except httpx.ConnectError:
+        return {
+            "ok": False,
+            "error": f"无法连接 {base} — 请先在 LM Studio 点击 Start Server（默认端口 1234）",
+            "models": [],
+            "base_url": base,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "models": [], "base_url": base}
