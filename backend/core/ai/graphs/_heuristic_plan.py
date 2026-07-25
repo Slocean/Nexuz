@@ -7,6 +7,10 @@ import re
 from backend.core.ai.lc.structured import ClarifyQuestion, FlowSpec, PlanStep
 
 
+def _extract_quoted(text: str) -> list[str]:
+    return [m.group(1).strip() for m in re.finditer(r"[「\"'“](.+?)[」\"'”]", text)]
+
+
 def heuristic_plan_from_text(text: str) -> FlowSpec:
     """Lightweight fallback when structured output fails (tests / offline)."""
     t = (text or "").strip()
@@ -16,67 +20,137 @@ def heuristic_plan_from_text(text: str) -> FlowSpec:
     clarify: list[ClarifyQuestion] = []
     lower = t.lower()
 
-    # North-star: WeChat timed message
-    if ("微信" in t or "wechat" in lower) and any(
-        k in t for k in ("发消息", "发给", "发送消息", "发一条", "发微信")
-    ):
-        contact = "王哥"
-        m = re.search(r"发给\s*([^\s，,「\"']+?)(?:\s|发|送|消息|$)", t)
+    # IM / WeChat-style send (params from utterance only)
+    send_intent = any(
+        k in t
+        for k in (
+            "发消息",
+            "发给",
+            "发送消息",
+            "发一条",
+            "发送一条",
+            "发微信",
+            "发送一条消息",
+        )
+    ) or bool(re.search(r"给.+发送", t))
+    if send_intent:
+        contact = ""
+        m = re.search(r"发给\s*([^\s，,「\"'“]+?)(?:\s|发|送|消息|$)", t)
         if m:
             contact = m.group(1).strip()
         else:
-            m = re.search(r"给\s*([^\s，,发「\"']+?)\s*(?:发|送)", t)
+            m = re.search(r"给\s*([^\s，,发「\"'“]+?)\s*(?:发|送)", t)
             if m:
                 contact = m.group(1).strip()
-
-        message = ""
-        m = re.search(r"(?:消息|内容)[「\"'](.+?)[」\"']", t)
-        if m:
-            message = m.group(1)
-        else:
-            m = re.search(r"发送\s*[「\"'](.+?)[」\"']", t)
-            if m:
-                message = m.group(1)
-        run_at = ""
-        m = re.search(r"(\d{1,2})\s*[点:：]\s*(\d{0,2})", t)
-        if m:
-            hh, mm = m.group(1), m.group(2) or "00"
-            run_at = f"{int(hh):02d}:{int(mm or 0):02d}"
-        if not message:
+        if not contact:
             clarify.append(
                 ClarifyQuestion(
-                    id="message",
-                    prompt="要发送的微信消息内容是？",
+                    id="contact",
+                    prompt="要发给谁？（联系人/会话名）",
                     choices=[],
                     allow_free_text=True,
                 )
             )
-        if "王哥" in t or "多个" in t or "哪一个" in t:
+
+        message = ""
+        m = re.search(r"发送一条?\s*[「\"'“](.+?)[」\"'”]", t)
+        if m:
+            message = m.group(1).strip()
+        if not message:
+            m = re.search(r"(?:消息|内容)\s*[「\"'“](.+?)[」\"'”]", t)
+            if m:
+                message = m.group(1).strip()
+        if not message:
+            # 「发送一条消息：你好」/「消息: xxx」
+            m = re.search(r"(?:消息|内容)\s*[：:]\s*(.+)$", t)
+            if m:
+                message = m.group(1).strip().strip("「」\"'")
+        if not message:
+            quoted = _extract_quoted(t)
+            for q in quoted:
+                if q and q != contact and len(q) <= 80:
+                    message = q
+                    break
+        if not message:
             clarify.append(
                 ClarifyQuestion(
-                    id="contact_pick",
-                    prompt=f"找到多个「{contact}」，请选择联系人",
-                    choices=[f"{contact}（同事）", f"{contact}（家人）", "取消"],
+                    id="message",
+                    prompt="要发送的消息内容是？",
+                    choices=[],
                     allow_free_text=True,
                 )
             )
+
+        run_at = ""
+        m = re.search(r"(\d{1,2})\s*[点:：]\s*(\d{0,2})", t)
+        if m and any(k in t for k in ("定时", "每天", "点执行", "到点", "分发")):
+            hh, mm = m.group(1), m.group(2) or "00"
+            run_at = f"{int(hh):02d}:{int(mm or 0):02d}"
+        elif m and re.search(r"\d+\s*[点时].*(?:发|执行|运行)", t):
+            hh, mm = m.group(1), m.group(2) or "00"
+            run_at = f"{int(hh):02d}:{int(mm or 0):02d}"
+
+        once = any(
+            k in t for k in ("执行一次", "马上", "立刻", "立即", "现在发", "现在就")
+        )
+        want_schedule = bool(run_at) or (
+            any(k in t for k in ("定时", "每天", "到点")) and not once
+        )
+        if once:
+            want_schedule = False
+            run_at = ""
+
+        window_title = ""
+        if "微信" in t or "wechat" in lower:
+            window_title = "微信"  # only when user literally said the app name
+        if not window_title:
+            clarify.append(
+                ClarifyQuestion(
+                    id="window_title",
+                    prompt="在哪个应用窗口发送？（请写出窗口标题）",
+                    choices=[],
+                    allow_free_text=True,
+                )
+            )
+
+        if any(k in t for k in ("多个", "哪一个", "哪个联系人", "选一个")) and contact:
+            clarify.append(
+                ClarifyQuestion(
+                    id="contact_pick",
+                    prompt=f"请选择联系人「{contact}」的具体对象",
+                    choices=[],
+                    allow_free_text=True,
+                )
+            )
+
+        # Incomplete params → clarify only; do not expand with invented defaults
+        if clarify and (not contact or not message or not window_title):
+            return FlowSpec(
+                intent_summary=t[:80],
+                needs_locate=False,
+                locate_texts=[],
+                clarify_questions=clarify,
+                steps=[],
+            )
+
         steps.append(
             PlanStep(
                 action="call_skill",
                 recipe="wechat_send_message",
                 params={
                     "contact": contact,
-                    "message": message or "你好",
+                    "message": message,
+                    "window_title": window_title,
                     "run_at": run_at,
-                    "schedule": True,
+                    "schedule": want_schedule,
                 },
             )
         )
         return FlowSpec(
             intent_summary=t[:80],
-            needs_locate=True,
-            locate_texts=[contact, "发送"],
-            clarify_questions=clarify,
+            needs_locate=False,
+            locate_texts=[],
+            clarify_questions=[],
             steps=steps,
         )
 
@@ -86,27 +160,58 @@ def heuristic_plan_from_text(text: str) -> FlowSpec:
         m = re.search(r"[「\"'](.+?\.(?:png|jpg|jpeg|bmp))[」\"']", t, re.I)
         if m:
             path = m.group(1)
+        if not path:
+            clarify.append(
+                ClarifyQuestion(
+                    id="template",
+                    prompt="找图模板的文件路径是？",
+                    choices=[],
+                    allow_free_text=True,
+                )
+            )
+            return FlowSpec(
+                intent_summary=t[:80],
+                steps=[],
+                clarify_questions=clarify,
+                needs_locate=False,
+            )
         steps.append(
             PlanStep(
                 action="recipe",
                 recipe="find_image_click",
-                params={
-                    "template": path or "template.png",
-                    "path": path or "template.png",
-                },
+                params={"template": path, "path": path},
             )
         )
-        return FlowSpec(intent_summary=t[:80], steps=steps, needs_locate=True)
+        return FlowSpec(intent_summary=t[:80], steps=steps, needs_locate=False)
 
     if any(k in t for k in ("取色点击", "按颜色", "颜色点击", "检测到颜色")):
+        color = ""
+        m = re.search(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b", t)
+        if m:
+            color = m.group(0)
+        if not color:
+            clarify.append(
+                ClarifyQuestion(
+                    id="target_color",
+                    prompt="要点击的目标颜色是？（如 #FF0000）",
+                    choices=[],
+                    allow_free_text=True,
+                )
+            )
+            return FlowSpec(
+                intent_summary=t[:80],
+                steps=[],
+                clarify_questions=clarify,
+                needs_locate=False,
+            )
         steps.append(
             PlanStep(
                 action="recipe",
                 recipe="color_click",
-                params={"target_color": "#FF0000"},
+                params={"target_color": color},
             )
         )
-        return FlowSpec(intent_summary=t[:80], steps=steps, needs_locate=True)
+        return FlowSpec(intent_summary=t[:80], steps=steps, needs_locate=False)
 
     # control flow
     m = re.search(r"(?:循环|重复)\s*(\d+)\s*次", t)
@@ -134,9 +239,10 @@ def heuristic_plan_from_text(text: str) -> FlowSpec:
     if ("try" in lower and "catch" in lower) or "捕获异常" in t or "出错时" in t:
         steps.append(PlanStep(action="recipe", recipe="try_catch_wrap"))
 
-    # schedule (soft) — avoid matching 点一下
-    if any(k in t for k in ("定时", "每天", "点执行")) or re.search(
-        r"\d+\s*[点时]\s*(?:\d+\s*分)?(?:执行|发送|运行)", t
+    # schedule (soft) — avoid matching 点一下; skip when 执行一次
+    if not any(k in t for k in ("执行一次", "马上", "立刻", "立即")) and (
+        any(k in t for k in ("定时", "每天", "点执行"))
+        or re.search(r"\d+\s*[点时]\s*(?:\d+\s*分)?(?:执行|发送|运行)", t)
     ):
         steps.append(
             PlanStep(
@@ -147,14 +253,14 @@ def heuristic_plan_from_text(text: str) -> FlowSpec:
             )
         )
 
-    # window
-    win_m = re.search(r"(?:激活|打开|等待)\s*([^\s，,]+)?\s*窗口", t)
-    if win_m or "微信窗口" in t or ("激活" in t and "窗口" in t):
+    # window — title only from utterance, never invent an app name
+    win_m = re.search(r"(?:激活|打开|等待)\s*([^\s，,]+)\s*窗口", t)
+    title = ""
+    if win_m:
+        title = (win_m.group(1) or "").strip()
+    elif "微信窗口" in t or (("激活" in t or "打开" in t) and "微信" in t and "窗口" in t):
         title = "微信"
-        if win_m and win_m.group(1):
-            title = win_m.group(1)
-        elif "微信" in t:
-            title = "微信"
+    if title:
         steps.append(
             PlanStep(
                 action="recipe",
@@ -249,8 +355,7 @@ def heuristic_plan_from_text(text: str) -> FlowSpec:
         )
 
     for label in click_labels:
-        needs_locate = True
-        locate_texts.append(label)
+        # Bound OCR chain — no live locate panel
         steps.append(
             PlanStep(action="ocr_click", match_text=label, recipe="ocr_click_chain")
         )

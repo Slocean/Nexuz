@@ -610,13 +610,18 @@ class SessionManager:
         status = "needs_clarify" if clarify else (
             "awaiting_confirm" if (draft.get("nodes") or {}) else "idle"
         )
+        points_prev = _points_preview(artifacts)
+        # 仅在有可修正点位时带截图；OCR 绑定链不需要常驻「点位预览」
+        shot_prev = (
+            _latest_shot_preview(artifacts, include_image=False) if points_prev else None
+        )
         orch_raw = {
             "summary": draft_summary(draft),
             "diff": diff_nodes(existing_base, draft),
             "warnings": warnings,
             "tool_trace": turn_tool_trace[-12:],
-            "points": _points_preview(artifacts),
-            "shot": _latest_shot_preview(artifacts, include_image=False),
+            "points": points_prev,
+            "shot": shot_prev,
             "status": status,
             "has_result": True,
             "result_id": assistant_id,

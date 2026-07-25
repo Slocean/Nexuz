@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any, Callable, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -32,6 +33,128 @@ def _append_process(state: FlowGraphState, step: dict[str, Any]) -> list[dict[st
     proc = list(state.get("process") or [])
     proc.append(step)
     return proc
+
+
+def _looks_like_fake_confirm(text: str) -> bool:
+    t = text or ""
+    markers = (
+        "需确认",
+        "请确认",
+        "是否需要",
+        "要不要",
+        "是否移除",
+        "是否添加",
+        "请选择上述",
+        "是否符合您的预期",
+    )
+    return any(m in t for m in markers)
+
+
+_FAKE_CLARIFY_MARKERS = (
+    "是否需要",
+    "要不要",
+    "是否移除",
+    "是否添加",
+    "定时触发",
+    "输入文字",
+    "符合您的预期",
+    "请确认流程",
+    "逻辑顺序",
+)
+
+
+def _sanitize_plan_dict(user_input: str, plan_dict: dict[str, Any]) -> dict[str, Any]:
+    """Guardrails only: strip contradictions. Never invent demo contacts/messages."""
+    t = user_input or ""
+    once = any(k in t for k in ("执行一次", "马上", "立刻", "立即", "现在发", "现在就"))
+    steps = list(plan_dict.get("steps") or [])
+    cleaned: list[dict[str, Any]] = []
+    for raw in steps:
+        if not isinstance(raw, dict):
+            continue
+        step = dict(raw)
+        recipe = str(step.get("recipe") or "")
+        action = str(step.get("action") or "")
+        params = dict(step.get("params") or {})
+        if once and recipe in ("schedule_at", "schedule_trigger"):
+            continue
+        if once and recipe == "wechat_send_message":
+            params["schedule"] = False
+            params["run_at"] = ""
+        if recipe == "wechat_send_message":
+            # Only copy fields the user literally named — no contact/app encyclopedia
+            if not str(params.get("window_title") or "").strip():
+                if "微信" in t or "wechat" in t.lower():
+                    params["window_title"] = "微信"
+            if not str(params.get("message") or "").strip():
+                m = re.search(r"(?:消息|内容)\s*[：:]\s*(.+)$", t)
+                if m:
+                    params["message"] = m.group(1).strip().strip("「」\"'")
+            step["params"] = params
+
+        if once and action in ("add",) and step.get("block_type") == "schedule_trigger":
+            continue
+        cleaned.append(step)
+    plan_dict["steps"] = cleaned
+
+    qs = []
+    for q in plan_dict.get("clarify_questions") or []:
+        if not isinstance(q, dict):
+            continue
+        prompt = str(q.get("prompt") or "")
+        if any(m in prompt for m in _FAKE_CLARIFY_MARKERS):
+            continue
+        # Message already in user text → drop message clarify
+        if q.get("id") == "message" and (
+            "「" in t or '"' in t or "'" in t or "“" in t
+        ):
+            continue
+        qs.append(q)
+    plan_dict["clarify_questions"] = qs
+    return plan_dict
+
+
+def _deterministic_flow_reply(
+    draft: dict[str, Any],
+    summary: dict[str, Any],
+    warnings: list[str],
+    clarify: list[dict[str, Any]],
+    *,
+    user_input: str = "",
+) -> str:
+    nodes = draft.get("nodes") if isinstance(draft.get("nodes"), dict) else {}
+    types: list[str] = []
+    seen: set[str] = set()
+    cur = draft.get("entry")
+    while cur and cur in nodes and cur not in seen:
+        seen.add(cur)
+        n = nodes[cur]
+        if isinstance(n, dict):
+            types.append(str(n.get("type") or ""))
+            cur = n.get("next")
+        else:
+            break
+    type_line = " → ".join(types) if types else "（空）"
+    ncount = int(summary.get("node_count") or len(nodes) or 0)
+    if clarify:
+        q = clarify[0].get("prompt") if isinstance(clarify[0], dict) else str(clarify[0])
+        return (
+            f"还不能落图（当前草稿 {ncount} 个节点）。\n"
+            f"需要你补充：{q}\n"
+            "请直接回答后继续编排。"
+        )
+    if ncount <= 0:
+        extra = f"\n原因：{warnings[0]}" if warnings else ""
+        return (
+            f"本轮没有生成任何节点，草稿为空。{extra}\n"
+            "请补充应用名（如微信）、收件人和消息内容后再试。"
+        )
+    warn = f"\n注意：{warnings[0]}" if warnings else ""
+    return (
+        f"已按你的意图编好草稿（{ncount} 个节点）：{type_line}。"
+        f"{warn}\n"
+        "可在下方草稿卡片预览后点「应用到画布」。"
+    )
 
 
 def make_flow_nodes(
@@ -94,6 +217,8 @@ def make_flow_nodes(
         user_input = state.get("input") or ""
         context = state.get("context") or ""
         plan_dict: dict[str, Any]
+        heur = heuristic_plan_from_text(user_input)
+        # Always prefer the model for intent; heuristic is offline / failure fallback only.
         try:
             llm = create_chat_model(cfg, temperature=0.2, streaming=False)
             structured = llm.with_structured_output(FlowSpec)
@@ -104,11 +229,10 @@ def make_flow_nodes(
                     HumanMessage(content=user_input),
                 ]
             )
-            plan_dict = flow_spec_to_dict(result)
+            plan_dict = _sanitize_plan_dict(user_input, flow_spec_to_dict(result))
         except Exception as exc:
             # Fallback heuristic so offline / weak models still produce something
-            plan = heuristic_plan_from_text(user_input)
-            plan_dict = plan.model_dump()
+            plan_dict = _sanitize_plan_dict(user_input, heur.model_dump())
             proc.append(step)
             proc.append(
                 {
@@ -206,21 +330,76 @@ def make_flow_nodes(
             strict_coords=bool(state.get("strict_coords", True)),
             tool_trace=trace,
         )
-        for err in applied.get("errors") or []:
+        apply_errors = list(applied.get("errors") or [])
+        for err in apply_errors:
             proc.append({"kind": "warn", "node": "builder", "label": "落图警告", "text": err})
         proc = _append_process({**state, "process": proc}, step)
-        needs = bool(applied.get("needs_locate") or state.get("needs_locate") or plan.needs_locate)
-        texts = list(applied.get("locate_texts") or state.get("locate_texts") or plan.locate_texts or [])
-        return {
+        # Prefer applied result: OCR/找图绑定链已落图则不再截全屏取点
+        needs = bool(applied.get("needs_locate"))
+        texts = list(applied.get("locate_texts") or [])
+        warnings = collect_coord_warnings(applied["draft"])
+        clarify_from_errors: list[dict[str, Any]] = []
+        nodes_after = (
+            applied["draft"].get("nodes")
+            if isinstance(applied["draft"].get("nodes"), dict)
+            else {}
+        )
+        if apply_errors and not nodes_after:
+            warnings = list(warnings) + apply_errors[:3]
+            for err in apply_errors:
+                el = err.lower()
+                if "contact" in el or "联系人" in err:
+                    clarify_from_errors.append(
+                        {
+                            "id": "contact",
+                            "prompt": "要发给谁？（联系人/会话名）",
+                            "choices": [],
+                            "allow_free_text": True,
+                        }
+                    )
+                elif "message" in el or "消息" in err:
+                    clarify_from_errors.append(
+                        {
+                            "id": "message",
+                            "prompt": "要发送的消息内容是？",
+                            "choices": [],
+                            "allow_free_text": True,
+                        }
+                    )
+                elif "window_title" in el or "窗口" in err:
+                    clarify_from_errors.append(
+                        {
+                            "id": "window_title",
+                            "prompt": "在哪个应用窗口发送？（请写窗口标题，例如：微信）",
+                            "choices": ["微信"],
+                            "allow_free_text": True,
+                        }
+                    )
+            # dedupe by id
+            seen_q: set[str] = set()
+            uniq: list[dict[str, Any]] = []
+            for q in clarify_from_errors:
+                qid = str(q.get("id") or "")
+                if qid in seen_q:
+                    continue
+                seen_q.add(qid)
+                uniq.append(q)
+            clarify_from_errors = uniq
+        out: dict[str, Any] = {
             "draft": applied["draft"],
             "artifacts": applied["artifacts"],
             "tool_trace": applied["tool_trace"],
             "needs_locate": needs,
             "locate_texts": texts,
             "process": proc,
-            "warnings": collect_coord_warnings(applied["draft"]),
+            "warnings": warnings,
             "prefer_vision": bool(plan.prefer_vision),
         }
+        if clarify_from_errors:
+            out["clarify_questions"] = clarify_from_errors
+            out["status_hint"] = "needs_clarify"
+        return out
+
 
     def locator(state: FlowGraphState) -> dict[str, Any]:
         step = {
@@ -446,59 +625,66 @@ def make_flow_nodes(
         draft = state.get("draft") or empty_draft()
         summary = draft_summary(draft)
         warnings = list(state.get("warnings") or [])
-        fallback = (
-            f"已完成本轮编排，草稿现有 {summary.get('node_count', 0)} 个节点"
-            + (f"（入口：{summary.get('entry')}）" if summary.get("entry") else "")
-            + "。请查看草稿卡片，确认后点击「应用到画布」。"
+        clarify = list(state.get("clarify_questions") or [])
+        # Prefer deterministic summary — LLM 常会胡编「请确认是否…」假问题
+        reply = _deterministic_flow_reply(
+            draft,
+            summary,
+            warnings,
+            clarify,
+            user_input=str(state.get("input") or ""),
         )
-        reply = fallback
-        try:
-            llm = create_chat_model(cfg, temperature=0.3, streaming=True)
-            emit_delta(
-                on_progress,
-                mode="flow",
-                conversation_id=conversation_id,
-                assistant_id=assistant_id,
-                text="",
-                replace=True,
-            )
-            content, _ = stream_chat_model(
-                llm,
-                [
-                    SystemMessage(content=SUMMARIZE_SYSTEM),
-                    SystemMessage(
-                        content=(
-                            f"草稿摘要：\n{safe_json(summary)}\n"
-                            f"警告：\n{warnings or '无'}"
-                        )
-                    ),
-                    HumanMessage(content=f"用户原话：{state.get('input') or ''}"),
-                ],
-                on_progress=on_progress,
-                mode="flow",
-                conversation_id=conversation_id,
-                assistant_id=assistant_id,
-            )
-            if (content or "").strip():
-                reply = content.strip()
-            else:
-                emit_delta(
-                    on_progress,
+        emit_delta(
+            on_progress,
+            mode="flow",
+            conversation_id=conversation_id,
+            assistant_id=assistant_id,
+            text=reply,
+            replace=True,
+        )
+        # Never let LLM polish overwrite an empty-draft / clarify truth
+        ncount = int(summary.get("node_count") or 0)
+        if not clarify and ncount > 0:
+            try:
+                llm = create_chat_model(cfg, temperature=0, streaming=True)
+                content, _ = stream_chat_model(
+                    llm,
+                    [
+                        SystemMessage(content=SUMMARIZE_SYSTEM),
+                        SystemMessage(
+                            content=(
+                                f"已用确定性摘要（必须遵守其事实，node_count={ncount}，"
+                                f"禁止说已准备好若节点为0）：\n{reply}\n"
+                                f"草稿：\n{safe_json(summary)}\n警告：{warnings or '无'}"
+                            )
+                        ),
+                        HumanMessage(content=f"用户原话：{state.get('input') or ''}"),
+                    ],
+                    on_progress=on_progress,
                     mode="flow",
                     conversation_id=conversation_id,
                     assistant_id=assistant_id,
-                    text=fallback,
-                    replace=True,
                 )
-        except Exception:
-            emit_delta(
-                on_progress,
-                mode="flow",
-                conversation_id=conversation_id,
-                assistant_id=assistant_id,
-                text=fallback,
-                replace=True,
-            )
+                polished = (content or "").strip()
+                if (
+                    polished
+                    and not _looks_like_fake_confirm(polished)
+                    and "0 个节点" not in polished
+                    and "草稿为空" not in polished
+                ):
+                    # Reject polish that claims success without matching node count
+                    if str(ncount) in polished or "节点" in polished:
+                        reply = polished
+                        emit_delta(
+                            on_progress,
+                            mode="flow",
+                            conversation_id=conversation_id,
+                            assistant_id=assistant_id,
+                            text=reply,
+                            replace=True,
+                        )
+            except Exception:
+                pass
         proc = _append_process({**state, "process": proc}, step)
         return {"reply": reply, "process": proc}
 

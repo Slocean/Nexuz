@@ -131,9 +131,10 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
                 missing.append(t)
 
     errors: list[str] = []
-    if missing:
+    clarify_only = bool(case.get("clarify_only"))
+    if missing and not clarify_only:
         errors.append(f"missing types {missing}; got {types}")
-    if case.get("expect_connected") and not _is_connected(draft):
+    if case.get("expect_connected") and not _is_connected(draft) and not clarify_only:
         errors.append("nodes not connected from entry")
     if case.get("forbid_raw_click_coords") and _has_raw_click_coords(draft):
         errors.append("raw click coordinates present")
@@ -144,7 +145,11 @@ def evaluate_case(case: dict[str, Any]) -> dict[str, Any]:
         qs = plan_dict.get("clarify_questions") or []
         if not qs:
             errors.append("expected clarify_questions")
-    if case.get("must_validate"):
+    forbid_types = list(case.get("forbid_types") or [])
+    for ft in forbid_types:
+        if ft in types:
+            errors.append(f"forbidden type present: {ft}")
+    if case.get("must_validate") and not clarify_only:
         if not draft.get("entry") and types:
             errors.append("missing entry")
         if applied.get("errors"):

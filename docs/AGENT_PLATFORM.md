@@ -32,13 +32,13 @@
 - 评测：[`AI_EVAL.md`](./AI_EVAL.md)，设置页「跑评测集」，API `ai_run_eval`
 - 审计：`{data_dir}/ai/audit/YYYY-MM-DD.jsonl`，API `ai_list_audit`
 
-## 北极星
+## 发消息类技能（参数化，不是演示剧本）
 
-「xx 点给王哥发微信」→ 技能 `wechat_send_message`：
+技能 `wechat_send_message` 只定义**展开结构**：
 
-定时 → 激活微信 → OCR 点联系人 → 输入 → 点发送  
+可选定时 → 激活窗口 → OCR 点联系人 → 输入消息 → OCR 点发送  
 
-多「王哥」或未写消息内容时先澄清。微信 UI 变更时改技能包，不必改 Graph 拓扑。
+`contact` / `message` / `window_title` / 是否定时 **全部来自当轮用户话术（或澄清）**，运行时没有写死的联系人/文案。换任意收件人、任意消息都走同一套展开逻辑。应用 UI 变更时改技能包，不必改 Graph。
 
 ## 扩展技能
 

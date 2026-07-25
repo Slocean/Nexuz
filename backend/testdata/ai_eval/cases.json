@@ -335,7 +335,7 @@
   },
   {
     "id": "color_click",
-    "utterance": "按颜色点击红色按钮",
+    "utterance": "按颜色 #FF0000 点击",
     "expected_types": [
       "color_detect",
       "click"
@@ -368,8 +368,8 @@
     "must_validate": true
   },
   {
-    "id": "wechat_send_skeleton",
-    "utterance": "明天 9 点给王哥发微信消息「开会通知」",
+    "id": "im_send_scheduled",
+    "utterance": "明天 9 点用微信给联系人甲发消息「测试内容A」",
     "expected_types": [
       "schedule_trigger",
       "window_activate",
@@ -381,17 +381,36 @@
     "expect_binding_on_click": true
   },
   {
-    "id": "wechat_clarify",
-    "utterance": "帮我给王哥发一条微信",
+    "id": "im_send_clarify_missing_message",
+    "utterance": "帮我给联系人甲发一条微信",
+    "expected_types": [],
+    "expect_clarify": true,
+    "clarify_only": true
+  },
+  {
+    "id": "im_send_once_extract_params",
+    "utterance": "打开微信给联系人乙发送一条「测试内容B」执行一次",
     "expected_types": [
-      "schedule_trigger",
       "window_activate",
       "ocr_recognize",
       "click",
       "type_text"
     ],
     "forbid_raw_click_coords": true,
-    "expect_clarify": true
+    "expect_binding_on_click": true,
+    "forbid_types": ["schedule_trigger"]
+  },
+  {
+    "id": "im_send_other_contact",
+    "utterance": "用微信给联系人丙发送一条「测试内容C」执行一次",
+    "expected_types": [
+      "window_activate",
+      "ocr_recognize",
+      "click",
+      "type_text"
+    ],
+    "forbid_raw_click_coords": true,
+    "forbid_types": ["schedule_trigger"]
   },
   {
     "id": "vision_path_b_login",
@@ -513,24 +532,20 @@
   {
     "id": "find_image_plain",
     "utterance": "图片点击模板图",
-    "expected_types": [
-      "find_image",
-      "click"
-    ],
-    "forbid_raw_click_coords": true
+    "expected_types": [],
+    "expect_clarify": true,
+    "clarify_only": true
   },
   {
     "id": "color_detect_path",
     "utterance": "取色点击目标",
-    "expected_types": [
-      "color_detect",
-      "click"
-    ],
-    "forbid_raw_click_coords": true
+    "expected_types": [],
+    "expect_clarify": true,
+    "clarify_only": true
   },
   {
-    "id": "wechat_send_time",
-    "utterance": "晚上 8 点用微信发给李哥发消息「到了」",
+    "id": "im_send_evening",
+    "utterance": "晚上 8 点用微信发给联系人丁发消息「测试内容D」",
     "expected_types": [
       "schedule_trigger",
       "window_activate",
@@ -552,7 +567,7 @@
   },
   {
     "id": "path_b_color2",
-    "utterance": "检测到颜色后点击",
+    "utterance": "检测到颜色 #00AA00 后点击",
     "expected_types": [
       "color_detect",
       "click"

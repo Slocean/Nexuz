@@ -2031,8 +2031,8 @@ function mockCall(method, ...args) {
           },
           {
             id: 'wechat_send_message',
-            label: '微信发消息',
-            description: '定时微信消息骨架',
+            label: 'IM 发消息',
+            description: '参数化：窗口→联系人→输入→发送（参数来自话术）',
             enabled: true,
             permission: 'safe',
             recipe: 'wechat_send_message'

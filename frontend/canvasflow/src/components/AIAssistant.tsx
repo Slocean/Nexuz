@@ -458,6 +458,7 @@ export default function AIAssistant({
   const [draftDiff, setDraftDiff] = useState<DraftDiff | null>(null);
   const [points, setPoints] = useState<AiPointPreview[]>([]);
   const [shot, setShot] = useState<AiShotPreview | null>(null);
+  const [pointPanelDismissed, setPointPanelDismissed] = useState(false);
   const [toolTrace, setToolTrace] = useState<{ name?: string; ok?: boolean }[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [applying, setApplying] = useState(false);
@@ -488,6 +489,7 @@ export default function AIAssistant({
     setDraftDiff(null);
     setPoints([]);
     setShot(null);
+    setPointPanelDismissed(false);
     setToolTrace([]);
     setWarnings([]);
   }, []);
@@ -509,8 +511,19 @@ export default function AIAssistant({
     if (res.draft_summary) setDraftSummary(res.draft_summary);
     if (res.summary && !res.draft_summary) setDraftSummary(res.summary);
     if (res.diff) setDraftDiff(res.diff);
-    if (Array.isArray(res.points)) setPoints(res.points);
-    if (res.shot) setShot(res.shot);
+    if (Array.isArray(res.points)) {
+      setPoints(res.points);
+      // New point set → allow panel again; empty → hide
+      setPointPanelDismissed(false);
+      if (res.points.length === 0) {
+        setShot(null);
+      } else if (res.shot) {
+        setShot(res.shot);
+      }
+    } else if (res.shot && !res.points) {
+      // Ignore orphan screenshots with no points (OCR-bound flows)
+      setShot(null);
+    }
     if (Array.isArray(res.tool_trace)) setToolTrace(res.tool_trace);
     if (Array.isArray(res.warnings)) setWarnings(res.warnings);
   }, []);
@@ -1099,6 +1112,9 @@ export default function AIAssistant({
         onApplyFlow(res.flow, res.warnings || []);
       }
       setWarnings(Array.isArray(res.warnings) ? res.warnings : []);
+      setPoints([]);
+      setShot(null);
+      setPointPanelDismissed(true);
     } catch (e: any) {
       setStatusError(String(e?.message || e || "应用失败"));
     } finally {
@@ -1277,7 +1293,10 @@ export default function AIAssistant({
         </div>
       ) : null}
 
-      {isFlowMode && activeId && (shot || points.length > 0) ? (
+      {isFlowMode &&
+      activeId &&
+      !pointPanelDismissed &&
+      points.length > 0 ? (
         <PointConfirmPanel
           conversationId={activeId}
           shot={shot}
@@ -1285,6 +1304,11 @@ export default function AIAssistant({
           themeName={themeName}
           themeMode={themeMode}
           onPointsChange={setPoints}
+          onDismiss={() => {
+            setPointPanelDismissed(true);
+            setPoints([]);
+            setShot(null);
+          }}
         />
       ) : null}
 

@@ -62,16 +62,35 @@ def apply_flow_spec(
         except Exception as exc:
             errors.append(str(exc))
 
+    # OCR/找图/取色链已写入 {{binding}} 时，不必再跑会话级截图取点（否则弹出无用全屏预览）
+    needs_live = bool(spec.needs_locate or spec.locate_texts) and not _draft_clicks_all_bound(
+        draft
+    )
     return {
         "ok": not errors,
         "draft": draft,
         "artifacts": arts,
         "tool_trace": trace,
         "errors": errors,
-        "needs_locate": bool(spec.needs_locate or spec.locate_texts),
-        "locate_texts": list(spec.locate_texts or []),
+        "needs_locate": needs_live,
+        "locate_texts": list(spec.locate_texts or []) if needs_live else [],
         "intent_summary": spec.intent_summary,
     }
+
+
+def _draft_clicks_all_bound(draft: dict[str, Any]) -> bool:
+    nodes = draft.get("nodes") if isinstance(draft.get("nodes"), dict) else {}
+    clicks = [
+        n for n in nodes.values() if isinstance(n, dict) and n.get("type") == "click"
+    ]
+    if not clicks:
+        return True
+    for node in clicks:
+        params = node.get("params") if isinstance(node.get("params"), dict) else {}
+        x, y = params.get("x"), params.get("y")
+        if not (isinstance(x, str) and "{{" in x and isinstance(y, str) and "{{" in y):
+            return False
+    return True
 
 
 def _apply_step(
@@ -126,9 +145,14 @@ def _apply_step(
                 artifacts=artifacts,
             )
         if name in ("window_focus", "window_activate"):
+            title = str(
+                params.get("title_contains") or params.get("title") or ""
+            ).strip()
+            if not title:
+                raise ValueError("window_focus 需要 params.title（从用户话术提取，无默认窗口名）")
             return _recipe_window_focus(
                 draft,
-                title=str(params.get("title_contains") or params.get("title") or "微信"),
+                title=title,
                 last_node_id=last_node_id,
             )
         if name in ("schedule_at", "schedule_trigger"):
@@ -435,10 +459,13 @@ def _recipe_find_image_click(
     runtime: ToolRuntime,
     artifacts: dict[str, Any],
 ) -> str:
+    path = (template or "").strip()
+    if not path:
+        raise ValueError("find_image_click 需要 params.template/path（无默认模板图）")
     draft, fid = draft_builder.add_node(
         draft,
         block_type="find_image",
-        params={"path": template or "", "template": template or ""},
+        params={"path": path, "template": path},
     )
     _auto_connect(draft, last_node_id, fid)
     click_params = {
@@ -484,19 +511,36 @@ def _recipe_wechat_send_message(
     runtime: ToolRuntime,
     artifacts: dict[str, Any],
 ) -> str:
-    """Skeleton: schedule → window → search contact via OCR → type → send click."""
-    contact = str(params.get("contact") or params.get("to") or "王哥")
-    message = str(params.get("message") or params.get("text") or "")
-    run_at = str(params.get("run_at") or params.get("time") or "")
+    """
+    Parameterized expansion (not a fixed demo):
+    optional schedule → focus app window → OCR click contact → type message → OCR click send.
+    All of contact / message / window title / send label MUST come from params (planner/LLM).
+    """
+    contact = str(params.get("contact") or params.get("to") or "").strip()
+    message = str(params.get("message") or params.get("text") or "").strip()
+    window_title = str(
+        params.get("window_title") or params.get("app") or params.get("title") or ""
+    ).strip()
+    send_label = str(params.get("send_label") or "").strip()
+    run_at = str(params.get("run_at") or params.get("time") or "").strip()
+    want_schedule = bool(run_at) or bool(params.get("schedule"))
+    if not contact:
+        raise ValueError("wechat_send_message 需要 params.contact（由规划从用户话术提取，禁止默认虚构）")
+    if not message:
+        raise ValueError("wechat_send_message 需要 params.message（由规划从用户话术提取，禁止默认虚构）")
+    if not window_title:
+        raise ValueError("wechat_send_message 需要 params.window_title（如「微信」）")
+    if not send_label:
+        send_label = "发送"  # UI verb shared by many IM clients; still overridable
+
     cur = last_node_id
-    if run_at or params.get("schedule", True):
+    if want_schedule:
         cur = _recipe_schedule_at(
             draft,
             params={"trigger_type": "once", "run_at": run_at},
             last_node_id=cur,
         )
-    cur = _recipe_window_focus(draft, title="微信", last_node_id=cur)
-    # search / contact via OCR click on contact name
+    cur = _recipe_window_focus(draft, title=window_title, last_node_id=cur)
     cur = _recipe_ocr_click_chain(
         draft,
         match_text=contact,
@@ -505,15 +549,14 @@ def _recipe_wechat_send_message(
         runtime=runtime,
         artifacts=artifacts,
     )
-    if message:
-        draft, tid = draft_builder.add_node(
-            draft, block_type="type_text", params={"text": message}
-        )
-        draft_builder.connect(draft, from_id=cur, to_id=tid, edge="next")
-        cur = tid
+    draft, tid = draft_builder.add_node(
+        draft, block_type="type_text", params={"text": message}
+    )
+    draft_builder.connect(draft, from_id=cur, to_id=tid, edge="next")
+    cur = tid
     cur = _recipe_ocr_click_chain(
         draft,
-        match_text=str(params.get("send_label") or "发送"),
+        match_text=send_label,
         last_node_id=cur,
         tool_trace=tool_trace,
         runtime=runtime,
