@@ -13,13 +13,17 @@ from backend.blocks._helpers import (
     validate_region,
 )
 from backend.blocks._ocr_match import (
+    MATCH_POLICY_INPUTS,
     aabb_from_polygon,
     apply_click_offset,
     apply_output_coordinate_mode,
     empty_match_outputs,
     match_all_queries,
+    parse_click_offset,
+    parse_match_options,
     parse_match_queries,
     primary_match_from_list,
+    resolve_match_anchor,
     total_match_count,
 )
 
@@ -200,32 +204,7 @@ SCHEMA = {
             "ui": "textarea",
             "placeholder": "匹配值一\n匹配值二\n...",
         },
-        {
-            "name": "match_mode",
-            "type": "select",
-            "label": "匹配模式",
-            "options": ["contains", "exact", "regex"],
-            "default": "contains",
-            "option_labels": {
-                "contains": "包含（裁到子串）",
-                "exact": "精确（整行或子串）",
-                "regex": "正则（裁到命中）",
-            },
-        },
-        {
-            "name": "offset_x",
-            "type": "number",
-            "label": "点击偏移 X",
-            "default": 0,
-            "placeholder": "相对命中中心，像素",
-        },
-        {
-            "name": "offset_y",
-            "type": "number",
-            "label": "点击偏移 Y",
-            "default": 0,
-            "placeholder": "相对命中中心，像素",
-        },
+        *MATCH_POLICY_INPUTS,
         {
             "name": "include_box_geometry",
             "type": "select",
@@ -262,6 +241,7 @@ SCHEMA = {
         {"name": "coordinate_mode", "type": "string"},
         {"name": "matched_text", "type": "string"},
         {"name": "match_count", "type": "number"},
+        {"name": "primary_index", "type": "number"},
         {"name": "text", "type": "string"},
         {"name": "confidence", "type": "number"},
         {"name": "recognized", "type": "boolean"},
@@ -692,7 +672,16 @@ def run_ocr(params: dict) -> dict:
     avg = sum(scores) / len(scores) if scores else 0.0
     recognized = bool(texts)
 
-    matches = match_all_queries(boxes, queries, match_mode) if queries else []
+    match_opts = parse_match_options(params)
+    ax, ay = resolve_match_anchor(params, region=region)
+    if ax is not None and ay is not None:
+        match_opts["anchor_x"] = ax
+        match_opts["anchor_y"] = ay
+    matches = (
+        match_all_queries(boxes, queries, match_mode, options=match_opts)
+        if queries
+        else []
+    )
     match_out = primary_match_from_list(matches) if matches else empty_match_outputs()
     match_count = total_match_count(matches)
 
@@ -707,14 +696,7 @@ def run_ocr(params: dict) -> dict:
         "region": region,
         "anchor": anchor,
     }
-    try:
-        click_dx = int(round(float(params.get("offset_x") or 0)))
-    except (TypeError, ValueError):
-        click_dx = 0
-    try:
-        click_dy = int(round(float(params.get("offset_y") or 0)))
-    except (TypeError, ValueError):
-        click_dy = 0
+    click_dx, click_dy = parse_click_offset(params)
     result = apply_click_offset(result, offset_x=click_dx, offset_y=click_dy)
     return apply_output_coordinate_mode(
         result,

@@ -9,7 +9,13 @@ import uuid
 from typing import Any, Callable
 
 from backend.blocks._helpers import pack_point, validate_point
-from backend.blocks._ocr_match import find_all_matching_boxes, match_outputs_from_box
+from backend.blocks._ocr_match import (
+    find_all_matching_boxes,
+    match_outputs_from_box,
+    order_match_hits,
+    parse_match_options,
+    pick_match_index,
+)
 
 
 CaptureFn = Callable[..., dict[str, Any]]
@@ -166,7 +172,17 @@ def locate_text(
     except Exception as exc:
         return {"ok": False, "error": f"OCR 失败: {exc}"}
 
-    hits = find_all_matching_boxes(boxes, expect, match_mode or "contains")
+    opts = parse_match_options(
+        {
+            "text_normalize": True,
+            "match_order": "reading",
+            "match_index": 1,
+        }
+    )
+    hits = find_all_matching_boxes(
+        boxes, expect, match_mode or "contains", options=opts
+    )
+    hits = order_match_hits(hits, order="reading")
     if not hits:
         sample = [str(b.get("text") or "") for b in boxes[:12]]
         return {
@@ -176,7 +192,7 @@ def locate_text(
             "box_count": len(boxes),
         }
 
-    primary = hits[0]
+    primary = pick_match_index(hits, 1) or hits[0]
     out = match_outputs_from_box(primary)
     x, y = int(out["x"]), int(out["y"])
     packed = pack_point(x, y)

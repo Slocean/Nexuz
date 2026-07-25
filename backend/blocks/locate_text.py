@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from backend.blocks._ocr_match import (
+    MATCH_POLICY_INPUTS,
     apply_click_offset,
     empty_match_outputs,
     find_all_matching_boxes,
+    match_outputs_from_box,
     match_outputs_from_boxes,
+    order_match_hits,
+    parse_click_offset,
+    parse_match_options,
+    pick_match_index,
 )
 
 SCHEMA = {
@@ -27,32 +33,7 @@ SCHEMA = {
             "default": "",
             "placeholder": "要找的字",
         },
-        {
-            "name": "match_mode",
-            "type": "select",
-            "label": "匹配模式",
-            "options": ["contains", "exact", "regex"],
-            "default": "contains",
-            "option_labels": {
-                "contains": "包含（裁到子串）",
-                "exact": "精确（整行或子串）",
-                "regex": "正则（裁到命中）",
-            },
-        },
-        {
-            "name": "offset_x",
-            "type": "number",
-            "label": "点击偏移 X",
-            "default": 0,
-            "placeholder": "相对命中中心，像素",
-        },
-        {
-            "name": "offset_y",
-            "type": "number",
-            "label": "点击偏移 Y",
-            "default": 0,
-            "placeholder": "相对命中中心，像素",
-        },
+        *MATCH_POLICY_INPUTS,
     ],
     "outputs": [
         {"name": "found", "type": "boolean"},
@@ -64,6 +45,7 @@ SCHEMA = {
         {"name": "height", "type": "number"},
         {"name": "matched_text", "type": "string"},
         {"name": "match_count", "type": "number"},
+        {"name": "primary_index", "type": "number"},
     ],
 }
 
@@ -87,19 +69,37 @@ def handler(params, context, **kwargs):
     boxes = _coerce_boxes(params.get("boxes"))
     expect = str(params.get("match_text") or "").strip()
     mode = str(params.get("match_mode") or "contains")
+    opts = parse_match_options(params)
     if not expect:
-        return {**empty_match_outputs(), "match_count": 0}
+        return {**empty_match_outputs(), "match_count": 0, "primary_index": 0}
     if not boxes:
-        return {**empty_match_outputs(), "match_count": 0}
-    hits = find_all_matching_boxes(boxes, expect, mode)
-    out = match_outputs_from_boxes(hits)
-    out["match_count"] = int(out.get("count") or 0)
-    try:
-        click_dx = int(round(float(params.get("offset_x") or 0)))
-    except (TypeError, ValueError):
-        click_dx = 0
-    try:
-        click_dy = int(round(float(params.get("offset_y") or 0)))
-    except (TypeError, ValueError):
-        click_dy = 0
+        return {**empty_match_outputs(), "match_count": 0, "primary_index": 0}
+    hits = find_all_matching_boxes(boxes, expect, mode, options=opts)
+    hits = order_match_hits(
+        hits,
+        order=str(opts.get("match_order") or "reading"),
+        anchor_x=opts.get("anchor_x"),
+        anchor_y=opts.get("anchor_y"),
+    )
+    if not hits:
+        return {**empty_match_outputs(), "match_count": 0, "primary_index": 0}
+    picked = pick_match_index(hits, int(opts.get("match_index") or 1))
+    if picked is None:
+        all_out = match_outputs_from_boxes(hits)
+        return {
+            **empty_match_outputs(),
+            "match_count": len(hits),
+            "primary_index": 0,
+            "x_all": all_out.get("x") if isinstance(all_out.get("x"), list) else [all_out.get("x")],
+            "y_all": all_out.get("y") if isinstance(all_out.get("y"), list) else [all_out.get("y")],
+        }
+    out = match_outputs_from_box(picked)
+    out["match_count"] = len(hits)
+    out["primary_index"] = hits.index(picked) + 1
+    if len(hits) > 1:
+        all_out = match_outputs_from_boxes(hits)
+        for key in ("x", "y", "left", "top", "width", "height", "matched_text"):
+            raw = all_out.get(key)
+            out[f"{key}_all"] = raw if isinstance(raw, list) else [raw]
+    click_dx, click_dy = parse_click_offset(params)
     return apply_click_offset(out, offset_x=click_dx, offset_y=click_dy)

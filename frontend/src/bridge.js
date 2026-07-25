@@ -23,6 +23,85 @@ export function waitForBridge(timeoutMs = 10000) {
   });
 }
 
+const MATCH_POLICY_INPUTS = [
+  {
+    name: 'match_mode',
+    type: 'select',
+    label: '匹配模式',
+    options: ['contains', 'exact', 'regex', 'fuzzy'],
+    default: 'contains',
+    option_labels: {
+      contains: '包含（裁到子串）',
+      exact: '整行相等',
+      regex: '正则（裁到命中）',
+      fuzzy: '模糊（容错）'
+    }
+  },
+  {
+    name: 'text_normalize',
+    type: 'select',
+    label: '文本归一化',
+    options: ['true', 'false'],
+    default: 'true',
+    option_labels: {
+      true: '开（全半角/大小写/常见OCR混淆）',
+      false: '关'
+    }
+  },
+  {
+    name: 'ignore_space',
+    type: 'select',
+    label: '忽略空白',
+    options: ['false', 'true'],
+    default: 'false',
+    option_labels: { false: '否', true: '是' }
+  },
+  {
+    name: 'match_order',
+    type: 'select',
+    label: '多命中排序',
+    options: ['reading', 'top', 'bottom', 'left', 'right', 'nearest'],
+    default: 'reading',
+    option_labels: {
+      reading: '阅读顺序',
+      top: '靠上优先',
+      bottom: '靠下优先',
+      left: '靠左优先',
+      right: '靠右优先',
+      nearest: '距锚点最近'
+    }
+  },
+  {
+    name: 'match_index',
+    type: 'number',
+    label: '匹配序号',
+    default: 1,
+    placeholder: '从1起；-1=最后一个'
+  },
+  {
+    name: 'fuzzy_max_edits',
+    type: 'number',
+    label: '模糊最大编辑距离',
+    default: 1,
+    placeholder: '仅模糊模式',
+    show_when: { match_mode: ['fuzzy'] }
+  },
+  {
+    name: 'offset_x',
+    type: 'number',
+    label: '点击偏移 X',
+    default: 0,
+    placeholder: '相对命中中心，像素'
+  },
+  {
+    name: 'offset_y',
+    type: 'number',
+    label: '点击偏移 Y',
+    default: 0,
+    placeholder: '相对命中中心，像素'
+  }
+];
+
 export const MOCK_SCHEMAS = [
   {
     type: 'click',
@@ -520,32 +599,7 @@ export const MOCK_SCHEMAS = [
         ui: 'textarea',
         placeholder: '匹配值一\n匹配值二\n...'
       },
-      {
-        name: 'match_mode',
-        type: 'select',
-        label: '匹配模式',
-        options: ['contains', 'exact', 'regex'],
-        default: 'contains',
-        option_labels: {
-          contains: '包含（裁到子串）',
-          exact: '精确（整行或子串）',
-          regex: '正则（裁到命中）'
-        }
-      },
-      {
-        name: 'offset_x',
-        type: 'number',
-        label: '点击偏移 X',
-        default: 0,
-        placeholder: '相对命中中心，像素'
-      },
-      {
-        name: 'offset_y',
-        type: 'number',
-        label: '点击偏移 Y',
-        default: 0,
-        placeholder: '相对命中中心，像素'
-      },
+      ...MATCH_POLICY_INPUTS,
       {
         name: 'include_box_geometry',
         type: 'select',
@@ -582,6 +636,7 @@ export const MOCK_SCHEMAS = [
       { name: 'coordinate_mode', type: 'string', canvas: false },
       { name: 'matched_text', type: 'string' },
       { name: 'match_count', type: 'number' },
+      { name: 'primary_index', type: 'number' },
       { name: 'text', type: 'string' },
       { name: 'confidence', type: 'number' },
       { name: 'matches', type: 'array', canvas: false },
@@ -604,32 +659,7 @@ export const MOCK_SCHEMAS = [
         placeholder: '{{ocr节点.boxes}}'
       },
       { name: 'match_text', type: 'string', label: '匹配文字', default: '', placeholder: '要找的字' },
-      {
-        name: 'match_mode',
-        type: 'select',
-        label: '匹配模式',
-        options: ['contains', 'exact', 'regex'],
-        default: 'contains',
-        option_labels: {
-          contains: '包含（裁到子串）',
-          exact: '精确（整行或子串）',
-          regex: '正则（裁到命中）'
-        }
-      },
-      {
-        name: 'offset_x',
-        type: 'number',
-        label: '点击偏移 X',
-        default: 0,
-        placeholder: '相对命中中心，像素'
-      },
-      {
-        name: 'offset_y',
-        type: 'number',
-        label: '点击偏移 Y',
-        default: 0,
-        placeholder: '相对命中中心，像素'
-      }
+      ...MATCH_POLICY_INPUTS
     ],
     outputs: [
       { name: 'found', type: 'boolean' },
@@ -640,7 +670,8 @@ export const MOCK_SCHEMAS = [
       { name: 'width', type: 'number' },
       { name: 'height', type: 'number' },
       { name: 'matched_text', type: 'string' },
-      { name: 'match_count', type: 'number' }
+      { name: 'match_count', type: 'number' },
+      { name: 'primary_index', type: 'number' }
     ]
   },
   {
@@ -699,34 +730,7 @@ export const MOCK_SCHEMAS = [
         show_when: { source_mode: 'capture' }
       },
       { name: 'expect_text', type: 'string', label: '期望文字', default: '' },
-      {
-        name: 'match_mode',
-        type: 'select',
-        label: '匹配模式',
-        options: ['contains', 'exact', 'regex'],
-        default: 'contains',
-        option_labels: {
-          contains: '包含（裁到子串）',
-          exact: '精确（整行或子串）',
-          regex: '正则（裁到命中）'
-        }
-      },
-      {
-        name: 'offset_x',
-        type: 'number',
-        label: '点击偏移 X',
-        default: 0,
-        placeholder: '相对命中中心，像素',
-        show_when: { source_mode: ['capture', 'image'] }
-      },
-      {
-        name: 'offset_y',
-        type: 'number',
-        label: '点击偏移 Y',
-        default: 0,
-        placeholder: '相对命中中心，像素',
-        show_when: { source_mode: ['capture', 'image'] }
-      },
+      ...MATCH_POLICY_INPUTS,
       {
         name: 'lang',
         type: 'select',
@@ -764,6 +768,20 @@ export const MOCK_SCHEMAS = [
       { name: 'template_image', type: 'string', label: '模板图片', default: '' },
       { name: 'search_region', type: 'rect', label: '搜索区域', default: null },
       { name: 'threshold', type: 'number', label: '相似度阈值', default: 0.8 },
+      {
+        name: 'offset_x',
+        type: 'number',
+        label: '点击偏移 X',
+        default: 0,
+        placeholder: '相对命中中心，像素'
+      },
+      {
+        name: 'offset_y',
+        type: 'number',
+        label: '点击偏移 Y',
+        default: 0,
+        placeholder: '相对命中中心，像素'
+      },
       {
         name: 'output_coordinate_mode',
         type: 'select',
@@ -866,14 +884,10 @@ export const MOCK_SCHEMAS = [
         default: '',
         show_when: { wait_type: 'text' }
       },
-      {
-        name: 'match_mode',
-        type: 'select',
-        label: '匹配模式',
-        options: ['contains', 'exact', 'regex'],
-        default: 'contains',
-        show_when: { wait_type: 'text' }
-      },
+      ...MATCH_POLICY_INPUTS.map((f) => ({
+        ...f,
+        show_when: { wait_type: ['text'], ...(f.show_when || {}) }
+      })),
       {
         name: 'expression',
         type: 'string',

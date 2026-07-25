@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from backend.blocks._helpers import match_template_on_screen, resolve_region_from_params
-from backend.blocks._ocr_match import apply_output_coordinate_mode
+from backend.blocks._ocr_match import (
+    apply_click_offset,
+    apply_output_coordinate_mode,
+    parse_click_offset,
+)
 from backend.core.dpi import virtual_screen_size
 
 SCHEMA = {
@@ -28,6 +32,20 @@ SCHEMA = {
             "label": "相似度阈值",
             "default": 0.8,
             "placeholder": "0~1",
+        },
+        {
+            "name": "offset_x",
+            "type": "number",
+            "label": "点击偏移 X",
+            "default": 0,
+            "placeholder": "相对命中中心，像素",
+        },
+        {
+            "name": "offset_y",
+            "type": "number",
+            "label": "点击偏移 Y",
+            "default": 0,
+            "placeholder": "相对命中中心，像素",
         },
         {
             "name": "output_coordinate_mode",
@@ -84,6 +102,8 @@ def handler(params, context, **kwargs):
         ox, oy = int(search[0]), int(search[1])
     else:
         ox, oy, _, _ = virtual_screen_size()
+    click_dx, click_dy = parse_click_offset(params)
+    result = apply_click_offset(result, offset_x=click_dx, offset_y=click_dy)
     return apply_output_coordinate_mode(
         result,
         mode=str(params.get("output_coordinate_mode") or "screen_abs"),

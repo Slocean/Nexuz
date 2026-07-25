@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 from backend.blocks._helpers import interruptible_sleep
+from backend.blocks._ocr_match import match_policy_inputs
 
 SCHEMA = {
     "type": "wait_until",
@@ -73,19 +74,7 @@ SCHEMA = {
             "show_when": {"wait_type": "text"},
             "placeholder": "要等待出现的字",
         },
-        {
-            "name": "match_mode",
-            "type": "select",
-            "label": "匹配模式",
-            "options": ["contains", "exact", "regex"],
-            "default": "contains",
-            "option_labels": {
-                "contains": "包含",
-                "exact": "完全相等",
-                "regex": "正则",
-            },
-            "show_when": {"wait_type": "text"},
-        },
+        *match_policy_inputs(show_when={"wait_type": ["text"]}),
         {
             "name": "expression",
             "type": "string",

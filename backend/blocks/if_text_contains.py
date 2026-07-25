@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from backend.blocks._ocr_match import empty_match_outputs, match_text
+from backend.blocks._ocr_match import (
+    empty_match_outputs,
+    match_policy_inputs,
+    match_text,
+    parse_match_options,
+)
 
 SCHEMA = {
     "type": "if_text_contains",
@@ -169,34 +174,7 @@ SCHEMA = {
             "default": "",
             "placeholder": "要匹配的字",
         },
-        {
-            "name": "match_mode",
-            "type": "select",
-            "label": "匹配模式",
-            "options": ["contains", "exact", "regex"],
-            "default": "contains",
-            "option_labels": {
-                "contains": "包含（裁到子串）",
-                "exact": "精确（整行或子串）",
-                "regex": "正则（裁到命中）",
-            },
-        },
-        {
-            "name": "offset_x",
-            "type": "number",
-            "label": "点击偏移 X",
-            "default": 0,
-            "placeholder": "相对命中中心，像素",
-            "show_when": {"source_mode": ["capture", "image"]},
-        },
-        {
-            "name": "offset_y",
-            "type": "number",
-            "label": "点击偏移 Y",
-            "default": 0,
-            "placeholder": "相对命中中心，像素",
-            "show_when": {"source_mode": ["capture", "image"]},
-        },
+        *match_policy_inputs(),
     ],
     "outputs": [
         {"name": "matched", "type": "boolean"},
@@ -218,10 +196,11 @@ def handler(params, context, **kwargs):
     mode = str(params.get("match_mode") or "contains")
     expect = str(params.get("expect_text") or "")
     source = str(params.get("source_mode") or "capture").strip() or "capture"
+    opts = parse_match_options(params)
 
     if source == "value":
         actual = str(params.get("actual_text") or "")
-        matched = match_text(actual, expect, mode)
+        matched = match_text(actual, expect, mode, options=opts)
         return {
             "matched": matched,
             "actual_text": actual,
@@ -243,7 +222,7 @@ def handler(params, context, **kwargs):
     ocr_out = run_ocr(ocr_params)
     actual = str(ocr_out.get("text") or "")
     # Branch on full joined text (existing semantics); coords from box-level hit.
-    matched = match_text(actual, expect, mode)
+    matched = match_text(actual, expect, mode, options=opts)
     return {
         "matched": matched,
         "actual_text": actual,

@@ -362,21 +362,35 @@ def test_ocr_substring_span_and_click_offset():
     from backend.blocks._ocr_match import (
         apply_click_offset,
         find_all_matching_boxes,
+        find_all_match_spans,
         find_match_span,
+        match_all_queries,
         match_text,
+        order_match_hits,
+        parse_match_options,
+        pick_match_index,
     )
 
     line = "没有账号？注册"
-    # Line-level OCR: exact needle must hit as substring, not only full-line equality.
-    assert match_text(line, "注册", "exact")
-    assert find_match_span(line, "注册", "exact") == (5, 7)
+    # exact = whole line only; contains crops to substring.
+    assert not match_text(line, "注册", "exact")
+    assert match_text(line, "注册", "contains")
     assert find_match_span(line, "注册", "contains") == (5, 7)
+
+    # Normalize: fullwidth / OCR variants.
+    opts = parse_match_options({"text_normalize": True})
+    assert match_text("註冊", "注册", "contains", options=opts)
+    assert match_text("LOGIN", "login", "exact", options=opts)
+
+    # Fuzzy tolerates one edit (survives normalize).
+    fuzzy_opts = parse_match_options({"text_normalize": True, "fuzzy_max_edits": 1})
+    assert match_text("没有账号？注朋", "注册", "fuzzy", options=fuzzy_opts)
 
     box = {
         "text": line,
         "left": 100,
         "top": 200,
-        "width": 140,  # 7 chars → 20px each
+        "width": 140,
         "height": 20,
         "cx": 170,
         "cy": 210,
@@ -385,19 +399,67 @@ def test_ocr_substring_span_and_click_offset():
     assert len(hits) == 1
     hit = hits[0]
     assert hit["text"] == "注册"
-    # Chars [5,7) → left 100+100=200, width 40, center 220
     assert hit["left"] == 200
     assert hit["width"] == 40
     assert hit["cx"] == 220
     assert hit["cy"] == 210
 
-    exact_hits = find_all_matching_boxes([box], "注册", "exact")
-    assert exact_hits and exact_hits[0]["cx"] == 220
-
-    # Full-line exact keeps whole box center.
+    assert not find_all_matching_boxes([box], "注册", "exact")
     full = find_all_matching_boxes([box], line, "exact")
     assert full and full[0]["cx"] == 170
-    assert full[0]["width"] == 140
+
+    # Multiple occurrences in one line.
+    multi = {
+        "text": "注册或注册",
+        "left": 0,
+        "top": 0,
+        "width": 100,
+        "height": 10,
+        "cx": 50,
+        "cy": 5,
+    }
+    spans = find_all_match_spans(multi["text"], "注册", "contains")
+    assert len(spans) == 2
+    multi_hits = find_all_matching_boxes([multi], "注册", "contains")
+    assert len(multi_hits) == 2
+    ordered = order_match_hits(multi_hits, order="right")
+    assert pick_match_index(ordered, 1)["cx"] >= pick_match_index(ordered, -1)["cx"]
+    selected = match_all_queries(
+        [multi],
+        ["注册"],
+        "contains",
+        options=parse_match_options({"match_index": 2, "match_order": "reading"}),
+    )
+    assert selected[0]["found"] and selected[0]["primary_index"] == 2
+    assert selected[0]["count"] == 2
+
+    # Mixed CJK/ASCII width: "AB注册" — Latin weight 1, CJK 2.
+    mixed = {
+        "text": "AB注册",
+        "left": 0,
+        "top": 0,
+        "width": 60,  # weights 1+1+2+2 = 6 → unit 10
+        "height": 10,
+        "cx": 30,
+        "cy": 5,
+    }
+    mhit = find_all_matching_boxes([mixed], "注册", "contains")[0]
+    assert mhit["left"] == 20
+    assert mhit["width"] == 40
+
+    # Vertical box slices Y for partial hits on tall glyphs.
+    vert_line = {
+        "text": "点注册",
+        "left": 10,
+        "top": 0,
+        "width": 12,
+        "height": 60,
+        "cx": 16,
+        "cy": 30,
+    }
+    vhit = find_all_matching_boxes([vert_line], "注册", "contains")[0]
+    assert vhit["top"] > 0
+    assert vhit["height"] < 60
 
     shifted = apply_click_offset(
         {"found": True, "x": 220, "y": 210, "left": 200, "top": 200, "cx": 220, "cy": 210},
