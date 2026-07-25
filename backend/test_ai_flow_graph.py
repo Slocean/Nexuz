@@ -30,6 +30,15 @@ def _blocks():
     register_all_blocks()
 
 
+@pytest.fixture(autouse=True)
+def _reset_native_tools_flag():
+    import backend.core.ai.graphs.flow_graph as fg
+
+    fg._NATIVE_TOOLS_UNAVAILABLE = False
+    yield
+    fg._NATIVE_TOOLS_UNAVAILABLE = False
+
+
 def _fake_llm_for_delay_type():
     class FakeStructured:
         def __init__(self, schema):
@@ -67,7 +76,7 @@ def _fake_llm_for_delay_type():
             return self.schema()
 
     class FakeLLM:
-        def with_structured_output(self, schema):
+        def with_structured_output(self, schema, **_kwargs):
             return FakeStructured(schema)
 
         def bind_tools(self, _tools):
@@ -172,7 +181,7 @@ def test_flow_graph_clarify_then_resume(monkeypatch):
             return self.schema()
 
     class FakeLLM:
-        def with_structured_output(self, schema):
+        def with_structured_output(self, schema, **_kwargs):
             return FakeStructured(schema)
 
         def bind_tools(self, _tools):
@@ -234,7 +243,7 @@ def test_summarize_empty_draft_honest(monkeypatch):
             return self.schema()
 
     class FakeLLM:
-        def with_structured_output(self, schema):
+        def with_structured_output(self, schema, **_kwargs):
             return FakeStructured(schema)
 
         def bind_tools(self, _tools):
@@ -261,15 +270,15 @@ def test_summarize_empty_draft_honest(monkeypatch):
     assert "空" in reply or "0" in reply or "没有生成" in reply
 
 
-def test_build_loop_falls_back_to_structured_actions(monkeypatch):
-    """Native tools jinja/400 → structured ToolActionBatch still adds nodes."""
+def test_build_loop_uses_structured_json_actions(monkeypatch):
+    """JSON ToolActionBatch path adds nodes without native function-calling."""
     import backend.core.ai.graphs.flow_graph as fg
 
-    class BrokenToolsLLM:
+    class JsonToolsLLM:
         def __init__(self):
             self._batch_calls = 0
 
-        def with_structured_output(self, schema):
+        def with_structured_output(self, schema, **_kwargs):
             parent = self
 
             class FakeStructured:
@@ -327,18 +336,15 @@ def test_build_loop_falls_back_to_structured_actions(monkeypatch):
             return FakeStructured()
 
         def bind_tools(self, _tools):
-            return self
+            raise AssertionError("native bind_tools should not be needed")
 
         def invoke(self, _messages):
-            raise RuntimeError(
-                'Error rendering prompt with jinja template: '
-                '"Cannot call something that is not a function: got UndefinedValue"'
-            )
+            raise AssertionError("native invoke should not be needed")
 
         def stream(self, _messages):
             yield AIMessage(content="结构化落图完成")
 
-    llm = BrokenToolsLLM()
+    llm = JsonToolsLLM()
     monkeypatch.setattr(fg, "create_chat_model", lambda *a, **k: llm)
     monkeypatch.setattr(fg, "get_checkpointer", lambda: None)
     cfg = AiConfig(base_url="https://example.com/v1", api_key="k", model="m")
@@ -352,8 +358,5 @@ def test_build_loop_falls_back_to_structured_actions(monkeypatch):
     assert out["ok"] is True
     types = [n["type"] for n in (out["draft"].get("nodes") or {}).values()]
     assert "delay" in types and "type_text" in types
-    assert any(
-        p.get("label") == "结构化落图" or "结构化旁路" in str(p.get("text") or "")
-        for p in out["process"]
-    )
+    assert any(p.get("label") == "结构化落图" for p in out["process"])
     assert any(p.get("kind") == "tool" and p.get("name") == "draft_add_node" for p in out["process"])

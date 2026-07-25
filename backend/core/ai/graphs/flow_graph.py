@@ -30,6 +30,7 @@ from backend.core.ai.graphs.state import (
 )
 from backend.core.ai.graphs.streaming import emit_delta, emit_process, stream_chat_model
 from backend.core.ai.lc.models import create_chat_model
+from backend.core.ai.lc.structured_call import invoke_structured
 from backend.core.ai.lc.prompts import (
     BUILD_STRUCTURED_SYSTEM,
     BUILD_SYSTEM,
@@ -50,6 +51,18 @@ from backend.core.ai.types import AiConfig
 
 ProgressFn = Callable[[dict[str, Any]], None]
 ValidateFn = Callable[[dict[str, Any]], str | None]
+
+# After LM Studio / bad chat-template 400, skip bind_tools for the process lifetime.
+_NATIVE_TOOLS_UNAVAILABLE = False
+
+
+def _short_err(exc: BaseException | str, *, limit: int = 180) -> str:
+    text = str(exc).replace("\n", " ").strip()
+    if "jinja" in text.lower() or "prompt template" in text.lower():
+        return "网关 tool 模板不可用（已切换旁路）"
+    if "length limit" in text.lower() or "max_tokens" in text.lower():
+        return "模型输出触顶，未能解析结构化结果"
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _append_process(state: FlowGraphState, step: dict[str, Any]) -> list[dict[str, Any]]:
@@ -231,9 +244,13 @@ def _is_native_tools_broken(exc: BaseException) -> bool:
         "tool calling is not supported",
         "function calling",
         "tool_choice",
-        "unsupported.*tool",
     )
     return any(n in msg for n in needles)
+
+
+def _mark_native_tools_unavailable() -> None:
+    global _NATIVE_TOOLS_UNAVAILABLE
+    _NATIVE_TOOLS_UNAVAILABLE = True
 
 
 def _emit_tool_step(
@@ -299,7 +316,7 @@ def _run_structured_action_loop(
             "kind": "info",
             "node": node,
             "label": "结构化落图",
-            "text": "原生 tools 不可用，改用结构化动作逐步落图",
+            "text": "JSON 动作协议逐步落图",
         }
     )
     if on_progress:
@@ -314,39 +331,56 @@ def _run_structured_action_loop(
                 "node": node,
             }
         )
-    try:
-        structured = llm.with_structured_output(ToolActionBatch)
-    except Exception as exc:
-        proc.append(
-            {
-                "kind": "warn",
-                "node": node,
-                "label": "结构化落图失败",
-                "text": str(exc),
-            }
+    # Keep prompt small — long tool catalogs encourage local models to ramble past max_tokens.
+    core_tools = [
+        n
+        for n in (
+            "draft_add_node",
+            "draft_connect",
+            "draft_set_entry",
+            "draft_update_node",
+            "draft_get",
+            "call_skill",
+            "done",
         )
-        return proc
-
-    tool_names = ", ".join(sorted(tool_map.keys()))
+        if n == "done" or n in tool_map
+    ]
+    tool_names = ", ".join(core_tools)
     last_results = "(无)"
     for _ in range(max_iters):
         draft_blob = fit_prompt_blob(
             safe_json(draft_summary(session.draft)),
-            budget=900,
+            budget=500,
         )
+        full_msgs = [
+            SystemMessage(content=BUILD_STRUCTURED_SYSTEM),
+            HumanMessage(
+                content=(
+                    f"{fit_prompt_blob(user_blob, budget=900)}\n\n"
+                    f"可用工具：{tool_names}\n"
+                    f"当前草稿：{draft_blob}\n"
+                    f"上一轮：{fit_prompt_blob(last_results, budget=400)}\n"
+                    "输出下一轮 1～3 个 actions；完成则 [{name:done}]。勿输出解释。"
+                )
+            ),
+        ]
+        compact_msgs = [
+            SystemMessage(
+                content=(
+                    "输出 ToolActionBatch JSON。"
+                    "字段 actions:[{name,args}]；完成用 [{name:done}]。禁止解释。"
+                )
+            ),
+            HumanMessage(
+                content=(
+                    f"{fit_prompt_blob(user_blob, budget=500)}\n"
+                    f"工具：{tool_names}\n草稿：{draft_blob}\n上一轮：{last_results[:300]}"
+                )
+            ),
+        ]
         try:
-            batch = structured.invoke(
-                [
-                    SystemMessage(content=BUILD_STRUCTURED_SYSTEM),
-                    HumanMessage(
-                        content=(
-                            f"{user_blob}\n\n可用工具：{tool_names}\n"
-                            f"当前草稿：{draft_blob}\n"
-                            f"上一轮工具结果：{last_results}\n"
-                            "请输出下一轮 actions；全部完成则 [{name:done}]。"
-                        )
-                    ),
-                ]
+            batch = invoke_structured(
+                llm, ToolActionBatch, full_msgs, compact_messages=compact_msgs
             )
         except Exception as exc:
             proc.append(
@@ -354,7 +388,7 @@ def _run_structured_action_loop(
                     "kind": "warn",
                     "node": node,
                     "label": "结构化落图",
-                    "text": str(exc),
+                    "text": _short_err(exc),
                 }
             )
             break
@@ -421,30 +455,45 @@ def _run_tool_loop(
     proc: list[dict[str, Any]],
     max_iters: int = 10,
 ) -> list[dict[str, Any]]:
-    """Native bind_tools loop; on template/tool failures, structured action bypass."""
+    """
+    Build via tools: prefer JSON action protocol (no chat-template tools), then
+    native bind_tools if JSON path produced nothing and native is still available.
+    """
+    global _NATIVE_TOOLS_UNAVAILABLE
     tool_map = {t.name: t for t in tools}
+    before = len(session.draft.get("nodes") or {})
+    proc = _run_structured_action_loop(
+        llm=llm,
+        tool_map=tool_map,
+        user_blob=user_blob,
+        session=session,
+        on_progress=on_progress,
+        conversation_id=conversation_id,
+        assistant_id=assistant_id,
+        proc=proc,
+        max_iters=max_iters,
+    )
+    after = len(session.draft.get("nodes") or {})
+    if after > before or any(
+        p.get("kind") == "tool" and p.get("name") for p in proc[-30:]
+    ):
+        return proc
+    if _NATIVE_TOOLS_UNAVAILABLE:
+        return proc
+
     try:
         bound = llm.bind_tools(tools)
     except Exception as exc:
+        _mark_native_tools_unavailable()
         proc.append(
             {
-                "kind": "warn",
+                "kind": "info",
                 "node": "build_loop",
-                "label": "bind_tools",
-                "text": str(exc),
+                "label": "原生 tools",
+                "text": _short_err(exc),
             }
         )
-        return _run_structured_action_loop(
-            llm=llm,
-            tool_map=tool_map,
-            user_blob=user_blob,
-            session=session,
-            on_progress=on_progress,
-            conversation_id=conversation_id,
-            assistant_id=assistant_id,
-            proc=proc,
-            max_iters=max_iters,
-        )
+        return proc
 
     messages: list[Any] = [
         SystemMessage(content=system),
@@ -455,27 +504,23 @@ def _run_tool_loop(
             ai = bound.invoke(messages)
         except Exception as exc:
             if _is_native_tools_broken(exc):
+                _mark_native_tools_unavailable()
                 proc.append(
                     {
-                        "kind": "warn",
+                        "kind": "info",
                         "node": "build_loop",
                         "label": "原生 tools",
-                        "text": f"网关 tool 模板失败，切换结构化旁路：{exc}",
+                        "text": _short_err(exc),
                     }
                 )
-                return _run_structured_action_loop(
-                    llm=llm,
-                    tool_map=tool_map,
-                    user_blob=user_blob,
-                    session=session,
-                    on_progress=on_progress,
-                    conversation_id=conversation_id,
-                    assistant_id=assistant_id,
-                    proc=proc,
-                    max_iters=max_iters,
-                )
+                return proc
             proc.append(
-                {"kind": "warn", "node": "build_loop", "label": "工具循环", "text": str(exc)}
+                {
+                    "kind": "warn",
+                    "node": "build_loop",
+                    "label": "工具循环",
+                    "text": _short_err(exc),
+                }
             )
             break
         if not isinstance(ai, AIMessage):
@@ -643,32 +688,50 @@ def make_flow_nodes(
         answers = dict(state.get("clarify_answers") or {})
         understanding: IntentUnderstanding
         extracted = extract_slots_from_utterance(user_input)
+        heuristic_slots = merge_slots(
+            merge_slots(prior_slots, extracted), answers
+        )
         try:
             llm = create_chat_model(
-                cfg, temperature=0.1, streaming=False, max_tokens=1024
+                cfg, temperature=0.1, streaming=False, max_tokens=768
             )
-            structured = llm.with_structured_output(IntentUnderstanding)
-            understanding = structured.invoke(
-                [
-                    SystemMessage(content=UNDERSTAND_SYSTEM),
-                    SystemMessage(
-                        content=fit_prompt_blob(
-                            f"已有槽位：{safe_json(prior_slots)}\n"
-                            f"用户刚补充的答案：{safe_json(answers)}\n"
-                            f"上下文：\n{state.get('context') or ''}",
-                            budget=1400,
-                        )
-                    ),
-                    HumanMessage(content=user_input),
-                ]
+            full_msgs = [
+                SystemMessage(content=UNDERSTAND_SYSTEM),
+                SystemMessage(
+                    content=fit_prompt_blob(
+                        f"已有槽位：{safe_json(prior_slots)}\n"
+                        f"用户刚补充的答案：{safe_json(answers)}\n"
+                        f"上下文：\n{state.get('context') or ''}",
+                        budget=800,
+                    )
+                ),
+                HumanMessage(content=user_input),
+            ]
+            compact_msgs = [
+                SystemMessage(
+                    content=(
+                        "只输出 IntentUnderstanding JSON："
+                        "intent, known_slots, ambiguities。"
+                        "禁止假确认；ambiguities 仅真缺参。极简。"
+                    )
+                ),
+                HumanMessage(
+                    content=(
+                        f"话术：{user_input}\n"
+                        f"已有槽位：{safe_json(prior_slots)}\n"
+                        f"补充：{safe_json(answers)}"
+                    )
+                ),
+            ]
+            understanding = invoke_structured(
+                llm, IntentUnderstanding, full_msgs, compact_messages=compact_msgs
             )
             if not isinstance(understanding, IntentUnderstanding):
                 understanding = IntentUnderstanding.model_validate(understanding)
         except Exception as exc:
-            # Offline understanding: deterministic slot extract (no invented values)
             understanding = IntentUnderstanding(
                 intent=user_input[:120],
-                known_slots=merge_slots(prior_slots, extracted),
+                known_slots=heuristic_slots,
                 ambiguities=[],
             )
             proc.append(
@@ -676,7 +739,7 @@ def make_flow_nodes(
                     "kind": "warn",
                     "node": "understand",
                     "label": "理解回退",
-                    "text": f"结构化理解失败，使用话术抽槽回退：{exc}",
+                    "text": f"话术抽槽回退：{_short_err(exc)}",
                 }
             )
         slots = _merge_slots(understanding.known_slots, answers)
@@ -802,45 +865,66 @@ def make_flow_nodes(
         slots = merge_slots(
             slots, extract_slots_from_utterance(state.get("input") or intent)
         )
+        outline: dict[str, Any]
+        det = _fallback_outline(intent, slots)
         try:
             llm = create_chat_model(
-                cfg, temperature=0.2, streaming=False, max_tokens=1024
+                cfg, temperature=0.2, streaming=False, max_tokens=768
             )
-            structured = llm.with_structured_output(PlanOutline)
-            result = structured.invoke(
-                [
-                    SystemMessage(content=OUTLINE_SYSTEM),
-                    SystemMessage(
-                        content=fit_prompt_blob(
-                            f"意图：{intent}\n槽位：{safe_json(slots)}\n"
-                            f"补洞提示：{safe_json(hints)}\n"
-                            f"上一版大纲：{safe_json(outline_prev)}\n"
-                            f"上下文：\n{state.get('context') or ''}",
-                            budget=1600,
-                        )
-                    ),
-                    HumanMessage(content=state.get("input") or intent),
-                ]
+            full_msgs = [
+                SystemMessage(content=OUTLINE_SYSTEM),
+                SystemMessage(
+                    content=fit_prompt_blob(
+                        f"意图：{intent}\n槽位：{safe_json(slots)}\n"
+                        f"补洞提示：{safe_json(hints)}\n"
+                        f"上一版大纲：{safe_json(outline_prev)}\n"
+                        f"上下文：\n{state.get('context') or ''}",
+                        budget=900,
+                    )
+                ),
+                HumanMessage(content=state.get("input") or intent),
+            ]
+            compact_msgs = [
+                SystemMessage(
+                    content=(
+                        "只输出 PlanOutline JSON：summary + steps[]。"
+                        "每步含 id,goal,block_hint,needs_sense,match_text?,params。"
+                        "步骤尽量少；禁止解释。"
+                    )
+                ),
+                HumanMessage(
+                    content=(
+                        f"意图：{intent}\n槽位：{safe_json(slots)}\n"
+                        f"补洞：{safe_json(hints)}"
+                    )
+                ),
+            ]
+            result = invoke_structured(
+                llm, PlanOutline, full_msgs, compact_messages=compact_msgs
             )
-            outline = result.model_dump() if isinstance(result, PlanOutline) else PlanOutline.model_validate(result).model_dump()
+            outline = (
+                result.model_dump()
+                if isinstance(result, PlanOutline)
+                else PlanOutline.model_validate(result).model_dump()
+            )
             if outline_looks_weak(outline) and slots:
-                outline = _fallback_outline(intent, slots)
+                outline = det if not outline_looks_weak(det) else outline
                 proc.append(
                     {
-                        "kind": "warn",
+                        "kind": "info",
                         "node": "plan_outline",
                         "label": "大纲补强",
                         "text": "模型大纲过弱，已用槽位确定性重建",
                     }
                 )
         except Exception as exc:
-            outline = _fallback_outline(intent, slots)
+            outline = det
             proc.append(
                 {
                     "kind": "warn",
                     "node": "plan_outline",
                     "label": "大纲回退",
-                    "text": str(exc),
+                    "text": _short_err(exc),
                 }
             )
         # Strip schedule if user said once
@@ -893,21 +977,31 @@ def make_flow_nodes(
         )
         try:
             llm = create_chat_model(
-                cfg, temperature=0, streaming=False, max_tokens=512
+                cfg, temperature=0, streaming=False, max_tokens=256
             )
-            structured = llm.with_structured_output(GapCheckResult)
-            result = structured.invoke(
-                [
-                    SystemMessage(content=GAP_SYSTEM),
-                    HumanMessage(
-                        content=(
-                            f"意图：{intent}\n槽位：{safe_json(slots)}\n"
-                            f"大纲：{safe_json(outline)}"
-                        )
-                    ),
-                ]
+            full_msgs = [
+                SystemMessage(content=GAP_SYSTEM),
+                HumanMessage(
+                    content=(
+                        f"意图：{intent}\n槽位：{safe_json(slots)}\n"
+                        f"大纲：{safe_json(outline)}"
+                    )
+                ),
+            ]
+            compact_msgs = [
+                SystemMessage(content="输出 GapCheckResult JSON：complete, missing, hints。极简。"),
+                HumanMessage(
+                    content=f"意图：{intent}\n槽位：{safe_json(slots)}\n步数：{len(outline.get('steps') or [])}"
+                ),
+            ]
+            result = invoke_structured(
+                llm, GapCheckResult, full_msgs, compact_messages=compact_msgs
             )
-            gap = result.model_dump() if isinstance(result, GapCheckResult) else GapCheckResult.model_validate(result).model_dump()
+            gap = (
+                result.model_dump()
+                if isinstance(result, GapCheckResult)
+                else GapCheckResult.model_validate(result).model_dump()
+            )
         except Exception:
             gap = _fallback_gap(intent, slots, outline)
         complete = bool(gap.get("complete"))
@@ -982,7 +1076,9 @@ def make_flow_nodes(
         tools = build_orchestration_tools(session, cfg=cfg)
         used_tools = False
         try:
-            llm = create_chat_model(cfg, temperature=0.1, streaming=False)
+            llm = create_chat_model(
+                cfg, temperature=0.1, streaming=False, max_tokens=768
+            )
             before = len(session.draft.get("nodes") or {})
             proc = _run_tool_loop(
                 llm=llm,
@@ -991,7 +1087,7 @@ def make_flow_nodes(
                 user_blob=(
                     f"意图：{state.get('intent')}\n槽位：{safe_json(slots)}\n"
                     f"大纲：{safe_json(outline)}\n"
-                    f"当前草稿：\n{fit_prompt_blob(state.get('context') or '', budget=1200)}\n"
+                    f"当前草稿：\n{fit_prompt_blob(state.get('context') or '', budget=800)}\n"
                     "请按大纲逐步用工具落图。"
                 ),
                 session=session,
@@ -1006,7 +1102,12 @@ def make_flow_nodes(
             )
         except Exception as exc:
             proc.append(
-                {"kind": "warn", "node": "build_loop", "label": "工具失败", "text": str(exc)}
+                {
+                    "kind": "warn",
+                    "node": "build_loop",
+                    "label": "工具失败",
+                    "text": _short_err(exc),
+                }
             )
 
         # Fallback: deterministic outline expansion if tools produced nothing
@@ -1023,7 +1124,12 @@ def make_flow_nodes(
             session.artifacts = applied["artifacts"]
             for err in applied.get("errors") or []:
                 proc.append(
-                    {"kind": "warn", "node": "build_loop", "label": "大纲落图", "text": err}
+                    {
+                        "kind": "warn",
+                        "node": "build_loop",
+                        "label": "大纲落图",
+                        "text": err,
+                    }
                 )
             proc.append(
                 {
