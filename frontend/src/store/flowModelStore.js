@@ -25,45 +25,64 @@ function eventCategory(event, payload) {
   return 'runtime';
 }
 
-function formatRuntimeNodeEnd(payload) {
+/** Display tag for logs: custom name / schema label + id. */
+function formatNodeTag(nodeId, nodeName) {
+  const id = nodeId || '?';
+  const name = nodeName && String(nodeName).trim();
+  return name ? `${name} · ${id}` : id;
+}
+
+function resolveNodeName(state, nodeId) {
+  const id = String(nodeId || '').trim();
+  if (!id) return '';
+  const node = state?.flow?.nodes?.[id];
+  if (!node) return '';
+  const custom = node.name && String(node.name).trim();
+  if (custom) return custom;
+  const schema = state?.schemaMap?.[node.type];
+  return (schema?.label && String(schema.label).trim()) || '';
+}
+
+function formatRuntimeNodeEnd(payload, nodeName) {
   const nid = payload?.node_id;
+  const tag = formatNodeTag(nid, nodeName);
   const result = payload?.result || {};
   const type = payload?.type || 'node';
   if (payload?.summary) {
-    return `✓ [${nid}] ${payload.summary}`;
+    return `✓ [${tag}] ${payload.summary}`;
   }
   if (!payload?.ok) {
-    if (payload?.stopped) return `■ [${nid}] 已停止`;
-    return `✗ [${nid}]: ${payload?.error || '失败'}`;
+    if (payload?.stopped) return `■ [${tag}] 已停止`;
+    return `✗ [${tag}]: ${payload?.error || '失败'}`;
   }
   if (type === 'ocr_recognize') {
     const t = result.text;
     return t !== undefined && t !== ''
-      ? `✓ [${nid}] OCR 识别到: ${String(t).slice(0, 120)}`
-      : `✓ [${nid}] OCR 完成但未识别到文字`;
+      ? `✓ [${tag}] OCR 识别到: ${String(t).slice(0, 120)}`
+      : `✓ [${tag}] OCR 完成但未识别到文字`;
   }
   if (type === 'if_text_contains') {
     if (result.matched) {
       const actual = result.actual_text != null ? ` · 实际: ${String(result.actual_text).slice(0, 80)}` : '';
-      return `✓ [${nid}] 文字匹配 成立${actual}`;
+      return `✓ [${tag}] 文字匹配 成立${actual}`;
     }
     if (result.recognized === false || (result.recognized == null && !result.actual_text)) {
-      return `✓ [${nid}] 文字匹配 不成立 · 识别为空`;
+      return `✓ [${tag}] 文字匹配 不成立 · 识别为空`;
     }
-    return `✓ [${nid}] 文字匹配 不成立 · 实际: ${String(result.actual_text ?? '').slice(0, 80)}`;
+    return `✓ [${tag}] 文字匹配 不成立 · 实际: ${String(result.actual_text ?? '').slice(0, 80)}`;
   }
   if (type === 'if_condition' || type === 'if_color_match' || type === 'if_logic') {
-    return `✓ [${nid}] 条件${result.matched ? '成立' : '不成立'}${
+    return `✓ [${tag}] 条件${result.matched ? '成立' : '不成立'}${
       result.actual_text != null ? ` · 实际: ${String(result.actual_text).slice(0, 80)}` : ''
     }`;
   }
   if (type === 'color_detect' && result.color) {
-    return `✓ [${nid}] 取色: ${result.color}`;
+    return `✓ [${tag}] 取色: ${result.color}`;
   }
   if (type === 'find_image') {
     return result.found
-      ? `✓ [${nid}] 找图命中 score=${result.score} @ (${result.x}, ${result.y})`
-      : `✓ [${nid}] 找图未命中`;
+      ? `✓ [${tag}] 找图命中 score=${result.score} @ (${result.x}, ${result.y})`
+      : `✓ [${tag}] 找图未命中`;
   }
   if (type === 'click') {
     const x = result.x ?? result.screen_x;
@@ -76,41 +95,42 @@ function formatRuntimeNodeEnd(payload) {
         .filter((p) => p && p.x != null && p.y != null)
         .map((p) => `(${p.x}, ${p.y})`)
         .join(' → ');
-      if (trail) return `✓ [${nid}] 多点点击 ${count} 次 ${trail}${ms}`;
-      if (x != null && y != null) return `✓ [${nid}] 多点点击 ${count} 次 · 末点 (${x}, ${y})${ms}`;
-      return `✓ [${nid}] 多点点击 ${count} 次${ms}`;
+      if (trail) return `✓ [${tag}] 多点点击 ${count} 次 ${trail}${ms}`;
+      if (x != null && y != null) return `✓ [${tag}] 多点点击 ${count} 次 · 末点 (${x}, ${y})${ms}`;
+      return `✓ [${tag}] 多点点击 ${count} 次${ms}`;
     }
-    if (x != null && y != null) return `✓ [${nid}] 点击 (${x}, ${y})${ms}`;
+    if (x != null && y != null) return `✓ [${tag}] 点击 (${x}, ${y})${ms}`;
   }
   if (type === 'switch') {
-    return `✓ [${nid}] 判断值=${JSON.stringify(result.value)} · ${payload.elapsed_ms}ms`;
+    return `✓ [${tag}] 判断值=${JSON.stringify(result.value)} · ${payload.elapsed_ms}ms`;
   }
   if (String(type).startsWith('window_')) {
-    if (result.found === false) return `✓ [${nid}] ${type} 未找到窗口`;
+    if (result.found === false) return `✓ [${tag}] ${type} 未找到窗口`;
     if (result.title || result.matched_title) {
-      return `✓ [${nid}] ${type} → ${String(result.title || result.matched_title).slice(0, 80)}`;
+      return `✓ [${tag}] ${type} → ${String(result.title || result.matched_title).slice(0, 80)}`;
     }
   }
   if (type === 'assign') {
-    return `✓ [${nid}] 赋值 ${result.name || result.variable || ''}`.trim();
+    return `✓ [${tag}] 赋值 ${result.name || result.variable || ''}`.trim();
   }
   if (type === 'drag' || type === 'mouse_hover') {
-    return `✓ [${nid}] ${type === 'drag' ? '拖拽' : '悬停'}完成 · ${payload.elapsed_ms}ms`;
+    return `✓ [${tag}] ${type === 'drag' ? '拖拽' : '悬停'}完成 · ${payload.elapsed_ms}ms`;
   }
   if (String(type).startsWith('loop_') || type === 'foreach' || type === 'while') {
     const n = result.iteration ?? result.index ?? result.count;
     return n != null
-      ? `✓ [${nid}] ${type} · 第 ${n} 次 · ${payload.elapsed_ms}ms`
-      : `✓ [${nid}] ${type} · ${payload.elapsed_ms}ms`;
+      ? `✓ [${tag}] ${type} · 第 ${n} 次 · ${payload.elapsed_ms}ms`
+      : `✓ [${tag}] ${type} · ${payload.elapsed_ms}ms`;
   }
   if (String(type).startsWith('if_')) {
     if (result.matched !== undefined) {
-      return `✓ [${nid}] 条件${result.matched ? '成立' : '不成立'} · ${payload.elapsed_ms}ms`;
+      return `✓ [${tag}] 条件${result.matched ? '成立' : '不成立'} · ${payload.elapsed_ms}ms`;
     }
   }
-  return `✓ [${nid}] ${type} · ${payload.elapsed_ms}ms`;
+  return `✓ [${tag}] ${type} · ${payload.elapsed_ms}ms`;
 }
 
+let _highlightClearTimer = null;
 let _auditConfigTimer = null;
 let _auditConfigPending = null;
 
@@ -672,6 +692,10 @@ export const useFlowStore = create((set, get) => ({
   execNodeId: null,
   execNodeStates: {}, // id -> running|done|error
   debugMode: false,
+  /** Temporary red highlight from log click (auto-clears). */
+  highlightNodeId: null,
+  /** Bumps on each log-focus so re-clicking the same node restarts pan/pulse. */
+  highlightSeq: 0,
   logs: [],
   runLog: null,
 
@@ -990,6 +1014,28 @@ export const useFlowStore = create((set, get) => ({
   },
   selectNode: selectedNodeId => set({ selectedNodeId }),
 
+  /** Select + red-highlight a node (e.g. from run.log click). Clears after 2.5s. */
+  highlightNode: nodeId => {
+    const id = nodeId ? String(nodeId).trim() : '';
+    if (_highlightClearTimer) {
+      clearTimeout(_highlightClearTimer);
+      _highlightClearTimer = null;
+    }
+    if (!id) {
+      set({ highlightNodeId: null });
+      return;
+    }
+    set(state => ({
+      highlightNodeId: id,
+      selectedNodeId: id,
+      highlightSeq: (state.highlightSeq || 0) + 1
+    }));
+    _highlightClearTimer = setTimeout(() => {
+      set(state => (state.highlightNodeId === id ? { highlightNodeId: null } : {}));
+      _highlightClearTimer = null;
+    }, 2500);
+  },
+
   setDebugMode: debugMode => set({ debugMode: !!debugMode }),
 
   toggleDebugMode: () =>
@@ -1059,6 +1105,7 @@ export const useFlowStore = create((set, get) => ({
           breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : []
         }),
         selectedNodeId: null,
+        highlightNodeId: null,
         filePath: filePath === undefined ? state.filePath : filePath,
         execNodeStates: {},
         execNodeId: null
@@ -1854,10 +1901,15 @@ export const useFlowStore = create((set, get) => ({
   appendLog: entry =>
     set(state => {
       const category = normalizeLogCategory(entry.category, 'runtime');
+      const nodeId = entry.nodeId || undefined;
+      const nodeName =
+        entry.nodeName || (nodeId ? resolveNodeName(state, nodeId) : '') || undefined;
       const row = {
         ...entry,
         category,
-        scope: entry.scope || (entry.nodeId ? 'node' : 'run'),
+        nodeId,
+        nodeName,
+        scope: entry.scope || (nodeId ? 'node' : 'run'),
         detail: entry.detail !== undefined ? summarizeDetail(entry.detail) : undefined,
         ts: entry.ts || Date.now()
       };
@@ -1880,23 +1932,27 @@ export const useFlowStore = create((set, get) => ({
     const appendLog = get().appendLog;
     const cat = eventCategory(event, payload);
     if (event === 'node_start') {
+      const nid = payload.node_id;
+      const nodeName = resolveNodeName(get(), nid);
       set(state => ({
         // Don't clobber pause/stopping if a late event races the control channel.
         execStatus: state.execStatus === 'stopping' ? 'stopping' : 'running',
-        execNodeId: payload.node_id,
-        execNodeStates: { ...state.execNodeStates, [payload.node_id]: 'running' }
+        execNodeId: nid,
+        execNodeStates: { ...state.execNodeStates, [nid]: 'running' }
       }));
       appendLog({
         level: 'info',
         category: 'runtime',
         scope: 'node',
-        nodeId: payload.node_id,
-        message: `▶ [${payload.node_id}] ${payload.type}`,
+        nodeId: nid,
+        nodeName: nodeName || undefined,
+        message: `▶ [${formatNodeTag(nid, nodeName)}] ${payload.type}`,
         detail: summarizeDetail(payload.params)
       });
     } else if (event === 'node_end') {
       const result = summarizeDetail(payload.result || {}) || {};
       const nid = payload.node_id;
+      const nodeName = resolveNodeName(get(), nid);
       set(state => {
         // Interrupted mid-node: leave idle — flow_stopped/finished clears UI; don't paint error.
         if (payload.stopped) {
@@ -1917,13 +1973,16 @@ export const useFlowStore = create((set, get) => ({
         category: 'runtime',
         scope: 'node',
         nodeId: nid,
-        message: formatRuntimeNodeEnd({ ...payload, result }),
+        nodeName: nodeName || undefined,
+        message: formatRuntimeNodeEnd({ ...payload, result }, nodeName),
         detail: payload.ok ? result : summarizeDetail(payload.error)
       });
     } else if (event === 'flow_breakpoint') {
+      const nid = payload?.node_id;
+      const nodeName = resolveNodeName(get(), nid);
       set({
         execStatus: 'breakpoint',
-        execNodeId: payload?.node_id || null,
+        execNodeId: nid || null,
         debugMode: true,
         debugContext: payload?.context && typeof payload.context === 'object' ? payload.context : {}
       });
@@ -1932,8 +1991,9 @@ export const useFlowStore = create((set, get) => ({
         level: 'warn',
         category: 'runtime',
         scope: 'run',
-        nodeId: payload?.node_id,
-        message: `${reason} · 待执行 [${payload?.node_id || '?'}]`,
+        nodeId: nid,
+        nodeName: nodeName || undefined,
+        message: `${reason} · 待执行 [${formatNodeTag(nid, nodeName)}]`,
         detail: payload?.context ? summarizeDetail(payload.context) : undefined
       });
     } else if (event === 'flow_debug') {
@@ -2093,12 +2153,17 @@ export const useFlowStore = create((set, get) => ({
         })
       });
     } else if (event === 'log') {
+      const nid = payload?.node_id || payload?.nodeId || undefined;
+      const nodeName = nid ? resolveNodeName(get(), nid) : '';
       appendLog({
         level: payload?.level || 'info',
         category: cat,
-        scope: payload?.scope || (payload?.node_id ? 'node' : 'app'),
-        nodeId: payload?.node_id || payload?.nodeId || undefined,
-        message: payload?.node_id ? `[${payload.node_id}] ${payload?.message || ''}` : payload?.message || '',
+        scope: payload?.scope || (nid ? 'node' : 'app'),
+        nodeId: nid,
+        nodeName: nodeName || undefined,
+        message: nid
+          ? `[${formatNodeTag(nid, nodeName)}] ${payload?.message || ''}`
+          : payload?.message || '',
         detail: summarizeDetail(payload?.detail)
       });
     }

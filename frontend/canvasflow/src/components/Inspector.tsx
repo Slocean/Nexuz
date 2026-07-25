@@ -1104,6 +1104,7 @@ export default function Inspector({
   width = 422,
 }: InspectorProps) {
   const { alert } = useAppDialog();
+  const highlightNode = useFlowStore(s => s.highlightNode);
   const [copied, setCopied] = React.useState(false);
   const [outputCopied, setOutputCopied] = React.useState(false);
   const [logsExpanded, setLogsExpanded] = React.useState(false);
@@ -1369,10 +1370,29 @@ export default function Inspector({
       {filteredLogs.slice(-limit).map((log) => {
         const hasDetail = log.detail !== undefined && log.detail !== null;
         const open = !!expandedLogIds[log.id];
+        const nodeTag = log.nodeId
+          ? log.nodeName
+            ? `${log.nodeName} · ${log.nodeId}`
+            : log.nodeId
+          : '';
+        // Message already embeds [id] / [name · id]; keep one rose badge and strip duplicates.
+        let displayMessage = String(log.message || '');
+        if (log.nodeId) {
+          const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          if (nodeTag) {
+            displayMessage = displayMessage.replace(new RegExp(`\\[${esc(nodeTag)}\\]\\s*`, 'g'), '');
+          }
+          displayMessage = displayMessage.replace(
+            new RegExp(`\\[${esc(log.nodeId)}\\]\\s*`, 'g'),
+            ''
+          );
+        }
         return (
           <div
             key={log.id}
-            className={`select-text break-all whitespace-pre-wrap py-px min-w-0 w-full max-w-full ${
+            className={`select-text break-all whitespace-pre-wrap py-px min-w-0 w-full max-w-full rounded-sm ${
+              log.nodeId ? 'hover:bg-white/[0.04] cursor-pointer' : ''
+            } ${
               log.type === 'error'
                 ? 'text-rose-400'
                 : log.type === 'success'
@@ -1385,24 +1405,37 @@ export default function Inspector({
               overflowWrap: 'anywhere',
               wordBreak: 'break-word',
             }}
+            onClick={log.nodeId ? () => highlightNode(log.nodeId) : undefined}
+            title={
+              log.nodeId
+                ? `点击定位节点${nodeTag ? `：${nodeTag}` : ''}`
+                : hasDetail
+                  ? open
+                    ? '收起详情'
+                    : '展开详情'
+                  : undefined
+            }
           >
-            <div
-              className={hasDetail ? 'cursor-pointer' : undefined}
-              onClick={hasDetail ? () => toggleLogExpand(log.id) : undefined}
-              title={hasDetail ? (open ? '收起详情' : '展开详情') : undefined}
-            >
+            <div>
               {hasDetail ? (
-                <span className="inline-block w-3 text-slate-600 mr-0.5">
+                <span
+                  className="inline-block w-3 text-slate-600 mr-0.5 cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleLogExpand(log.id);
+                  }}
+                  title={open ? '收起详情' : '展开详情'}
+                >
                   {open ? '▾' : '▸'}
                 </span>
               ) : (
                 <span className="inline-block w-3 mr-0.5" />
               )}
               <span className="text-slate-500 mr-2">{log.timestamp}</span>
-              {log.nodeId ? (
-                <span className="text-slate-500 mr-1 font-medium">[{log.nodeId}]</span>
+              {nodeTag ? (
+                <span className="text-rose-300/90 mr-1 font-medium">[{nodeTag}]</span>
               ) : null}
-              {log.message}
+              {displayMessage}
             </div>
             {hasDetail && open ? (
               <div

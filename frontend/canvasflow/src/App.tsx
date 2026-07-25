@@ -418,20 +418,32 @@ function AppShell() {
 
   const canvasLogs = useMemo(
     () =>
-      logs.map((l, i) => ({
-        id: `${l.ts || 0}-${i}-${String(l.message || '').slice(0, 24)}`,
-        timestamp: new Date(l.ts || Date.now()).toLocaleTimeString(),
-        type: mapLogLevel(l.level),
-        level: l.level,
-        category: l.category || 'runtime',
-        scope: l.scope,
-        message: l.message,
-        nodeId: l.nodeId || undefined,
-        nodeName: undefined,
-        detail: l.detail,
-        ts: l.ts
-      })),
-    [logs]
+      logs.map((l, i) => {
+        const nodeId = l.nodeId || undefined;
+        let nodeName = l.nodeName || undefined;
+        if (nodeId && !nodeName) {
+          const node = flow?.nodes?.[nodeId];
+          const schema = node ? schemaMap[node.type] : null;
+          nodeName =
+            (node?.name && String(node.name).trim()) ||
+            (schema?.label && String(schema.label).trim()) ||
+            undefined;
+        }
+        return {
+          id: `${l.ts || 0}-${i}-${String(l.message || '').slice(0, 24)}`,
+          timestamp: new Date(l.ts || Date.now()).toLocaleTimeString(),
+          type: mapLogLevel(l.level),
+          level: l.level,
+          category: l.category || 'runtime',
+          scope: l.scope,
+          message: l.message,
+          nodeId,
+          nodeName,
+          detail: l.detail,
+          ts: l.ts
+        };
+      }),
+    [logs, flow?.nodes, schemaMap]
   );
 
   const handleRunWorkflowRef = useRef<() => void>(() => {});

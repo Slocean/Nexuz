@@ -236,6 +236,8 @@ function Canvas({
 }: CanvasProps) {
   const { confirm, alert } = useAppDialog();
   const flowEntry = useFlowStore((s) => s.flow?.entry ?? null);
+  const highlightNodeId = useFlowStore((s) => s.highlightNodeId);
+  const highlightSeq = useFlowStore((s) => s.highlightSeq);
   const menuMode = useFlowStore((s) =>
     s.nodeContextMenuMode === "flat" ? "flat" : "grouped",
   );
@@ -389,6 +391,21 @@ function Canvas({
     }
     setSelectedIds((prev) => (prev.includes(selectedNodeId) ? prev : [selectedNodeId]));
   }, [selectedNodeId]);
+
+  // Log-click highlight: pan the target node into view
+  useEffect(() => {
+    if (!highlightNodeId || !canvasRef.current) return;
+    const node = nodes.find((n) => n.id === highlightNodeId);
+    if (!node) return;
+    const { w, h } = canvasSize;
+    const z = zoomRef.current;
+    const cx = node.x + NODE_WIDTH / 2;
+    const cy = node.y + NODE_HEIGHT_EST / 2;
+    setPanX(w / 2 - cx * z);
+    setPanY(h / 2 - cy * z);
+    // Intentionally omit nodes/canvasSize — avoid re-pan on every exec status tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightNodeId, highlightSeq]);
 
   const colors = getThemeColors(themeName, themeMode);
 
@@ -1502,6 +1519,7 @@ function Canvas({
         <div className="absolute inset-0 pointer-events-none">
           {nodes.map((node) => {
             const isSelected = selectedIdSet.has(node.id) || selectedNodeId === node.id;
+            const isLogHighlight = highlightNodeId === node.id;
             const isForever = node.subType === "loop_forever";
             const isNodeDisabled = !!node.disabled;
             const isNodeRunning =
@@ -1549,35 +1567,47 @@ function Canvas({
                     themeMode === "light"
                       ? "rgba(255, 255, 255, 0.92)"
                       : "rgba(24, 28, 43, 0.92)",
-                  borderColor: isForever
-                    ? "#FF5E57"
-                    : (node.bindErrorCount || 0) > 0
+                  borderColor: isLogHighlight
+                    ? "#ef4444"
+                    : isForever
                       ? "#FF5E57"
-                    : isSelected
-                      ? colors.primary
-                      : themeMode === "light"
-                        ? "rgba(0, 0, 0, 0.08)"
-                        : "rgba(255, 255, 255, 0.06)",
-                  borderWidth: isForever || (node.bindErrorCount || 0) > 0 ? 2 : undefined,
-                  boxShadow: isForever
-                    ? "0 0 0 3px rgba(255, 94, 87, 0.25)"
-                    : isSelected
-                      ? `0 0 0 2px ${colors.primary}33`
-                      : "0 8px 24px rgba(0,0,0,0.12)",
-                  color: colors.text,
-                  ["--node-halo" as string]: isNodeLive
-                    ? colors.primary || "#34d399"
-                    : isNodePaused
-                      ? "#f59e0b"
+                      : (node.bindErrorCount || 0) > 0
+                        ? "#FF5E57"
+                      : isSelected
+                        ? colors.primary
+                        : themeMode === "light"
+                          ? "rgba(0, 0, 0, 0.08)"
+                          : "rgba(255, 255, 255, 0.06)",
+                  borderWidth:
+                    isLogHighlight || isForever || (node.bindErrorCount || 0) > 0
+                      ? 2
                       : undefined,
+                  boxShadow: isLogHighlight
+                    ? "0 0 0 3px rgba(239, 68, 68, 0.45), 0 0 18px rgba(239, 68, 68, 0.35)"
+                    : isForever
+                      ? "0 0 0 3px rgba(255, 94, 87, 0.25)"
+                      : isSelected
+                        ? `0 0 0 2px ${colors.primary}33`
+                        : "0 8px 24px rgba(0,0,0,0.12)",
+                  color: colors.text,
+                  ["--node-halo" as string]: isLogHighlight
+                    ? "#ef4444"
+                    : isNodeLive
+                      ? colors.primary || "#34d399"
+                      : isNodePaused
+                        ? "#f59e0b"
+                        : undefined,
                   transition: thisDragging ? "none" : undefined,
                   willChange: thisDragging ? "left, top" : undefined,
+                  zIndex: isLogHighlight ? 5 : undefined,
                 }}
                 className={`absolute rounded-xl border px-2.5 py-2 pointer-events-auto flex flex-col gap-1.5 cursor-grab active:cursor-grabbing overflow-visible ${
                   thisDragging ? "" : "hover:shadow-lg"
                 } ${isNodeLive ? "node-running-halo" : ""} ${
                   isNodePaused ? "node-paused-halo" : ""
-                } ${isNodeDisabled ? "opacity-45" : ""}`}
+                } ${isLogHighlight ? "node-log-highlight" : ""} ${
+                  isNodeDisabled ? "opacity-45" : ""
+                }`}
               >
                 {isNodeLive ? <NodeRunningOrbit /> : null}
                 {isNodePaused ? <NodePausedRing /> : null}

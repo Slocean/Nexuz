@@ -175,6 +175,30 @@ body {
   }
 }
 
+/* Log-click focus — red pulse so the node is easy to spot */
+@keyframes nexuz-log-highlight-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.45), 0 0 18px rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.65), 0 0 28px rgba(239, 68, 68, 0.5);
+  }
+}
+
+.node-log-highlight {
+  position: relative;
+  z-index: 5;
+  overflow: visible;
+  animation: nexuz-log-highlight-pulse 0.85s ease-in-out 3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node-log-highlight {
+    animation: none;
+  }
+}
+
 /* Paused node — static amber outline, no motion */
 .node-paused-halo {
   position: relative;
