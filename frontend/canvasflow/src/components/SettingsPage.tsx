@@ -484,7 +484,7 @@ export default function SettingsPage({
       setAiApiKey('');
       setAiDirty(false);
       setAiMsg('已保存');
-      appendAuditLog?.('已更新 Flow AI 配置', { preset: c.preset, model: c.model });
+      appendAuditLog?.('已更新 Nexuz Ai 配置', { preset: c.preset, model: c.model });
       try {
         window.dispatchEvent(new CustomEvent('nexuz-ai-config-changed', { detail: c }));
       } catch {
@@ -1363,7 +1363,7 @@ export default function SettingsPage({
 
         <SettingsSection
           id="settings-section-ai"
-          title="Flow AI"
+          title="Nexuz Ai"
           icon={<Sparkles className="w-4 h-4" />}
           open={openSections.ai}
           onToggle={() => toggleSection('ai')}

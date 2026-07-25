@@ -483,10 +483,11 @@ function loadAutoSaveIntervalSec() {
 function loadSaveAfterRun() {
   try {
     const v = localStorage.getItem('nexuz.saveAfterRun');
-    if (v === null) return false;
+    // Default ON: auto-save after run (including first-time named save)
+    if (v === null) return true;
     return v === '1' || v === 'true';
   } catch {
-    return false;
+    return true;
   }
 }
 
