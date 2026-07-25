@@ -597,6 +597,9 @@ class SessionManager:
                 else None,
                 resume_clarify=resume_clarify,
                 pending_clarify=pending_clarify if resume_clarify else None,
+                context_compact=agent_state.get("context_compact")
+                if isinstance(agent_state.get("context_compact"), dict)
+                else None,
             )
         except Exception as exc:
             on_progress(
@@ -638,6 +641,15 @@ class SessionManager:
             "known_slots": out.get("known_slots") or agent_state.get("known_slots") or {},
             "outline": out.get("outline") or agent_state.get("outline") or {},
             "pending_clarify": clarify if status == "needs_clarify" else [],
+            "context_compact": out.get("context_compact")
+            or agent_state.get("context_compact")
+            or {},
+            "compact_version": (
+                (out.get("context_compact") or {}).get("compact_version")
+                if isinstance(out.get("context_compact"), dict)
+                else None
+            )
+            or agent_state.get("compact_version"),
         }
         points_prev = _points_preview(artifacts)
         # 仅在有可修正点位时带截图；OCR 绑定链不需要常驻「点位预览」
@@ -703,6 +715,8 @@ class SessionManager:
             "draft_summary": draft_summary(draft),
             "reply": assistant_text,
             "status_hint": out.get("status_hint") or "",
+            "context_compact": next_agent_state.get("context_compact") or {},
+            "did_compact": bool(out.get("did_compact")),
         }
         assistant_msg = ChatMessage(
             id=assistant_id,

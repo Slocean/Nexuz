@@ -22,6 +22,8 @@ class FlowGraphState(TypedDict, total=False):
     messages: Annotated[list, add_messages]
     input: str
     context: str
+    context_compact: dict[str, Any]
+    did_compact: bool
     draft: dict[str, Any]
     base_flow: dict[str, Any] | None
     artifacts: dict[str, Any]
@@ -73,12 +75,21 @@ def build_draft_context(
     allow_dangerous: bool = False,
     slots: dict[str, str] | None = None,
     intent: str = "",
+    compact: dict[str, Any] | None = None,
+    max_nodes: int = 24,
+    max_points: int = 12,
+    max_blocks: int = 24,
+    max_skills: int = 12,
 ) -> str:
+    """
+    Build LLM context for orchestration.
+    When ``compact`` is set, skip full block catalog and prefer compact body.
+    """
     summary = draft_summary(draft or {})
     arts = artifacts if isinstance(artifacts, dict) else {}
     points = arts.get("points") if isinstance(arts.get("points"), dict) else {}
     point_lines = []
-    for pref, pt in list(points.items())[:20]:
+    for pref, pt in list(points.items())[:max_points]:
         if not isinstance(pt, dict):
             continue
         point_lines.append(
@@ -89,7 +100,7 @@ def build_draft_context(
 
     raw_nodes = (draft or {}).get("nodes") if isinstance((draft or {}).get("nodes"), dict) else {}
     node_lines = []
-    for n in (summary.get("nodes") or [])[:40]:
+    for n in (summary.get("nodes") or [])[:max_nodes]:
         nid = n.get("id")
         params = {}
         node = raw_nodes.get(nid) if nid else None
@@ -103,44 +114,71 @@ def build_draft_context(
             f"- {nid}: type={n.get('type')} next={n.get('next')} params={params}"
         )
 
-    try:
-        from backend.core.ai.ai_catalog import list_ai_block_cards
+    use_compact = isinstance(compact, dict) and bool(compact.get("compact_version"))
+    block_lines: list[str] = []
+    skill_lines: list[str] = []
+    if not use_compact:
+        try:
+            from backend.core.ai.ai_catalog import list_ai_block_cards
 
-        cards = list_ai_block_cards(allow_dangerous=allow_dangerous)[:48]
-        block_lines = [
-            f"- {c['type']}: {c.get('description')} | keys={c.get('key_params')}"
-            for c in cards
+            cards = list_ai_block_cards(allow_dangerous=allow_dangerous)[:max_blocks]
+            block_lines = [
+                f"- {c['type']}: {c.get('description')} | keys={c.get('key_params')}"
+                for c in cards
+            ]
+        except Exception:
+            blocks = list_blocks(allow_dangerous=allow_dangerous)[:max_blocks]
+            block_lines = [
+                f"- {b.get('type')}: {b.get('label')}（{b.get('category')}）"
+                for b in blocks
+            ]
+
+        try:
+            from backend.core.ai.skills.loader import list_skills
+
+            skill_lines = [
+                f"- {s['id']}: {s.get('description')}"
+                for s in list_skills()[:max_skills]
+            ]
+        except Exception:
+            skill_lines = []
+
+    parts = [FREQUENT_BLOCKS_HINT.strip()]
+    if use_compact:
+        try:
+            from backend.core.ai.context_budget import render_compact_context
+
+            parts.append(render_compact_context(compact))
+        except Exception:
+            parts.append(json.dumps(compact, ensure_ascii=False)[:2000])
+    else:
+        parts.extend(
+            [
+                f"intent: {intent or '(未定)'}",
+                f"slots: {json.dumps(slots or {}, ensure_ascii=False)}",
+            ]
+        )
+    parts.extend(
+        [
+            f"entry: {summary.get('entry')}",
+            f"node_count: {summary.get('node_count')}",
+            "nodes:",
+            "\n".join(node_lines) or "(空)",
+            "points:",
+            "\n".join(point_lines) or "(无)",
         ]
-    except Exception:
-        blocks = list_blocks(allow_dangerous=allow_dangerous)[:40]
-        block_lines = [
-            f"- {b.get('type')}: {b.get('label')}（{b.get('category')}）" for b in blocks
-        ]
-
-    try:
-        from backend.core.ai.skills.loader import list_skills
-
-        skill_lines = [
-            f"- {s['id']}: {s.get('description')}" for s in list_skills()[:30]
-        ]
-    except Exception:
-        skill_lines = []
-
-    parts = [
-        FREQUENT_BLOCKS_HINT.strip(),
-        f"intent: {intent or '(未定)'}",
-        f"slots: {json.dumps(slots or {}, ensure_ascii=False)}",
-        f"entry: {summary.get('entry')}",
-        f"node_count: {summary.get('node_count')}",
-        "nodes:",
-        "\n".join(node_lines) or "(空)",
-        "points:",
-        "\n".join(point_lines) or "(无)",
-        "optional_skills:",
-        "\n".join(skill_lines) or "(none)",
-        "blocks:",
-        "\n".join(block_lines) or "(unavailable)",
-    ]
+    )
+    if not use_compact:
+        parts.extend(
+            [
+                "optional_skills:",
+                "\n".join(skill_lines) or "(none)",
+                "blocks:",
+                "\n".join(block_lines) or "(unavailable)",
+            ]
+        )
+    else:
+        parts.append("blocks: (compact mode — use frequent hints / call_skill)")
     return "\n".join(parts)
 
 

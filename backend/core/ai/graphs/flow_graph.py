@@ -10,6 +10,11 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langgraph.graph import END, START, StateGraph
 
 from backend.core.ai.checkpointer import get_checkpointer, thread_config
+from backend.core.ai.context_budget import (
+    estimate_tokens,
+    fit_prompt_blob,
+    maybe_compact,
+)
 from backend.core.ai.draft_builder import draft_summary, empty_draft
 from backend.core.ai.graphs.outline_build import build_draft_from_outline
 from backend.core.ai.graphs.slot_extract import (
@@ -318,31 +323,84 @@ def make_flow_nodes(
         slots = dict(state.get("known_slots") or {})
         # Merge prior clarify answers into slots
         slots = _merge_slots(slots, state.get("clarify_answers") or {})
-        ctx = build_draft_context(
+        prior_compact = (
+            state.get("context_compact")
+            if isinstance(state.get("context_compact"), dict)
+            else None
+        )
+        raw_ctx = build_draft_context(
             draft,
             artifacts,
             allow_dangerous=bool(state.get("allow_dangerous")),
             slots=slots,
             intent=str(state.get("intent") or ""),
+            compact=None,
         )
+        ctx, compact, did_compact = maybe_compact(
+            raw_ctx,
+            intent=str(state.get("intent") or ""),
+            known_slots=slots,
+            clarify_answers=state.get("clarify_answers") or {},
+            pending_clarify=state.get("clarify_questions") or [],
+            outline=state.get("outline") if isinstance(state.get("outline"), dict) else {},
+            gap_hints=list(state.get("gap_hints") or []),
+            draft=draft,
+            validation_errors=list(state.get("validation_errors") or []),
+            warnings=list(state.get("warnings") or []),
+            process=list(state.get("process") or []),
+            user_text=str(state.get("input") or ""),
+            prior_compact=prior_compact,
+            cfg=cfg,
+        )
+        if did_compact and compact:
+            # Rebuild draft context in compact mode (no full block catalog)
+            ctx = build_draft_context(
+                draft,
+                artifacts,
+                allow_dangerous=bool(state.get("allow_dangerous")),
+                slots=slots,
+                intent=str(state.get("intent") or compact.get("intent") or ""),
+                compact=compact,
+                max_nodes=16,
+                max_points=8,
+            )
         step = {
             "kind": "node",
             "node": "load_context",
             "label": "加载上下文",
-            "text": f"节点 {draft_summary(draft).get('node_count', 0)} 个",
+            "text": (
+                f"节点 {draft_summary(draft).get('node_count', 0)} 个"
+                + (
+                    f" · 已压缩(~{estimate_tokens(ctx)} tok)"
+                    if did_compact
+                    else f" · ~{estimate_tokens(ctx)} tok"
+                )
+            ),
         }
+        proc = list(state.get("process") or [])
         emit_process(
             on_progress,
-            list(state.get("process") or []),
+            proc,
             step,
             mode="flow",
             conversation_id=conversation_id,
             assistant_id=assistant_id,
         )
+        if did_compact:
+            proc.append(
+                {
+                    "kind": "think",
+                    "label": "上下文压缩",
+                    "text": "上下文超预算，已静默提炼结构化状态后继续（会话不变）",
+                }
+            )
+            _broadcast_process(proc)
         return {
             "context": ctx,
+            "context_compact": compact or prior_compact or {},
+            "did_compact": bool(did_compact),
             "known_slots": slots,
-            "process": _append_process(state, step),
+            "process": proc,
             "gap_rounds": int(state.get("gap_rounds") or 0),
             "max_gap_rounds": int(state.get("max_gap_rounds") or 2),
             "repair_rounds": int(state.get("repair_rounds") or 0),
@@ -353,7 +411,9 @@ def make_flow_nodes(
             "validation_errors": [],
             "warnings": [],
             "status_hint": "",
-            "clarify_questions": [],
+            "clarify_questions": list(state.get("clarify_questions") or [])
+            if state.get("resume_clarify")
+            else [],
         }
 
     def understand(state: FlowGraphState) -> dict[str, Any]:
@@ -382,10 +442,11 @@ def make_flow_nodes(
                 [
                     SystemMessage(content=UNDERSTAND_SYSTEM),
                     SystemMessage(
-                        content=(
+                        content=fit_prompt_blob(
                             f"已有槽位：{safe_json(prior_slots)}\n"
                             f"用户刚补充的答案：{safe_json(answers)}\n"
-                            f"上下文：\n{(state.get('context') or '')[:2500]}"
+                            f"上下文：\n{state.get('context') or ''}",
+                            budget=1400,
                         )
                     ),
                     HumanMessage(content=user_input),
@@ -540,11 +601,12 @@ def make_flow_nodes(
                 [
                     SystemMessage(content=OUTLINE_SYSTEM),
                     SystemMessage(
-                        content=(
+                        content=fit_prompt_blob(
                             f"意图：{intent}\n槽位：{safe_json(slots)}\n"
                             f"补洞提示：{safe_json(hints)}\n"
-                            f"上一版大纲：{safe_json(outline_prev)[:1200]}\n"
-                            f"上下文：\n{(state.get('context') or '')[:2000]}"
+                            f"上一版大纲：{safe_json(outline_prev)}\n"
+                            f"上下文：\n{state.get('context') or ''}",
+                            budget=1600,
                         )
                     ),
                     HumanMessage(content=state.get("input") or intent),
@@ -719,7 +781,7 @@ def make_flow_nodes(
                 user_blob=(
                     f"意图：{state.get('intent')}\n槽位：{safe_json(slots)}\n"
                     f"大纲：{safe_json(outline)}\n"
-                    f"当前草稿：\n{state.get('context') or ''}\n"
+                    f"当前草稿：\n{fit_prompt_blob(state.get('context') or '', budget=1200)}\n"
                     "请按大纲逐步用工具落图。"
                 ),
                 session=session,
@@ -1218,6 +1280,7 @@ def run_flow_graph(
     outline: dict[str, Any] | None = None,
     resume_clarify: bool = False,
     pending_clarify: list[dict[str, Any]] | None = None,
+    context_compact: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Invoke the step-wise flow graph once and return final state fields."""
     cp = None
@@ -1256,6 +1319,8 @@ def run_flow_graph(
         "resume_clarify": bool(resume_clarify),
         "gap_hints": [],
         "status_hint": "",
+        "context_compact": dict(context_compact or {}),
+        "did_compact": False,
     }
     config = thread_config(conversation_id) if cp is not None else None
     final = graph.invoke(init, config=config) if config else graph.invoke(init)
@@ -1277,4 +1342,6 @@ def run_flow_graph(
         },
         "status_hint": final.get("status_hint") or "",
         "validation_errors": final.get("validation_errors") or [],
+        "context_compact": final.get("context_compact") or {},
+        "did_compact": bool(final.get("did_compact")),
     }
