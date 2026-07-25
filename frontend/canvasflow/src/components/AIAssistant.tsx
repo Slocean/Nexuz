@@ -16,6 +16,10 @@ import {
   ChevronRight,
   Wrench,
   Brain,
+  Download,
+  AlertTriangle,
+  MessageCircleQuestion,
+  GitBranch,
 } from "lucide-react";
 import { ThemeName, ThemeMode } from "../types";
 import { getThemeColors } from "../theme";
@@ -34,10 +38,11 @@ import PointConfirmPanel, {
 } from "./PointConfirmPanel";
 
 interface ProcessStep {
-  kind: "think" | "tool" | string;
+  kind: "think" | "tool" | "node" | "warn" | "clarify" | string;
   label?: string;
   text?: string;
   name?: string;
+  node?: string;
   ok?: boolean;
   detail?: string;
   summary?: string;
@@ -49,6 +54,30 @@ interface ClarifyQuestion {
   prompt?: string;
   choices?: string[];
   allow_free_text?: boolean;
+}
+
+interface AgentLog {
+  version?: number;
+  mode?: string;
+  conversation_id?: string;
+  assistant_id?: string;
+  timestamp?: string;
+  model?: string;
+  user_text?: string;
+  status?: string;
+  intent?: string;
+  known_slots?: Record<string, string>;
+  outline?: unknown;
+  clarify_questions?: ClarifyQuestion[];
+  plan?: unknown;
+  process?: ProcessStep[];
+  tool_trace?: unknown[];
+  warnings?: string[];
+  validation_errors?: string[];
+  draft_summary?: { node_count?: number; nodes?: unknown[]; entry?: string };
+  reply?: string;
+  status_hint?: string;
+  [key: string]: unknown;
 }
 
 interface OrchestrationCard {
@@ -78,7 +107,94 @@ interface ChatMsg {
   timestamp: string;
   process?: ProcessStep[];
   orchestration?: OrchestrationCard | null;
+  agent_log?: AgentLog | null;
   streaming?: boolean;
+}
+
+function sanitizeClarifyChoice(raw: unknown): string | null {
+  let s = String(raw ?? "").trim();
+  if (!s) return null;
+  // Collapse stutter: 文件传输文件传输助手 → 文件传输助手
+  let prev = "";
+  while (prev !== s) {
+    prev = s;
+    s = s.replace(/(.{2,24}?)\1+/g, "$1");
+  }
+  if (s.length > 32) return null;
+  if ((s.match(/_/g) || []).length >= 2 || /_{2,}/.test(s)) return null;
+  if (/^[\W_]+$/u.test(s)) return null;
+  if (/^[A-Za-z0-9_]+$/.test(s) && s.includes("_")) return null;
+  return s;
+}
+
+async function exportAgentLogJson(
+  payload: unknown,
+  messageId: string
+): Promise<{ ok: boolean; cancelled?: boolean; error?: string; path?: string }> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const filename = `nexuz-agent-log-${String(messageId || "msg").slice(0, 8)}-${stamp}.json`;
+  const text = JSON.stringify(payload, null, 2);
+  try {
+    if (typeof bridge.exportText === "function") {
+      const res = await bridge.exportText(text, filename);
+      return {
+        ok: !!res?.ok,
+        cancelled: !!res?.cancelled,
+        error: res?.error ? String(res.error) : undefined,
+        path: res?.path ? String(res.path) : undefined,
+      };
+    }
+  } catch (err: any) {
+    return { ok: false, error: String(err?.message || err || "导出失败") };
+  }
+  // Browser fallback (non-pywebview)
+  try {
+    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: String(err?.message || err || "导出失败") };
+  }
+}
+
+function buildExportAgentLog(
+  msg: ChatMsg,
+  conversationId: string | null
+): AgentLog {
+  if (msg.agent_log && typeof msg.agent_log === "object") {
+    return {
+      ...msg.agent_log,
+      exported_at: new Date().toISOString(),
+      content: msg.content,
+      orchestration: msg.orchestration || msg.agent_log.orchestration,
+      process: msg.process?.length
+        ? msg.process
+        : (msg.agent_log.process as ProcessStep[] | undefined),
+    };
+  }
+  return {
+    version: 1,
+    exported_at: new Date().toISOString(),
+    conversation_id: conversationId || undefined,
+    assistant_id: msg.id,
+    reply: msg.content,
+    content: msg.content,
+    process: msg.process || [],
+    orchestration: msg.orchestration || undefined,
+    plan: msg.orchestration?.plan,
+    clarify_questions: msg.orchestration?.clarify_questions,
+    warnings: msg.orchestration?.warnings,
+    tool_trace: msg.orchestration?.tool_trace,
+    draft_summary: msg.orchestration?.summary,
+    status: msg.orchestration?.status,
+  };
 }
 
 interface ConversationItem {
@@ -203,42 +319,50 @@ function OrchestrationResultCard({
     >
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs" style={{ color: colors.secondaryText }}>
-          {needsClarify ? "需要澄清" : "草稿"} {nodeCount} 节点
-          {addedCount ? ` · +${addedCount}` : ""}
-          {diff?.removed?.length ? ` · -${diff.removed.length}` : ""}
-          {diff?.changed?.length ? ` · ~${diff.changed.length}` : ""}
+          {needsClarify
+            ? "需要澄清"
+            : `草稿 ${nodeCount} 节点`}
+          {!needsClarify && addedCount ? ` · +${addedCount}` : ""}
+          {!needsClarify && diff?.removed?.length
+            ? ` · -${diff.removed.length}`
+            : ""}
+          {!needsClarify && diff?.changed?.length
+            ? ` · ~${diff.changed.length}`
+            : ""}
         </p>
-        <div className="flex items-center gap-1">
-          {showDiscard ? (
+        {!needsClarify ? (
+          <div className="flex items-center gap-1">
+            {showDiscard ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs px-2"
+                onClick={onDiscard}
+                disabled={applying}
+                title="丢弃当前会话草稿"
+              >
+                <RotateCcw className="w-3 h-3 mr-1" />
+                丢弃
+              </Button>
+            ) : null}
             <Button
               type="button"
               size="sm"
-              variant="ghost"
-              className="h-7 text-xs px-2"
-              onClick={onDiscard}
-              disabled={applying}
-              title="丢弃当前会话草稿"
+              className="h-7 text-xs px-2.5"
+              style={{ backgroundColor: colors.primary }}
+              onClick={onApply}
+              disabled={applying || !canApply || nodeCount <= 0}
             >
-              <RotateCcw className="w-3 h-3 mr-1" />
-              丢弃
+              {applying ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Check className="w-3 h-3 mr-1" />
+              )}
+              应用到画布
             </Button>
-          ) : null}
-          <Button
-            type="button"
-            size="sm"
-            className="h-7 text-xs px-2.5"
-            style={{ backgroundColor: colors.primary }}
-            onClick={onApply}
-            disabled={applying || !canApply || needsClarify || nodeCount <= 0}
-          >
-            {applying ? (
-              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-            ) : (
-              <Check className="w-3 h-3 mr-1" />
-            )}
-            应用到画布
-          </Button>
-        </div>
+          </div>
+        ) : null}
       </div>
       {riskHints.length || warnings.length ? (
         <p className="text-[11px] text-amber-600 dark:text-amber-300">
@@ -256,29 +380,41 @@ function OrchestrationResultCard({
         </p>
       ) : null}
       {needsClarify ? (
-        <div className="space-y-2 pt-1">
-          {clarify.map((q, idx) => (
-            <div key={q.id || idx} className="space-y-1.5">
-              <p className="text-xs" style={{ color: colors.text }}>
-                {q.prompt || "请补充信息"}
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {(q.choices || []).map((choice) => (
-                  <Button
-                    key={choice}
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs px-2"
-                    disabled={!!clarifyBusy}
-                    onClick={() => onClarifyAnswer?.(choice)}
-                  >
-                    {choice}
-                  </Button>
-                ))}
+        <div className="space-y-2 pt-1 min-w-0 overflow-hidden">
+          {clarify.map((q, idx) => {
+            const choices = Array.from(
+              new Set(
+                (q.choices || [])
+                  .map((c) => sanitizeClarifyChoice(c))
+                  .filter((c): c is string => !!c)
+              )
+            ).slice(0, 6);
+            return (
+              <div key={q.id || idx} className="space-y-1.5 min-w-0">
+                <p className="text-xs break-words" style={{ color: colors.text }}>
+                  {q.prompt || "请补充信息"}
+                </p>
+                {choices.length ? (
+                  <div className="flex flex-wrap gap-1.5 min-w-0">
+                    {choices.map((choice) => (
+                      <Button
+                        key={choice}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-auto min-h-7 max-w-full text-xs px-2 py-1 whitespace-normal break-words"
+                        disabled={!!clarifyBusy}
+                        onClick={() => onClarifyAnswer?.(choice)}
+                        title={choice}
+                      >
+                        <span className="line-clamp-2 text-left">{choice}</span>
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            </div>
-          ))}
+            );
+          })}
           <p className="text-[11px]" style={{ color: colors.secondaryText }}>
             也可在下方输入框直接回答后继续编排
           </p>
@@ -329,7 +465,8 @@ function ProcessTimeline({
           ? prev
           : Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
       );
-      setOpen(false);
+      // Keep open so orchestration phases remain visible after finish
+      setOpen(true);
     }
   }, [streaming]);
 
@@ -342,11 +479,12 @@ function ProcessTimeline({
   const spine =
     themeMode === "light" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.14)";
 
+  const phaseCount = steps.filter((s) => s.kind === "node").length;
   const headerLabel = streaming
-    ? "正在思考"
+    ? "正在思考 / 编排"
     : elapsedSec != null
-      ? `已思考（用时 ${elapsedSec} 秒）`
-      : "已思考";
+      ? `思考过程（${steps.length} 步 · ${elapsedSec}s）`
+      : `思考过程（${steps.length} 步${phaseCount ? ` · ${phaseCount} 阶段` : ""}）`;
 
   return (
     <div className="mb-2.5">
@@ -366,7 +504,7 @@ function ProcessTimeline({
       </button>
 
       {open ? (
-        <div className="relative mt-2 pl-3.5">
+        <div className="relative mt-2 pl-3.5 max-h-72 overflow-y-auto">
           <div
             className="absolute left-[6px] top-1 bottom-1 w-px"
             style={{ backgroundColor: spine }}
@@ -374,15 +512,35 @@ function ProcessTimeline({
           />
           <div className="space-y-2.5">
             {steps.map((step, idx) => {
-              const isThink = step.kind === "think";
+              const kind = String(step.kind || "think");
+              const isThink = kind === "think";
+              const isTool = kind === "tool";
+              const isWarn = kind === "warn";
+              const isClarify = kind === "clarify";
+              const isNode = kind === "node";
               const isLast = idx === steps.length - 1;
+              const body =
+                step.text || step.detail || step.summary || "";
+              const Icon = isWarn
+                ? AlertTriangle
+                : isClarify
+                  ? MessageCircleQuestion
+                  : isNode
+                    ? GitBranch
+                    : isTool
+                      ? Wrench
+                      : Brain;
               return (
-                <div key={`${step.kind}-${idx}`} className="relative pl-2.5">
+                <div key={`${kind}-${idx}-${step.label || ""}`} className="relative pl-2.5">
                   <span
                     className="absolute -left-[9px] top-1.5 h-1.5 w-1.5 rounded-full"
                     style={{
                       backgroundColor:
-                        streaming && isLast ? colors.primary : spine,
+                        streaming && isLast
+                          ? colors.primary
+                          : isWarn
+                            ? "#f59e0b"
+                            : spine,
                       boxShadow:
                         streaming && isLast
                           ? `0 0 6px ${colors.primary}`
@@ -391,28 +549,31 @@ function ProcessTimeline({
                     aria-hidden
                   />
                   <div className="flex items-start gap-1.5 min-w-0">
-                    {isThink ? (
-                      <Brain
-                        className="w-3 h-3 mt-0.5 shrink-0 opacity-80"
-                        style={{ color: thinkMuted }}
-                      />
-                    ) : (
-                      <Wrench
-                        className="w-3 h-3 mt-0.5 shrink-0"
-                        style={{
-                          color: step.ok === false ? "#ef4444" : thinkMuted,
-                        }}
-                      />
-                    )}
+                    <Icon
+                      className="w-3 h-3 mt-0.5 shrink-0 opacity-80"
+                      style={{
+                        color:
+                          step.ok === false
+                            ? "#ef4444"
+                            : isWarn
+                              ? "#f59e0b"
+                              : thinkMuted,
+                      }}
+                    />
                     <div
                       className="min-w-0 flex-1 text-[12px] leading-relaxed"
                       style={{ color: thinkMutedSoft }}
                     >
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span>
-                          {step.label || (isThink ? "思考" : step.name || "工具")}
+                        <span className={isNode ? "font-medium" : undefined}>
+                          {step.label ||
+                            (isThink
+                              ? "思考"
+                              : isTool
+                                ? step.name || "工具"
+                                : step.node || kind)}
                         </span>
-                        {!isThink ? (
+                        {isTool && step.ok != null ? (
                           <span className="font-mono text-[10px] opacity-80">
                             {step.ok === false ? "失败" : "成功"}
                             {step.elapsed_ms != null
@@ -420,23 +581,16 @@ function ProcessTimeline({
                               : ""}
                           </span>
                         ) : null}
+                        {isNode && step.node ? (
+                          <span className="font-mono text-[10px] opacity-70">
+                            {step.node}
+                          </span>
+                        ) : null}
                       </div>
-                      {isThink && step.text ? (
+                      {body ? (
                         <p className="mt-0.5 whitespace-pre-wrap break-words opacity-90">
-                          {step.text}
+                          {body}
                         </p>
-                      ) : null}
-                      {!isThink ? (
-                        <div className="mt-0.5 space-y-0.5 opacity-90">
-                          {step.detail ? (
-                            <p className="font-mono text-[11px] break-all">
-                              {step.detail}
-                            </p>
-                          ) : null}
-                          {step.summary ? (
-                            <p className="break-words">{step.summary}</p>
-                          ) : null}
-                        </div>
                       ) : null}
                     </div>
                   </div>
@@ -575,6 +729,7 @@ export default function AIAssistant({
         timestamp: formatTs(m.timestamp),
         process: Array.isArray(m.process) ? m.process : undefined,
         orchestration: m.orchestration && typeof m.orchestration === "object" ? m.orchestration : undefined,
+        agent_log: m.agent_log && typeof m.agent_log === "object" ? m.agent_log : undefined,
       })) as ChatMsg[];
       setMessages(
         msgs.length
@@ -783,6 +938,10 @@ export default function AIAssistant({
                   content: String(am?.content ?? m.content ?? ""),
                   process: Array.isArray(am?.process) ? am.process : m.process,
                   orchestration: am?.orchestration || detail.orchestration || m.orchestration,
+                  agent_log:
+                    am?.agent_log && typeof am.agent_log === "object"
+                      ? am.agent_log
+                      : m.agent_log,
                   streaming: false,
                 }
               : m
@@ -798,12 +957,15 @@ export default function AIAssistant({
             warnings: detail.orchestration.warnings,
           });
         }
+        setIsLoading(false);
+        void refreshList();
         return;
       }
 
       if (typ === "error") {
         const errText = String(detail.error || "对话失败");
         setStatusError(errText);
+        setIsLoading(false);
         setMessages((prev) => {
           let replaced = false;
           const next = prev.map((m) => {
@@ -837,7 +999,7 @@ export default function AIAssistant({
     };
     window.addEventListener("nexuz-ai-progress", handler as EventListener);
     return () => window.removeEventListener("nexuz-ai-progress", handler as EventListener);
-  }, [isOpen, activeId, applyDraftState]);
+  }, [isOpen, activeId, applyDraftState, refreshList]);
 
   // Refresh welcome bubble when mode changes and chat is empty / only welcome
   useEffect(() => {
@@ -932,6 +1094,7 @@ export default function AIAssistant({
     const useShot = isFlowMode && withShot;
     setAttachShot(false);
 
+    let waitForProgressDone = false;
     try {
       const res = await bridge.aiChat(
         activeId,
@@ -987,6 +1150,11 @@ export default function AIAssistant({
         });
         return;
       }
+      // Background orchestration: live process arrives via nexuz-ai-progress
+      if (res.async) {
+        waitForProgressDone = true;
+        return;
+      }
       const assistant = res.assistant_message;
       setMessages((prev) => {
         const aid = assistant?.id;
@@ -1025,6 +1193,12 @@ export default function AIAssistant({
                   result_id: aid,
                 }
               : undefined),
+          agent_log:
+            assistant?.agent_log && typeof assistant.agent_log === "object"
+              ? assistant.agent_log
+              : res.agent_log && typeof res.agent_log === "object"
+                ? res.agent_log
+                : undefined,
           streaming: false,
         };
         const cleaned = prev.filter(
@@ -1099,7 +1273,7 @@ export default function AIAssistant({
         ];
       });
     } finally {
-      setIsLoading(false);
+      if (!waitForProgressDone) setIsLoading(false);
     }
   };
 
@@ -1459,20 +1633,56 @@ export default function AIAssistant({
                         color: isAi ? colors.text : "#FFFFFF",
                         borderColor: colors.border,
                       }}
-                      className={`p-3 rounded-2xl text-sm leading-relaxed border ${
+                      className={`relative p-3 rounded-2xl text-sm leading-relaxed border ${
                         isAi ? "rounded-tl-none" : "border-transparent rounded-tr-none"
                       }`}
                     >
+                      {isAi && !msg.streaming ? (
+                        <button
+                          type="button"
+                          title="导出 Agent 日志（思考/规划/工具/草稿）"
+                          className="absolute top-2 right-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md opacity-70 hover:opacity-100 transition-opacity"
+                          style={{
+                            color: colors.secondaryText,
+                            backgroundColor:
+                              themeMode === "light"
+                                ? "rgba(0,0,0,0.04)"
+                                : "rgba(255,255,255,0.06)",
+                          }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void (async () => {
+                              const res = await exportAgentLogJson(
+                                buildExportAgentLog(msg, activeId),
+                                msg.id
+                              );
+                              if (res.cancelled) return;
+                              if (!res.ok) {
+                                setStatusError(res.error || "导出 Agent 日志失败");
+                                return;
+                              }
+                              setStatusError("");
+                            })();
+                          }}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      ) : null}
                       {isAi && msg.process && msg.process.length > 0 ? (
                         <ProcessTimeline
                           steps={msg.process}
                           themeMode={themeMode}
                           colors={colors}
-                          defaultOpen={!!msg.streaming}
+                          defaultOpen
                           streaming={!!msg.streaming}
                         />
                       ) : null}
-                      <p className="whitespace-pre-wrap select-text break-words">
+                      <p
+                        className={`whitespace-pre-wrap select-text break-words ${
+                          isAi && !msg.streaming ? "pr-8" : ""
+                        }`}
+                      >
                         {msg.content}
                         {msg.streaming && !msg.content && !(msg.process && msg.process.length) ? (
                           <span

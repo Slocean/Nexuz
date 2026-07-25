@@ -169,6 +169,12 @@ def _apply_outline_step(
             tool_trace=tool_trace,
             runtime=runtime,
             artifacts=artifacts,
+            window_title=str(
+                params.get("window_title")
+                or params.get("title")
+                or slots.get("window_title")
+                or ""
+            ),
         )
 
     if hint in ("wait_until", "wait_text"):

@@ -2284,12 +2284,20 @@ class Api:
         return {**saved, "copied": True, "source": str(src_path)}
 
     def export_text(self, text: str, filename: str | None = None) -> dict:
-        """Save plain text via Save dialog (for logs export)."""
+        """Save plain text / JSON via Save dialog (for logs export)."""
         raw = "" if text is None else str(text)
         stamp = time.strftime("%Y%m%d_%H%M%S")
         suggested = (filename or f"nexuz-logs-{stamp}.txt").strip() or f"nexuz-logs-{stamp}.txt"
-        if not suggested.lower().endswith(".txt"):
+        lower = suggested.lower()
+        if not any(lower.endswith(ext) for ext in (".txt", ".json", ".log", ".md", ".csv")):
             suggested += ".txt"
+            lower = suggested.lower()
+        if lower.endswith(".json"):
+            file_types = ("JSON (*.json)", "All files (*.*)")
+        elif lower.endswith(".md"):
+            file_types = ("Markdown (*.md)", "All files (*.*)")
+        else:
+            file_types = ("Text (*.txt)", "All files (*.*)")
         if not self._window:
             # Headless fallback: write next to exe/project
             out = exe_dir() / "logs" / Path(suggested).name
@@ -2300,7 +2308,7 @@ class Api:
             webview.SAVE_DIALOG,
             directory=str(exe_dir()),
             save_filename=Path(suggested).name,
-            file_types=("Text (*.txt)",),
+            file_types=file_types,
         )
         if not result:
             return {"ok": False, "cancelled": True}
@@ -3238,6 +3246,11 @@ class Api:
         attach_screenshot: bool = False,
         mode: str = "flow",
     ) -> dict:
+        """
+        Start chat/orchestration in a background thread so the WebView can keep
+        polling drain_ui_events and render live process/thinking steps.
+        Completion arrives via ai_progress type=done|error.
+        """
         try:
             flow = None
             if isinstance(base_flow, str) and base_flow.strip():
@@ -3245,6 +3258,8 @@ class Api:
             elif isinstance(base_flow, dict):
                 flow = base_flow
             cid = str(conversation_id or "")
+            if getattr(self, "_ai_chat_busy", False):
+                return {"ok": False, "error": "上一次对话仍在进行，请稍候"}
 
             def on_progress(ev: dict) -> None:
                 payload = dict(ev or {})
@@ -3254,15 +3269,48 @@ class Api:
                     urgent=True,
                 )
 
-            return self._ai_session().chat(
-                cid,
-                str(message or ""),
-                mode=str(mode or "flow"),
-                base_flow=flow,
-                attach_screenshot=bool(attach_screenshot),
-                on_progress=on_progress,
-            )
+            def worker() -> None:
+                try:
+                    res = self._ai_session().chat(
+                        cid,
+                        str(message or ""),
+                        mode=str(mode or "flow"),
+                        base_flow=flow,
+                        attach_screenshot=bool(attach_screenshot),
+                        on_progress=on_progress,
+                    )
+                    if isinstance(res, dict) and not res.get("ok"):
+                        on_progress(
+                            {
+                                "type": "error",
+                                "error": res.get("error") or "对话失败",
+                                "conversation_id": cid,
+                                "assistant_id": (res.get("assistant_id") or ""),
+                            }
+                        )
+                except Exception as exc:
+                    on_progress(
+                        {
+                            "type": "error",
+                            "error": str(exc),
+                            "conversation_id": cid,
+                        }
+                    )
+                finally:
+                    self._ai_chat_busy = False
+
+            self._ai_chat_busy = True
+            threading.Thread(
+                target=worker, daemon=True, name="nexuz-ai-chat"
+            ).start()
+            return {
+                "ok": True,
+                "async": True,
+                "conversation_id": cid,
+                "mode": str(mode or "flow"),
+            }
         except Exception as exc:
+            self._ai_chat_busy = False
             return {"ok": False, "error": str(exc)}
 
     def ai_get_draft(self, conversation_id: str) -> dict:

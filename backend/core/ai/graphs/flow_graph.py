@@ -12,6 +12,11 @@ from langgraph.graph import END, START, StateGraph
 from backend.core.ai.checkpointer import get_checkpointer, thread_config
 from backend.core.ai.draft_builder import draft_summary, empty_draft
 from backend.core.ai.graphs.outline_build import build_draft_from_outline
+from backend.core.ai.graphs.slot_extract import (
+    extract_slots_from_utterance,
+    merge_slots,
+    outline_looks_weak,
+)
 from backend.core.ai.graphs.state import (
     FlowGraphState,
     build_draft_context,
@@ -118,7 +123,45 @@ def _merge_slots(base: dict[str, str], answers: dict[str, Any]) -> dict[str, str
     return out
 
 
-def _ambiguities_to_questions(items: list[Any]) -> list[dict[str, Any]]:
+def _collapse_stutter(text: str) -> str:
+    """Collapse immediate repeated chunks: 文件传输文件传输助手 → 文件传输助手."""
+    import re
+
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    prev = None
+    while prev != s:
+        prev = s
+        s = re.sub(r"(.{2,24}?)\1+", r"\1", s)
+    return s
+
+
+def _sanitize_clarify_choice(raw: Any) -> str | None:
+    """Drop garbage / underscore-spam choices that break the clarify chip UI."""
+    import re
+
+    s = _collapse_stutter(str(raw or "").strip())
+    if not s:
+        return None
+    if len(s) > 32:
+        return None
+    if s.count("_") >= 2 or re.search(r"_{2,}", s):
+        return None
+    if re.fullmatch(r"[\W_]+", s, flags=re.UNICODE):
+        return None
+    # Reject pseudo-tokens like file_to_text
+    if re.fullmatch(r"[A-Za-z0-9_]+", s) and "_" in s:
+        return None
+    return s
+
+
+def _ambiguities_to_questions(
+    items: list[Any],
+    *,
+    known_slots: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    slots = {str(k): str(v).strip() for k, v in (known_slots or {}).items() if str(v).strip()}
     out: list[dict[str, Any]] = []
     for q in items or []:
         if hasattr(q, "model_dump"):
@@ -133,11 +176,35 @@ def _ambiguities_to_questions(items: list[Any]) -> list[dict[str, Any]]:
         # Drop fake-confirm style
         if _looks_like_fake_confirm(prompt):
             continue
+        qid = str(d.get("id") or f"q{len(out)+1}")
+        # Slot already filled → not a real ambiguity
+        if qid in slots and slots[qid]:
+            continue
+        if slots.get("contact") and any(
+            k in prompt for k in ("发给谁", "给谁", "哪位联系人", "联系人", "发送消息给谁")
+        ):
+            continue
+        if slots.get("message") and any(
+            k in prompt for k in ("发什么", "什么消息", "消息内容", "发送内容")
+        ):
+            continue
+        if slots.get("window_title") and any(
+            k in prompt for k in ("哪个应用", "哪个窗口", "什么软件")
+        ):
+            continue
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for c in list(d.get("choices") or []):
+            sc = _sanitize_clarify_choice(c)
+            if not sc or sc in seen:
+                continue
+            seen.add(sc)
+            cleaned.append(sc)
         out.append(
             {
-                "id": str(d.get("id") or f"q{len(out)+1}"),
+                "id": qid,
                 "prompt": prompt,
-                "choices": list(d.get("choices") or []),
+                "choices": cleaned,
                 "allow_free_text": bool(d.get("allow_free_text", True)),
             }
         )
@@ -230,6 +297,21 @@ def make_flow_nodes(
     conversation_id: str,
     assistant_id: str,
 ):
+    def _broadcast_process(proc: list[dict[str, Any]]) -> None:
+        if not on_progress or not proc:
+            return
+        on_progress(
+            {
+                "type": "process",
+                "mode": "flow",
+                "conversation_id": conversation_id,
+                "assistant_id": assistant_id,
+                "step": proc[-1],
+                "process": list(proc),
+                "node": proc[-1].get("node"),
+            }
+        )
+
     def load_context(state: FlowGraphState) -> dict[str, Any]:
         draft = state.get("draft") or empty_draft()
         artifacts = state.get("artifacts") or {"shots": {}, "points": {}}
@@ -290,8 +372,11 @@ def make_flow_nodes(
         prior_slots = dict(state.get("known_slots") or {})
         answers = dict(state.get("clarify_answers") or {})
         understanding: IntentUnderstanding
+        extracted = extract_slots_from_utterance(user_input)
         try:
-            llm = create_chat_model(cfg, temperature=0.1, streaming=False)
+            llm = create_chat_model(
+                cfg, temperature=0.1, streaming=False, max_tokens=1024
+            )
             structured = llm.with_structured_output(IntentUnderstanding)
             understanding = structured.invoke(
                 [
@@ -300,7 +385,7 @@ def make_flow_nodes(
                         content=(
                             f"已有槽位：{safe_json(prior_slots)}\n"
                             f"用户刚补充的答案：{safe_json(answers)}\n"
-                            f"上下文：\n{state.get('context') or ''}"
+                            f"上下文：\n{(state.get('context') or '')[:2500]}"
                         )
                     ),
                     HumanMessage(content=user_input),
@@ -309,10 +394,10 @@ def make_flow_nodes(
             if not isinstance(understanding, IntentUnderstanding):
                 understanding = IntentUnderstanding.model_validate(understanding)
         except Exception as exc:
-            # Minimal offline understanding — extract nothing invented
+            # Offline understanding: deterministic slot extract (no invented values)
             understanding = IntentUnderstanding(
                 intent=user_input[:120],
-                known_slots=prior_slots,
+                known_slots=merge_slots(prior_slots, extracted),
                 ambiguities=[],
             )
             proc.append(
@@ -320,12 +405,16 @@ def make_flow_nodes(
                     "kind": "warn",
                     "node": "understand",
                     "label": "理解回退",
-                    "text": f"结构化理解失败，使用弱回退：{exc}",
+                    "text": f"结构化理解失败，使用话术抽槽回退：{exc}",
                 }
             )
         slots = _merge_slots(understanding.known_slots, answers)
         slots = _merge_slots(prior_slots, slots)
-        ambiguities = _ambiguities_to_questions(understanding.ambiguities)
+        # Fill gaps from utterance even when LLM returned empty slots
+        slots = merge_slots(slots, extracted)
+        ambiguities = _ambiguities_to_questions(
+            understanding.ambiguities, known_slots=slots
+        )
         # If user just answered, drop resolved ambiguity ids
         if answers:
             answered = set(answers.keys())
@@ -333,14 +422,23 @@ def make_flow_nodes(
             # Free-text answer to first pending: treat whole message as value for first unanswered
             if not ambiguities and answers.get("__free_text__"):
                 pass
-        proc = _append_process({**state, "process": proc}, step)
+        slot_line = "、".join(f"{k}={v}" for k, v in list(slots.items())[:8]) or "（无）"
         proc.append(
             {
                 "kind": "think",
                 "label": "意图",
-                "text": understanding.intent or user_input[:80],
+                "text": (
+                    f"{understanding.intent or user_input[:80]}\n"
+                    f"槽位：{slot_line}"
+                    + (
+                        f"\n待澄清：{len(ambiguities)} 项"
+                        if ambiguities
+                        else ""
+                    )
+                ),
             }
         )
+        _broadcast_process(proc)
         return {
             "intent": understanding.intent or user_input[:120],
             "known_slots": slots,
@@ -380,7 +478,6 @@ def make_flow_nodes(
             if qid and qid in answers and str(answers[qid]).strip():
                 continue
             still.append(q)
-        proc = _append_process({**state, "process": proc}, step)
         if still:
             proc.append(
                 {
@@ -390,6 +487,7 @@ def make_flow_nodes(
                     "text": still[0].get("prompt") or "请补充信息",
                 }
             )
+            _broadcast_process(proc)
             return {
                 "clarify_questions": still,
                 "clarify_answers": answers,
@@ -397,6 +495,15 @@ def make_flow_nodes(
                 "status_hint": "needs_clarify",
                 "process": proc,
             }
+        if resume and answers:
+            proc.append(
+                {
+                    "kind": "think",
+                    "label": "澄清已答",
+                    "text": "、".join(f"{k}={v}" for k, v in answers.items() if v),
+                }
+            )
+            _broadcast_process(proc)
         return {
             "clarify_questions": [],
             "clarify_answers": answers,
@@ -421,8 +528,13 @@ def make_flow_nodes(
         slots = dict(state.get("known_slots") or {})
         hints = list(state.get("gap_hints") or [])
         outline_prev = state.get("outline") if isinstance(state.get("outline"), dict) else {}
+        slots = merge_slots(
+            slots, extract_slots_from_utterance(state.get("input") or intent)
+        )
         try:
-            llm = create_chat_model(cfg, temperature=0.2, streaming=False)
+            llm = create_chat_model(
+                cfg, temperature=0.2, streaming=False, max_tokens=1024
+            )
             structured = llm.with_structured_output(PlanOutline)
             result = structured.invoke(
                 [
@@ -431,14 +543,24 @@ def make_flow_nodes(
                         content=(
                             f"意图：{intent}\n槽位：{safe_json(slots)}\n"
                             f"补洞提示：{safe_json(hints)}\n"
-                            f"上一版大纲：{safe_json(outline_prev)[:2000]}\n"
-                            f"上下文：\n{state.get('context') or ''}"
+                            f"上一版大纲：{safe_json(outline_prev)[:1200]}\n"
+                            f"上下文：\n{(state.get('context') or '')[:2000]}"
                         )
                     ),
                     HumanMessage(content=state.get("input") or intent),
                 ]
             )
             outline = result.model_dump() if isinstance(result, PlanOutline) else PlanOutline.model_validate(result).model_dump()
+            if outline_looks_weak(outline) and slots:
+                outline = _fallback_outline(intent, slots)
+                proc.append(
+                    {
+                        "kind": "warn",
+                        "node": "plan_outline",
+                        "label": "大纲补强",
+                        "text": "模型大纲过弱，已用槽位确定性重建",
+                    }
+                )
         except Exception as exc:
             outline = _fallback_outline(intent, slots)
             proc.append(
@@ -460,15 +582,23 @@ def make_flow_nodes(
                 if str((s or {}).get("block_hint") or "")
                 not in ("schedule_trigger", "schedule_at", "schedule")
             ]
-        proc = _append_process({**state, "process": proc}, step)
+        step_goals = [
+            str(s.get("goal") or s.get("block_hint") or "")
+            for s in (outline.get("steps") or [])
+            if isinstance(s, dict)
+        ]
         proc.append(
             {
                 "kind": "think",
                 "label": "大纲",
-                "text": f"{len(outline.get('steps') or [])} 步：{outline.get('summary') or ''}",
+                "text": (
+                    f"{len(step_goals)} 步：{outline.get('summary') or ''}\n"
+                    + (" → ".join(g for g in step_goals if g) or "（空）")
+                ),
             }
         )
-        return {"outline": outline, "process": proc}
+        _broadcast_process(proc)
+        return {"outline": outline, "known_slots": slots, "process": proc}
 
     def gap_check(state: FlowGraphState) -> dict[str, Any]:
         step = {
@@ -486,8 +616,13 @@ def make_flow_nodes(
         outline = state.get("outline") if isinstance(state.get("outline"), dict) else {}
         slots = dict(state.get("known_slots") or {})
         intent = state.get("intent") or ""
+        slots = merge_slots(
+            slots, extract_slots_from_utterance(state.get("input") or intent)
+        )
         try:
-            llm = create_chat_model(cfg, temperature=0, streaming=False)
+            llm = create_chat_model(
+                cfg, temperature=0, streaming=False, max_tokens=512
+            )
             structured = llm.with_structured_output(GapCheckResult)
             result = structured.invoke(
                 [
@@ -509,7 +644,6 @@ def make_flow_nodes(
         if not steps:
             complete = False
             gap.setdefault("missing", []).append("大纲为空")
-        proc = _append_process({**state, "process": proc}, step)
         proc.append(
             {
                 "kind": "think",
@@ -517,8 +651,10 @@ def make_flow_nodes(
                 "text": "通过" if complete else f"缺：{', '.join(gap.get('missing') or [])}",
             }
         )
+        _broadcast_process(proc)
         return {
             "process": proc,
+            "known_slots": slots,
             "gap_rounds": rounds + (0 if complete else 1),
             "status_hint": "outline_ok" if complete else "outline_gap",
             "gap_hints": list(gap.get("hints") or gap.get("missing") or []),
@@ -544,7 +680,25 @@ def make_flow_nodes(
         )
         trace = list(state.get("tool_trace") or [])
         outline = state.get("outline") if isinstance(state.get("outline"), dict) else {}
-        slots = dict(state.get("known_slots") or {})
+        slots = merge_slots(
+            dict(state.get("known_slots") or {}),
+            extract_slots_from_utterance(
+                state.get("input") or state.get("intent") or ""
+            ),
+        )
+        # Tool-calling often broken on local models; never build from delay-only outline
+        if outline_looks_weak(outline):
+            outline = _fallback_outline(
+                state.get("intent") or state.get("input") or "", slots
+            )
+            proc.append(
+                {
+                    "kind": "warn",
+                    "node": "build_loop",
+                    "label": "大纲重建",
+                    "text": "落图前大纲过弱，已按槽位重建步骤",
+                }
+            )
         session = ToolSession(
             draft=draft,
             artifacts=artifacts,
@@ -609,7 +763,15 @@ def make_flow_nodes(
                 }
             )
 
-        proc = _append_process({**state, "process": proc}, step)
+        ncount = len(session.draft.get("nodes") or {})
+        proc.append(
+            {
+                "kind": "think",
+                "label": "落图结果",
+                "text": f"草稿现有 {ncount} 个节点",
+            }
+        )
+        _broadcast_process(proc)
         warnings = collect_coord_warnings(session.draft)
         return {
             "draft": session.draft,
@@ -654,7 +816,14 @@ def make_flow_nodes(
             if isinstance(x, (int, float)) and isinstance(y, (int, float)):
                 if not node.get("_ai_point_ref"):
                     errors.append(f"节点 {nid} 疑似裸坐标 click")
-        proc = _append_process({**state, "process": proc}, step)
+        proc.append(
+            {
+                "kind": "think",
+                "label": "校验",
+                "text": "通过" if not errors else "；".join(errors[:4]),
+            }
+        )
+        _broadcast_process(proc)
         return {"validation_errors": errors, "process": proc}
 
     def repair(state: FlowGraphState) -> dict[str, Any]:
@@ -707,7 +876,7 @@ def make_flow_nodes(
         nodes = session.draft.get("nodes") if isinstance(session.draft.get("nodes"), dict) else {}
         if nodes and not session.draft.get("entry"):
             session.draft["entry"] = next(iter(nodes.keys()))
-        proc = _append_process({**state, "process": proc}, step)
+        _broadcast_process(proc)
         return {
             "draft": session.draft,
             "artifacts": session.artifacts,
@@ -750,9 +919,18 @@ def make_flow_nodes(
             replace=True,
         )
         ncount = int(summary.get("node_count") or 0)
-        if not clarify and ncount > 0:
+        types = [
+            str(n.get("type") or "")
+            for n in (summary.get("nodes") or [])
+            if isinstance(n, dict)
+        ]
+        weak_draft = ncount <= 1 and set(types) <= {"", "delay"}
+        # Skip LLM polish for weak drafts — local models often invent "无需澄清"
+        if not clarify and ncount > 0 and not weak_draft:
             try:
-                llm = create_chat_model(cfg, temperature=0, streaming=True)
+                llm = create_chat_model(
+                    cfg, temperature=0, streaming=True, max_tokens=512
+                )
                 content, _ = stream_chat_model(
                     llm,
                     [
@@ -779,7 +957,7 @@ def make_flow_nodes(
                         )
             except Exception:
                 pass
-        proc = _append_process({**state, "process": proc}, step)
+        _broadcast_process(proc)
         return {"reply": reply, "process": proc}
 
     return {
@@ -796,7 +974,8 @@ def make_flow_nodes(
 
 
 def _fallback_outline(intent: str, slots: dict[str, str]) -> dict[str, Any]:
-    """Weak offline outline from slots only — no invented contacts."""
+    """Offline outline from slots (+ utterance extract) — no invented contacts."""
+    slots = merge_slots(slots, extract_slots_from_utterance(intent))
     steps: list[dict[str, Any]] = []
     i = 1
     if slots.get("run_at") or str(slots.get("schedule") or "").lower() in ("true", "1", "yes"):
@@ -829,6 +1008,9 @@ def _fallback_outline(intent: str, slots: dict[str, str]) -> dict[str, Any]:
                 "block_hint": "ocr_click",
                 "needs_sense": "ocr",
                 "match_text": slots["contact"],
+                "params": {
+                    "window_title": slots.get("window_title") or "",
+                },
             }
         )
         i += 1
@@ -850,6 +1032,9 @@ def _fallback_outline(intent: str, slots: dict[str, str]) -> dict[str, Any]:
                 "block_hint": "ocr_click",
                 "needs_sense": "ocr",
                 "match_text": "发送",
+                "params": {
+                    "window_title": slots.get("window_title") or "",
+                },
             }
         )
         i += 1

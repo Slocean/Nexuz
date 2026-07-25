@@ -35,10 +35,17 @@ def heuristic_plan_from_text(text: str) -> FlowSpec:
     ) or bool(re.search(r"给.+发送", t))
     if send_intent:
         contact = ""
-        m = re.search(r"发给\s*([^\s，,「\"'“]+?)(?:\s|发|送|消息|$)", t)
+        m = re.search(
+            r"给\s*(.+?)\s*(?:给他|给她|给它)?\s*(?:发送|发消息|发一条|发：|发:)",
+            t,
+        )
         if m:
-            contact = m.group(1).strip()
-        else:
+            contact = re.sub(r"(他|她|它)$", "", m.group(1).strip()).strip()
+        if not contact:
+            m = re.search(r"发给\s*([^\s，,「\"'“]+?)(?:\s|发|送|消息|$)", t)
+            if m:
+                contact = m.group(1).strip()
+        if not contact:
             m = re.search(r"给\s*([^\s，,发「\"'“]+?)\s*(?:发|送)", t)
             if m:
                 contact = m.group(1).strip()

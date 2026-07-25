@@ -118,6 +118,9 @@ def _apply_step(
                 tool_trace=tool_trace,
                 runtime=runtime,
                 artifacts=artifacts,
+                window_title=str(
+                    params.get("window_title") or params.get("title") or ""
+                ),
             )
         if name in ("delay_type", "type_after_delay"):
             return _recipe_delay_type(
@@ -224,6 +227,9 @@ def _apply_step(
             tool_trace=tool_trace,
             runtime=runtime,
             artifacts=artifacts,
+            window_title=str(
+                params.get("window_title") or params.get("title") or ""
+            ),
         )
 
     if action == "delay":
@@ -548,6 +554,7 @@ def _recipe_wechat_send_message(
         tool_trace=tool_trace,
         runtime=runtime,
         artifacts=artifacts,
+        window_title=window_title,
     )
     draft, tid = draft_builder.add_node(
         draft, block_type="type_text", params={"text": message}
@@ -561,6 +568,7 @@ def _recipe_wechat_send_message(
         tool_trace=tool_trace,
         runtime=runtime,
         artifacts=artifacts,
+        window_title=window_title,
     )
     return cur
 
@@ -611,20 +619,32 @@ def _recipe_ocr_click_chain(
     tool_trace: list[dict[str, Any]],
     runtime: ToolRuntime,
     artifacts: dict[str, Any],
+    window_title: str | None = None,
 ) -> str:
     """
     Prefer a single ocr_recognize with match_text + click bound to its outputs.
-    Falls back to ocr → locate_text → click if schemas differ.
+    Region is resolved at runtime: target window (if titled) or full virtual screen.
     """
     text = (match_text or "").strip()
     if not text:
         raise ValueError("ocr_click 需要 match_text")
 
-    # ocr_recognize with match_text — many Nexuz builds expose x/y outputs
+    ocr_params: dict[str, Any] = {
+        "match_text": text,
+        "source_mode": "screen",
+        # Leave region empty on purpose: resolve_ocr_region falls back to
+        # window_title / fullscreen at run time (not a baked 320x80 corner).
+        "output_coordinate_mode": "screen_abs",
+    }
+    title = (window_title or "").strip()
+    if title:
+        ocr_params["window_title"] = title
+        ocr_params["title"] = title
+
     draft, ocr_id = draft_builder.add_node(
         draft,
         block_type="ocr_recognize",
-        params={"match_text": text},
+        params=ocr_params,
     )
     _auto_connect(draft, last_node_id, ocr_id)
 

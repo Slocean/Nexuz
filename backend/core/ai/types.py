@@ -16,6 +16,8 @@ class ChatMessage:
     process: list[dict[str, Any]] = field(default_factory=list)
     # Snapshot of draft card attached to this message (persist so UI doesn't vanish).
     orchestration: dict[str, Any] | None = None
+    # Full turn dump for export / debugging (intent, outline, slots, tools…).
+    agent_log: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -28,6 +30,8 @@ class ChatMessage:
             out["process"] = self.process
         if self.orchestration:
             out["orchestration"] = self.orchestration
+        if self.agent_log:
+            out["agent_log"] = self.agent_log
         return out
 
     @classmethod
@@ -35,6 +39,7 @@ class ChatMessage:
         raw_proc = data.get("process")
         process = [p for p in raw_proc if isinstance(p, dict)] if isinstance(raw_proc, list) else []
         orch = data.get("orchestration") if isinstance(data.get("orchestration"), dict) else None
+        agent_log = data.get("agent_log") if isinstance(data.get("agent_log"), dict) else None
         return cls(
             id=str(data.get("id") or ""),
             role=str(data.get("role") or "user"),
@@ -42,6 +47,7 @@ class ChatMessage:
             timestamp=str(data.get("timestamp") or ""),
             process=process,
             orchestration=orch,
+            agent_log=agent_log,
         )
 
 

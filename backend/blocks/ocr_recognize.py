@@ -548,11 +548,69 @@ def _infer_ocr(arr):
                 arr = np.ascontiguousarray(arr.copy())
 
 
+def _has_match_query(params: dict) -> bool:
+    if str(params.get("match_text") or "").strip():
+        return True
+    texts = params.get("match_texts")
+    if isinstance(texts, str) and texts.strip():
+        return True
+    if isinstance(texts, (list, tuple)) and any(str(t or "").strip() for t in texts):
+        return True
+    return False
+
+
+def _region_from_window_hint(params: dict) -> tuple[int, int, int, int] | None:
+    """Resolve OCR search box from window title/process (runtime, after window_activate)."""
+    title = str(
+        params.get("window_title") or params.get("title") or ""
+    ).strip()
+    process = str(params.get("process_name") or "").strip()
+    if not title and not process:
+        return None
+    try:
+        from backend.blocks._window_ops import match_or_error
+
+        hwnd, _info, _err = match_or_error(
+            {"title": title, "process_name": process, "class_name": ""}
+        )
+        if not hwnd:
+            return None
+        from backend.core import window_coords as wc
+
+        geom = wc._client_geometry(int(hwnd))
+        if not geom:
+            return None
+        left, top, width, height = geom
+        return validate_region([left, top, left + width, top + height])
+    except Exception:
+        return None
+
+
+def _fullscreen_search_region() -> tuple[int, int, int, int]:
+    from backend.blocks._helpers import virtual_screen_size
+
+    left, top, vw, vh = virtual_screen_size()
+    return validate_region([left, top, left + max(8, vw), top + max(8, vh)])
+
+
+def _fallback_search_region(params: dict) -> tuple[int, int, int, int] | None:
+    """
+    When AI/recipe leaves region empty but has match_text, search the target
+    window (if hinted) or the full virtual screen — never the tiny 320x80 default.
+    """
+    win = _region_from_window_hint(params)
+    if win:
+        return win
+    if _has_match_query(params):
+        return _fullscreen_search_region()
+    return None
+
+
 def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | None]:
     """
     Resolve OCR box.
     Honors region_mode when set: rect | xy | anchor.
-    Legacy (no mode): anchor_template → region → x,y,width,height.
+    Legacy (no mode): anchor_template → region → window hint / fullscreen → x,y,width,height.
     Returns ((x1,y1,x2,y2), anchor_info_or_none).
     """
     mode = str(params.get("region_mode") or "").strip().lower()
@@ -606,9 +664,12 @@ def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | 
         return _from_xy()
     if mode == "rect":
         resolved = resolve_region_from_params(params)
-        if not resolved:
-            raise ValueError("请框选识别区域")
-        return resolved, None
+        if resolved:
+            return resolved, None
+        fallback = _fallback_search_region(params)
+        if fallback:
+            return fallback, None
+        raise ValueError("请框选识别区域")
 
     # Legacy priority
     if str(params.get("anchor_template") or "").strip():
@@ -616,6 +677,9 @@ def resolve_ocr_region(params: dict) -> tuple[tuple[int, int, int, int], dict | 
     resolved = resolve_region_from_params(params)
     if resolved:
         return resolved, None
+    fallback = _fallback_search_region(params)
+    if fallback:
+        return fallback, None
     return _from_xy()
 
 

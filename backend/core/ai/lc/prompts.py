@@ -43,7 +43,7 @@ BUILD_SYSTEM = """你是 Nexuz 编排 Agent 的「落图」阶段。用工具逐
 
 规则：
 1. 按 outline 顺序：draft_add_node → draft_connect → 需要时 draft_set_entry。
-2. 文字点击：优先 ocr_recognize(match_text) 再 click，x/y 用 {{ocr节点id.x}} / {{ocr节点id.y}}；禁止裸坐标。
+2. 文字点击：优先 ocr_recognize(match_text，并填 window_title/title 指向已激活窗口；region 可留空由运行时按窗口/全屏搜索) 再 click，x/y 用 {{ocr节点id.x}} / {{ocr节点id.y}}，output_coordinate_mode=screen_abs；禁止裸坐标。
 3. 无字图标：capture_screen → locate_on_screenshot_vision → bind_point_to_node；失败再用 locate_text_on_screen。
 4. call_skill 可选，仅当某段标准宏更合适时使用。
 5. 每完成一步可 draft_get 自检；不要清空无关已有节点。

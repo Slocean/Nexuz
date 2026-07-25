@@ -441,12 +441,24 @@ class SessionManager:
             )
             return {"ok": False, "error": str(exc)}
 
+        agent_log = {
+            "version": 1,
+            "mode": "chat",
+            "conversation_id": conversation_id,
+            "assistant_id": assistant_id,
+            "timestamp": _utc_now_iso(),
+            "model": cfg.model,
+            "user_text": text,
+            "process": process,
+            "reply": assistant_text,
+        }
         assistant_msg = ChatMessage(
             id=assistant_id,
             role="assistant",
             content=assistant_text,
             timestamp=_utc_now_iso(),
             process=process,
+            agent_log=agent_log,
         )
 
         meta_raw = conv.get("meta") or {}
@@ -670,6 +682,28 @@ class SessionManager:
         except Exception:
             pass
 
+        agent_log = {
+            "version": 1,
+            "mode": "flow",
+            "conversation_id": conversation_id,
+            "assistant_id": assistant_id,
+            "timestamp": _utc_now_iso(),
+            "model": cfg.model,
+            "user_text": text,
+            "status": status,
+            "intent": next_agent_state.get("intent") or "",
+            "known_slots": next_agent_state.get("known_slots") or {},
+            "outline": next_agent_state.get("outline") or {},
+            "clarify_questions": clarify,
+            "plan": out.get("plan") or {},
+            "process": process,
+            "tool_trace": turn_tool_trace,
+            "warnings": warnings,
+            "validation_errors": list(out.get("validation_errors") or []),
+            "draft_summary": draft_summary(draft),
+            "reply": assistant_text,
+            "status_hint": out.get("status_hint") or "",
+        }
         assistant_msg = ChatMessage(
             id=assistant_id,
             role="assistant",
@@ -677,6 +711,7 @@ class SessionManager:
             timestamp=_utc_now_iso(),
             process=process,
             orchestration=orch,
+            agent_log=agent_log,
         )
 
         meta_raw = conv.get("meta") or {}
@@ -723,6 +758,7 @@ class SessionManager:
             "assistant_message": {
                 **assistant_msg.to_dict(),
                 "orchestration": orch_live,
+                "agent_log": agent_log,
             },
             "meta": updated.to_dict() if updated else meta_raw,
             "usage": None,
@@ -736,6 +772,7 @@ class SessionManager:
             "status": status,
             "warnings": warnings,
             "orchestration": orch_live,
+            "agent_log": agent_log,
         }
         on_progress(
             {
