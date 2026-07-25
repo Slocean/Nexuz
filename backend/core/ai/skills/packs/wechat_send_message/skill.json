@@ -1,0 +1,10 @@
+{
+  "id": "wechat_send_message",
+  "label": "微信定时发消息",
+  "description": "北极星骨架：定时→激活微信→OCR点联系人→输入→点发送（多候选需澄清）",
+  "triggers": ["微信", "发给", "发消息"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "wechat_send_message",
+  "needs_clarify": ["contact", "message", "run_at"]
+}

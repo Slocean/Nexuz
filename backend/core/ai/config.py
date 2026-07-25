@@ -104,7 +104,19 @@ def set_ai_config(patch: dict[str, Any] | None) -> AiConfig:
     current = AiConfig.from_dict(current_raw)
 
     merged = current.to_dict()
-    for key in ("enabled", "provider", "preset", "base_url", "model", "temperature", "timeout_s"):
+    for key in (
+        "enabled",
+        "provider",
+        "preset",
+        "base_url",
+        "model",
+        "temperature",
+        "timeout_s",
+        "supports_vision",
+        "supports_structured",
+        "allow_dangerous",
+        "disabled_skills",
+    ):
         if key in patch:
             merged[key] = patch[key]
 

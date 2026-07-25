@@ -44,16 +44,24 @@ interface ProcessStep {
   elapsed_ms?: number;
 }
 
+interface ClarifyQuestion {
+  id?: string;
+  prompt?: string;
+  choices?: string[];
+  allow_free_text?: boolean;
+}
+
 interface OrchestrationCard {
   summary?: DraftSummary;
   diff?: DraftDiff;
   warnings?: string[];
-  tool_trace?: { name?: string; ok?: boolean }[];
+  tool_trace?: { name?: string; ok?: boolean; skill?: string }[];
   points?: AiPointPreview[];
   shot?: AiShotPreview | null;
   status?: string;
   has_result?: boolean;
   result_id?: string;
+  clarify_questions?: ClarifyQuestion[];
 }
 
 interface ChatMsg {
@@ -150,6 +158,8 @@ function OrchestrationResultCard({
   onDiscard,
   canApply,
   showDiscard,
+  onClarifyAnswer,
+  clarifyBusy,
 }: {
   card: OrchestrationCard;
   colors: ReturnType<typeof getThemeColors>;
@@ -159,6 +169,8 @@ function OrchestrationResultCard({
   onDiscard: () => void;
   canApply: boolean;
   showDiscard: boolean;
+  onClarifyAnswer?: (text: string) => void;
+  clarifyBusy?: boolean;
 }) {
   const summary = card.summary;
   const diff = card.diff;
@@ -166,8 +178,16 @@ function OrchestrationResultCard({
   const addedCount = diff?.added?.length || 0;
   const warnings = card.warnings || [];
   const toolTrace = card.tool_trace || [];
+  const clarify = card.clarify_questions || [];
+  const needsClarify = card.status === "needs_clarify" || clarify.length > 0;
   const mutedBg =
     themeMode === "light" ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)";
+  const riskHints: string[] = [];
+  if (diff?.removed?.length) riskHints.push(`将删除 ${diff.removed.length} 个节点`);
+  if (diff?.entry_changed) riskHints.push("入口节点已变更");
+  if (summary?.nodes?.some((n) => n.unverified_coords)) {
+    riskHints.push("含未验证坐标");
+  }
 
   return (
     <div
@@ -176,9 +196,10 @@ function OrchestrationResultCard({
     >
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs" style={{ color: colors.secondaryText }}>
-          草稿 {nodeCount} 节点
+          {needsClarify ? "需要澄清" : "草稿"} {nodeCount} 节点
           {addedCount ? ` · +${addedCount}` : ""}
           {diff?.removed?.length ? ` · -${diff.removed.length}` : ""}
+          {diff?.changed?.length ? ` · ~${diff.changed.length}` : ""}
         </p>
         <div className="flex items-center gap-1">
           {showDiscard ? (
@@ -201,7 +222,7 @@ function OrchestrationResultCard({
             className="h-7 text-xs px-2.5"
             style={{ backgroundColor: colors.primary }}
             onClick={onApply}
-            disabled={applying || !canApply}
+            disabled={applying || !canApply || needsClarify}
           >
             {applying ? (
               <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -212,17 +233,46 @@ function OrchestrationResultCard({
           </Button>
         </div>
       </div>
-      {summary?.nodes?.some((n) => n.unverified_coords) || warnings.length ? (
+      {riskHints.length || warnings.length ? (
         <p className="text-[11px] text-amber-600 dark:text-amber-300">
-          {warnings[0] || "部分节点含未经验证取点的坐标"}
+          {riskHints[0] || warnings[0] || "部分节点含未经验证取点的坐标"}
         </p>
+      ) : null}
+      {needsClarify ? (
+        <div className="space-y-2 pt-1">
+          {clarify.map((q, idx) => (
+            <div key={q.id || idx} className="space-y-1.5">
+              <p className="text-xs" style={{ color: colors.text }}>
+                {q.prompt || "请补充信息"}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {(q.choices || []).map((choice) => (
+                  <Button
+                    key={choice}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs px-2"
+                    disabled={!!clarifyBusy}
+                    onClick={() => onClarifyAnswer?.(choice)}
+                  >
+                    {choice}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+            也可在下方输入框直接回答后继续编排
+          </p>
+        </div>
       ) : null}
       {toolTrace.length > 0 ? (
         <p className="text-[11px] font-mono break-all" style={{ color: colors.secondaryText }}>
           tools:{" "}
           {toolTrace
             .slice(-10)
-            .map((t) => `${t.name}${t.ok === false ? "✗" : "✓"}`)
+            .map((t) => `${t.skill || t.name}${t.ok === false ? "✗" : "✓"}`)
             .join(" · ")}
         </p>
       ) : null}
@@ -813,11 +863,14 @@ export default function AIAssistant({
     }
   };
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((!inputValue.trim() && !(isFlowMode && attachShot)) || isLoading || !activeId) return;
+  const sendUserMessage = async (rawContent: string, opts?: { withShot?: boolean }) => {
+    if (isLoading || !activeId) return;
+    const withShot = !!opts?.withShot;
+    const content =
+      rawContent.trim() ||
+      (withShot && isFlowMode ? "请根据截图帮忙编排/取点" : "");
+    if (!content && !(withShot && isFlowMode)) return;
 
-    const content = inputValue.trim() || (attachShot && isFlowMode ? "请根据截图帮忙编排/取点" : "");
     setInputValue("");
     setIsLoading(true);
     setStatusError("");
@@ -825,7 +878,7 @@ export default function AIAssistant({
     const optimistic: ChatMsg = {
       id: `local-${Date.now()}`,
       role: "user",
-      content: attachShot && isFlowMode ? `${content}\n（附带屏幕截图）` : content,
+      content: withShot && isFlowMode ? `${content}\n（附带屏幕截图）` : content,
       timestamp: formatTs(),
     };
     // Placeholder assistant bubble so UI never shows a second "编排中" row.
@@ -846,7 +899,7 @@ export default function AIAssistant({
       ];
     });
 
-    const useShot = isFlowMode && attachShot;
+    const useShot = isFlowMode && withShot;
     setAttachShot(false);
 
     try {
@@ -937,6 +990,7 @@ export default function AIAssistant({
                   points: res.points,
                   shot: res.shot,
                   status: res.status,
+                  clarify_questions: res.clarify_questions,
                   has_result: true,
                   result_id: aid,
                 }
@@ -1017,6 +1071,16 @@ export default function AIAssistant({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if ((!inputValue.trim() && !(isFlowMode && attachShot)) || isLoading || !activeId) return;
+    await sendUserMessage(inputValue, { withShot: attachShot });
+  };
+
+  const handleClarifyAnswer = (text: string) => {
+    void sendUserMessage(text);
   };
 
   const handleApply = async (messageId?: string) => {
@@ -1410,6 +1474,8 @@ export default function AIAssistant({
                             )
                           }
                           onDiscard={() => void handleCancelDraft()}
+                          onClarifyAnswer={handleClarifyAnswer}
+                          clarifyBusy={isLoading}
                         />
                       ) : null}
                     </div>

@@ -75,6 +75,8 @@ def create_chat_model(
 
 def test_chat_model(cfg: AiConfig | None = None) -> dict[str, Any]:
     """Ping the configured gateway; used by ai_test_connection."""
+    from backend.core.ai.vision_locate import infer_supports_vision
+
     c = cfg or get_ai_config()
     if not (c.base_url or "").strip():
         return {"ok": False, "error": "未配置 Base URL"}
@@ -88,17 +90,43 @@ def test_chat_model(cfg: AiConfig | None = None) -> dict[str, Any]:
         )
         content = getattr(msg, "content", None)
         if isinstance(content, list):
-            # multimodal content blocks
             text = "".join(
                 str(part.get("text", "")) if isinstance(part, dict) else str(part)
                 for part in content
             )
         else:
             text = str(content or "")
+
+        supports_structured = False
+        try:
+            from pydantic import BaseModel, Field
+
+            class _Probe(BaseModel):
+                ok: bool = Field(description="always true")
+
+            probe = llm.with_structured_output(_Probe).invoke(
+                [("user", "Return ok=true as structured data")]
+            )
+            supports_structured = bool(getattr(probe, "ok", True))
+        except Exception:
+            supports_structured = False
+
+        vision = (
+            c.supports_vision
+            if c.supports_vision is not None
+            else infer_supports_vision(c.model)
+        )
         return {
             "ok": True,
             "model": c.model,
             "reply_preview": text[:200],
+            "supports_structured": supports_structured,
+            "supports_vision": bool(vision),
+            "hint": (
+                "模型支持结构化输出，适合编排"
+                if supports_structured
+                else "结构化探测失败：编排将更多依赖启发式/技能，建议换支持 JSON/schema 的模型"
+            ),
         }
     except LlmError as exc:
         return {"ok": False, "error": exc.message}

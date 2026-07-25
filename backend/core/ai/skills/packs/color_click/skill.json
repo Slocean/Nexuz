@@ -1,0 +1,9 @@
+{
+  "id": "color_click",
+  "label": "取色点击",
+  "description": "颜色检测定位后点击（纯文本通路 B）",
+  "triggers": ["取色", "按颜色", "颜色点击"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "color_click"
+}

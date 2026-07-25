@@ -1,0 +1,9 @@
+{
+  "id": "if_text",
+  "label": "文字条件分支",
+  "description": "屏幕出现指定文字时分支",
+  "triggers": ["如果出现", "若包含"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "if_text"
+}

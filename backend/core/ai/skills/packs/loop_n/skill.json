@@ -1,0 +1,9 @@
+{
+  "id": "loop_n",
+  "label": "固定次数循环",
+  "description": "循环 N 次执行后续节点",
+  "triggers": ["循环", "重复"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "loop_n"
+}

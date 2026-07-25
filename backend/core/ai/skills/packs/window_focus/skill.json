@@ -1,0 +1,9 @@
+{
+  "id": "window_focus",
+  "label": "激活窗口",
+  "description": "window_activate 按标题包含匹配",
+  "triggers": ["激活窗口", "打开窗口", "微信窗口"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "window_focus"
+}

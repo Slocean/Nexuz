@@ -21,9 +21,10 @@ class PlanStep(BaseModel):
         "delay",
         "key_press",
         "recipe",
+        "call_skill",
     ] = Field(
         default="add",
-        description="步骤动作：add 加节点；ocr_click/type_text/delay 等为快捷意图；recipe 使用命名配方",
+        description="步骤动作：add 加节点；call_skill/recipe 调用技能；ocr_click 等为快捷意图",
     )
     block_type: str | None = Field(
         default=None,
@@ -42,18 +43,33 @@ class PlanStep(BaseModel):
     note: str | None = Field(default=None, description="给人看的简短说明")
 
 
+class ClarifyQuestion(BaseModel):
+    id: str = Field(default="q1", description="问题 id")
+    prompt: str = Field(description="向用户展示的问题")
+    choices: list[str] = Field(default_factory=list, description="可选项；空则自由填写")
+    allow_free_text: bool = Field(default=True)
+
+
 class FlowSpec(BaseModel):
     """Planner output: ordered steps to build or patch a draft."""
 
     intent_summary: str = Field(default="", description="一句话概括用户意图")
     needs_locate: bool = Field(
         default=False,
-        description="是否需要截图/OCR 取点（屏幕文字点击等）",
+        description="是否需要截图/OCR/多模态取点",
+    )
+    prefer_vision: bool = Field(
+        default=False,
+        description="若模型支持多模态，优先看图定点（图标/无字）",
     )
     steps: list[PlanStep] = Field(default_factory=list, description="有序步骤")
     locate_texts: list[str] = Field(
         default_factory=list,
-        description="需要在屏幕上定位的文字列表",
+        description="需要在屏幕上定位的文字/目标描述列表",
+    )
+    clarify_questions: list[ClarifyQuestion] = Field(
+        default_factory=list,
+        description="编排前需用户回答的问题（多候选/缺参）",
     )
 
 

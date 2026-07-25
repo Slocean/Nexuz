@@ -2017,6 +2017,54 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持' });
     case 'ai_cancel_draft':
       return Promise.resolve({ ok: true, summary: { node_count: 0, nodes: [] } });
+    case 'ai_list_skills':
+      return Promise.resolve({
+        ok: true,
+        skills: [
+          {
+            id: 'text_click',
+            label: '文字点击',
+            description: 'OCR 定位后点击',
+            enabled: true,
+            permission: 'safe',
+            recipe: 'ocr_click_chain'
+          },
+          {
+            id: 'wechat_send_message',
+            label: '微信发消息',
+            description: '定时微信消息骨架',
+            enabled: true,
+            permission: 'safe',
+            recipe: 'wechat_send_message'
+          }
+        ]
+      });
+    case 'ai_set_skill_enabled':
+      return Promise.resolve({
+        ok: true,
+        skills: [],
+        disabled_skills: args[1] === false ? [args[0]] : []
+      });
+    case 'ai_run_eval':
+      return Promise.resolve({
+        ok: true,
+        passed: 65,
+        total: 65,
+        pass_rate: 1,
+        min_rate: 0.85,
+        results: []
+      });
+    case 'ai_list_audit':
+      return Promise.resolve({
+        ok: true,
+        events: [{ ts: new Date().toISOString(), event: 'mock', skill: 'text_click' }]
+      });
+    case 'ai_block_catalog':
+      return Promise.resolve({
+        ok: true,
+        blocks: [{ type: 'delay', label: '延时', description: '等待毫秒' }],
+        coverage: { ok: true, count: 1, missing_description: [] }
+      });
     default:
       return Promise.resolve({ ok: false, error: `未知方法: ${method}` });
   }
@@ -2146,6 +2194,11 @@ export const bridge = {
   aiSetConfig: (patch = {}) => call('ai_set_config', patch),
   aiTestConnection: () => call('ai_test_connection'),
   aiListModels: (baseUrl = '', apiKey = '') => call('ai_list_models', baseUrl || '', apiKey || ''),
+  aiListSkills: () => call('ai_list_skills'),
+  aiSetSkillEnabled: (skillId, enabled = true) => call('ai_set_skill_enabled', skillId, !!enabled),
+  aiRunEval: () => call('ai_run_eval'),
+  aiListAudit: (limit = 50) => call('ai_list_audit', limit),
+  aiBlockCatalog: () => call('ai_block_catalog'),
   aiListConversations: (kind = '') => call('ai_list_conversations', kind || ''),
   aiCreateConversation: (title = '新对话', kind = 'chat') =>
     call('ai_create_conversation', title, kind === 'flow' ? 'flow' : 'chat'),

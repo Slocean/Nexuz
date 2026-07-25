@@ -1,0 +1,9 @@
+{
+  "id": "type_submit",
+  "label": "输入并回车",
+  "description": "type_text + key_press Enter",
+  "triggers": ["输入", "回车", "提交文字"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "type_enter"
+}

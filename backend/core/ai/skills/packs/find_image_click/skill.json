@@ -1,0 +1,9 @@
+{
+  "id": "find_image_click",
+  "label": "找图点击",
+  "description": "find_image → click 绑定坐标",
+  "triggers": ["找图", "按图片", "模板点击"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "find_image_click"
+}

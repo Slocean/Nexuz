@@ -1,0 +1,9 @@
+{
+  "id": "text_click",
+  "label": "点击屏幕文字",
+  "description": "OCR 识别文字并点击其中心（可复现节点链）",
+  "triggers": ["点击", "点一下", "点「"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "ocr_click_chain"
+}

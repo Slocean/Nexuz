@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from backend.core.ai import draft_builder
+from backend.core.ai.graphs._heuristic_plan import heuristic_plan_from_text
 from backend.core.ai.lc.structured import FlowSpec, PlanStep, parse_flow_spec
 from backend.core.ai.tool_runtime import ToolRuntime
+
+__all__ = ["apply_flow_spec", "heuristic_plan_from_text"]
 
 
 def apply_flow_spec(
@@ -83,12 +86,15 @@ def _apply_step(
     action = (step.action or "add").strip().lower()
     params = dict(step.params or {})
 
-    if action == "recipe":
-        name = (step.recipe or "").strip()
-        if name == "ocr_click_chain" or name == "ocr_click":
+    if action == "recipe" or action == "call_skill":
+        name = (step.recipe or step.params.get("skill") or "").strip()
+        if name in ("ocr_click_chain", "ocr_click", "text_click"):
             return _recipe_ocr_click_chain(
                 draft,
-                match_text=step.match_text or params.get("match_text") or params.get("text") or "",
+                match_text=step.match_text
+                or params.get("match_text")
+                or params.get("text")
+                or "",
                 last_node_id=last_node_id,
                 tool_trace=tool_trace,
                 runtime=runtime,
@@ -108,7 +114,83 @@ def _apply_step(
                 text=str(params.get("text") or step.match_text or ""),
                 last_node_id=last_node_id,
             )
-        raise ValueError(f"未知 recipe: {name}")
+        if name in ("wait_text", "ocr_wait_click", "wait_then_act"):
+            return _recipe_wait_text(
+                draft,
+                match_text=step.match_text or params.get("match_text") or "",
+                then_click=bool(params.get("then_click", name != "wait_text")),
+                click_text=params.get("click_text") or step.match_text,
+                last_node_id=last_node_id,
+                tool_trace=tool_trace,
+                runtime=runtime,
+                artifacts=artifacts,
+            )
+        if name in ("window_focus", "window_activate"):
+            return _recipe_window_focus(
+                draft,
+                title=str(params.get("title_contains") or params.get("title") or "微信"),
+                last_node_id=last_node_id,
+            )
+        if name in ("schedule_at", "schedule_trigger"):
+            return _recipe_schedule_at(
+                draft,
+                params=params,
+                last_node_id=last_node_id,
+            )
+        if name == "find_image_click":
+            return _recipe_find_image_click(
+                draft,
+                template=str(params.get("template") or params.get("path") or ""),
+                last_node_id=last_node_id,
+                tool_trace=tool_trace,
+                runtime=runtime,
+                artifacts=artifacts,
+            )
+        if name == "color_click":
+            return _recipe_color_click(
+                draft,
+                params=params,
+                last_node_id=last_node_id,
+            )
+        if name == "wechat_send_message":
+            return _recipe_wechat_send_message(
+                draft,
+                params=params,
+                last_node_id=last_node_id,
+                tool_trace=tool_trace,
+                runtime=runtime,
+                artifacts=artifacts,
+            )
+        if name in ("if_text", "if_text_contains"):
+            return _recipe_if_text(
+                draft,
+                params=params,
+                match_text=step.match_text or params.get("match_text") or "",
+                last_node_id=last_node_id,
+            )
+        if name in ("loop_n", "loop_times"):
+            return _recipe_loop_n(
+                draft,
+                times=int(params.get("times") or params.get("count") or 3),
+                last_node_id=last_node_id,
+            )
+        if name in ("try_catch", "try_catch_wrap"):
+            return _recipe_try_catch(draft, last_node_id=last_node_id)
+        # try skill pack registry
+        from backend.core.ai.skills.loader import try_apply_skill
+
+        skill_last = try_apply_skill(
+            name,
+            draft,
+            params={**params, "match_text": step.match_text},
+            last_node_id=last_node_id,
+            artifacts=artifacts,
+            tool_trace=tool_trace,
+            runtime=runtime,
+        )
+        if skill_last is not None:
+            return skill_last
+        raise ValueError(f"未知 recipe/skill: {name}")
 
     if action == "ocr_click":
         return _recipe_ocr_click_chain(
@@ -279,6 +361,205 @@ def _recipe_type_enter(
     return k_id
 
 
+def _recipe_wait_text(
+    draft: dict[str, Any],
+    *,
+    match_text: str,
+    then_click: bool,
+    click_text: str | None,
+    last_node_id: str | None,
+    tool_trace: list[dict[str, Any]],
+    runtime: ToolRuntime,
+    artifacts: dict[str, Any],
+) -> str:
+    text = (match_text or "").strip()
+    if not text:
+        raise ValueError("wait_text 需要 match_text")
+    draft, wid = draft_builder.add_node(
+        draft,
+        block_type="wait_until",
+        params={"wait_type": "text", "expect_text": text, "timeout_ms": 30000},
+    )
+    _auto_connect(draft, last_node_id, wid)
+    if then_click:
+        label = (click_text or text).strip()
+        return _recipe_ocr_click_chain(
+            draft,
+            match_text=label,
+            last_node_id=wid,
+            tool_trace=tool_trace,
+            runtime=runtime,
+            artifacts=artifacts,
+        )
+    return wid
+
+
+def _recipe_window_focus(
+    draft: dict[str, Any],
+    *,
+    title: str,
+    last_node_id: str | None,
+) -> str:
+    draft, nid = draft_builder.add_node(
+        draft,
+        block_type="window_activate",
+        params={"title": title or ""},
+    )
+    _auto_connect(draft, last_node_id, nid)
+    return nid
+
+
+def _recipe_schedule_at(
+    draft: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    last_node_id: str | None,
+) -> str:
+    p = {
+        "trigger_type": params.get("trigger_type") or "once",
+        "run_at": params.get("run_at") or params.get("time") or "",
+        "cron_expression": params.get("cron_expression") or "0 9 * * *",
+        "interval_seconds": params.get("interval_seconds") or 60,
+    }
+    draft, nid = draft_builder.add_node(draft, block_type="schedule_trigger", params=p)
+    _auto_connect(draft, last_node_id, nid)
+    return nid
+
+
+def _recipe_find_image_click(
+    draft: dict[str, Any],
+    *,
+    template: str,
+    last_node_id: str | None,
+    tool_trace: list[dict[str, Any]],
+    runtime: ToolRuntime,
+    artifacts: dict[str, Any],
+) -> str:
+    draft, fid = draft_builder.add_node(
+        draft,
+        block_type="find_image",
+        params={"path": template or "", "template": template or ""},
+    )
+    _auto_connect(draft, last_node_id, fid)
+    click_params = {
+        "x": f"{{{{{fid}.x}}}}",
+        "y": f"{{{{{fid}.y}}}}",
+        "coordinate_mode": "screen_abs",
+    }
+    draft, cid = draft_builder.add_node(draft, block_type="click", params=click_params)
+    draft_builder.connect(draft, from_id=fid, to_id=cid, edge="next")
+    return cid
+
+
+def _recipe_color_click(
+    draft: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    last_node_id: str | None,
+) -> str:
+    draft, cid_detect = draft_builder.add_node(
+        draft,
+        block_type="color_detect",
+        params=dict(params or {}),
+    )
+    _auto_connect(draft, last_node_id, cid_detect)
+    click_params = {
+        "x": f"{{{{{cid_detect}.x}}}}",
+        "y": f"{{{{{cid_detect}.y}}}}",
+        "coordinate_mode": "screen_abs",
+    }
+    draft, click_id = draft_builder.add_node(
+        draft, block_type="click", params=click_params
+    )
+    draft_builder.connect(draft, from_id=cid_detect, to_id=click_id, edge="next")
+    return click_id
+
+
+def _recipe_wechat_send_message(
+    draft: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    last_node_id: str | None,
+    tool_trace: list[dict[str, Any]],
+    runtime: ToolRuntime,
+    artifacts: dict[str, Any],
+) -> str:
+    """Skeleton: schedule → window → search contact via OCR → type → send click."""
+    contact = str(params.get("contact") or params.get("to") or "王哥")
+    message = str(params.get("message") or params.get("text") or "")
+    run_at = str(params.get("run_at") or params.get("time") or "")
+    cur = last_node_id
+    if run_at or params.get("schedule", True):
+        cur = _recipe_schedule_at(
+            draft,
+            params={"trigger_type": "once", "run_at": run_at},
+            last_node_id=cur,
+        )
+    cur = _recipe_window_focus(draft, title="微信", last_node_id=cur)
+    # search / contact via OCR click on contact name
+    cur = _recipe_ocr_click_chain(
+        draft,
+        match_text=contact,
+        last_node_id=cur,
+        tool_trace=tool_trace,
+        runtime=runtime,
+        artifacts=artifacts,
+    )
+    if message:
+        draft, tid = draft_builder.add_node(
+            draft, block_type="type_text", params={"text": message}
+        )
+        draft_builder.connect(draft, from_id=cur, to_id=tid, edge="next")
+        cur = tid
+    cur = _recipe_ocr_click_chain(
+        draft,
+        match_text=str(params.get("send_label") or "发送"),
+        last_node_id=cur,
+        tool_trace=tool_trace,
+        runtime=runtime,
+        artifacts=artifacts,
+    )
+    return cur
+
+
+def _recipe_if_text(
+    draft: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    match_text: str,
+    last_node_id: str | None,
+) -> str:
+    text = (match_text or params.get("contains") or params.get("expect_text") or "").strip()
+    p = {
+        "source_mode": params.get("source_mode") or "capture",
+        "match_text": text,
+        "expect_text": text,
+        **{k: v for k, v in params.items() if k not in ("match_text",)},
+    }
+    draft, nid = draft_builder.add_node(draft, block_type="if_text_contains", params=p)
+    _auto_connect(draft, last_node_id, nid)
+    return nid
+
+
+def _recipe_loop_n(
+    draft: dict[str, Any],
+    *,
+    times: int,
+    last_node_id: str | None,
+) -> str:
+    draft, nid = draft_builder.add_node(
+        draft, block_type="loop_n", params={"times": max(1, int(times))}
+    )
+    _auto_connect(draft, last_node_id, nid)
+    return nid
+
+
+def _recipe_try_catch(draft: dict[str, Any], *, last_node_id: str | None) -> str:
+    draft, nid = draft_builder.add_node(draft, block_type="try_catch", params={})
+    _auto_connect(draft, last_node_id, nid)
+    return nid
+
+
 def _recipe_ocr_click_chain(
     draft: dict[str, Any],
     *,
@@ -326,56 +607,3 @@ def _recipe_ocr_click_chain(
     draft_builder.connect(draft, from_id=ocr_id, to_id=click_id, edge="next")
     return click_id
 
-
-def heuristic_plan_from_text(text: str) -> FlowSpec:
-    """Lightweight fallback when structured output fails (tests / offline)."""
-    t = (text or "").strip()
-    steps: list[PlanStep] = []
-    needs_locate = False
-    locate_texts: list[str] = []
-    lower = t.lower()
-
-    # delay
-    import re
-
-    m = re.search(r"(?:等待|wait|delay)\s*(\d+)\s*(秒|s|ms|毫秒)?", t, re.I)
-    if m:
-        n = int(m.group(1))
-        unit = (m.group(2) or "秒").lower()
-        ms = n if unit in ("ms", "毫秒") else n * 1000
-        steps.append(PlanStep(action="delay", params={"ms": ms}))
-
-    # type
-    m = re.search(r"(?:输入|type)\s*[「\"']?(.+?)[」\"']?(?:再|然后|$)", t)
-    if not m:
-        m = re.search(r"输入\s+(\S+)", t)
-    if m:
-        steps.append(PlanStep(action="type_text", params={"text": m.group(1).strip()}))
-
-    # click text
-    m = re.search(r"(?:点击|点)\s*[「\"'](.+?)[」\"']", t)
-    if not m:
-        m = re.search(r"(?:点击|点)\s*(屏幕上的)?(.+)", t)
-    if m:
-        label = (m.group(m.lastindex) or "").strip()
-        if label and label not in ("屏幕上的",):
-            needs_locate = True
-            locate_texts.append(label)
-            steps.append(
-                PlanStep(action="ocr_click", match_text=label, recipe="ocr_click_chain")
-            )
-
-    if not steps:
-        # generic delay+type if "hello" mentioned
-        if "hello" in lower:
-            steps = [
-                PlanStep(action="delay", params={"ms": 1000}),
-                PlanStep(action="type_text", params={"text": "hello"}),
-            ]
-
-    return FlowSpec(
-        intent_summary=t[:80],
-        needs_locate=needs_locate,
-        locate_texts=locate_texts,
-        steps=steps,
-    )

@@ -64,6 +64,9 @@ def lean_orchestration_card(card: dict[str, Any] | None, *, message_id: str) -> 
         "status": str(card.get("status") or ""),
         "has_result": True,
         "result_id": str(card.get("result_id") or message_id),
+        "clarify_questions": list(card.get("clarify_questions") or [])
+        if isinstance(card.get("clarify_questions"), list)
+        else [],
     }
 
 

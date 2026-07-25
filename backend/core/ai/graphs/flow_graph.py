@@ -164,6 +164,35 @@ def make_flow_nodes(
             on_progress, proc, step, mode="flow",
             conversation_id=conversation_id, assistant_id=assistant_id,
         )
+        plan = parse_flow_spec(state.get("plan"))
+        # If planner asked clarifying questions and user has not answered yet, pause.
+        pending = [
+            {
+                "id": q.id,
+                "prompt": q.prompt,
+                "choices": list(q.choices or []),
+                "allow_free_text": bool(q.allow_free_text),
+            }
+            for q in (plan.clarify_questions or [])
+        ]
+        if pending and not state.get("clarify_answers"):
+            proc = _append_process({**state, "process": proc}, step)
+            proc.append(
+                {
+                    "kind": "clarify",
+                    "node": "builder",
+                    "label": "需要你确认",
+                    "text": pending[0].get("prompt") or "请补充信息",
+                }
+            )
+            return {
+                "clarify_questions": pending,
+                "status_hint": "needs_clarify",
+                "process": proc,
+                "needs_locate": bool(plan.needs_locate),
+                "locate_texts": list(plan.locate_texts or []),
+            }
+
         draft = copy.deepcopy(state.get("draft") or empty_draft())
         artifacts = copy.deepcopy(
             state.get("artifacts") or {"shots": {}, "points": {}}
@@ -180,9 +209,8 @@ def make_flow_nodes(
         for err in applied.get("errors") or []:
             proc.append({"kind": "warn", "node": "builder", "label": "落图警告", "text": err})
         proc = _append_process({**state, "process": proc}, step)
-        # Enrich locate flags from plan application
-        needs = bool(applied.get("needs_locate") or state.get("needs_locate"))
-        texts = list(applied.get("locate_texts") or state.get("locate_texts") or [])
+        needs = bool(applied.get("needs_locate") or state.get("needs_locate") or plan.needs_locate)
+        texts = list(applied.get("locate_texts") or state.get("locate_texts") or plan.locate_texts or [])
         return {
             "draft": applied["draft"],
             "artifacts": applied["artifacts"],
@@ -191,14 +219,15 @@ def make_flow_nodes(
             "locate_texts": texts,
             "process": proc,
             "warnings": collect_coord_warnings(applied["draft"]),
+            "prefer_vision": bool(plan.prefer_vision),
         }
 
     def locator(state: FlowGraphState) -> dict[str, Any]:
         step = {
             "kind": "node",
             "node": "locator",
-            "label": "截图 OCR 取点",
-            "text": "定位屏幕文字…",
+            "label": "感知取点",
+            "text": "截图 → 多模态/OCR 定位…",
         }
         proc = list(state.get("process") or [])
         emit_process(
@@ -209,9 +238,9 @@ def make_flow_nodes(
             state.get("artifacts") or {"shots": {}, "points": {}}
         )
         draft = state.get("draft") or empty_draft()
+        plan = parse_flow_spec(state.get("plan"))
         texts = list(state.get("locate_texts") or [])
         if not texts:
-            plan = parse_flow_spec(state.get("plan"))
             for s in plan.steps:
                 if s.match_text:
                     texts.append(s.match_text)
@@ -232,30 +261,85 @@ def make_flow_nodes(
                     }
                 )
 
+        from backend.core.ai.vision_locate import (
+            infer_supports_vision,
+            locate_on_screenshot_vision,
+        )
+
+        use_vision = bool(plan.prefer_vision)
+        if cfg is not None:
+            if cfg.supports_vision is not None:
+                use_vision = use_vision or bool(cfg.supports_vision)
+            else:
+                use_vision = use_vision or infer_supports_vision(cfg.model)
+
+        clarify: list[dict[str, Any]] = []
+        for q in plan.clarify_questions or []:
+            clarify.append(
+                {
+                    "id": q.id,
+                    "prompt": q.prompt,
+                    "choices": list(q.choices or []),
+                    "allow_free_text": bool(q.allow_free_text),
+                }
+            )
+
         for text in texts:
             if not (text or "").strip():
                 continue
-            loc = locate_text(
-                artifacts,
-                match_text=str(text),
-                match_mode="contains",
-                capture_fn=capture_fn,
-            )
-            proc.append(
-                {
-                    "kind": "tool",
-                    "label": "OCR 文字定位",
-                    "text": (
-                        f"「{text}」→ ok={loc.get('ok')} "
-                        f"ref={loc.get('point_ref')}"
-                    ),
-                }
-            )
-            # Bind first matching click node still missing coords if needed — recipes
-            # already use {{ocr.x}}; session points help one-shot bind UX.
+            loc: dict[str, Any] = {"ok": False}
+            if use_vision:
+                loc = locate_on_screenshot_vision(
+                    artifacts, query=str(text), cfg=cfg
+                )
+                proc.append(
+                    {
+                        "kind": "tool",
+                        "label": "多模态看图定点",
+                        "text": (
+                            f"「{text}」→ ok={loc.get('ok')} "
+                            f"ref={loc.get('point_ref')} "
+                            f"{loc.get('error') or ''}"
+                        ),
+                    }
+                )
+            if not loc.get("ok"):
+                loc = locate_text(
+                    artifacts,
+                    match_text=str(text),
+                    match_mode="contains",
+                    capture_fn=capture_fn,
+                )
+                proc.append(
+                    {
+                        "kind": "tool",
+                        "label": "OCR 文字定位",
+                        "text": (
+                            f"「{text}」→ ok={loc.get('ok')} "
+                            f"ref={loc.get('point_ref')}"
+                        ),
+                    }
+                )
+            if not loc.get("ok"):
+                clarify.append(
+                    {
+                        "id": f"locate_{text}",
+                        "prompt": f"未能自动定位「{text}」，请选择或手动取点",
+                        "choices": [],
+                        "allow_free_text": True,
+                    }
+                )
 
         proc = _append_process({**state, "process": proc}, step)
-        return {"artifacts": artifacts, "draft": draft, "process": proc}
+        out: dict[str, Any] = {
+            "artifacts": artifacts,
+            "draft": draft,
+            "process": proc,
+        }
+        if clarify:
+            out["clarify_questions"] = clarify
+            out["status_hint"] = "needs_clarify"
+        return out
 
     def validate(state: FlowGraphState) -> dict[str, Any]:
         step = {
@@ -429,7 +513,9 @@ def make_flow_nodes(
     }
 
 
-def _route_after_build(state: FlowGraphState) -> Literal["locator", "validate"]:
+def _route_after_build(state: FlowGraphState) -> Literal["locator", "validate", "summarize"]:
+    if state.get("status_hint") == "needs_clarify" or state.get("clarify_questions"):
+        return "summarize"
     if state.get("needs_locate") or state.get("locate_texts"):
         return "locator"
     return "validate"
@@ -473,7 +559,7 @@ def build_flow_graph(
     g.add_conditional_edges(
         "builder",
         _route_after_build,
-        {"locator": "locator", "validate": "validate"},
+        {"locator": "locator", "validate": "validate", "summarize": "summarize"},
     )
     g.add_edge("locator", "validate")
     g.add_conditional_edges(
@@ -542,5 +628,7 @@ def run_flow_graph(
         "tool_trace": final.get("tool_trace") or [],
         "warnings": final.get("warnings") or [],
         "validation_errors": final.get("validation_errors") or [],
+        "clarify_questions": final.get("clarify_questions") or [],
+        "status_hint": final.get("status_hint") or "",
         "error": final.get("error"),
     }

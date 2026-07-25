@@ -397,6 +397,32 @@ export default function SettingsPage({
   const [aiMsg, setAiMsg] = useState('');
   const [aiDirty, setAiDirty] = useState(false);
   const [aiRemoteModels, setAiRemoteModels] = useState<{ id: string; owned_by?: string }[]>([]);
+  const [aiAllowDangerous, setAiAllowDangerous] = useState(false);
+  const [aiSkills, setAiSkills] = useState<
+    { id: string; label?: string; description?: string; enabled?: boolean }[]
+  >([]);
+  const [aiEvalMsg, setAiEvalMsg] = useState('');
+  const [aiAuditEvents, setAiAuditEvents] = useState<{ ts?: string; event?: string; skill?: string }[]>(
+    []
+  );
+
+  const refreshAiSkills = useCallback(async () => {
+    try {
+      const res = await bridge.aiListSkills?.();
+      if (res?.ok && Array.isArray(res.skills)) setAiSkills(res.skills);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const refreshAiAudit = useCallback(async () => {
+    try {
+      const res = await bridge.aiListAudit?.(20);
+      if (res?.ok && Array.isArray(res.events)) setAiAuditEvents(res.events);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -435,15 +461,20 @@ export default function SettingsPage({
         setAiKeyMasked(c.api_key_masked || '');
         setAiApiKey('');
         setAiPresets(Array.isArray(c.presets) ? c.presets : []);
+        setAiAllowDangerous(!!c.allow_dangerous);
         setAiDirty(false);
       } catch {
         /* ignore */
+      }
+      if (!cancelled) {
+        await refreshAiSkills();
+        await refreshAiAudit();
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshAiSkills, refreshAiAudit]);
 
   const fetchAiModels = async (
     baseUrl?: string,
@@ -520,6 +551,7 @@ export default function SettingsPage({
         preset: aiPreset,
         base_url: aiBaseUrl.trim(),
         model: aiModel.trim(),
+        allow_dangerous: aiAllowDangerous,
         keep_existing_key: true
       };
       if (aiApiKey.trim()) {
@@ -566,7 +598,15 @@ export default function SettingsPage({
         setAiMsg(res?.error || '连接失败');
         return;
       }
-      setAiMsg(`连接成功（模型 ${res.model || aiModel}）`);
+      const bits = [`连接成功（模型 ${res.model || aiModel}）`];
+      if (typeof res.supports_structured === 'boolean') {
+        bits.push(res.supports_structured ? '结构化✓' : '结构化✗');
+      }
+      if (typeof res.supports_vision === 'boolean') {
+        bits.push(res.supports_vision ? '多模态✓' : '纯文本通路');
+      }
+      if (res.hint) bits.push(String(res.hint));
+      setAiMsg(bits.join(' · '));
     } catch (e: any) {
       setAiMsg(String(e?.message || e || '连接失败'));
     } finally {
@@ -1577,6 +1617,107 @@ export default function SettingsPage({
               {aiMsg}
             </p>
           ) : null}
+
+          <div
+            className="rounded-xl border px-3 py-2.5 space-y-2 mt-1"
+            style={{ borderColor: colors.border }}>
+            <p className="text-xs font-medium" style={{ color: colors.text }}>
+              Agent 平台
+            </p>
+            <label className="flex items-center gap-2 text-xs" style={{ color: colors.text }}>
+              <Checkbox
+                checked={aiAllowDangerous}
+                onCheckedChange={v => {
+                  setAiAllowDangerous(!!v);
+                  setAiDirty(true);
+                }}
+              />
+              允许高危积木（run_command / python_script / file_io，默认关）
+            </label>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {aiSkills.length === 0 ? (
+                <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+                  暂无技能包（或未加载）
+                </p>
+              ) : (
+                aiSkills.map(sk => (
+                  <label
+                    key={sk.id}
+                    className="flex items-start gap-2 text-xs"
+                    style={{ color: colors.text }}>
+                    <Checkbox
+                      checked={sk.enabled !== false}
+                      onCheckedChange={async v => {
+                        const enabled = !!v;
+                        try {
+                          const res = await bridge.aiSetSkillEnabled?.(sk.id, enabled);
+                          if (res?.ok && Array.isArray(res.skills)) setAiSkills(res.skills);
+                          else await refreshAiSkills();
+                        } catch {
+                          /* ignore */
+                        }
+                      }}
+                    />
+                    <span>
+                      <span className="font-medium">{sk.label || sk.id}</span>
+                      {sk.description ? (
+                        <span className="block opacity-60">{sk.description}</span>
+                      ) : null}
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={aiBusy}
+                onClick={async () => {
+                  setAiBusy(true);
+                  setAiEvalMsg('正在跑 mock 评测…');
+                  try {
+                    const res = await bridge.aiRunEval?.();
+                    if (!res?.ok) {
+                      setAiEvalMsg(res?.error || '评测失败');
+                      return;
+                    }
+                    const pct = Math.round((Number(res.pass_rate) || 0) * 1000) / 10;
+                    setAiEvalMsg(`通过 ${res.passed}/${res.total}（${pct}%）`);
+                  } catch (e: any) {
+                    setAiEvalMsg(String(e?.message || e || '评测失败'));
+                  } finally {
+                    setAiBusy(false);
+                  }
+                }}>
+                跑评测集
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={aiBusy}
+                onClick={() => void refreshAiAudit()}>
+                刷新审计
+              </Button>
+            </div>
+            {aiEvalMsg ? (
+              <p className="text-xs" style={{ color: colors.secondaryText }}>
+                {aiEvalMsg}
+              </p>
+            ) : null}
+            {aiAuditEvents.length > 0 ? (
+              <div className="space-y-1 max-h-28 overflow-y-auto font-mono text-[10px] opacity-80">
+                {aiAuditEvents.slice(0, 8).map((ev, i) => (
+                  <div key={`${ev.ts || i}-${ev.event || ''}`}>
+                    {(ev.ts || '').slice(0, 19)} · {ev.event || 'event'}
+                    {ev.skill ? ` · ${ev.skill}` : ''}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </SettingsSection>
 
         <SettingsSection

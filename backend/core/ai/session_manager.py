@@ -606,7 +606,10 @@ class SessionManager:
                 }
             )
 
-        status = "awaiting_confirm" if (draft.get("nodes") or {}) else "idle"
+        clarify = list(out.get("clarify_questions") or [])
+        status = "needs_clarify" if clarify else (
+            "awaiting_confirm" if (draft.get("nodes") or {}) else "idle"
+        )
         orch_raw = {
             "summary": draft_summary(draft),
             "diff": diff_nodes(existing_base, draft),
@@ -618,8 +621,27 @@ class SessionManager:
             "has_result": True,
             "result_id": assistant_id,
             "plan": out.get("plan") or {},
+            "clarify_questions": clarify,
         }
         orch = lean_orchestration_card(orch_raw, message_id=assistant_id) or orch_raw
+        try:
+            from backend.core.ai.audit import write_audit_event
+
+            write_audit_event(
+                {
+                    "event": "ai_chat_flow",
+                    "conversation_id": conversation_id,
+                    "assistant_id": assistant_id,
+                    "model": cfg.model,
+                    "status": status,
+                    "node_count": draft_summary(draft).get("node_count"),
+                    "warnings": warnings[:5],
+                    "clarify": bool(clarify),
+                    "plan_summary": (out.get("plan") or {}).get("intent_summary"),
+                }
+            )
+        except Exception:
+            pass
 
         assistant_msg = ChatMessage(
             id=assistant_id,

@@ -3108,6 +3108,66 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc), "models": []}
 
+    def ai_list_skills(self) -> dict:
+        try:
+            from backend.core.ai.skills.loader import list_skills
+
+            return {"ok": True, "skills": list_skills(include_disabled=True)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "skills": []}
+
+    def ai_set_skill_enabled(self, skill_id: str, enabled: bool = True) -> dict:
+        try:
+            from backend.core.ai.config import get_ai_config, set_ai_config
+            from backend.core.ai.skills.loader import list_skills, reload_skills
+
+            cfg = get_ai_config()
+            disabled = set(cfg.disabled_skills or [])
+            sid = str(skill_id or "").strip()
+            if not sid:
+                return {"ok": False, "error": "缺少 skill_id"}
+            if enabled:
+                disabled.discard(sid)
+            else:
+                disabled.add(sid)
+            set_ai_config({"disabled_skills": sorted(disabled), "keep_existing_key": True})
+            # packs themselves stay on disk; runtime filters via config
+            reload_skills()
+            return {"ok": True, "skills": list_skills(include_disabled=True), "disabled_skills": sorted(disabled)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_run_eval(self) -> dict:
+        try:
+            from backend.core.ai.eval_runner import run_eval_suite
+
+            report = run_eval_suite()
+            return {"ok": True, **report}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_list_audit(self, limit: int = 50) -> dict:
+        try:
+            from backend.core.ai.audit import list_recent_audit
+
+            return {"ok": True, "events": list_recent_audit(limit=int(limit or 50))}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "events": []}
+
+    def ai_block_catalog(self) -> dict:
+        try:
+            from backend.core.ai.ai_catalog import coverage_report, list_ai_block_cards
+            from backend.core.registry import register_all_blocks
+
+            register_all_blocks()
+            return {
+                "ok": True,
+                "blocks": list_ai_block_cards(),
+                "coverage": coverage_report(),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def ai_list_conversations(self, kind: str = "") -> dict:
         try:
             kind_arg = str(kind or "").strip() or None

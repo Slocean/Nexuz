@@ -66,6 +66,10 @@ class AiConfig:
     model: str = "gpt-4o-mini"
     temperature: float = 0.7
     timeout_s: float = 120.0
+    supports_vision: bool | None = None  # None = infer from model name
+    supports_structured: bool | None = None
+    allow_dangerous: bool = False
+    disabled_skills: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,6 +81,10 @@ class AiConfig:
             "model": self.model,
             "temperature": float(self.temperature),
             "timeout_s": float(self.timeout_s),
+            "supports_vision": self.supports_vision,
+            "supports_structured": self.supports_structured,
+            "allow_dangerous": bool(self.allow_dangerous),
+            "disabled_skills": list(self.disabled_skills or []),
         }
 
     @classmethod
@@ -92,6 +100,11 @@ class AiConfig:
             timeout_s = float(timeout)
         except (TypeError, ValueError):
             timeout_s = 120.0
+        disabled = raw.get("disabled_skills")
+        if not isinstance(disabled, list):
+            disabled = []
+        vis = raw.get("supports_vision")
+        structured = raw.get("supports_structured")
         return cls(
             enabled=bool(raw.get("enabled", False)),
             provider=str(raw.get("provider") or "openai_compat").strip() or "openai_compat",
@@ -101,6 +114,10 @@ class AiConfig:
             model=str(raw.get("model") or "gpt-4o-mini").strip() or "gpt-4o-mini",
             temperature=temperature,
             timeout_s=timeout_s,
+            supports_vision=None if vis is None else bool(vis),
+            supports_structured=None if structured is None else bool(structured),
+            allow_dangerous=bool(raw.get("allow_dangerous", False)),
+            disabled_skills=[str(x) for x in disabled],
         )
 
 

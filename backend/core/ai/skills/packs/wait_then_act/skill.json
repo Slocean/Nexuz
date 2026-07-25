@@ -1,0 +1,9 @@
+{
+  "id": "wait_then_act",
+  "label": "等待文字后点击",
+  "description": "wait_until text 出现后 OCR 点击",
+  "triggers": ["等到", "出现文字", "等待出现"],
+  "permission": "safe",
+  "enabled": true,
+  "recipe": "wait_text"
+}
