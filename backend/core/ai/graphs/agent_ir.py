@@ -79,6 +79,67 @@ IrOp = Literal[
     "send_im",
 ]
 
+_IR_OPS: frozenset[str] = frozenset(
+    (
+        "activate",
+        "ocr_click",
+        "type",
+        "key",
+        "wait",
+        "wait_text",
+        "schedule",
+        "find_image_click",
+        "color_click",
+        "loop",
+        "if_text",
+        "try_catch",
+        "send_im",
+    )
+)
+
+# LLM hallucination aliases → closed-set opcodes (general, not task-specific).
+_OP_ALIASES: dict[str, str] = {
+    "open": "activate",
+    "launch": "activate",
+    "start": "activate",
+    "focus": "activate",
+    "switch": "activate",
+    "activate_window": "activate",
+    "window_activate": "activate",
+    "click": "ocr_click",
+    "tap": "ocr_click",
+    "click_text": "ocr_click",
+    "ocr": "ocr_click",
+    "press_text": "ocr_click",
+    "type_text": "type",
+    "input": "type",
+    "enter_text": "type",
+    "write": "type",
+    "fill": "type",
+    "search": "type",
+    "press": "key",
+    "hotkey": "key",
+    "shortcut": "key",
+    "key_press": "key",
+    "sleep": "wait",
+    "delay": "wait",
+    "pause": "wait",
+    "goto": "type",
+    "navigate": "type",
+    "open_url": "type",
+    "browse": "type",
+}
+
+_ARG_KEY_ALIASES: dict[str, str] = {
+    "url": "text",
+    "query": "text",
+    "q": "text",
+    "href": "text",
+    "title": "window",
+    "app": "window",
+    "window_title": "window",
+}
+
 SLOT_CLARIFY_PROMPTS: dict[str, str] = {
     "contact": "发给哪位联系人？",
     "message": "要发送什么内容？",
@@ -121,6 +182,98 @@ class PlanIR(BaseModel):
     """Slim plan for the LLM — not Flow JSON."""
 
     steps: list[IrStep] = Field(default_factory=list)
+
+
+class IrStepDraft(BaseModel):
+    """Loose step from the gateway — op is free string, coerced later."""
+
+    op: str = Field(default="", description="opcode or alias")
+    a: dict[str, str] = Field(default_factory=dict)
+
+
+class PlanIRDraft(BaseModel):
+    """Structured-output schema that accepts alias ops without whole-plan failure."""
+
+    steps: list[IrStepDraft] = Field(default_factory=list)
+
+
+def coerce_ir_op(op: str | None, *, args: dict[str, str] | None = None) -> str | None:
+    """
+    Map alias → closed-set op. Return None to drop the step (unknown / empty search).
+    `search` only maps to type when there is text-like content in args.
+    """
+    raw = str(op or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not raw:
+        return None
+    if raw in _IR_OPS:
+        return raw
+    mapped = _OP_ALIASES.get(raw)
+    if mapped is None:
+        return None
+    if raw == "search":
+        a = args or {}
+        has_text = any(
+            str(a.get(k) or "").strip()
+            for k in ("text", "query", "q", "url", "href", "message")
+        )
+        if not has_text:
+            return None
+    return mapped
+
+
+def coerce_ir_args(args: dict[str, Any] | None) -> dict[str, str]:
+    """Normalize arg keys; keep string values only."""
+    out: dict[str, str] = {}
+    for k, v in (args or {}).items():
+        if v is None:
+            continue
+        key = str(k or "").strip()
+        if not key:
+            continue
+        canon = _ARG_KEY_ALIASES.get(key, key)
+        val = str(v).strip()
+        if not val:
+            continue
+        if canon not in out or not out[canon]:
+            out[canon] = val
+    return out
+
+
+def parse_plan_ir(
+    raw: PlanIR | PlanIRDraft | dict[str, Any] | None,
+    slots: dict[str, str] | None = None,
+) -> PlanIR:
+    """
+    Coerce draft/dict into strict PlanIR: alias ops, drop unknown steps, then normalize.
+    Never raises on bad opcodes — empty result falls through to normalize_plan_ir → slots.
+    """
+    if isinstance(raw, PlanIR):
+        return normalize_plan_ir(raw, slots)
+
+    data: dict[str, Any]
+    if isinstance(raw, PlanIRDraft):
+        data = raw.model_dump()
+    elif isinstance(raw, dict):
+        data = raw
+    else:
+        return normalize_plan_ir(PlanIR(steps=[]), slots)
+
+    coerced: list[dict[str, Any]] = []
+    for st in data.get("steps") or []:
+        if isinstance(st, BaseModel):
+            st = st.model_dump()
+        if not isinstance(st, dict):
+            continue
+        args = st.get("a") if isinstance(st.get("a"), dict) else {}
+        if not args and isinstance(st.get("args"), dict):
+            args = st["args"]
+        args_n = coerce_ir_args(args)
+        op = coerce_ir_op(str(st.get("op") or ""), args=args_n)
+        if not op:
+            continue
+        coerced.append({"op": op, "a": args_n})
+
+    return normalize_plan_ir({"steps": coerced}, slots)
 
 
 class GapIR(BaseModel):

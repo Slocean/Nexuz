@@ -18,6 +18,7 @@ from backend.core.ai.context_budget import (
 from backend.core.ai.draft_builder import draft_summary, empty_draft, set_entry
 from backend.core.ai.graphs.agent_ir import (
     PlanIR,
+    PlanIRDraft,
     UnderstandIR,
     format_ir_for_prompt,
     gap_from_ir,
@@ -25,6 +26,7 @@ from backend.core.ai.graphs.agent_ir import (
     merge_and_normalize,
     missing_to_questions,
     normalize_plan_ir,
+    parse_plan_ir,
     plan_ir_from_slots,
     plan_ir_looks_weak,
     plan_ir_to_dict,
@@ -1017,20 +1019,29 @@ def make_flow_nodes(
                 HumanMessage(content=packed),
             ]
             compact_msgs = [
-                SystemMessage(content="输出 PlanIR：steps[{op,a}]。极简。"),
+                SystemMessage(content="输出 PlanIR：steps[{op,a}]。极简。只用闭集 op。"),
                 HumanMessage(content=f"意图：{intent}\n槽位：{safe_json(slots)}"),
             ]
             raw = _structured_with_budget(
                 cfg,
                 "plan_ir",
-                PlanIR,
+                PlanIRDraft,
                 full_msgs,
                 compact_messages=compact_msgs,
                 temperature=0.2,
             )
-            plan = raw if isinstance(raw, PlanIR) else PlanIR.model_validate(raw)
-            plan = normalize_plan_ir(plan, slots)
-            if plan_ir_looks_weak(plan):
+            plan = parse_plan_ir(raw, slots)
+            if not plan.steps:
+                plan = det
+                proc.append(
+                    {
+                        "kind": "warn",
+                        "node": "plan_outline",
+                        "label": "大纲回退",
+                        "text": "coerce 后无有效步骤，已用槽位重建",
+                    }
+                )
+            elif plan_ir_looks_weak(plan):
                 plan = det
                 proc.append(
                     {

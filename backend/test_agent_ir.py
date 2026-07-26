@@ -15,12 +15,15 @@ from backend.core.ai.draft_builder import empty_draft
 from backend.core.ai.graphs.agent_ir import (
     IrStep,
     PlanIR,
+    PlanIRDraft,
     UnderstandIR,
+    coerce_ir_op,
     format_ir_for_prompt,
     gap_from_ir,
     merge_and_normalize,
     missing_to_questions,
     normalize_slots,
+    parse_plan_ir,
     plan_ir_from_slots,
     plan_ir_to_outline,
 )
@@ -141,3 +144,39 @@ def test_normalize_plan_ir_dedupes_send_stutter():
     assert ops == ["activate", "ocr_click", "type", "ocr_click"]
     assert cleaned.steps[1].a.get("text") == "文件传输助手"
     assert cleaned.steps[-1].a.get("text") == "发送"
+
+
+def test_coerce_ir_op_aliases():
+    assert coerce_ir_op("open") == "activate"
+    assert coerce_ir_op("launch") == "activate"
+    assert coerce_ir_op("type_text") == "type"
+    assert coerce_ir_op("click_text") == "ocr_click"
+    assert coerce_ir_op("key_press") == "key"
+    assert coerce_ir_op("delay") == "wait"
+    assert coerce_ir_op("navigate", args={"url": "https://x"}) == "type"
+    assert coerce_ir_op("search", args={"query": "123"}) == "type"
+    assert coerce_ir_op("search") is None
+    assert coerce_ir_op("fly_to_moon") is None
+    assert coerce_ir_op("activate") == "activate"
+
+
+def test_parse_plan_ir_maps_and_drops_unknown():
+    draft = PlanIRDraft.model_validate(
+        {
+            "steps": [
+                {"op": "open", "a": {"title": "chrome"}},
+                {"op": "fly_to_moon", "a": {"x": "1"}},
+                {"op": "type_text", "a": {"text": "hello"}},
+                {"op": "click", "a": {"text": "抖音"}},
+            ]
+        }
+    )
+    plan = parse_plan_ir(draft, {"window_title": "chrome"})
+    ops = [st.op for st in plan.steps]
+    assert "fly_to_moon" not in ops
+    assert ops[0] == "activate"
+    assert plan.steps[0].a.get("window") == "chrome"
+    assert "type" in ops
+    assert "ocr_click" in ops
+    typed = next(st for st in plan.steps if st.op == "type")
+    assert typed.a.get("text") == "hello"

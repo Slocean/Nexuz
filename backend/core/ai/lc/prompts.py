@@ -30,6 +30,7 @@ OUTLINE_SYSTEM = """你是 Nexuz 编排 Agent 的「规划」阶段。
 只输出 PlanIR JSON：steps[{op,a}]。极简，禁止解释与多余字段。
 
 op 闭集：activate|ocr_click|type|key|wait|wait_text|schedule|find_image_click|color_click|loop|if_text|try_catch|send_im
+禁止闭集外 op（如 open/launch/search/navigate）；不确定时只用 activate|ocr_click|type|key|wait。
 
 a 全是短字符串，例如：
 - activate: {window:微信}

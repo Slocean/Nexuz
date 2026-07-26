@@ -13,9 +13,13 @@ sys.path.insert(0, str(ROOT))
 
 from backend.core.registry import register_all_blocks
 from backend.core.ai.draft_builder import empty_draft
-from backend.core.ai.graphs.agent_ir import IrStep, PlanIR, UnderstandIR
+from backend.core.ai.graphs.agent_ir import IrStep, PlanIR, PlanIRDraft, UnderstandIR
 from backend.core.ai.graphs.flow_graph import run_flow_graph
 from backend.core.ai.types import AiConfig
+
+
+def _is_plan_schema(schema) -> bool:
+    return schema is PlanIR or schema is PlanIRDraft
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -44,11 +48,11 @@ def _fake_llm_for_delay_type():
                     slots={"message": "hi"},
                     missing=[],
                 )
-            if self.schema is PlanIR:
-                return PlanIR(
+            if _is_plan_schema(self.schema):
+                return PlanIRDraft(
                     steps=[
-                        IrStep(op="wait", a={"ms": "500"}),
-                        IrStep(op="type", a={"text": "hi"}),
+                        {"op": "wait", "a": {"ms": "500"}},
+                        {"op": "type", "a": {"text": "hi"}},
                     ]
                 )
             return self.schema()
@@ -122,8 +126,8 @@ def test_flow_graph_clarify_then_resume(monkeypatch):
                     slots={"message": "你好", "window_title": "微信"},
                     missing=["contact"],
                 )
-            if self.schema is PlanIR:
-                return PlanIR(steps=[IrStep(op="send_im", a={})])
+            if _is_plan_schema(self.schema):
+                return PlanIRDraft(steps=[{"op": "send_im", "a": {}}])
             return self.schema()
 
     class FakeLLM:
@@ -181,8 +185,8 @@ def test_summarize_empty_draft_honest(monkeypatch):
         def invoke(self, _messages):
             if self.schema is UnderstandIR:
                 return UnderstandIR(intent_tag="other", slots={}, missing=[])
-            if self.schema is PlanIR:
-                return PlanIR(steps=[])
+            if _is_plan_schema(self.schema):
+                return PlanIRDraft(steps=[])
             return self.schema()
 
     class FakeLLM:
