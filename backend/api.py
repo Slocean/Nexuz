@@ -3238,6 +3238,22 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def ai_delete_conversations(self, conversation_ids=None) -> dict:
+        try:
+            ids = conversation_ids if isinstance(conversation_ids, list) else []
+            deleted = self._ai_session().delete_conversations(ids)
+            return {"ok": True, "deleted": deleted}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ai_delete_all_conversations(self, kind: str = "") -> dict:
+        try:
+            kind_arg = str(kind or "").strip() or None
+            deleted = self._ai_session().delete_all_conversations(kind=kind_arg)
+            return {"ok": True, "deleted": deleted}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def ai_chat(
         self,
         conversation_id: str,

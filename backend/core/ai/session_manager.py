@@ -212,6 +212,13 @@ class SessionManager:
     def delete_conversation(self, conversation_id: str) -> bool:
         return self._store.delete(conversation_id)
 
+    def delete_conversations(self, conversation_ids: list[str]) -> int:
+        ids = [str(i or "").strip() for i in (conversation_ids or []) if str(i or "").strip()]
+        return self._store.delete_many(ids)
+
+    def delete_all_conversations(self, *, kind: str | None = None) -> int:
+        return self._store.delete_all(kind=kind)
+
     def test_connection(self) -> dict[str, Any]:
         return test_chat_model(get_ai_config())
 

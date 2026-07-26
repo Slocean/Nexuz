@@ -1996,6 +1996,10 @@ function mockCall(method, ...args) {
       });
     case 'ai_delete_conversation':
       return Promise.resolve({ ok: true });
+    case 'ai_delete_conversations':
+      return Promise.resolve({ ok: true, deleted: Array.isArray(args[0]) ? args[0].length : 0 });
+    case 'ai_delete_all_conversations':
+      return Promise.resolve({ ok: true, deleted: 0 });
     case 'ai_chat':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持 AI 对话' });
     case 'ai_get_draft':
@@ -2205,6 +2209,9 @@ export const bridge = {
   aiGetConversation: conversationId => call('ai_get_conversation', conversationId),
   aiRenameConversation: (conversationId, title = '') => call('ai_rename_conversation', conversationId, title),
   aiDeleteConversation: conversationId => call('ai_delete_conversation', conversationId),
+  aiDeleteConversations: conversationIds =>
+    call('ai_delete_conversations', Array.isArray(conversationIds) ? conversationIds : []),
+  aiDeleteAllConversations: (kind = '') => call('ai_delete_all_conversations', kind || ''),
   aiChat: (conversationId, message = '', baseFlow = null, attachScreenshot = false, mode = 'flow') =>
     call(
       'ai_chat',

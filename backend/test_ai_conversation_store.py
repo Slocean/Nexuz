@@ -64,6 +64,20 @@ def test_kind_isolates_chat_and_flow(tmp_path: Path):
     assert len(store.list_conversations()) == 2
 
 
+def test_delete_many_and_delete_all(tmp_path: Path):
+    store = ConversationStore(root=tmp_path / "conversations")
+    chat1 = store.create(title="聊1", kind="chat")
+    chat2 = store.create(title="聊2", kind="chat")
+    flow1 = store.create(title="排1", kind="flow")
+
+    assert store.delete_many([chat1.id, "missing", chat2.id]) == 2
+    assert {m.id for m in store.list_conversations(kind="chat")} == set()
+    assert store.list_conversations(kind="flow")[0].id == flow1.id
+
+    assert store.delete_all(kind="flow") == 1
+    assert store.list_conversations() == []
+
+
 def test_orchestration_sidecar_and_apply_payload(tmp_path: Path):
     store = ConversationStore(root=tmp_path / "conversations")
     meta = store.create(title="排", kind="flow")

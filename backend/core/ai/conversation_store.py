@@ -212,6 +212,21 @@ class ConversationStore:
         if len(new_items) == len(items):
             return False
         self._save_index(new_items)
+        self._remove_conversation_files(conversation_id)
+        return True
+
+    def delete_many(self, conversation_ids: list[str]) -> int:
+        deleted = 0
+        for cid in conversation_ids:
+            if self.delete(str(cid or "").strip()):
+                deleted += 1
+        return deleted
+
+    def delete_all(self, *, kind: str | None = None) -> int:
+        metas = self.list_conversations(kind=kind)
+        return self.delete_many([m.id for m in metas])
+
+    def _remove_conversation_files(self, conversation_id: str) -> None:
         path = self._conv_path(conversation_id)
         if path.is_file():
             try:
@@ -224,7 +239,6 @@ class ConversationStore:
                 shutil.rmtree(asset, ignore_errors=True)
             except OSError:
                 pass
-        return True
 
     def append_messages(
         self,

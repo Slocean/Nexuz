@@ -20,6 +20,8 @@ import {
   AlertTriangle,
   MessageCircleQuestion,
   GitBranch,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { ThemeName, ThemeMode } from "../types";
 import { getThemeColors } from "../theme";
@@ -36,6 +38,7 @@ import PointConfirmPanel, {
   AiPointPreview,
   AiShotPreview,
 } from "./PointConfirmPanel";
+import { useAppDialog } from "./AppDialogs";
 
 interface ProcessStep {
   kind: "think" | "tool" | "node" | "warn" | "clarify" | string;
@@ -621,8 +624,11 @@ export default function AIAssistant({
   const [modelLabel, setModelLabel] = useState("");
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [statusError, setStatusError] = useState("");
-  const [bootstrapping, setBootstrapping] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(true);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [listDeleting, setListDeleting] = useState(false);
   const [listOpen, setListOpen] = useState(true);
   const [attachShot, setAttachShot] = useState(false);
   const [draftSummary, setDraftSummary] = useState<DraftSummary | null>(null);
@@ -638,6 +644,7 @@ export default function AIAssistant({
 
   const colors = getThemeColors(themeName, themeMode);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { confirm } = useAppDialog();
   const isFlowMode = aiMode === "flow";
   const welcomeText = isFlowMode ? WELCOME_FLOW : WELCOME_CHAT;
   const convKind = isFlowMode ? "flow" : "chat";
@@ -803,8 +810,16 @@ export default function AIAssistant({
 
   useEffect(() => {
     if (!isOpen) return;
+    setBootstrapping(true);
     void ensureConversation();
   }, [isOpen, ensureConversation, aiMode]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectMode(false);
+      setSelectedIds(new Set());
+    }
+  }, [isOpen]);
 
   // Live stream / process via drain_ui_events → nexuz-ai-progress
   useEffect(() => {
@@ -1038,7 +1053,7 @@ export default function AIAssistant({
   };
 
   const handleDeleteChat = async (id: string) => {
-    if (isLoading) return;
+    if (isLoading || listDeleting) return;
     setMenuOpenId(null);
     const res = await bridge.aiDeleteConversation(id);
     if (!res?.ok) {
@@ -1052,6 +1067,89 @@ export default function AIAssistant({
       } else {
         await handleNewChat();
       }
+    }
+  };
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelectId = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (prev.size >= conversations.length) return new Set();
+      return new Set(conversations.map((c) => c.id));
+    });
+  }, [conversations]);
+
+  const afterListMutation = useCallback(
+    async (list: ConversationItem[]) => {
+      exitSelectMode();
+      if (activeId && list.some((c) => c.id === activeId)) return;
+      if (list[0]?.id) {
+        await loadConversation(list[0].id);
+      } else {
+        await handleNewChat();
+      }
+    },
+    [activeId, exitSelectMode, loadConversation, handleNewChat]
+  );
+
+  const handleBatchDelete = async () => {
+    if (isLoading || listDeleting || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    const ok = await confirm({
+      title: "批量删除对话",
+      description: `确定删除选中的 ${count} 条对话？此操作不可恢复。`,
+      confirmText: "删除",
+      destructive: true,
+    });
+    if (!ok) return;
+    setListDeleting(true);
+    setStatusError("");
+    try {
+      const res = await bridge.aiDeleteConversations([...selectedIds]);
+      if (!res?.ok) {
+        setStatusError(res?.error || "批量删除失败");
+        return;
+      }
+      const list = await refreshList();
+      await afterListMutation(list);
+    } finally {
+      setListDeleting(false);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (isLoading || listDeleting || conversations.length === 0) return;
+    const ok = await confirm({
+      title: "清空全部对话",
+      description: `确定清空当前${isFlowMode ? "编排" : "对话"}模式下的全部 ${conversations.length} 条历史记录？此操作不可恢复。`,
+      confirmText: "清空",
+      destructive: true,
+    });
+    if (!ok) return;
+    setListDeleting(true);
+    setStatusError("");
+    try {
+      const res = await bridge.aiDeleteAllConversations(convKind);
+      if (!res?.ok) {
+        setStatusError(res?.error || "清空失败");
+        return;
+      }
+      const list = await refreshList();
+      await afterListMutation(list);
+    } finally {
+      setListDeleting(false);
     }
   };
 
@@ -1331,6 +1429,9 @@ export default function AIAssistant({
 
   if (!isOpen) return null;
 
+  const panelShellClass =
+    "w-[40rem] max-w-[92vw] border-l h-full flex flex-col backdrop-blur-3xl z-40 relative shadow-2xl animate-in slide-in-from-right duration-300";
+
   if (hasKey !== true) {
     return (
       <div
@@ -1339,7 +1440,7 @@ export default function AIAssistant({
           borderColor: colors.border,
           color: colors.text,
         }}
-        className="w-[40rem] max-w-[92vw] border-l h-full flex flex-col z-40 relative shadow-2xl animate-in slide-in-from-right duration-300"
+        className={panelShellClass}
       >
         <div className="absolute top-3 right-3 z-10">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose} title="关闭">
@@ -1389,6 +1490,43 @@ export default function AIAssistant({
     );
   }
 
+  if (bootstrapping) {
+    return (
+      <div
+        style={{
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          color: colors.text,
+        }}
+        className={panelShellClass}
+      >
+        <div
+          className="px-4 py-3 border-b flex items-center justify-between shrink-0"
+          style={{ borderColor: colors.border }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <img
+              src={`${import.meta.env.BASE_URL}logo2.png`}
+              alt="Nexuz"
+              className="h-5 w-auto max-w-[5.5rem] object-contain select-none pointer-events-none"
+              draggable={false}
+            />
+            <span className="font-display font-semibold text-base tracking-wide shrink-0">AI</span>
+          </div>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 min-h-0">
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: colors.primary }} />
+          <p className="text-sm" style={{ color: colors.secondaryText }}>
+            加载历史对话…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -1396,7 +1534,7 @@ export default function AIAssistant({
         borderColor: colors.border,
         color: colors.text,
       }}
-      className="w-[40rem] max-w-[92vw] border-l h-full flex flex-col backdrop-blur-3xl z-40 relative shadow-2xl animate-in slide-in-from-right duration-300"
+      className={panelShellClass}
     >
       <div
         className="px-4 py-3 border-b flex items-center justify-between shrink-0"
@@ -1506,21 +1644,85 @@ export default function AIAssistant({
       <div className="flex flex-1 min-h-0">
         {listOpen ? (
           <aside
-            className="w-[11.5rem] shrink-0 overflow-y-auto py-3 px-2"
+            className="w-[11.5rem] shrink-0 flex flex-col min-h-0"
             style={{
               backgroundColor: sidebarBg,
               borderRight: `1px solid ${colors.border}`,
             }}
           >
-            {bootstrapping ? (
-              <div
-                className="px-3 py-2 text-xs flex items-center gap-1.5"
-                style={{ color: colors.secondaryText }}
-              >
-                <Loader2 className="w-3 h-3 animate-spin" />
-                加载中
-              </div>
-            ) : conversations.length === 0 ? (
+            <div
+              className="shrink-0 px-2 pt-2 pb-1 flex items-center gap-1 border-b"
+              style={{ borderColor: colors.border }}
+            >
+              {selectMode ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] flex-1"
+                    onClick={toggleSelectAll}
+                    disabled={listDeleting || conversations.length === 0}
+                  >
+                    {selectedIds.size >= conversations.length && conversations.length > 0
+                      ? "取消全选"
+                      : "全选"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] text-red-600 dark:text-red-400"
+                    onClick={() => void handleBatchDelete()}
+                    disabled={listDeleting || selectedIds.size === 0}
+                  >
+                    {listDeleting ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      `删除(${selectedIds.size})`
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={exitSelectMode}
+                    disabled={listDeleting}
+                  >
+                    取消
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] flex-1"
+                    onClick={() => setSelectMode(true)}
+                    disabled={listDeleting || conversations.length === 0}
+                    title="多选删除"
+                  >
+                    <CheckSquare className="w-3 h-3 mr-1" />
+                    多选
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] text-red-600 dark:text-red-400"
+                    onClick={() => void handleClearAll()}
+                    disabled={listDeleting || conversations.length === 0}
+                    title="清空全部历史"
+                  >
+                    清空
+                  </Button>
+                </>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto py-3 px-2 min-h-0">
+            {conversations.length === 0 ? (
               <p className="px-3 py-2 text-xs" style={{ color: colors.secondaryText }}>
                 暂无对话
               </p>
@@ -1528,35 +1730,62 @@ export default function AIAssistant({
               <div className="flex flex-col gap-0.5">
                 {conversations.map((c) => {
                   const active = activeId === c.id;
-                  const showMenu = active || menuOpenId === c.id;
+                  const showMenu = !selectMode && (active || menuOpenId === c.id);
+                  const checked = selectedIds.has(c.id);
                   return (
                     <div
                       key={c.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => void loadConversation(c.id)}
+                      onClick={() => {
+                        if (selectMode) {
+                          toggleSelectId(c.id);
+                          return;
+                        }
+                        void loadConversation(c.id);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          void loadConversation(c.id);
+                          if (selectMode) toggleSelectId(c.id);
+                          else void loadConversation(c.id);
                         }
                       }}
                       className="group relative flex items-center gap-1 rounded-xl px-3 py-2.5 cursor-pointer outline-none transition-colors"
                       style={{
-                        backgroundColor: active ? activeItemBg : "transparent",
-                        color: active ? colors.primary : colors.text,
+                        backgroundColor: selectMode
+                          ? checked
+                            ? activeItemBg
+                            : "transparent"
+                          : active
+                            ? activeItemBg
+                            : "transparent",
+                        color: active && !selectMode ? colors.primary : colors.text,
                       }}
                       onMouseEnter={(e) => {
-                        if (!active) e.currentTarget.style.backgroundColor = hoverItemBg;
+                        if (!active && !checked) e.currentTarget.style.backgroundColor = hoverItemBg;
                       }}
                       onMouseLeave={(e) => {
-                        if (!active) e.currentTarget.style.backgroundColor = "transparent";
+                        if (!active && !checked) e.currentTarget.style.backgroundColor = "transparent";
                       }}
                     >
+                      {selectMode ? (
+                        <span
+                          className="shrink-0 inline-flex items-center justify-center"
+                          style={{ color: checked ? colors.primary : colors.secondaryText }}
+                        >
+                          {checked ? (
+                            <CheckSquare className="w-4 h-4" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </span>
+                      ) : null}
                       <span className="flex-1 min-w-0 truncate text-[13px] leading-snug font-medium">
                         {c.title || "新对话"}
                       </span>
 
+                      {!selectMode ? (
                       <DropdownMenu
                         open={menuOpenId === c.id}
                         onOpenChange={(open) => setMenuOpenId(open ? c.id : null)}
@@ -1591,11 +1820,13 @@ export default function AIAssistant({
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      ) : null}
                     </div>
                   );
                 })}
               </div>
             )}
+            </div>
           </aside>
         ) : null}
 
