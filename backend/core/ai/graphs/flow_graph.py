@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from typing import Any, Callable, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -20,9 +21,11 @@ from backend.core.ai.graphs.agent_ir import (
     PlanIR,
     PlanIRDraft,
     UnderstandIR,
+    build_task_contract,
+    collect_unsupported_ir_ops,
+    evaluate_task_coverage,
     format_ir_for_prompt,
     gap_from_ir,
-    infer_missing_slots,
     merge_and_normalize,
     missing_to_questions,
     normalize_plan_ir,
@@ -31,6 +34,9 @@ from backend.core.ai.graphs.agent_ir import (
     plan_ir_looks_weak,
     plan_ir_to_dict,
     plan_ir_to_outline,
+    reconcile_intent_tag,
+    task_contract_to_dict,
+    validate_plan_draft,
 )
 from backend.core.ai.graphs.ir_compile import compile_ir
 from backend.core.ai.graphs.state import (
@@ -211,7 +217,7 @@ def _merge_slots(base: dict[str, str], answers: dict[str, Any]) -> dict[str, str
 
 
 def _collapse_stutter(text: str) -> str:
-    """Collapse immediate repeated chunks: 文件传输文件传输助手 → 文件传输助手."""
+    """Collapse immediate repeated chunks in stuttered OCR/LLM text."""
     import re
 
     s = str(text or "").strip()
@@ -797,9 +803,7 @@ def make_flow_nodes(
         user_input = state.get("input") or ""
         prior_slots = dict(state.get("known_slots") or {})
         answers = dict(state.get("clarify_answers") or {})
-        heuristic_slots = merge_and_normalize(
-            prior_slots, answers, utterance=user_input
-        )
+        prior_answer_slots = merge_and_normalize(prior_slots, answers)
         intent_tag = "other"
         uir: UnderstandIR
         try:
@@ -832,7 +836,7 @@ def make_flow_nodes(
                 HumanMessage(content=packed),
             ]
             compact_msgs = [
-                SystemMessage(content="输出 UnderstandIR：intent_tag,slots,missing。极简。"),
+                SystemMessage(content="输出 UnderstandIR：intent_tag,slots,missing,goals。复合话术的 goals 必须完整有序。"),
                 HumanMessage(content=user_input),
             ]
             raw = _structured_with_budget(
@@ -848,16 +852,12 @@ def make_flow_nodes(
                 if isinstance(raw, UnderstandIR)
                 else UnderstandIR.model_validate(raw)
             )
-            intent_tag = str(uir.intent_tag or "other")
+            intent_tag = "other"
         except Exception as exc:
-            intent_tag = (
-                "send_message"
-                if any(k in user_input for k in ("发送", "发消息", "发给"))
-                else "other"
-            )
+            intent_tag = "other"
             uir = UnderstandIR(
-                intent_tag=intent_tag,  # type: ignore[arg-type]
-                slots=heuristic_slots,
+                intent_tag="other",
+                slots=prior_answer_slots,
                 missing=[],
             )
             proc.append(
@@ -869,12 +869,32 @@ def make_flow_nodes(
                 }
             )
         slots = merge_and_normalize(
-            prior_slots, uir.slots, answers, utterance=user_input
+            prior_slots, uir.slots, answers
         )
-        missing_ids = list(uir.missing or [])
-        missing_ids.extend(
-            infer_missing_slots(intent_tag, slots, utterance=user_input)
+        task_contract = build_task_contract(user_input, list(uir.goals or []))
+        reconciled_tag = reconcile_intent_tag(
+            intent_tag,
+            task_contract,
+            utterance=user_input,
         )
+        if reconciled_tag != intent_tag:
+            proc.append(
+                {
+                    "kind": "warn",
+                    "node": "understand",
+                    "label": "意图纠偏",
+                    "text": f"{intent_tag} 与任务目标冲突，已改为 {reconciled_tag}",
+                }
+            )
+            intent_tag = reconciled_tag
+        if task_contract.goals:
+            missing_ids = [
+                item
+                for goal in task_contract.goals
+                for item in goal.missing
+            ]
+        else:
+            missing_ids = list(uir.missing or [])
         # Drop already-filled
         missing_ids = [m for m in missing_ids if not slots.get(m)]
         ambiguities = missing_to_questions(missing_ids)
@@ -883,12 +903,15 @@ def make_flow_nodes(
             ambiguities = [q for q in ambiguities if q.get("id") not in answered]
         intent_text = intent_tag if intent_tag != "other" else user_input[:120]
         slot_line = "、".join(f"{k}={v}" for k, v in list(slots.items())[:8]) or "（无）"
+        goal_line = " → ".join(
+            f"{g.action}({g.target or g.value})" for g in task_contract.goals
+        ) or "（无）"
         proc.append(
             {
                 "kind": "think",
                 "label": "意图",
                 "text": (
-                    f"{intent_text}\n槽位：{slot_line}"
+                    f"{intent_text}\n目标：{goal_line}\n槽位：{slot_line}"
                     + (f"\n待澄清：{len(ambiguities)} 项" if ambiguities else "")
                 ),
             }
@@ -897,6 +920,7 @@ def make_flow_nodes(
         return {
             "intent": intent_text,
             "intent_tag": intent_tag,
+            "task_contract": task_contract_to_dict(task_contract),
             "known_slots": slots,
             "clarify_questions": ambiguities,
             "process": proc,
@@ -930,7 +954,6 @@ def make_flow_nodes(
         slots = merge_and_normalize(
             state.get("known_slots") or {},
             answers,
-            utterance=user_input if resume else "",
         )
         still = []
         for q in pending:
@@ -987,11 +1010,13 @@ def make_flow_nodes(
         intent = state.get("intent") or ""
         slots = merge_and_normalize(
             state.get("known_slots") or {},
-            utterance=state.get("input") or intent,
         )
         hints = list(state.get("gap_hints") or [])
+        task_contract = state.get("task_contract") or build_task_contract(
+            state.get("input") or intent
+        ).model_dump()
         prev_ir = state.get("plan_ir") if isinstance(state.get("plan_ir"), dict) else {}
-        det = plan_ir_from_slots(intent, slots, utterance=state.get("input") or "")
+        det = PlanIR(steps=[])
         plan: PlanIR
         try:
             ctx_blob = str(state.get("context") or "")
@@ -1005,6 +1030,7 @@ def make_flow_nodes(
                         0,
                         (
                             f"意图：{intent}\n槽位：{safe_json(slots)}\n"
+                            f"任务契约：{safe_json(task_contract)}\n"
                             f"补洞：{safe_json(hints)}\n"
                             f"上一版IR：{format_ir_for_prompt(prev_ir)}\n"
                             f"话术：{state.get('input') or intent}"
@@ -1020,7 +1046,7 @@ def make_flow_nodes(
             ]
             compact_msgs = [
                 SystemMessage(content="输出 PlanIR：steps[{op,a}]。极简。只用闭集 op。"),
-                HumanMessage(content=f"意图：{intent}\n槽位：{safe_json(slots)}"),
+                HumanMessage(content=f"意图：{intent}\n任务契约：{safe_json(task_contract)}\n槽位：{safe_json(slots)}"),
             ]
             raw = _structured_with_budget(
                 cfg,
@@ -1030,29 +1056,49 @@ def make_flow_nodes(
                 compact_messages=compact_msgs,
                 temperature=0.2,
             )
+            unsupported_ops = collect_unsupported_ir_ops(raw)
             plan = parse_plan_ir(raw, slots)
+            if unsupported_ops:
+                hints.extend(f"不支持且未编译的动作：{op}" for op in unsupported_ops)
+                proc.append(
+                    {
+                        "kind": "warn",
+                        "node": "plan_outline",
+                        "label": "能力缺口",
+                        "text": "、".join(unsupported_ops),
+                    }
+                )
             if not plan.steps:
-                plan = det
+                if not task_contract_to_dict(task_contract).get("goals"):
+                    plan = det
                 proc.append(
                     {
                         "kind": "warn",
                         "node": "plan_outline",
                         "label": "大纲回退",
-                        "text": "coerce 后无有效步骤，已用槽位重建",
+                        "text": "coerce 后无有效步骤"
+                        + ("，已用兼容槽位回退" if plan.steps else "，等待按能力补齐"),
                     }
                 )
-            elif plan_ir_looks_weak(plan):
-                plan = det
+            elif plan_ir_looks_weak(
+                plan,
+                utterance=state.get("input") or "",
+                task_contract=task_contract,
+            ):
                 proc.append(
                     {
                         "kind": "info",
                         "node": "plan_outline",
-                        "label": "IR补强",
-                        "text": "模型 PlanIR 过弱，已用槽位重建",
+                        "label": "IR覆盖不足",
+                        "text": "模型 PlanIR 未覆盖全部目标，将进入通用 gap 修复",
                     }
                 )
         except Exception as exc:
-            plan = det
+            plan = (
+                PlanIR(steps=[])
+                if task_contract_to_dict(task_contract).get("goals")
+                else det
+            )
             proc.append(
                 {
                     "kind": "warn",
@@ -1083,6 +1129,8 @@ def make_flow_nodes(
         return {
             "plan_ir": plan_ir_to_dict(plan),
             "outline": outline,
+            "task_contract": task_contract_to_dict(task_contract),
+            "gap_hints": hints,
             "known_slots": slots,
             "process": proc,
         }
@@ -1103,10 +1151,17 @@ def make_flow_nodes(
         intent = state.get("intent") or ""
         slots = merge_and_normalize(
             state.get("known_slots") or {},
-            utterance=state.get("input") or intent,
         )
         plan_ir = state.get("plan_ir") if isinstance(state.get("plan_ir"), dict) else {}
-        gap = gap_from_ir(plan_ir, slots, intent=intent)
+        task_contract = state.get("task_contract") or build_task_contract(
+            state.get("input") or intent
+        ).model_dump()
+        gap = gap_from_ir(
+            plan_ir,
+            slots,
+            intent=state.get("input") or intent,
+            task_contract=task_contract,
+        )
         complete = bool(gap.get("complete"))
         proc.append(
             {
@@ -1123,7 +1178,10 @@ def make_flow_nodes(
             "status_hint": "outline_ok" if complete else "outline_gap",
             "gap_hints": list(gap.get("hints") or gap.get("missing") or []),
             "warnings": list(state.get("warnings") or [])
+            + list(gap.get("capability_gaps") or [])
             + ([] if complete else list(gap.get("missing") or [])[:3]),
+            "task_contract": task_contract_to_dict(task_contract),
+            "coverage_report": gap.get("coverage") or {},
         }
 
     def build_loop(state: FlowGraphState) -> dict[str, Any]:
@@ -1143,34 +1201,18 @@ def make_flow_nodes(
             state.get("artifacts") or {"shots": {}, "points": {}}
         )
         trace = list(state.get("tool_trace") or [])
+        compile_trace = list(state.get("compile_trace") or [])
         slots = merge_and_normalize(
             state.get("known_slots") or {},
-            utterance=state.get("input") or state.get("intent") or "",
         )
         plan_ir = state.get("plan_ir") if isinstance(state.get("plan_ir"), dict) else {}
-        if plan_ir_looks_weak(plan_ir):
-            plan_ir = plan_ir_to_dict(
-                plan_ir_from_slots(
-                    state.get("intent") or "",
-                    slots,
-                    utterance=state.get("input") or "",
-                )
-            )
-            proc.append(
-                {
-                    "kind": "info",
-                    "node": "build_loop",
-                    "label": "IR重建",
-                    "text": "落图前 PlanIR 过弱，已按槽位重建",
-                }
-            )
-
         applied = compile_ir(
             plan_ir,
             slots,
             draft,
             artifacts=artifacts,
             tool_trace=trace,
+            compile_trace=compile_trace,
             strict_coords=bool(state.get("strict_coords", True)),
             utterance=state.get("input") or "",
             summary=str(state.get("intent") or "")[:80],
@@ -1178,6 +1220,23 @@ def make_flow_nodes(
         draft = applied["draft"]
         artifacts = applied["artifacts"]
         trace = applied["tool_trace"]
+        compile_trace = applied.get("compile_trace") or compile_trace
+        coverage_now = evaluate_task_coverage(
+            state.get("task_contract"),
+            plan_ir,
+        )
+        step_goals: dict[int, list[str]] = {}
+        for goal in coverage_now.get("goals") or []:
+            for step_number in goal.get("matched_steps") or []:
+                step_goals.setdefault(int(step_number), []).append(str(goal.get("id") or ""))
+        for event in compile_trace:
+            step_id = str(event.get("step_id") or "")
+            if step_id.startswith("s") and step_id[1:].isdigit():
+                event["goal_ids"] = [
+                    goal_id
+                    for goal_id in step_goals.get(int(step_id[1:]), [])
+                    if goal_id
+                ]
         outline = applied.get("outline") or plan_ir_to_outline(
             plan_ir, slots=slots
         )
@@ -1257,11 +1316,17 @@ def make_flow_nodes(
             }
         )
         _broadcast_process(proc)
-        warnings = collect_coord_warnings(draft)
+        warnings = list(
+            dict.fromkeys(
+                list(state.get("warnings") or []) + collect_coord_warnings(draft)
+            )
+        )
         return {
             "draft": draft,
             "artifacts": artifacts,
             "tool_trace": trace,
+            "compile_trace": compile_trace,
+            "coverage_report": coverage_now,
             "plan_ir": plan_ir_to_dict(normalize_plan_ir(plan_ir, slots)),
             "outline": outline,
             "process": proc,
@@ -1294,6 +1359,12 @@ def make_flow_nodes(
                     errors.append(str(msg))
             except Exception as exc:
                 errors.append(f"validate_fn: {exc}")
+        coverage = evaluate_task_coverage(
+            state.get("task_contract"),
+            state.get("plan_ir"),
+        )
+        errors.extend(str(item) for item in coverage.get("missing") or [])
+        errors.extend(validate_plan_draft(state.get("plan_ir"), draft))
         # Bound clicks check
         for nid, node in nodes.items():
             if not isinstance(node, dict) or node.get("type") != "click":
@@ -1303,6 +1374,13 @@ def make_flow_nodes(
             if isinstance(x, (int, float)) and isinstance(y, (int, float)):
                 if not node.get("_ai_point_ref"):
                     errors.append(f"节点 {nid} 疑似裸坐标 click")
+            for value in params.values():
+                if not isinstance(value, str):
+                    continue
+                for ref_id in re.findall(r"\{\{([^.}]+)\.[^}]+\}\}", value):
+                    if ref_id not in nodes:
+                        errors.append(f"节点 {nid} 引用了不存在的节点 {ref_id}")
+        errors = list(dict.fromkeys(errors))
         proc.append(
             {
                 "kind": "think",
@@ -1311,7 +1389,18 @@ def make_flow_nodes(
             }
         )
         _broadcast_process(proc)
-        return {"validation_errors": errors, "process": proc}
+        return {
+            "validation_errors": errors,
+            "coverage_report": coverage,
+            "status_hint": (
+                "validation_failed"
+                if errors
+                and int(state.get("repair_rounds") or 0)
+                >= int(state.get("max_repair_rounds") or 2)
+                else state.get("status_hint") or ""
+            ),
+            "process": proc,
+        }
 
     def repair(state: FlowGraphState) -> dict[str, Any]:
         step = {
@@ -1640,6 +1729,7 @@ def run_flow_graph(
         "base_flow": base_flow,
         "artifacts": artifacts or {"shots": {}, "points": {}},
         "tool_trace": [],
+        "compile_trace": [],
         "process": [],
         "repair_rounds": 0,
         "gap_rounds": 0,
@@ -1651,6 +1741,8 @@ def run_flow_graph(
         "known_slots": dict(known_slots or {}),
         "intent": intent or "",
         "intent_tag": "",
+        "task_contract": {},
+        "coverage_report": {},
         "plan_ir": plan_ir if isinstance(plan_ir, dict) else {},
         "outline": outline or {},
         "clarify_questions": list(pending_clarify or []),
@@ -1668,16 +1760,20 @@ def run_flow_graph(
         "artifacts": final.get("artifacts") or artifacts or {"shots": {}, "points": {}},
         "process": final.get("process") or [],
         "tool_trace": final.get("tool_trace") or [],
+        "compile_trace": final.get("compile_trace") or [],
         "warnings": final.get("warnings") or [],
         "reply": final.get("reply") or "",
         "clarify_questions": final.get("clarify_questions") or [],
         "intent": final.get("intent") or "",
         "intent_tag": final.get("intent_tag") or "",
+        "task_contract": final.get("task_contract") or {},
+        "coverage_report": final.get("coverage_report") or {},
         "known_slots": final.get("known_slots") or {},
         "plan_ir": final.get("plan_ir") or {},
         "outline": final.get("outline") or {},
         "plan": {
             "intent_summary": final.get("intent") or "",
+            "task_contract": final.get("task_contract") or {},
             "outline": final.get("outline") or {},
             "plan_ir": final.get("plan_ir") or {},
         },

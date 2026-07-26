@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from backend.core.ai import draft_builder
@@ -19,6 +20,7 @@ def build_draft_from_outline(
     slots: dict[str, str] | None = None,
     artifacts: dict[str, Any] | None = None,
     tool_trace: list[dict[str, Any]] | None = None,
+    compile_trace: list[dict[str, Any]] | None = None,
     strict_coords: bool = True,
 ) -> dict[str, Any]:
     """
@@ -27,6 +29,7 @@ def build_draft_from_outline(
     """
     arts = artifacts if isinstance(artifacts, dict) else {"shots": {}, "points": {}}
     trace = tool_trace if tool_trace is not None else []
+    compiler_trace = compile_trace if compile_trace is not None else []
     slots = dict(slots or {})
     steps = []
     if isinstance(outline, dict):
@@ -48,9 +51,11 @@ def build_draft_from_outline(
             last = cur
 
     errors: list[str] = []
-    for raw in steps:
+    for index, raw in enumerate(steps, 1):
         if not isinstance(raw, dict):
             continue
+        before = set((draft.get("nodes") or {}).keys())
+        started = time.perf_counter()
         try:
             last = _apply_outline_step(
                 draft,
@@ -61,14 +66,37 @@ def build_draft_from_outline(
                 artifacts=arts,
                 tool_trace=trace,
             )
+            after = set((draft.get("nodes") or {}).keys())
+            compiler_trace.append(
+                {
+                    "source": "outline_compile",
+                    "step_id": str(raw.get("id") or f"s{index}"),
+                    "block_hint": str(raw.get("block_hint") or ""),
+                    "status": "ok",
+                    "node_ids": sorted(after - before),
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                }
+            )
         except Exception as exc:
             errors.append(str(exc))
+            compiler_trace.append(
+                {
+                    "source": "outline_compile",
+                    "step_id": str(raw.get("id") or f"s{index}"),
+                    "block_hint": str(raw.get("block_hint") or ""),
+                    "status": "error",
+                    "error": str(exc),
+                    "node_ids": [],
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                }
+            )
 
     return {
         "ok": not errors,
         "draft": draft,
         "artifacts": arts,
         "tool_trace": trace,
+        "compile_trace": compiler_trace,
         "errors": errors,
         "needs_locate": False,
         "locate_texts": [],

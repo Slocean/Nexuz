@@ -30,6 +30,8 @@ class FlowGraphState(TypedDict, total=False):
     # Step-wise agent
     intent: str
     intent_tag: str
+    task_contract: dict[str, Any]
+    coverage_report: dict[str, Any]
     known_slots: dict[str, str]
     plan_ir: dict[str, Any]
     outline: dict[str, Any]
@@ -49,6 +51,7 @@ class FlowGraphState(TypedDict, total=False):
     warnings: list[str]
     process: list[dict[str, Any]]
     tool_trace: list[dict[str, Any]]
+    compile_trace: list[dict[str, Any]]
     reply: str
     error: str
     allow_dangerous: bool

@@ -49,20 +49,6 @@ _SLOT_ALIASES: dict[str, str] = {
     "count": "n",
 }
 
-IntentTag = Literal[
-    "send_message",
-    "type_text",
-    "click_text",
-    "wait",
-    "schedule",
-    "window",
-    "find_image",
-    "color_click",
-    "loop",
-    "branch",
-    "other",
-]
-
 IrOp = Literal[
     "activate",
     "ocr_click",
@@ -76,7 +62,6 @@ IrOp = Literal[
     "loop",
     "if_text",
     "try_catch",
-    "send_im",
 ]
 
 _IR_OPS: frozenset[str] = frozenset(
@@ -93,15 +78,12 @@ _IR_OPS: frozenset[str] = frozenset(
         "loop",
         "if_text",
         "try_catch",
-        "send_im",
     )
 )
 
 # LLM hallucination aliases → closed-set opcodes (general, not task-specific).
 _OP_ALIASES: dict[str, str] = {
     "open": "activate",
-    "launch": "activate",
-    "start": "activate",
     "focus": "activate",
     "switch": "activate",
     "activate_window": "activate",
@@ -116,7 +98,6 @@ _OP_ALIASES: dict[str, str] = {
     "enter_text": "type",
     "write": "type",
     "fill": "type",
-    "search": "type",
     "press": "key",
     "hotkey": "key",
     "shortcut": "key",
@@ -124,10 +105,6 @@ _OP_ALIASES: dict[str, str] = {
     "sleep": "wait",
     "delay": "wait",
     "pause": "wait",
-    "goto": "type",
-    "navigate": "type",
-    "open_url": "type",
-    "browse": "type",
 }
 
 _ARG_KEY_ALIASES: dict[str, str] = {
@@ -141,8 +118,8 @@ _ARG_KEY_ALIASES: dict[str, str] = {
 }
 
 SLOT_CLARIFY_PROMPTS: dict[str, str] = {
-    "contact": "发给哪位联系人？",
-    "message": "要发送什么内容？",
+    "contact": "目标对象是谁/哪个会话？",
+    "message": "要输入的内容是？",
     "window_title": "使用哪个应用/窗口？",
     "run_at": "什么时间执行？",
     "match_text": "要点击屏幕上的哪段文字？",
@@ -154,17 +131,41 @@ SLOT_CLARIFY_PROMPTS: dict[str, str] = {
 }
 
 
+class GoalIR(BaseModel):
+    """One ordered user outcome, independent from executable block details."""
+
+    id: str = Field(default="", description="稳定短 id，如 g1")
+    action: str = Field(default="", description="模型概括的语义动作，不参与代码分支")
+    target: str = Field(default="", description="动作对象；只取用户明确内容")
+    value: str = Field(default="", description="输入、搜索或按键值")
+    completion: str = Field(default="", description="可观察完成条件；没有则留空")
+    required_ops: list[str] = Field(default_factory=list, description="实现此目标所需的执行器 opcode")
+    missing: list[str] = Field(default_factory=list, description="此目标仍缺少的信息键")
+    capability_gap: str = Field(default="", description="当前积木能力无法兑现的部分")
+
+
+class TaskContract(BaseModel):
+    """Ordered, auditable contract between the utterance and PlanIR."""
+
+    summary: str = ""
+    goals: list[GoalIR] = Field(default_factory=list)
+
+
 class UnderstandIR(BaseModel):
     """Slim understand output for the LLM."""
 
-    intent_tag: IntentTag = Field(default="other", description="意图标签")
+    intent_tag: str = Field(default="other", description="兼容字段，恒为 other，不参与任务路由")
     slots: dict[str, str] = Field(
         default_factory=dict,
         description="短槽位：window_title/contact/message/run_at/schedule/…",
     )
     missing: list[str] = Field(
         default_factory=list,
-        description="仍缺的槽位 id，如 contact/message；禁止假确认",
+        description="仍缺的槽位 id；禁止假确认",
+    )
+    goals: list[GoalIR] = Field(
+        default_factory=list,
+        description="按话术顺序列出子目标；不得把复合任务压成最后一个动作",
     )
 
 
@@ -198,10 +199,7 @@ class PlanIRDraft(BaseModel):
 
 
 def coerce_ir_op(op: str | None, *, args: dict[str, str] | None = None) -> str | None:
-    """
-    Map alias → closed-set op. Return None to drop the step (unknown / empty search).
-    `search` only maps to type when there is text-like content in args.
-    """
+    """Map a semantics-preserving alias to a closed-set op."""
     raw = str(op or "").strip().lower().replace("-", "_").replace(" ", "_")
     if not raw:
         return None
@@ -210,14 +208,6 @@ def coerce_ir_op(op: str | None, *, args: dict[str, str] | None = None) -> str |
     mapped = _OP_ALIASES.get(raw)
     if mapped is None:
         return None
-    if raw == "search":
-        a = args or {}
-        has_text = any(
-            str(a.get(k) or "").strip()
-            for k in ("text", "query", "q", "url", "href", "message")
-        )
-        if not has_text:
-            return None
     return mapped
 
 
@@ -274,6 +264,30 @@ def parse_plan_ir(
         coerced.append({"op": op, "a": args_n})
 
     return normalize_plan_ir({"steps": coerced}, slots)
+
+
+def collect_unsupported_ir_ops(
+    raw: PlanIR | PlanIRDraft | dict[str, Any] | None,
+) -> list[str]:
+    """Return non-empty op names that cannot be represented without semantic loss."""
+    if isinstance(raw, BaseModel):
+        data = raw.model_dump()
+    elif isinstance(raw, dict):
+        data = raw
+    else:
+        return []
+    unsupported: list[str] = []
+    for step in data.get("steps") or []:
+        if isinstance(step, BaseModel):
+            step = step.model_dump()
+        if not isinstance(step, dict):
+            continue
+        raw_op = str(step.get("op") or "").strip()
+        args = step.get("a") if isinstance(step.get("a"), dict) else {}
+        if raw_op and coerce_ir_op(raw_op, args=coerce_ir_args(args)) is None:
+            if raw_op not in unsupported:
+                unsupported.append(raw_op)
+    return unsupported
 
 
 class GapIR(BaseModel):
@@ -374,50 +388,24 @@ def format_ir_for_prompt(plan: PlanIR | dict[str, Any] | None) -> str:
     return "\n".join(lines) if lines else "(empty)"
 
 
-def expand_send_im_steps(slots: dict[str, str]) -> list[IrStep]:
-    """Deterministic IM send macro from slots — no invented contacts."""
-    steps: list[IrStep] = []
-    if slots.get("run_at") or str(slots.get("schedule") or "").lower() in (
-        "true",
-        "1",
-        "yes",
-    ):
-        steps.append(IrStep(op="schedule", a={"run_at": slots.get("run_at") or ""}))
-    if slots.get("window_title"):
-        steps.append(IrStep(op="activate", a={"window": slots["window_title"]}))
-    if slots.get("contact"):
-        steps.append(IrStep(op="ocr_click", a={"text": slots["contact"]}))
-    if slots.get("message"):
-        steps.append(IrStep(op="type", a={"text": slots["message"]}))
-        steps.append(IrStep(op="ocr_click", a={"text": "发送"}))
-    return steps
-
-
 def plan_ir_from_slots(
     intent: str,
     slots: dict[str, str] | None,
     *,
     utterance: str = "",
 ) -> PlanIR:
-    """Offline PlanIR from normalized slots — never invents contacts/apps."""
+    """Weak slot→op projection for empty LLM plans. No task-type macros."""
     s = merge_and_normalize(slots, utterance=utterance or intent)
     steps: list[IrStep] = []
-
-    # Prefer send_im expansion when messaging slots present
-    if s.get("contact") and s.get("message"):
-        return PlanIR(steps=expand_send_im_steps(s))
 
     if s.get("run_at") or str(s.get("schedule") or "").lower() in ("true", "1", "yes"):
         steps.append(IrStep(op="schedule", a={"run_at": s.get("run_at") or ""}))
     if s.get("window_title"):
         steps.append(IrStep(op="activate", a={"window": s["window_title"]}))
-    if s.get("match_text") or s.get("contact"):
-        steps.append(
-            IrStep(
-                op="ocr_click",
-                a={"text": s.get("match_text") or s.get("contact") or ""},
-            )
-        )
+    if s.get("match_text"):
+        steps.append(IrStep(op="ocr_click", a={"text": s["match_text"]}))
+    elif s.get("contact"):
+        steps.append(IrStep(op="ocr_click", a={"text": s["contact"]}))
     if s.get("message"):
         steps.append(IrStep(op="type", a={"text": s["message"]}))
     if s.get("key"):
@@ -428,24 +416,6 @@ def plan_ir_from_slots(
         steps.append(IrStep(op="find_image_click", a={"image_ref": s["image_ref"]}))
     if s.get("color"):
         steps.append(IrStep(op="color_click", a={"color": s["color"]}))
-
-    if not steps:
-        import re
-
-        typed = s.get("message") or ""
-        if not typed:
-            m = re.search(
-                r"(?:输入|键入|打字)\s*[「\"'『]?([^」\"'』\n]{1,80})",
-                intent or utterance or "",
-            )
-            if m:
-                typed = m.group(1).strip()
-        if typed:
-            steps = [
-                IrStep(op="wait", a={"ms": "500"}),
-                IrStep(op="type", a={"text": typed}),
-            ]
-        # else: leave empty — do not invent a delay-only placeholder plan
     return PlanIR(steps=steps)
 
 
@@ -474,11 +444,9 @@ def _dedupe_consecutive_steps(steps: list[IrStep]) -> list[IrStep]:
 
 
 def _dedupe_repeated_setup(steps: list[IrStep], slots: dict[str, str]) -> list[IrStep]:
-    """Drop repeated activate / contact ocr_click before the first type (LLM stutter)."""
-    contact = str(slots.get("contact") or "").strip()
+    """Drop repeated activate before the first type (LLM stutter)."""
     window = str(slots.get("window_title") or "").strip()
     seen_activate_windows: set[str] = set()
-    seen_contact_click = False
     out: list[IrStep] = []
     typed = False
     for st in steps:
@@ -494,39 +462,15 @@ def _dedupe_repeated_setup(steps: list[IrStep], slots: dict[str, str]) -> list[I
                 seen_activate_windows.add(w)
             out.append(st)
             continue
-        if not typed and st.op == "ocr_click":
-            text = str(st.a.get("text") or "").strip()
-            if contact and text == contact:
-                if seen_contact_click:
-                    continue
-                seen_contact_click = True
-            out.append(st)
-            continue
         out.append(st)
     return out
-
-
-def _should_use_canonical_send(steps: list[IrStep], slots: dict[str, str]) -> bool:
-    """When slots already define a send, prefer canonical 4-step if LLM plan is redundant."""
-    if not (slots.get("contact") and slots.get("message")):
-        return False
-    ops = [st.op for st in steps]
-    if "type" not in ops:
-        return False
-    fps = [_step_fingerprint(st) for st in steps]
-    if len(fps) != len(set(fps)):
-        return True
-    canonical = expand_send_im_steps(slots)
-    if len(steps) > len(canonical) + 1:
-        return True
-    return False
 
 
 def normalize_plan_ir(
     plan: PlanIR | dict[str, Any] | None,
     slots: dict[str, str] | None,
 ) -> PlanIR:
-    """Expand send_im / empty plans; dedupe LLM stutter; canonicalize send when slots ready."""
+    """Parse PlanIR steps; empty plans fall back to generic slot projection."""
     s = normalize_slots(slots)
     data = plan_ir_to_dict(plan)
     raw_steps = list(data.get("steps") or [])
@@ -543,10 +487,7 @@ def normalize_plan_ir(
             args = {str(k): str(v) for k, v in raw["args"].items() if v is not None}
         else:
             args = {str(k): str(v) for k, v in args.items() if v is not None}
-        if op == "send_im":
-            out.extend(expand_send_im_steps(s))
-            continue
-        if not op:
+        if not op or op not in _IR_OPS:
             continue
         try:
             out.append(IrStep(op=op, a=args))  # type: ignore[arg-type]
@@ -557,8 +498,6 @@ def normalize_plan_ir(
 
     out = _dedupe_consecutive_steps(out)
     out = _dedupe_repeated_setup(out, s)
-    if _should_use_canonical_send(out, s):
-        return PlanIR(steps=expand_send_im_steps(s))
     return PlanIR(steps=out)
 
 
@@ -636,9 +575,6 @@ def plan_ir_to_outline(
         elif op == "try_catch":
             hint = "try_catch"
             goal = "容错"
-        elif op == "send_im":
-            # Should have been expanded; skip
-            continue
         else:
             hint = op
             params = dict(a)
@@ -658,14 +594,173 @@ def plan_ir_to_outline(
     return {"summary": summary or "", "steps": steps}
 
 
-def plan_ir_looks_weak(plan: PlanIR | dict[str, Any] | None) -> bool:
+def _normalize_goal(raw: GoalIR | dict[str, Any], index: int) -> GoalIR:
+    data = raw.model_dump() if isinstance(raw, GoalIR) else dict(raw or {})
+    requested_ops = [
+        str(op).strip()
+        for op in (data.get("required_ops") or [])
+        if str(op).strip()
+    ]
+    supported_ops = [op for op in requested_ops if op in _IR_OPS]
+    unsupported_ops = [op for op in requested_ops if op not in _IR_OPS]
+    gap = str(data.get("capability_gap") or "").strip()
+    if unsupported_ops and not gap:
+        gap = f"执行器不支持 opcode：{', '.join(unsupported_ops)}"
+    return GoalIR(
+        id=str(data.get("id") or f"g{index}"),
+        action=str(data.get("action") or "").strip(),
+        target=str(data.get("target") or "").strip(),
+        value=str(data.get("value") or "").strip(),
+        completion=str(data.get("completion") or "").strip(),
+        required_ops=supported_ops,
+        missing=[str(item) for item in (data.get("missing") or []) if str(item)],
+        capability_gap=gap,
+    )
+
+
+def build_task_contract(
+    utterance: str,
+    goals: list[GoalIR] | list[dict[str, Any]] | None = None,
+) -> TaskContract:
+    """Build the ordered user-outcome contract used by gap and validation."""
+    normalized = [
+        _normalize_goal(goal, i)
+        for i, goal in enumerate(goals or [], 1)
+        if isinstance(goal, (GoalIR, dict))
+    ]
+    return TaskContract(summary=str(utterance or "")[:160], goals=normalized)
+
+
+def reconcile_intent_tag(
+    intent_tag: str,
+    contract: TaskContract | dict[str, Any] | None,
+    *,
+    utterance: str = "",
+) -> str:
+    """Make legacy intent tags non-authoritative when ordered goals exist."""
+    tag = str(intent_tag or "other").strip()
+    if task_contract_to_dict(contract).get("goals"):
+        return "other"
+    return tag
+
+
+def task_contract_to_dict(
+    contract: TaskContract | dict[str, Any] | None,
+) -> dict[str, Any]:
+    if isinstance(contract, TaskContract):
+        return contract.model_dump()
+    if isinstance(contract, dict):
+        try:
+            return TaskContract.model_validate(contract).model_dump()
+        except Exception:
+            pass
+    return TaskContract().model_dump()
+
+
+def evaluate_task_coverage(
+    contract: TaskContract | dict[str, Any] | None,
+    plan: PlanIR | dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Check ordered goal requirements against the executable IR sequence."""
+    contract_n = TaskContract.model_validate(task_contract_to_dict(contract))
+    ops = [st.op for st in normalize_plan_ir(plan, {}).steps]
+    cursor = 0
+    goals: list[dict[str, Any]] = []
+    missing: list[str] = []
+    capability_gaps: list[str] = []
+    for goal in contract_n.goals:
+        matched: list[int] = []
+        local_cursor = cursor
+        goal_missing: list[str] = []
+        if not goal.required_ops and not goal.capability_gap and not goal.missing:
+            missing.append(f"目标 {goal.id} 未声明所需执行器能力")
+        for required in goal.required_ops:
+            found = next(
+                (i for i in range(local_cursor, len(ops)) if ops[i] == required),
+                None,
+            )
+            if found is None:
+                goal_missing.append(required)
+            else:
+                matched.append(found)
+                local_cursor = found + 1
+        if not goal_missing:
+            cursor = local_cursor
+        else:
+            missing.append(
+                f"目标 {goal.id}({goal.action}) 缺少动作：{', '.join(goal_missing)}"
+            )
+        if goal.capability_gap:
+            capability_gaps.append(f"目标 {goal.id}：{goal.capability_gap}")
+        goals.append(
+            {
+                "id": goal.id,
+                "action": goal.action,
+                "covered": not goal_missing,
+                "matched_steps": [i + 1 for i in matched],
+                "missing_ops": goal_missing,
+            }
+        )
+    return {
+        "complete": not missing,
+        "goals": goals,
+        "missing": missing,
+        "capability_gaps": capability_gaps,
+    }
+
+
+def validate_plan_draft(
+    plan: PlanIR | dict[str, Any] | None,
+    draft: dict[str, Any] | None,
+) -> list[str]:
+    """Validate that each simple IR action has a corresponding draft block chain."""
+    node_map = (draft or {}).get("nodes")
+    nodes = node_map if isinstance(node_map, dict) else {}
+    available = [str(node.get("type") or "") for node in nodes.values() if isinstance(node, dict)]
+    expected_by_op = {
+        "activate": ["window_activate"],
+        "ocr_click": ["ocr_recognize", "click"],
+        "type": ["type_text"],
+        "key": ["key_press"],
+        "wait": ["delay"],
+        "wait_text": ["wait_until"],
+        "schedule": ["schedule_trigger"],
+        "find_image_click": ["find_image", "click"],
+        "color_click": ["color_detect", "click"],
+        "loop": ["loop_n"],
+        "if_text": ["if_text_contains"],
+        "try_catch": ["try_catch"],
+    }
+    remaining = list(available)
+    errors: list[str] = []
+    for index, step in enumerate(normalize_plan_ir(plan, {}).steps, 1):
+        for expected in expected_by_op.get(step.op, []):
+            if expected in remaining:
+                remaining.remove(expected)
+            else:
+                errors.append(f"IR 第 {index} 步 {step.op} 未生成节点 {expected}")
+    return errors
+
+
+def plan_ir_looks_weak(
+    plan: PlanIR | dict[str, Any] | None,
+    *,
+    utterance: str = "",
+    task_contract: TaskContract | dict[str, Any] | None = None,
+) -> bool:
     data = plan_ir_to_dict(plan)
     steps = [s for s in (data.get("steps") or []) if isinstance(s, dict)]
     if not steps:
         return True
     ops = {str(s.get("op") or "").lower() for s in steps}
     useful = ops - {"", "wait"}
-    return not useful
+    if not useful:
+        return True
+    contract = task_contract or build_task_contract(utterance)
+    coverage = evaluate_task_coverage(contract, plan)
+    if task_contract_to_dict(contract).get("goals") and not coverage["complete"]:
+        return True
+    return False
 
 
 def gap_from_ir(
@@ -673,33 +768,27 @@ def gap_from_ir(
     slots: dict[str, str] | None,
     *,
     intent: str = "",
+    task_contract: TaskContract | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Code-first gap check against PlanIR + slots."""
     s = normalize_slots(slots)
     plan_n = normalize_plan_ir(plan, s)
-    ops = [st.op for st in plan_n.steps]
     missing: list[str] = []
 
     if not plan_n.steps:
         missing.append("大纲无步骤")
 
-    sendish = (
-        any(k in (intent or "") for k in ("发", "发送", "消息"))
-        or "send_message" in (intent or "")
-        or bool(s.get("contact") or s.get("message"))
-    )
-    if sendish:
-        if not s.get("message") and "type" not in ops:
-            missing.append("缺少消息内容或输入步骤")
-        if not s.get("window_title") and "activate" not in ops:
-            missing.append("缺少应用窗口")
-        if not s.get("contact") and "ocr_click" not in ops and "send_im" not in ops:
-            missing.append("缺少联系人定位步骤")
+    contract = task_contract or build_task_contract(intent)
+    coverage = evaluate_task_coverage(contract, plan_n)
+    missing.extend(str(item) for item in coverage.get("missing") or [])
+    missing = list(dict.fromkeys(missing))
 
     return {
         "complete": not missing,
         "missing": missing,
         "hints": missing,
+        "coverage": coverage,
+        "capability_gaps": list(coverage.get("capability_gaps") or []),
     }
 
 
@@ -709,22 +798,6 @@ def infer_missing_slots(
     *,
     utterance: str = "",
 ) -> list[str]:
-    """Suggest missing slot ids for clarify (no fake confirms)."""
-    s = normalize_slots(slots)
-    missing: list[str] = []
-    tag = (intent_tag or "other").strip()
-    text = utterance or ""
-    if tag == "send_message" or any(k in text for k in ("发送", "发消息", "发给")):
-        if not s.get("contact"):
-            missing.append("contact")
-        if not s.get("message"):
-            missing.append("message")
-    if tag == "window" and not s.get("window_title"):
-        missing.append("window_title")
-    if tag == "click_text" and not s.get("match_text") and not s.get("contact"):
-        missing.append("match_text")
-    if tag == "schedule" and not s.get("run_at"):
-        missing.append("run_at")
-    if tag == "find_image" and not s.get("image_ref"):
-        missing.append("image_ref")
-    return missing
+    """Deprecated: missing slots come from UnderstandIR/goals, not keyword task rules."""
+    del intent_tag, slots, utterance
+    return []

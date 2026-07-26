@@ -87,6 +87,7 @@ interface OrchestrationCard {
   summary?: DraftSummary;
   diff?: DraftDiff;
   warnings?: string[];
+  validation_errors?: string[];
   tool_trace?: { name?: string; ok?: boolean; skill?: string }[];
   points?: AiPointPreview[];
   shot?: AiShotPreview | null;
@@ -303,9 +304,12 @@ function OrchestrationResultCard({
   const nodeCount = summary?.node_count || 0;
   const addedCount = diff?.added?.length || 0;
   const warnings = card.warnings || [];
+  const validationErrors = card.validation_errors || [];
   const toolTrace = card.tool_trace || [];
   const clarify = card.clarify_questions || [];
   const needsClarify = card.status === "needs_clarify" || clarify.length > 0;
+  const validationFailed =
+    card.status === "validation_failed" || validationErrors.length > 0;
   const mutedBg =
     themeMode === "light" ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)";
   const riskHints: string[] = [];
@@ -324,6 +328,8 @@ function OrchestrationResultCard({
         <p className="text-xs" style={{ color: colors.secondaryText }}>
           {needsClarify
             ? "需要澄清"
+            : validationFailed
+              ? "草稿校验失败"
             : `草稿 ${nodeCount} 节点`}
           {!needsClarify && addedCount ? ` · +${addedCount}` : ""}
           {!needsClarify && diff?.removed?.length
@@ -355,7 +361,9 @@ function OrchestrationResultCard({
               className="h-7 text-xs px-2.5"
               style={{ backgroundColor: colors.primary }}
               onClick={onApply}
-              disabled={applying || !canApply || nodeCount <= 0}
+              disabled={
+                applying || !canApply || nodeCount <= 0 || validationFailed
+              }
             >
               {applying ? (
                 <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -370,6 +378,11 @@ function OrchestrationResultCard({
       {riskHints.length || warnings.length ? (
         <p className="text-[11px] text-amber-600 dark:text-amber-300">
           {riskHints[0] || warnings[0] || "部分节点含未经验证取点的坐标"}
+        </p>
+      ) : null}
+      {validationFailed ? (
+        <p className="text-[11px] text-red-600 dark:text-red-300">
+          {validationErrors[0] || "任务目标未完整覆盖，无法应用"}
         </p>
       ) : null}
       {!needsClarify && (card.plan?.outline?.steps?.length || 0) > 0 ? (

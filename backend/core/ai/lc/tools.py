@@ -118,7 +118,7 @@ class VisionLocateArgs(BaseModel):
 
 
 class CallSkillArgs(BaseModel):
-    skill_id: str = Field(description="技能 id，如 text_click / wechat_send_message")
+    skill_id: str = Field(description="技能 id，如 text_click / type_submit")
     params: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -58,6 +58,9 @@ def lean_orchestration_card(card: dict[str, Any] | None, *, message_id: str) -> 
         "summary": card.get("summary") if isinstance(card.get("summary"), dict) else {},
         "diff": card.get("diff") if isinstance(card.get("diff"), dict) else {},
         "warnings": list(card.get("warnings") or []) if isinstance(card.get("warnings"), list) else [],
+        "validation_errors": list(card.get("validation_errors") or [])
+        if isinstance(card.get("validation_errors"), list)
+        else [],
         "tool_trace": list(card.get("tool_trace") or []) if isinstance(card.get("tool_trace"), list) else [],
         "points": list(card.get("points") or []) if isinstance(card.get("points"), list) else [],
         "shot": shot,

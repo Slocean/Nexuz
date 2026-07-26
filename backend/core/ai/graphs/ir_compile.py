@@ -56,6 +56,7 @@ def compile_ir(
     *,
     artifacts: dict[str, Any] | None = None,
     tool_trace: list[dict[str, Any]] | None = None,
+    compile_trace: list[dict[str, Any]] | None = None,
     strict_coords: bool = True,
     utterance: str = "",
     summary: str = "",
@@ -66,7 +67,7 @@ def compile_ir(
     Returns {ok, draft, artifacts, tool_trace, errors, plan_ir, outline}.
     Does not invent contact/window/message values missing from slots/args.
     """
-    s = merge_and_normalize(slots, utterance=utterance)
+    s = merge_and_normalize(slots)
     plan_n = normalize_plan_ir(plan, s)
     plan_n = _resolve_plan_args(plan_n, s)
 
@@ -100,6 +101,7 @@ def compile_ir(
         slots=s,
         artifacts=artifacts,
         tool_trace=tool_trace,
+        compile_trace=compile_trace,
         strict_coords=strict_coords,
     )
     errors = list(pre_errors) + list(applied.get("errors") or [])
@@ -117,6 +119,7 @@ def compile_ir(
         "draft": out_draft,
         "artifacts": applied.get("artifacts") or {"shots": {}, "points": {}},
         "tool_trace": applied.get("tool_trace") or [],
+        "compile_trace": applied.get("compile_trace") or [],
         "errors": errors,
         "plan_ir": plan_n.model_dump(),
         "outline": outline,

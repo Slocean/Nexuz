@@ -179,15 +179,6 @@ def _apply_step(
                 params=params,
                 last_node_id=last_node_id,
             )
-        if name == "wechat_send_message":
-            return _recipe_wechat_send_message(
-                draft,
-                params=params,
-                last_node_id=last_node_id,
-                tool_trace=tool_trace,
-                runtime=runtime,
-                artifacts=artifacts,
-            )
         if name in ("if_text", "if_text_contains"):
             return _recipe_if_text(
                 draft,
@@ -506,71 +497,6 @@ def _recipe_color_click(
     )
     draft_builder.connect(draft, from_id=cid_detect, to_id=click_id, edge="next")
     return click_id
-
-
-def _recipe_wechat_send_message(
-    draft: dict[str, Any],
-    *,
-    params: dict[str, Any],
-    last_node_id: str | None,
-    tool_trace: list[dict[str, Any]],
-    runtime: ToolRuntime,
-    artifacts: dict[str, Any],
-) -> str:
-    """
-    Parameterized expansion (not a fixed demo):
-    optional schedule → focus app window → OCR click contact → type message → OCR click send.
-    All of contact / message / window title / send label MUST come from params (planner/LLM).
-    """
-    contact = str(params.get("contact") or params.get("to") or "").strip()
-    message = str(params.get("message") or params.get("text") or "").strip()
-    window_title = str(
-        params.get("window_title") or params.get("app") or params.get("title") or ""
-    ).strip()
-    send_label = str(params.get("send_label") or "").strip()
-    run_at = str(params.get("run_at") or params.get("time") or "").strip()
-    want_schedule = bool(run_at) or bool(params.get("schedule"))
-    if not contact:
-        raise ValueError("wechat_send_message 需要 params.contact（由规划从用户话术提取，禁止默认虚构）")
-    if not message:
-        raise ValueError("wechat_send_message 需要 params.message（由规划从用户话术提取，禁止默认虚构）")
-    if not window_title:
-        raise ValueError("wechat_send_message 需要 params.window_title（如「微信」）")
-    if not send_label:
-        send_label = "发送"  # UI verb shared by many IM clients; still overridable
-
-    cur = last_node_id
-    if want_schedule:
-        cur = _recipe_schedule_at(
-            draft,
-            params={"trigger_type": "once", "run_at": run_at},
-            last_node_id=cur,
-        )
-    cur = _recipe_window_focus(draft, title=window_title, last_node_id=cur)
-    cur = _recipe_ocr_click_chain(
-        draft,
-        match_text=contact,
-        last_node_id=cur,
-        tool_trace=tool_trace,
-        runtime=runtime,
-        artifacts=artifacts,
-        window_title=window_title,
-    )
-    draft, tid = draft_builder.add_node(
-        draft, block_type="type_text", params={"text": message}
-    )
-    draft_builder.connect(draft, from_id=cur, to_id=tid, edge="next")
-    cur = tid
-    cur = _recipe_ocr_click_chain(
-        draft,
-        match_text=send_label,
-        last_node_id=cur,
-        tool_trace=tool_trace,
-        runtime=runtime,
-        artifacts=artifacts,
-        window_title=window_title,
-    )
-    return cur
 
 
 def _recipe_if_text(

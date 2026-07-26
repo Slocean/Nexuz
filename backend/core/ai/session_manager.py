@@ -14,6 +14,7 @@ from backend.core.ai.conversation_store import (
     slim_shot_preview,
 )
 from backend.core.ai.draft_builder import clone_flow, diff_nodes, draft_summary, empty_draft
+from backend.core.ai.graphs.agent_ir import evaluate_task_coverage, validate_plan_draft
 from backend.core.ai.graphs.chat_graph import run_chat_graph
 from backend.core.ai.graphs.flow_graph import run_flow_graph
 from backend.core.ai.lc.models import test_chat_model
@@ -308,6 +309,10 @@ class SessionManager:
     ) -> dict[str, Any]:
         mid = (message_id or "").strip()
         base_for_diff = None
+        task_contract: dict[str, Any] = {}
+        plan_ir: dict[str, Any] = {}
+        stored_validation_errors: list[str] = []
+        stored_status = ""
         if mid:
             orch = self._store.get_orchestration_result(
                 conversation_id, mid, include_shot_image=False
@@ -318,6 +323,11 @@ class SessionManager:
             base_for_diff = orch.get("base_flow")
             card = orch.get("card") if isinstance(orch.get("card"), dict) else {}
             warnings = list(card.get("warnings") or [])
+            stored_validation_errors = list(card.get("validation_errors") or [])
+            stored_status = str(card.get("status") or "")
+            plan = card.get("plan") if isinstance(card.get("plan"), dict) else {}
+            task_contract = plan.get("task_contract") if isinstance(plan.get("task_contract"), dict) else {}
+            plan_ir = plan.get("plan_ir") if isinstance(plan.get("plan_ir"), dict) else {}
         else:
             conv = self._store.get(conversation_id)
             if conv is None:
@@ -325,6 +335,22 @@ class SessionManager:
             draft = conv.get("draft") or empty_draft()
             base_for_diff = conv.get("base_flow")
             warnings = self._collect_warnings(draft)
+            stored_status = str(conv.get("status") or "")
+            agent_state = conv.get("agent_state") if isinstance(conv.get("agent_state"), dict) else {}
+            task_contract = agent_state.get("task_contract") if isinstance(agent_state.get("task_contract"), dict) else {}
+            plan_ir = agent_state.get("plan_ir") if isinstance(agent_state.get("plan_ir"), dict) else {}
+
+        if stored_status == "validation_failed" or stored_validation_errors:
+            detail = "；".join(stored_validation_errors[:3]) or "草稿语义校验未通过"
+            return {"ok": False, "error": detail}
+        coverage = evaluate_task_coverage(task_contract, plan_ir)
+        semantic_errors = list(coverage.get("missing") or [])
+        semantic_errors.extend(validate_plan_draft(plan_ir, draft))
+        if semantic_errors:
+            return {"ok": False, "error": "；".join(dict.fromkeys(semantic_errors))}
+        unsafe_warnings = [w for w in warnings if "未经验证" in str(w) or "裸坐标" in str(w)]
+        if unsafe_warnings:
+            return {"ok": False, "error": "；".join(unsafe_warnings[:3])}
 
         if validate_fn is not None:
             err = validate_fn(draft)
@@ -389,6 +415,8 @@ class SessionManager:
             return {"ok": False, "error": "消息不能为空"}
 
         cfg = get_ai_config()
+        if not cfg.enabled:
+            return {"ok": False, "error": "Flow AI 未启用，请先在设置中启用"}
         if not cfg.base_url.strip():
             return {"ok": False, "error": "未配置 Base URL"}
 
@@ -526,6 +554,8 @@ class SessionManager:
             return {"ok": False, "error": "消息不能为空"}
 
         cfg = get_ai_config()
+        if not cfg.enabled:
+            return {"ok": False, "error": "Flow AI 未启用，请先在设置中启用"}
         if not cfg.base_url.strip():
             return {"ok": False, "error": "未配置 Base URL"}
 
@@ -595,7 +625,7 @@ class SessionManager:
                 validate_fn=self._validate_fn,
                 on_progress=on_progress,
                 assistant_id=assistant_id,
-                allow_dangerous=allow_dangerous,
+                allow_dangerous=bool(cfg.allow_dangerous),
                 use_checkpoint=True,
                 known_slots=dict(agent_state.get("known_slots") or {}),
                 intent=str(agent_state.get("intent") or ""),
@@ -643,12 +673,21 @@ class SessionManager:
             )
 
         clarify = list(out.get("clarify_questions") or [])
-        status = "needs_clarify" if clarify else (
-            "awaiting_confirm" if (draft.get("nodes") or {}) else "idle"
+        validation_errors = list(out.get("validation_errors") or [])
+        status = (
+            "needs_clarify"
+            if clarify
+            else "validation_failed"
+            if validation_errors
+            else "awaiting_confirm"
+            if (draft.get("nodes") or {})
+            else "idle"
         )
         next_agent_state = {
             "intent": out.get("intent") or agent_state.get("intent") or "",
             "intent_tag": out.get("intent_tag") or agent_state.get("intent_tag") or "",
+            "task_contract": out.get("task_contract") or agent_state.get("task_contract") or {},
+            "coverage_report": out.get("coverage_report") or {},
             "known_slots": out.get("known_slots") or agent_state.get("known_slots") or {},
             "outline": out.get("outline") or agent_state.get("outline") or {},
             "plan_ir": out.get("plan_ir") or agent_state.get("plan_ir") or {},
@@ -672,6 +711,7 @@ class SessionManager:
             "summary": draft_summary(draft),
             "diff": diff_nodes(existing_base, draft),
             "warnings": warnings,
+            "validation_errors": validation_errors,
             "tool_trace": turn_tool_trace[-12:],
             "points": points_prev,
             "shot": shot_prev,
@@ -691,6 +731,8 @@ class SessionManager:
                     "conversation_id": conversation_id,
                     "assistant_id": assistant_id,
                     "model": cfg.model,
+                    "ai_enabled": bool(cfg.enabled),
+                    "allow_dangerous": bool(cfg.allow_dangerous),
                     "status": status,
                     "node_count": draft_summary(draft).get("node_count"),
                     "warnings": warnings[:5],
@@ -717,6 +759,8 @@ class SessionManager:
             "status": status,
             "intent": next_agent_state.get("intent") or "",
             "intent_tag": next_agent_state.get("intent_tag") or "",
+            "task_contract": next_agent_state.get("task_contract") or {},
+            "coverage_report": next_agent_state.get("coverage_report") or {},
             "known_slots": next_agent_state.get("known_slots") or {},
             "outline": next_agent_state.get("outline") or {},
             "plan_ir": next_agent_state.get("plan_ir") or {},
@@ -724,8 +768,9 @@ class SessionManager:
             "plan": out.get("plan") or {},
             "process": process,
             "tool_trace": turn_tool_trace,
+            "compile_trace": list(out.get("compile_trace") or []),
             "warnings": warnings,
-            "validation_errors": list(out.get("validation_errors") or []),
+            "validation_errors": validation_errors,
             "draft_summary": draft_summary(draft),
             "reply": assistant_text,
             "status_hint": out.get("status_hint") or "",
