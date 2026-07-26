@@ -5,11 +5,35 @@ LLM outputs decision bits only; ir_compile expands into real draft nodes.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from backend.core.ai.graphs.slot_extract import extract_slots_from_utterance, merge_slots
+
+_NULLISH_GAPS = frozenset(
+    {
+        "",
+        "none",
+        "null",
+        "nil",
+        "n/a",
+        "na",
+        "无",
+        "无缺口",
+        "ok",
+        "false",
+        "0",
+        "capability_gap",
+        "capabilability_gap",
+    }
+)
+_PLACEHOLDER_GOAL_RE = re.compile(
+    r"^(action|target|value|goal|id|completion|completion_step)"
+    r"(?:_+\d*|_+\s*_+\d*|_\d+)$",
+    re.IGNORECASE,
+)
 
 # Canonical slot keys the interpreter accepts.
 CANONICAL_SLOT_KEYS = (
@@ -167,6 +191,24 @@ class UnderstandIR(BaseModel):
         default_factory=list,
         description="按话术顺序列出子目标；不得把复合任务压成最后一个动作",
     )
+
+    @field_validator("goals", mode="before")
+    @classmethod
+    def _coerce_goals(cls, value: Any) -> list[Any]:
+        """Accept bare strings (common LLM slip) as GoalIR.action."""
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return value
+        out: list[Any] = []
+        for i, item in enumerate(value, 1):
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    out.append({"id": f"g{i}", "action": text})
+                continue
+            out.append(item)
+        return out
 
 
 class IrStep(BaseModel):
@@ -594,40 +636,213 @@ def plan_ir_to_outline(
     return {"summary": summary or "", "steps": steps}
 
 
-def _normalize_goal(raw: GoalIR | dict[str, Any], index: int) -> GoalIR:
-    data = raw.model_dump() if isinstance(raw, GoalIR) else dict(raw or {})
-    requested_ops = [
-        str(op).strip()
-        for op in (data.get("required_ops") or [])
-        if str(op).strip()
+def _normalize_capability_gap(raw: Any) -> str:
+    gap = str(raw or "").strip()
+    if gap.lower() in _NULLISH_GAPS:
+        return ""
+    return gap
+
+
+def _strip_template_refs(raw: Any) -> str:
+    """Drop draft-template junk like {{ocr_recognize_xxx.x}} from goal fields."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    cleaned = re.sub(r"\{\{[^{}]+\}\}", "", text)
+    cleaned = re.sub(r"\s*,\s*", ",", cleaned).strip(" ,")
+    return cleaned.strip()
+
+
+def _is_placeholder_goal_text(raw: Any) -> bool:
+    text = str(raw or "").strip()
+    if not text:
+        return True
+    compact = re.sub(r"\s+", "", text)
+    compact = re.sub(r"_+", "_", compact)
+    return bool(_PLACEHOLDER_GOAL_RE.fullmatch(compact))
+
+
+def _goal_has_signal(goal: GoalIR) -> bool:
+    """Drop LLM placeholder noise like action_4 / target_4 / capabilability_gap."""
+    real_fields = [
+        goal.action,
+        goal.target,
+        goal.value,
+        goal.completion,
     ]
-    supported_ops = [op for op in requested_ops if op in _IR_OPS]
-    unsupported_ops = [op for op in requested_ops if op not in _IR_OPS]
-    gap = str(data.get("capability_gap") or "").strip()
+    if any(not _is_placeholder_goal_text(v) for v in real_fields if str(v or "").strip()):
+        return True
+    if goal.required_ops:
+        return True
+    if goal.missing:
+        return True
+    if goal.capability_gap:
+        return True
+    return False
+
+
+def _coerce_required_ops(raw_ops: list[Any] | None) -> tuple[list[str], list[str]]:
+    """Map block-name aliases → IR ops; return (supported, truly_unsupported)."""
+    supported: list[str] = []
+    unsupported: list[str] = []
+    for op in raw_ops or []:
+        token = str(op or "").strip()
+        if not token:
+            continue
+        canon = coerce_ir_op(token)
+        if canon and canon in _IR_OPS:
+            if canon not in supported:
+                supported.append(canon)
+        else:
+            if token not in unsupported:
+                unsupported.append(token)
+    return supported, unsupported
+
+
+def _infer_required_ops(action: str, target: str, value: str, completion: str) -> list[str]:
+    """Light keyword projection when the model omits required_ops."""
+    blob = " ".join([action, target, value, completion]).lower()
+    ops: list[str] = []
+
+    def add(op: str) -> None:
+        if op not in ops:
+            ops.append(op)
+
+    if any(k in blob for k in ("activate", "open", "focus", "打开", "激活", "启动")):
+        add("activate")
+    if any(
+        k in blob
+        for k in (
+            "ocr_click",
+            "click",
+            "select",
+            "tap",
+            "点击",
+            "选择",
+            "通讯录",
+            "联系人",
+        )
+    ):
+        add("ocr_click")
+    if any(k in blob for k in ("type", "input", "输入", "填写")):
+        add("type")
+    if any(k in blob for k in ("key", "press", "enter", "回车", "热键")):
+        add("key")
+    if any(k in blob for k in ("send", "发送", "消息")):
+        if value or "type" in ops or any(k in blob for k in ("type", "input", "输入")):
+            add("type")
+        add("key")
+    if any(k in blob for k in ("wait_text", "等待文字")):
+        add("wait_text")
+    elif any(k in blob for k in ("wait", "delay", "等待")):
+        add("wait")
+    if any(k in blob for k in ("schedule", "定时", "预约")):
+        add("schedule")
+    if any(k in blob for k in ("find_image", "找图", "模板")):
+        add("find_image_click")
+    if any(k in blob for k in ("color", "颜色")):
+        add("color_click")
+    if any(k in blob for k in ("loop", "循环")):
+        add("loop")
+    if any(k in blob for k in ("if_text", "分支", "如果")):
+        add("if_text")
+    return ops
+
+
+def _goal_targets_compatible(
+    goal: GoalIR,
+    prev_target: str,
+    prev_value: str,
+) -> bool:
+    """True when consecutive same-op goals can share one IR step."""
+    cur_t = (goal.target or "").strip().lower()
+    cur_v = (goal.value or "").strip().lower()
+    prev_t = (prev_target or "").strip().lower()
+    prev_v = (prev_value or "").strip().lower()
+    if not cur_t and not cur_v:
+        return True
+    if not prev_t and not prev_v:
+        return True
+    if cur_t and prev_t and (cur_t == prev_t or cur_t in prev_t or prev_t in cur_t):
+        return True
+    if cur_v and prev_v and cur_v == prev_v:
+        return True
+    if cur_t and prev_v and cur_t == prev_v:
+        return True
+    if cur_v and prev_t and cur_v == prev_t:
+        return True
+    return False
+
+
+def _normalize_goal(raw: GoalIR | dict[str, Any] | str, index: int) -> GoalIR | None:
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        data: dict[str, Any] = {"id": f"g{index}", "action": text}
+    elif isinstance(raw, GoalIR):
+        data = raw.model_dump()
+    else:
+        data = dict(raw or {})
+    supported_ops, unsupported_ops = _coerce_required_ops(data.get("required_ops"))
+    gap = _normalize_capability_gap(data.get("capability_gap"))
+    # Recover aliases previously parked in "执行器不支持 opcode：window_activate, …"
+    gap_match = re.match(r"^执行器不支持 opcode：(.+)$", gap)
+    if gap_match:
+        recovered, still_bad = _coerce_required_ops(
+            [p.strip() for p in gap_match.group(1).split(",") if p.strip()]
+        )
+        for op in recovered:
+            if op not in supported_ops:
+                supported_ops.append(op)
+        gap = (
+            f"执行器不支持 opcode：{', '.join(still_bad)}" if still_bad else ""
+        )
     if unsupported_ops and not gap:
         gap = f"执行器不支持 opcode：{', '.join(unsupported_ops)}"
-    return GoalIR(
+    action = _strip_template_refs(data.get("action"))
+    target = _strip_template_refs(data.get("target"))
+    value = _strip_template_refs(data.get("value"))
+    completion = _strip_template_refs(data.get("completion"))
+    if _is_placeholder_goal_text(action):
+        action = ""
+    if _is_placeholder_goal_text(target):
+        target = ""
+    if _is_placeholder_goal_text(value):
+        value = ""
+    if _is_placeholder_goal_text(completion):
+        completion = ""
+    if not supported_ops and not gap:
+        supported_ops = _infer_required_ops(action, target, value, completion)
+    goal = GoalIR(
         id=str(data.get("id") or f"g{index}"),
-        action=str(data.get("action") or "").strip(),
-        target=str(data.get("target") or "").strip(),
-        value=str(data.get("value") or "").strip(),
-        completion=str(data.get("completion") or "").strip(),
+        action=action,
+        target=target,
+        value=value,
+        completion=completion,
         required_ops=supported_ops,
         missing=[str(item) for item in (data.get("missing") or []) if str(item)],
         capability_gap=gap,
     )
+    if not _goal_has_signal(goal):
+        return None
+    if not goal.action and (goal.target or goal.value):
+        goal.action = goal.target or goal.value
+    return goal
 
 
 def build_task_contract(
     utterance: str,
-    goals: list[GoalIR] | list[dict[str, Any]] | None = None,
+    goals: list[GoalIR] | list[dict[str, Any]] | list[Any] | None = None,
 ) -> TaskContract:
     """Build the ordered user-outcome contract used by gap and validation."""
-    normalized = [
-        _normalize_goal(goal, i)
-        for i, goal in enumerate(goals or [], 1)
-        if isinstance(goal, (GoalIR, dict))
-    ]
+    normalized: list[GoalIR] = []
+    for i, goal in enumerate(goals or [], 1):
+        if not isinstance(goal, (GoalIR, dict, str)):
+            continue
+        item = _normalize_goal(goal, i)
+        if item is not None:
+            normalized.append(item)
     return TaskContract(summary=str(utterance or "")[:160], goals=normalized)
 
 
@@ -660,21 +875,51 @@ def task_contract_to_dict(
 def evaluate_task_coverage(
     contract: TaskContract | dict[str, Any] | None,
     plan: PlanIR | dict[str, Any] | None,
+    *,
+    utterance: str = "",
 ) -> dict[str, Any]:
     """Check ordered goal requirements against the executable IR sequence."""
     contract_n = TaskContract.model_validate(task_contract_to_dict(contract))
-    ops = [st.op for st in normalize_plan_ir(plan, {}).steps]
+    plan_steps = normalize_plan_ir(plan, {}).steps
+    ops = [st.op for st in plan_steps]
+    useful_ops = [op for op in ops if op and op != "wait"]
     cursor = 0
     goals: list[dict[str, Any]] = []
     missing: list[str] = []
+    soft_warnings: list[str] = []
     capability_gaps: list[str] = []
+    summary = str(contract_n.summary or utterance or "").strip()
+    if summary and not contract_n.goals:
+        missing.append("缺少任务目标")
+    prev_last_idx: int | None = None
+    prev_last_op = ""
+    prev_target = ""
+    prev_value = ""
     for goal in contract_n.goals:
         matched: list[int] = []
         local_cursor = cursor
         goal_missing: list[str] = []
         if not goal.required_ops and not goal.capability_gap and not goal.missing:
-            missing.append(f"目标 {goal.id} 未声明所需执行器能力")
+            msg = f"目标 {goal.id} 未声明所需执行器能力"
+            if useful_ops:
+                soft_warnings.append(msg)
+            else:
+                missing.append(msg)
         for required in goal.required_ops:
+            reused = False
+            if (
+                prev_last_idx is not None
+                and prev_last_op == required
+                and _goal_targets_compatible(goal, prev_target, prev_value)
+                and not matched
+                and 0 <= prev_last_idx < len(ops)
+                and ops[prev_last_idx] == required
+            ):
+                matched.append(prev_last_idx)
+                local_cursor = max(local_cursor, prev_last_idx + 1)
+                reused = True
+            if reused:
+                continue
             found = next(
                 (i for i in range(local_cursor, len(ops)) if ops[i] == required),
                 None,
@@ -686,26 +931,45 @@ def evaluate_task_coverage(
                 local_cursor = found + 1
         if not goal_missing:
             cursor = local_cursor
+            if matched:
+                prev_last_idx = matched[-1]
+                prev_last_op = ops[prev_last_idx]
+                prev_target = goal.target
+                prev_value = goal.value
         else:
             missing.append(
                 f"目标 {goal.id}({goal.action}) 缺少动作：{', '.join(goal_missing)}"
             )
         if goal.capability_gap:
             capability_gaps.append(f"目标 {goal.id}：{goal.capability_gap}")
+        covered = not goal_missing and (
+            bool(matched)
+            or bool(goal.capability_gap)
+            or bool(goal.missing)
+            or (not goal.required_ops and bool(useful_ops))
+        )
+        if (
+            not goal.required_ops
+            and not goal.capability_gap
+            and not goal.missing
+            and not useful_ops
+        ):
+            covered = False
         goals.append(
             {
                 "id": goal.id,
                 "action": goal.action,
-                "covered": not goal_missing,
+                "covered": covered,
                 "matched_steps": [i + 1 for i in matched],
                 "missing_ops": goal_missing,
             }
         )
     return {
-        "complete": not missing,
+        "complete": not missing and not capability_gaps,
         "goals": goals,
         "missing": missing,
         "capability_gaps": capability_gaps,
+        "soft_warnings": soft_warnings,
     }
 
 
@@ -779,16 +1043,19 @@ def gap_from_ir(
         missing.append("大纲无步骤")
 
     contract = task_contract or build_task_contract(intent)
-    coverage = evaluate_task_coverage(contract, plan_n)
+    coverage = evaluate_task_coverage(contract, plan_n, utterance=intent)
     missing.extend(str(item) for item in coverage.get("missing") or [])
     missing = list(dict.fromkeys(missing))
+    capability_gaps = list(coverage.get("capability_gaps") or [])
+    soft_warnings = list(coverage.get("soft_warnings") or [])
 
     return {
-        "complete": not missing,
+        "complete": not missing and not capability_gaps,
         "missing": missing,
-        "hints": missing,
+        "hints": missing + capability_gaps,
         "coverage": coverage,
-        "capability_gaps": list(coverage.get("capability_gaps") or []),
+        "capability_gaps": capability_gaps,
+        "soft_warnings": soft_warnings,
     }
 
 

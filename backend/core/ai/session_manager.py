@@ -583,6 +583,26 @@ class SessionManager:
                 existing_base = clone_flow(base_flow)
                 set_base = True
 
+        # New orchestration turn: do not carry a previous awaiting_confirm AI draft
+        # into context/compile (that caused duplicate chains like 7→15 nodes).
+        if not resume_clarify:
+            if isinstance(existing_base, dict) and existing_base.get("nodes") is not None:
+                draft = clone_flow(existing_base)
+            else:
+                keep_name = str(draft.get("name") or "AI 草稿")
+                keep_id = str(draft.get("flow_id") or "")
+                keep_vars = draft.get("variables") if isinstance(draft.get("variables"), dict) else {}
+                keep_schemas = (
+                    draft.get("variable_schemas")
+                    if isinstance(draft.get("variable_schemas"), dict)
+                    else {}
+                )
+                draft = empty_draft(name=keep_name)
+                if keep_id:
+                    draft["flow_id"] = keep_id
+                draft["variables"] = dict(keep_vars)
+                draft["variable_schemas"] = dict(keep_schemas)
+
         if attach_screenshot:
             if self._capture_fn is None:
                 return {"ok": False, "error": "截图能力不可用"}

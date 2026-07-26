@@ -17,6 +17,19 @@ from backend.core.ai.context_budget import (
     maybe_compact,
 )
 from backend.core.ai.draft_builder import draft_summary, empty_draft, set_entry
+
+
+def _draft_shell_for_recompile(source: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep draft identity/vars but drop nodes so IR compile does not append."""
+    src = source if isinstance(source, dict) else {}
+    shell = empty_draft(name=str(src.get("name") or "AI 草稿"))
+    if src.get("flow_id"):
+        shell["flow_id"] = src["flow_id"]
+    if isinstance(src.get("variables"), dict):
+        shell["variables"] = copy.deepcopy(src["variables"])
+    if isinstance(src.get("variable_schemas"), dict):
+        shell["variable_schemas"] = copy.deepcopy(src["variable_schemas"])
+    return shell
 from backend.core.ai.graphs.agent_ir import (
     PlanIR,
     PlanIRDraft,
@@ -1163,6 +1176,7 @@ def make_flow_nodes(
             task_contract=task_contract,
         )
         complete = bool(gap.get("complete"))
+        soft = list(gap.get("soft_warnings") or [])
         proc.append(
             {
                 "kind": "think",
@@ -1179,6 +1193,7 @@ def make_flow_nodes(
             "gap_hints": list(gap.get("hints") or gap.get("missing") or []),
             "warnings": list(state.get("warnings") or [])
             + list(gap.get("capability_gaps") or [])
+            + soft
             + ([] if complete else list(gap.get("missing") or [])[:3]),
             "task_contract": task_contract_to_dict(task_contract),
             "coverage_report": gap.get("coverage") or {},
@@ -1196,7 +1211,8 @@ def make_flow_nodes(
             on_progress, proc, step, mode="flow",
             conversation_id=conversation_id, assistant_id=assistant_id,
         )
-        draft = copy.deepcopy(state.get("draft") or empty_draft())
+        # Full IR compile replaces prior draft nodes (avoid 7→15 append on replan).
+        draft = _draft_shell_for_recompile(state.get("draft") or state.get("base_flow"))
         artifacts = copy.deepcopy(
             state.get("artifacts") or {"shots": {}, "points": {}}
         )
@@ -1362,8 +1378,14 @@ def make_flow_nodes(
         coverage = evaluate_task_coverage(
             state.get("task_contract"),
             state.get("plan_ir"),
+            utterance=str(state.get("input") or state.get("intent") or ""),
         )
-        errors.extend(str(item) for item in coverage.get("missing") or [])
+        # Contract metadata (coverage) is soft; only structural issues hard-fail.
+        soft_contract = (
+            list(coverage.get("missing") or [])
+            + list(coverage.get("capability_gaps") or [])
+            + list(coverage.get("soft_warnings") or [])
+        )
         errors.extend(validate_plan_draft(state.get("plan_ir"), draft))
         # Bound clicks check
         for nid, node in nodes.items():
@@ -1381,16 +1403,22 @@ def make_flow_nodes(
                     if ref_id not in nodes:
                         errors.append(f"节点 {nid} 引用了不存在的节点 {ref_id}")
         errors = list(dict.fromkeys(errors))
+        warnings = list(dict.fromkeys(list(state.get("warnings") or []) + soft_contract))
         proc.append(
             {
                 "kind": "think",
                 "label": "校验",
-                "text": "通过" if not errors else "；".join(errors[:4]),
+                "text": (
+                    "通过"
+                    if not errors
+                    else "；".join(errors[:4])
+                ),
             }
         )
         _broadcast_process(proc)
         return {
             "validation_errors": errors,
+            "warnings": warnings,
             "coverage_report": coverage,
             "status_hint": (
                 "validation_failed"
@@ -1439,9 +1467,17 @@ def make_flow_nodes(
             allow_dangerous=bool(state.get("allow_dangerous")),
             strict_coords=bool(state.get("strict_coords", True)),
         )
-        # Only tool-patch if still have validation errors beyond entry
+        # Only tool-patch structural errors; contract/coverage warnings are not repairable.
         errors = [e for e in (state.get("validation_errors") or []) if "入口" not in str(e)]
         if errors:
+            proc.append(
+                {
+                    "kind": "info",
+                    "node": "repair",
+                    "label": "结构修补",
+                    "text": f"{len(errors)} 项结构问题",
+                }
+            )
             tools = build_orchestration_tools(session, cfg=cfg)
             try:
                 repair_b = plan_call(cfg, "repair", system_text=REPAIR_SYSTEM)
