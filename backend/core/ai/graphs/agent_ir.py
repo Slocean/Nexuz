@@ -227,21 +227,9 @@ class PlanIR(BaseModel):
     steps: list[IrStep] = Field(default_factory=list)
 
 
-class IrStepDraft(BaseModel):
-    """Loose step from the gateway — op is free string, coerced later."""
-
-    op: str = Field(default="", description="opcode or alias")
-    a: dict[str, str] = Field(default_factory=dict)
-
-
-class PlanIRDraft(BaseModel):
-    """Structured-output schema that accepts alias ops without whole-plan failure."""
-
-    steps: list[IrStepDraft] = Field(default_factory=list)
-
-
 def coerce_ir_op(op: str | None, *, args: dict[str, str] | None = None) -> str | None:
     """Map a semantics-preserving alias to a closed-set op."""
+    del args  # reserved for future disambiguation
     raw = str(op or "").strip().lower().replace("-", "_").replace(" ", "_")
     if not raw:
         return None
@@ -271,6 +259,88 @@ def coerce_ir_args(args: dict[str, Any] | None) -> dict[str, str]:
     return out
 
 
+def coerce_step_a_value(op: str | None, raw_a: Any) -> dict[str, Any]:
+    """Lift bare-string step args (common LLM slip) into an object keyed by op."""
+    if isinstance(raw_a, dict):
+        return dict(raw_a)
+    if raw_a is None:
+        return {}
+    text = str(raw_a).strip()
+    if not text:
+        return {}
+    canon = coerce_ir_op(op) or str(op or "").strip().lower().replace("-", "_")
+    if canon == "activate":
+        return {"window": text}
+    if canon == "key":
+        return {"keys": text}
+    if canon == "wait":
+        return {"ms": text}
+    if canon == "schedule":
+        return {"run_at": text}
+    if canon == "find_image_click":
+        return {"image_ref": text}
+    if canon == "color_click":
+        return {"color": text}
+    if canon == "loop":
+        return {"n": text}
+    # ocr_click / type / wait_text / if_text / default
+    return {"text": text}
+
+
+def _normalize_step_args_for_op(op: str, args: dict[str, str]) -> dict[str, str]:
+    """Op-specific arg cleanup (e.g. key text/key → keys)."""
+    a = dict(args or {})
+    if op == "key":
+        keys = a.get("keys") or a.get("key") or a.get("text") or ""
+        if keys:
+            a = {"keys": keys}
+    if op == "activate":
+        window = a.get("window") or a.get("window_title") or a.get("title") or ""
+        if window:
+            a = {**a, "window": window}
+    return a
+
+
+class IrStepDraft(BaseModel):
+    """Loose step from the gateway — op is free string, coerced later."""
+
+    op: str = Field(default="", description="opcode or alias")
+    a: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("a", mode="before")
+    @classmethod
+    def _coerce_a(cls, value: Any, info: Any = None) -> Any:
+        op = ""
+        if info is not None and getattr(info, "data", None):
+            op = str(info.data.get("op") or "")
+        if isinstance(value, dict):
+            return value
+        return coerce_step_a_value(op, value)
+
+
+class PlanIRDraft(BaseModel):
+    """Structured-output schema that accepts alias ops without whole-plan failure."""
+
+    steps: list[IrStepDraft] = Field(default_factory=list)
+
+    @field_validator("steps", mode="before")
+    @classmethod
+    def _coerce_steps(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        out: list[Any] = []
+        for item in value:
+            if isinstance(item, dict):
+                op = str(item.get("op") or "")
+                a = item.get("a", item.get("args"))
+                if not isinstance(a, dict):
+                    item = {**item, "a": coerce_step_a_value(op, a)}
+                out.append(item)
+            else:
+                out.append(item)
+        return out
+
+
 def parse_plan_ir(
     raw: PlanIR | PlanIRDraft | dict[str, Any] | None,
     slots: dict[str, str] | None = None,
@@ -296,13 +366,17 @@ def parse_plan_ir(
             st = st.model_dump()
         if not isinstance(st, dict):
             continue
-        args = st.get("a") if isinstance(st.get("a"), dict) else {}
-        if not args and isinstance(st.get("args"), dict):
-            args = st["args"]
-        args_n = coerce_ir_args(args)
-        op = coerce_ir_op(str(st.get("op") or ""), args=args_n)
+        op_raw = str(st.get("op") or "")
+        raw_a = st.get("a")
+        if raw_a is None and "args" in st:
+            raw_a = st.get("args")
+        if not isinstance(raw_a, dict):
+            raw_a = coerce_step_a_value(op_raw, raw_a)
+        args_n = coerce_ir_args(raw_a)
+        op = coerce_ir_op(op_raw, args=args_n)
         if not op:
             continue
+        args_n = _normalize_step_args_for_op(op, args_n)
         coerced.append({"op": op, "a": args_n})
 
     return normalize_plan_ir({"steps": coerced}, slots)
@@ -325,8 +399,11 @@ def collect_unsupported_ir_ops(
         if not isinstance(step, dict):
             continue
         raw_op = str(step.get("op") or "").strip()
-        args = step.get("a") if isinstance(step.get("a"), dict) else {}
-        if raw_op and coerce_ir_op(raw_op, args=coerce_ir_args(args)) is None:
+        raw_a = step.get("a")
+        if not isinstance(raw_a, dict):
+            raw_a = coerce_step_a_value(raw_op, raw_a)
+        args = coerce_ir_args(raw_a)
+        if raw_op and coerce_ir_op(raw_op, args=args) is None:
             if raw_op not in unsupported:
                 unsupported.append(raw_op)
     return unsupported
@@ -523,14 +600,17 @@ def normalize_plan_ir(
     for raw in raw_steps:
         if not isinstance(raw, dict):
             continue
-        op = str(raw.get("op") or "").strip()
-        args = raw.get("a") if isinstance(raw.get("a"), dict) else {}
-        if not args and isinstance(raw.get("args"), dict):
-            args = {str(k): str(v) for k, v in raw["args"].items() if v is not None}
-        else:
-            args = {str(k): str(v) for k, v in args.items() if v is not None}
+        op_raw = str(raw.get("op") or "").strip()
+        raw_a = raw.get("a")
+        if raw_a is None and isinstance(raw.get("args"), dict):
+            raw_a = raw["args"]
+        if not isinstance(raw_a, dict):
+            raw_a = coerce_step_a_value(op_raw, raw_a)
+        args = coerce_ir_args(raw_a)
+        op = coerce_ir_op(op_raw, args=args) or (op_raw if op_raw in _IR_OPS else "")
         if not op or op not in _IR_OPS:
             continue
+        args = _normalize_step_args_for_op(op, args)
         try:
             out.append(IrStep(op=op, a=args))  # type: ignore[arg-type]
         except Exception:
@@ -1012,19 +1092,78 @@ def plan_ir_looks_weak(
     utterance: str = "",
     task_contract: TaskContract | dict[str, Any] | None = None,
 ) -> bool:
+    """True when PlanIR has no useful executable steps (SSOT-only; ignores goals)."""
+    del utterance, task_contract
     data = plan_ir_to_dict(plan)
     steps = [s for s in (data.get("steps") or []) if isinstance(s, dict)]
     if not steps:
         return True
     ops = {str(s.get("op") or "").lower() for s in steps}
     useful = ops - {"", "wait"}
-    if not useful:
-        return True
-    contract = task_contract or build_task_contract(utterance)
-    coverage = evaluate_task_coverage(contract, plan)
-    if task_contract_to_dict(contract).get("goals") and not coverage["complete"]:
-        return True
-    return False
+    return not useful
+
+
+def _plan_step_missing_args(
+    step: IrStep,
+    slots: dict[str, str],
+) -> str | None:
+    """Return a hard missing message if SSOT step lacks required args after slots."""
+    a = dict(step.a or {})
+    if step.op == "activate":
+        if not (a.get("window") or slots.get("window_title")):
+            return "activate 缺少 window"
+    elif step.op == "ocr_click":
+        if not (
+            a.get("text")
+            or slots.get("match_text")
+            or slots.get("contact")
+        ):
+            return "ocr_click 缺少 text"
+    elif step.op == "type":
+        if not (a.get("text") or slots.get("message")):
+            return "type 缺少 text"
+    elif step.op == "key":
+        if not (a.get("keys") or a.get("key") or slots.get("key")):
+            return "key 缺少 keys"
+    elif step.op == "find_image_click":
+        if not (a.get("image_ref") or slots.get("image_ref")):
+            return "find_image_click 缺少 image_ref"
+    elif step.op == "color_click":
+        if not (a.get("color") or slots.get("color")):
+            return "color_click 缺少 color"
+    return None
+
+
+def derive_goals_from_plan_ir(
+    plan: PlanIR | dict[str, Any] | None,
+    utterance: str = "",
+    *,
+    slots: dict[str, str] | None = None,
+) -> TaskContract:
+    """Derive display-only goals from SSOT PlanIR (never authoritative for gap)."""
+    plan_n = normalize_plan_ir(plan, slots)
+    goals: list[GoalIR] = []
+    for i, st in enumerate(plan_n.steps, 1):
+        a = dict(st.a or {})
+        target = (
+            a.get("window")
+            or a.get("text")
+            or a.get("keys")
+            or a.get("image_ref")
+            or a.get("color")
+            or ""
+        )
+        value = a.get("text") if st.op == "type" else (a.get("keys") if st.op == "key" else "")
+        goals.append(
+            GoalIR(
+                id=f"g{i}",
+                action=st.op,
+                target=target,
+                value=value or "",
+                required_ops=[st.op],
+            )
+        )
+    return TaskContract(summary=str(utterance or "")[:160], goals=goals)
 
 
 def gap_from_ir(
@@ -1034,27 +1173,33 @@ def gap_from_ir(
     intent: str = "",
     task_contract: TaskContract | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Code-first gap check against PlanIR + slots."""
+    """Code-first gap check against SSOT PlanIR + slots only (goals are soft)."""
     s = normalize_slots(slots)
     plan_n = normalize_plan_ir(plan, s)
     missing: list[str] = []
 
     if not plan_n.steps:
         missing.append("大纲无步骤")
-
-    contract = task_contract or build_task_contract(intent)
-    coverage = evaluate_task_coverage(contract, plan_n, utterance=intent)
-    missing.extend(str(item) for item in coverage.get("missing") or [])
+    for index, step in enumerate(plan_n.steps, 1):
+        msg = _plan_step_missing_args(step, s)
+        if msg:
+            missing.append(f"第 {index} 步 {msg}")
     missing = list(dict.fromkeys(missing))
-    capability_gaps = list(coverage.get("capability_gaps") or [])
+
+    # Coverage vs LLM goals is display/soft only — never blocks SSOT complete.
+    contract = task_contract or derive_goals_from_plan_ir(plan_n, intent, slots=s)
+    coverage = evaluate_task_coverage(contract, plan_n, utterance=intent)
     soft_warnings = list(coverage.get("soft_warnings") or [])
+    soft_warnings.extend(str(item) for item in coverage.get("missing") or [])
+    soft_warnings.extend(str(item) for item in coverage.get("capability_gaps") or [])
+    soft_warnings = list(dict.fromkeys(soft_warnings))
 
     return {
-        "complete": not missing and not capability_gaps,
+        "complete": not missing,
         "missing": missing,
-        "hints": missing + capability_gaps,
+        "hints": missing,
         "coverage": coverage,
-        "capability_gaps": capability_gaps,
+        "capability_gaps": [],
         "soft_warnings": soft_warnings,
     }
 

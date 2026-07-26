@@ -14,40 +14,38 @@ CHAT_SYSTEM = """你是 Nexuz 桌面自动化助手，当前处于「对话模�
 UNDERSTAND_SYSTEM = """你是 Nexuz 编排 Agent 的「理解」阶段。
 只输出 UnderstandIR JSON：intent_tag、slots、missing、goals。极简，禁止解释。
 
-intent_tag 固定输出 other；不得用预设任务类型分类，也不得按应用/场景套模板。
-slots 只放可直接复用的执行参数；任务语义必须完整保留在 goals。
+SSOT 说明：可执行计划由后续 PlanIR 决定；本阶段以抽槽为主。
+intent_tag 固定输出 other。
 
 规则：
-1. slots 只能填话术里明确出现的值，禁止编造。
-2. missing 只列仍缺的槽位 id（如 match_text）；禁止假确认题。
+1. slots 只能填话术里明确出现的值（window_title/contact/message/match_text/run_at/schedule/…），禁止编造。
+2. missing 只列仍缺的槽位 id；禁止假确认题。
 3. 执行一次/马上/立刻 → schedule=false。
-4. goals 是主结果，必须按原话顺序列出每个子目标；每个元素必须是对象，禁止输出字符串数组。
-5. 每个 goal 填 id/action/target/value/completion/required_ops/missing/capability_gap；action 是自由语义摘要，不用于代码匹配。
-6. required_ops 必须用 IR 闭集：activate|ocr_click|type|key|wait|wait_text|schedule|find_image_click|color_click|loop|if_text|try_catch；禁止积木名（window_activate/type_text/key_press）。
-7. ocr_click 是原子动作（识别+点击算一个 goal），不要拆成 find+click 两个都要 ocr_click 的目标。
-8. 无缺口时 capability_gap 必须留空字符串；禁止填 none/capability_gap；value/target 禁止写 {{node.field}}。
-9. 禁止占位字段：action_4、target_5、value_N、completion_step_N 等伪值。
-10. missing 归属具体 goal；不要用预设任务类型推导缺失信息。
-11. 不要输出 Flow JSON。
+4. goals 仅为可选语义摘要（展示用），禁止当作执行契约；可留空数组。
+5. 若填写 goals：不要写 required_ops 审判字段依赖；不要写 {{node.field}}；禁止 action_4 等占位伪值。
+6. 不要输出 Flow JSON 或 PlanIR。
 """
 
 OUTLINE_SYSTEM = """你是 Nexuz 编排 Agent 的「规划」阶段。
 只输出 PlanIR JSON：steps[{op,a}]。极简，禁止解释与多余字段。
 
+PlanIR 是本轮唯一可执行真相（SSOT）。不要按 goals/required_ops 对齐；直接根据话术与槽位生成步骤。
+
 op 闭集：activate|ocr_click|type|key|wait|wait_text|schedule|find_image_click|color_click|loop|if_text|try_catch
 禁止闭集外 op（如 open/launch/search/navigate/send_im）；不确定时只用 activate|ocr_click|type|key|wait。
 
-a 全是短字符串，例如：
+a 优先为短字符串对象，例如：
 - activate: {window:记事本}
-- ocr_click: {text:确定} 或 {text:保存}
+- ocr_click: {text:确定}
 - type: {text:hello}
+- key: {keys:Enter}
 - wait: {ms:500}
+若输出短字符串（如 a:"微信"），系统会按 op 自动升格，但仍优先输出对象。
 
 规则：
-1. 按任务契约中 goals 的顺序和 required_ops 生成步骤，不按任务名称或应用场景套模板。
-2. 每个 required_op 必须有对应步骤；不得只保留最后一个动作。
-3. 参数只能来自 goal/slots/原话，缺失时不要猜。
-4. 当前执行器无法表达的目标保持未覆盖，交给 gap_check 报告。
+1. 参数只能来自槽位/原话，缺失时不要猜。
+2. ocr_click 是原子动作（识别+点击一步）。
+3. 当前执行器无法表达的动作不要编造闭集外 op。
 """
 
 GAP_SYSTEM = """对照意图与 PlanIR，输出 GapIR：ok、hints（短码/短句）。不要假确认。"""
@@ -75,4 +73,3 @@ def chat_prompt() -> ChatPromptTemplate:
             ("human", "{input}"),
         ]
     )
-

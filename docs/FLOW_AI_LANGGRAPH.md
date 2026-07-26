@@ -37,18 +37,20 @@
 
 ## 3. Flow 图节点（主路径）
 
+**SSOT：`PlanIR` + 规范化 `slots` 是唯一可执行真相。** `goals` / `task_contract` 仅展示或 soft 提示，不审判 PlanIR。详见 [`FLOW_AI_SSOT_ARCHITECTURE.md`](./FLOW_AI_SSOT_ARCHITECTURE.md)。
+
 ```
 load_context → understand → clarify? → plan_outline → gap_check ↔ plan
            → build_loop(compile_ir) → validate ↔ repair → summarize
 ```
 
 1. **load_context**：草稿摘要 / points / 积木卡  
-2. **understand**：`UnderstandIR`（`intent_tag` / `slots` / `missing`）；澄清文案由代码生成  
+2. **understand**：抽 `slots` / `missing`（goals 可选、非权威）  
 3. **clarify**：`missing` 槽位 id → UI；用户作答后 `resume_clarify`  
-4. **plan_outline**：`PlanIR`（`steps[{op,a}]` 闭集 opcode）；失败则 `plan_ir_from_slots`  
-5. **gap_check**：**代码优先** `gap_from_ir`（不默认喂长 JSON 调 LLM）  
-6. **build_loop**：**`compile_ir` 主路径**；仅编译无产出时才短 prompt 补洞（`ToolActionBatch` / tools）  
-7. **validate / repair**：入口与坐标门禁；repair 先确定性补 entry  
+4. **plan_outline**：产出 SSOT `PlanIR`（宽松解析含字符串 `a`）；失败则 `plan_ir_from_slots`  
+5. **gap_check**：只查 PlanIR 自身（空 steps / 缺参）；代码优先，不调 LLM  
+6. **build_loop**：`compile_ir` 主路径；仅编译无产出时才短 prompt 补洞  
+7. **validate / repair**：仅结构硬错误；repair 不修 goals 契约  
 8. **summarize**：仅陈述事实；`node_count==0` 禁止「已准备好」
 
 人机确认：图结束后仍由用户点「应用到画布」→ `ai_apply_draft`。
@@ -56,7 +58,7 @@ load_context → understand → clarify? → plan_outline → gap_check ↔ plan
 ### Compact IR 要点
 
 - 槽位键：`window_title|contact|message|run_at|…`（别名如 platform/recipient/content 会归一化）  
-- opcode：`activate|ocr_click|type|key|wait|send_im|…`  
+- opcode：`activate|ocr_click|type|key|wait|…`（闭集；别名在 `coerce_ir_op`）  
 - 禁止解释器编造 slots 中未出现的联系人/窗口  
 - 结构化调用：`lc/structured_call.invoke_structured`（`json_schema` 优先）  
 - Token 调度：[`FLOW_AI_TOKEN_SCHEDULER.md`](./FLOW_AI_TOKEN_SCHEDULER.md) — 先锁输出再装输入；`guarded_structured_invoke` 抬额 + 结构化续写；`lc/completion_budget.py` 为兼容薄封装

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from backend.core.ai.graphs.agent_ir import (
+    PlanIRDraft,
     UnderstandIR,
     build_task_contract,
+    derive_goals_from_plan_ir,
     evaluate_task_coverage,
     gap_from_ir,
+    normalize_plan_ir,
+    parse_plan_ir,
+    plan_ir_looks_weak,
 )
 
 
@@ -99,7 +104,8 @@ def test_coverage_none_gap_not_warning():
     assert coverage["capability_gaps"] == []
 
 
-def test_gap_from_ir_folds_capability_gaps():
+def test_gap_from_ir_goals_capability_is_soft_only():
+    """SSOT: PlanIR ok → gap complete even if LLM goals claim a capability_gap."""
     gap = gap_from_ir(
         {"steps": [{"op": "activate", "a": {"window": "微信"}}]},
         {},
@@ -117,8 +123,107 @@ def test_gap_from_ir_folds_capability_gaps():
             ],
         },
     )
-    assert gap["complete"] is False
-    assert gap["capability_gaps"]
+    assert gap["complete"] is True
+    assert gap["capability_gaps"] == []
+    assert any("无法启动" in w for w in gap.get("soft_warnings") or [])
+
+
+def test_parse_plan_ir_coerces_string_a():
+    """Log f2713e28: steps.0.a='微信' must not wipe the whole plan."""
+    draft = PlanIRDraft.model_validate(
+        {
+            "steps": [
+                {"op": "activate", "a": "微信"},
+                {"op": "ocr_click", "a": "通讯录"},
+                {"op": "type", "a": "1"},
+                {"op": "key", "a": "Enter"},
+            ]
+        }
+    )
+    plan = parse_plan_ir(draft, {})
+    assert [s.op for s in plan.steps] == ["activate", "ocr_click", "type", "key"]
+    assert plan.steps[0].a.get("window") == "微信"
+    assert plan.steps[1].a.get("text") == "通讯录"
+    assert plan.steps[3].a.get("keys") == "Enter"
+
+
+def test_normalize_key_text_arg():
+    plan = normalize_plan_ir(
+        {"steps": [{"op": "key", "a": {"text": "Enter"}}]},
+        {},
+    )
+    assert plan.steps[0].op == "key"
+    assert plan.steps[0].a.get("keys") == "Enter"
+
+
+def test_gap_empty_goals_with_valid_plan_is_complete():
+    gap = gap_from_ir(
+        {
+            "steps": [
+                {"op": "activate", "a": {"window": "微信"}},
+                {"op": "ocr_click", "a": {"text": "mom"}},
+                {"op": "type", "a": {"text": "1"}},
+                {"op": "key", "a": {"keys": "Enter"}},
+            ]
+        },
+        {"contact": "mom"},
+        intent="打开微信给通讯录的mom发送一条消息：1",
+        task_contract={"summary": "打开微信给通讯录的mom发送一条消息：1", "goals": []},
+    )
+    assert gap["complete"] is True
+    assert "缺少任务目标" not in (gap.get("missing") or [])
+
+
+def test_gap_ignores_oversplit_goals_when_plan_ok():
+    gap = gap_from_ir(
+        {
+            "steps": [
+                {"op": "activate", "a": {"window": "微信"}},
+                {"op": "ocr_click", "a": {"text": "mom"}},
+                {"op": "type", "a": {"text": "1"}},
+                {"op": "key", "a": {"keys": "Enter"}},
+            ]
+        },
+        {},
+        intent="发消息",
+        task_contract={
+            "summary": "发消息",
+            "goals": [
+                {"id": "find", "action": "find", "target": "mom", "required_ops": ["ocr_click"]},
+                {"id": "click", "action": "click", "target": "mom", "required_ops": ["ocr_click"]},
+                {"id": "extra", "action": "extra", "target": "x", "required_ops": ["ocr_click"]},
+            ],
+        },
+    )
+    assert gap["complete"] is True
+
+
+def test_plan_ir_looks_weak_ignores_goals():
+    assert plan_ir_looks_weak(
+        {"steps": [{"op": "activate", "a": {"window": "微信"}}]},
+        utterance="打开微信",
+        task_contract={
+            "summary": "打开微信",
+            "goals": [
+                {"id": "g1", "action": "x", "required_ops": ["activate", "ocr_click", "type"]}
+            ],
+        },
+    ) is False
+
+
+def test_derive_goals_from_plan_ir():
+    contract = derive_goals_from_plan_ir(
+        {
+            "steps": [
+                {"op": "activate", "a": {"window": "微信"}},
+                {"op": "type", "a": {"text": "1"}},
+            ]
+        },
+        "测试",
+    )
+    assert len(contract.goals) == 2
+    assert contract.goals[0].required_ops == ["activate"]
+    assert contract.goals[1].value == "1"
 
 
 def test_block_name_ops_alias_no_fake_gap():

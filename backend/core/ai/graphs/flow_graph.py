@@ -17,25 +17,13 @@ from backend.core.ai.context_budget import (
     maybe_compact,
 )
 from backend.core.ai.draft_builder import draft_summary, empty_draft, set_entry
-
-
-def _draft_shell_for_recompile(source: dict[str, Any] | None) -> dict[str, Any]:
-    """Keep draft identity/vars but drop nodes so IR compile does not append."""
-    src = source if isinstance(source, dict) else {}
-    shell = empty_draft(name=str(src.get("name") or "AI 草稿"))
-    if src.get("flow_id"):
-        shell["flow_id"] = src["flow_id"]
-    if isinstance(src.get("variables"), dict):
-        shell["variables"] = copy.deepcopy(src["variables"])
-    if isinstance(src.get("variable_schemas"), dict):
-        shell["variable_schemas"] = copy.deepcopy(src["variable_schemas"])
-    return shell
 from backend.core.ai.graphs.agent_ir import (
     PlanIR,
     PlanIRDraft,
     UnderstandIR,
     build_task_contract,
     collect_unsupported_ir_ops,
+    derive_goals_from_plan_ir,
     evaluate_task_coverage,
     format_ir_for_prompt,
     gap_from_ir,
@@ -85,6 +73,19 @@ from backend.core.ai.types import AiConfig
 
 ProgressFn = Callable[[dict[str, Any]], None]
 ValidateFn = Callable[[dict[str, Any]], str | None]
+
+
+def _draft_shell_for_recompile(source: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep draft identity/vars but drop nodes so IR compile does not append."""
+    src = source if isinstance(source, dict) else {}
+    shell = empty_draft(name=str(src.get("name") or "AI 草稿"))
+    if src.get("flow_id"):
+        shell["flow_id"] = src["flow_id"]
+    if isinstance(src.get("variables"), dict):
+        shell["variables"] = copy.deepcopy(src["variables"])
+    if isinstance(src.get("variable_schemas"), dict):
+        shell["variable_schemas"] = copy.deepcopy(src["variable_schemas"])
+    return shell
 
 # After LM Studio / bad chat-template 400, skip bind_tools for the process lifetime.
 _NATIVE_TOOLS_UNAVAILABLE = False
@@ -884,6 +885,7 @@ def make_flow_nodes(
         slots = merge_and_normalize(
             prior_slots, uir.slots, answers
         )
+        # LLM goals are non-authoritative display hints only (SSOT is PlanIR+slots).
         task_contract = build_task_contract(user_input, list(uir.goals or []))
         reconciled_tag = reconcile_intent_tag(
             intent_tag,
@@ -900,15 +902,8 @@ def make_flow_nodes(
                 }
             )
             intent_tag = reconciled_tag
-        if task_contract.goals:
-            missing_ids = [
-                item
-                for goal in task_contract.goals
-                for item in goal.missing
-            ]
-        else:
-            missing_ids = list(uir.missing or [])
-        # Drop already-filled
+        # Clarify from understand.missing slots only — not goal.required_ops contract.
+        missing_ids = list(uir.missing or [])
         missing_ids = [m for m in missing_ids if not slots.get(m)]
         ambiguities = missing_to_questions(missing_ids)
         if answers:
@@ -1029,8 +1024,8 @@ def make_flow_nodes(
             state.get("input") or intent
         ).model_dump()
         prev_ir = state.get("plan_ir") if isinstance(state.get("plan_ir"), dict) else {}
-        det = PlanIR(steps=[])
-        plan: PlanIR
+        utterance = str(state.get("input") or intent or "")
+        plan: PlanIR = PlanIR(steps=[])
         try:
             ctx_blob = str(state.get("context") or "")
             packed, _ = _compile_user_blob(
@@ -1043,10 +1038,9 @@ def make_flow_nodes(
                         0,
                         (
                             f"意图：{intent}\n槽位：{safe_json(slots)}\n"
-                            f"任务契约：{safe_json(task_contract)}\n"
                             f"补洞：{safe_json(hints)}\n"
                             f"上一版IR：{format_ir_for_prompt(prev_ir)}\n"
-                            f"话术：{state.get('input') or intent}"
+                            f"话术：{utterance}"
                         ),
                         compressible=False,
                     ),
@@ -1058,8 +1052,8 @@ def make_flow_nodes(
                 HumanMessage(content=packed),
             ]
             compact_msgs = [
-                SystemMessage(content="输出 PlanIR：steps[{op,a}]。极简。只用闭集 op。"),
-                HumanMessage(content=f"意图：{intent}\n任务契约：{safe_json(task_contract)}\n槽位：{safe_json(slots)}"),
+                SystemMessage(content="输出 PlanIR：steps[{op,a}]。极简。只用闭集 op。a 可为短字符串。"),
+                HumanMessage(content=f"意图：{intent}\n槽位：{safe_json(slots)}\n话术：{utterance}"),
             ]
             raw = _structured_with_budget(
                 cfg,
@@ -1081,37 +1075,30 @@ def make_flow_nodes(
                         "text": "、".join(unsupported_ops),
                     }
                 )
-            if not plan.steps:
-                if not task_contract_to_dict(task_contract).get("goals"):
-                    plan = det
-                proc.append(
-                    {
-                        "kind": "warn",
-                        "node": "plan_outline",
-                        "label": "大纲回退",
-                        "text": "coerce 后无有效步骤"
-                        + ("，已用兼容槽位回退" if plan.steps else "，等待按能力补齐"),
-                    }
-                )
-            elif plan_ir_looks_weak(
-                plan,
-                utterance=state.get("input") or "",
-                task_contract=task_contract,
-            ):
-                proc.append(
-                    {
-                        "kind": "info",
-                        "node": "plan_outline",
-                        "label": "IR覆盖不足",
-                        "text": "模型 PlanIR 未覆盖全部目标，将进入通用 gap 修复",
-                    }
-                )
+            if not plan.steps or plan_ir_looks_weak(plan, utterance=utterance):
+                fallback = plan_ir_from_slots(intent, slots, utterance=utterance)
+                if fallback.steps:
+                    plan = fallback
+                    proc.append(
+                        {
+                            "kind": "warn",
+                            "node": "plan_outline",
+                            "label": "大纲回退",
+                            "text": "已用槽位投影生成 PlanIR（SSOT）",
+                        }
+                    )
+                else:
+                    proc.append(
+                        {
+                            "kind": "warn",
+                            "node": "plan_outline",
+                            "label": "大纲回退",
+                            "text": "coerce 后无有效步骤，等待补齐槽位",
+                        }
+                    )
         except Exception as exc:
-            plan = (
-                PlanIR(steps=[])
-                if task_contract_to_dict(task_contract).get("goals")
-                else det
-            )
+            # Salvage: never blank the SSOT solely because goals exist.
+            plan = plan_ir_from_slots(intent, slots, utterance=utterance)
             proc.append(
                 {
                     "kind": "warn",
@@ -1121,7 +1108,7 @@ def make_flow_nodes(
                 }
             )
         # Strip schedule if once
-        t = state.get("input") or ""
+        t = utterance
         if any(k in t for k in ("执行一次", "马上", "立刻", "立即")) or str(
             slots.get("schedule") or ""
         ).lower() in ("false", "0", "no"):
@@ -1129,6 +1116,11 @@ def make_flow_nodes(
                 steps=[st for st in plan.steps if st.op != "schedule"]
             )
         outline = plan_ir_to_outline(plan, summary=intent[:80], slots=slots)
+        # Display contract derived from SSOT when LLM goals empty.
+        if not task_contract_to_dict(task_contract).get("goals") and plan.steps:
+            task_contract = derive_goals_from_plan_ir(
+                plan, utterance, slots=slots
+            ).model_dump()
         proc.append(
             {
                 "kind": "think",
@@ -1380,7 +1372,7 @@ def make_flow_nodes(
             state.get("plan_ir"),
             utterance=str(state.get("input") or state.get("intent") or ""),
         )
-        # Contract metadata (coverage) is soft; only structural issues hard-fail.
+        # SSOT: goals/coverage never enter validation_errors (structural only).
         soft_contract = (
             list(coverage.get("missing") or [])
             + list(coverage.get("capability_gaps") or [])
