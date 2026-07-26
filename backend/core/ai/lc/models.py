@@ -11,25 +11,29 @@ from langchain_openai import ChatOpenAI
 from backend.core.ai.config import get_ai_config
 from backend.core.ai.types import AiConfig, LlmError
 
-# Models that reject non-default temperature (must be 1 or omitted).
-_FIXED_TEMP_1_MARKERS = (
-    "o1",
-    "o3",
-    "o4",
-    "gpt-5",
-    "reasoner",
-    "deepseek-r1",
-    "kimi",
-    "k2.5",
-    "k2-",
+# Models that only accept a fixed temperature (gateway 400 otherwise).
+# Value is the required temperature — do NOT assume all "reasoning" models want 1.0.
+# (kimi-k2.5: only 0.6; OpenAI o-series / some reasoners: 1.0)
+_FIXED_TEMPERATURE: tuple[tuple[tuple[str, ...], float], ...] = (
+    (("kimi", "k2.5", "k2-", "k2."), 0.6),
+    (("o1", "o3", "o4", "gpt-5", "reasoner", "deepseek-r1"), 1.0),
 )
 
 
-def _model_requires_temperature_one(model: str) -> bool:
+def resolve_fixed_temperature(model: str | None) -> float | None:
+    """Return required temperature for the model, or None if any value is ok."""
     name = (model or "").strip().lower()
     if not name:
-        return False
-    return any(m in name for m in _FIXED_TEMP_1_MARKERS)
+        return None
+    for markers, temp in _FIXED_TEMPERATURE:
+        if any(m in name for m in markers):
+            return float(temp)
+    return None
+
+
+def _model_requires_temperature_one(model: str) -> bool:
+    """Backward-compat: True only when the fixed temp is exactly 1.0."""
+    return resolve_fixed_temperature(model) == 1.0
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -47,20 +51,38 @@ def create_chat_model(
     *,
     temperature: float | None = None,
     streaming: bool = True,
+    for_structured: bool = False,
     **kwargs: Any,
 ) -> ChatOpenAI:
-    """Build a ChatOpenAI client from Nexuz AiConfig (OpenAI-compatible)."""
+    """Build a ChatOpenAI client from Nexuz AiConfig (OpenAI-compatible).
+
+    for_structured=True may attach vendor knobs that reduce reasoning/thinking
+    so structured JSON is less likely to be truncated by max_tokens.
+    Unknown gateways ignore unsupported extra_body fields (or we skip if risky).
+    """
+    from backend.core.ai.lc.completion_budget import reasoning_extra_body
+
     c = cfg or get_ai_config()
     if not (c.base_url or "").strip():
         raise LlmError("未配置 Base URL")
 
     use_temp = c.temperature if temperature is None else float(temperature)
-    if _model_requires_temperature_one(c.model):
-        use_temp = 1.0
+    fixed = resolve_fixed_temperature(c.model)
+    if fixed is not None:
+        use_temp = fixed
 
     base = _normalize_base_url(c.base_url)
     api_key = (c.api_key or "").strip() or "not-needed"
     timeout = float(c.timeout_s or 120.0)
+
+    if for_structured and "extra_body" not in kwargs:
+        from backend.core.ai.lc.completion_budget import is_local_base_url
+
+        # Never send vendor thinking knobs to LM Studio / local servers
+        if not is_local_base_url(c.base_url):
+            extra = reasoning_extra_body(c.model)
+            if extra:
+                kwargs["extra_body"] = extra
 
     return ChatOpenAI(
         model=c.model or "gpt-4o-mini",

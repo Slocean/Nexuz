@@ -8,8 +8,26 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from backend.core.ai.lc.models import _normalize_base_url, create_chat_model
+from backend.core.ai.lc.models import (
+    _normalize_base_url,
+    create_chat_model,
+    resolve_fixed_temperature,
+)
 from backend.core.ai.types import AiConfig
+
+
+def test_kimi_fixed_temperature_is_0_6_not_1():
+    assert resolve_fixed_temperature("kimi-k2.5") == 0.6
+    assert resolve_fixed_temperature("moonshot-kimi-k2") == 0.6
+    assert resolve_fixed_temperature("o1-mini") == 1.0
+    assert resolve_fixed_temperature("gpt-4o-mini") is None
+    cfg = AiConfig(
+        base_url="https://api.moonshot.cn/v1",
+        api_key="sk-test",
+        model="kimi-k2.5",
+    )
+    llm = create_chat_model(cfg, streaming=False, temperature=0.1)
+    assert float(llm.temperature) == 0.6
 
 
 def test_normalize_base_url_strips_completions():

@@ -39,7 +39,6 @@ from backend.core.ai.graphs.state import (
 )
 from backend.core.ai.graphs.streaming import emit_delta, emit_process, stream_chat_model
 from backend.core.ai.lc.models import create_chat_model
-from backend.core.ai.lc.structured_call import invoke_structured
 from backend.core.ai.lc.prompts import (
     BUILD_STRUCTURED_SYSTEM,
     BUILD_SYSTEM,
@@ -50,6 +49,17 @@ from backend.core.ai.lc.prompts import (
 )
 from backend.core.ai.lc.structured import ToolActionBatch
 from backend.core.ai.lc.tools import ToolSession, build_orchestration_tools
+from backend.core.ai.lc.structured_call import invoke_structured
+from backend.core.ai.token_scheduler import (
+    ContextLayer,
+    MemoryRouter,
+    compile_layers,
+    distill_tool_result,
+    guarded_structured_invoke,
+    is_length_limit_error,
+    plan_call,
+)
+from backend.core.ai.token_scheduler.output_planner import OutputProfile
 from backend.core.ai.types import AiConfig
 
 ProgressFn = Callable[[dict[str, Any]], None]
@@ -59,13 +69,65 @@ ValidateFn = Callable[[dict[str, Any]], str | None]
 _NATIVE_TOOLS_UNAVAILABLE = False
 
 
-def _short_err(exc: BaseException | str, *, limit: int = 180) -> str:
+def _short_err(
+    exc: BaseException | str,
+    *,
+    limit: int = 180,
+    length_retried: bool = False,
+) -> str:
     text = str(exc).replace("\n", " ").strip()
     if "jinja" in text.lower() or "prompt template" in text.lower():
         return "网关 tool 模板不可用（已切换旁路）"
-    if "length limit" in text.lower() or "max_tokens" in text.lower():
-        return "模型输出触顶，未能解析结构化结果"
+    low = text.lower()
+    if "invalid temperature" in low or "only 0.6 is allowed" in low:
+        return "网关拒绝 temperature（已按模型固定值重试/请更新客户端）"
+    retried = length_retried or bool(getattr(exc, "_nexuz_length_retried", False))
+    if "length limit" in low or "max_tokens" in low:
+        if retried:
+            return "输出长度上限不足（max_tokens），抬额/续写后仍无法解析结构化结果"
+        return "输出长度上限不足（max_tokens），未能解析结构化结果"
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _structured_with_budget(
+    cfg: AiConfig | None,
+    purpose: OutputProfile | str,
+    schema: type,
+    messages: list[Any],
+    *,
+    compact_messages: list[Any] | None = None,
+    temperature: float = 0.1,
+) -> Any:
+    """Dual-budget structured invoke (raise output once, then continue)."""
+    return guarded_structured_invoke(
+        cfg,
+        purpose,
+        schema,
+        messages,
+        compact_messages=compact_messages,
+        temperature=temperature,
+        # Pass module symbol so tests can monkeypatch flow_graph.create_chat_model
+        create_model=create_chat_model,
+    )
+
+
+def _compile_user_blob(
+    cfg: AiConfig | None,
+    profile: OutputProfile | str,
+    *,
+    system: str,
+    layers: list[ContextLayer],
+    tool_overhead_tokens: int = 0,
+) -> tuple[str, Any]:
+    """Pack user-side layers into available_input; return (packed, CallBudget)."""
+    budget = plan_call(
+        cfg,
+        profile,
+        system_text=system,
+        tool_overhead_tokens=tool_overhead_tokens,
+    )
+    packed = compile_layers(layers, budget.available_input)
+    return packed, budget
 
 
 def _append_process(state: FlowGraphState, step: dict[str, Any]) -> list[dict[str, Any]]:
@@ -312,6 +374,7 @@ def _run_structured_action_loop(
     proc: list[dict[str, Any]],
     max_iters: int = 10,
     node: str = "build_loop",
+    cfg: AiConfig | None = None,
 ) -> list[dict[str, Any]]:
     """ReAct via structured ToolActionBatch — bypasses broken native tool templates."""
     proc.append(
@@ -350,22 +413,37 @@ def _run_structured_action_loop(
     ]
     tool_names = ", ".join(core_tools)
     last_results = "(无)"
+    patch_budget = plan_call(cfg, "patch", system_text=BUILD_STRUCTURED_SYSTEM)
+    in_budget = max(400, patch_budget.available_input)
     for _ in range(max_iters):
         draft_blob = fit_prompt_blob(
             safe_json(draft_summary(session.draft)),
-            budget=500,
+            budget=min(500, in_budget // 4),
+        )
+        user_trim = fit_prompt_blob(user_blob, budget=min(900, in_budget // 2))
+        last_trim = distill_tool_result(
+            last_results, max_tokens=min(400, in_budget // 5)
+        )
+        packed_user, _ = _compile_user_blob(
+            cfg,
+            "patch",
+            system=BUILD_STRUCTURED_SYSTEM,
+            layers=[
+                ContextLayer("task", 0, user_trim, compressible=False),
+                ContextLayer("tools", 1, f"可用工具：{tool_names}", compressible=True),
+                ContextLayer("draft", 2, f"当前草稿：{draft_blob}", compressible=True),
+                ContextLayer("short", 3, f"上一轮：{last_trim}", compressible=True),
+                ContextLayer(
+                    "fixed",
+                    4,
+                    "输出下一轮 1～3 个 actions；完成则 [{name:done}]。勿输出解释。",
+                    compressible=False,
+                ),
+            ],
         )
         full_msgs = [
             SystemMessage(content=BUILD_STRUCTURED_SYSTEM),
-            HumanMessage(
-                content=(
-                    f"{fit_prompt_blob(user_blob, budget=900)}\n\n"
-                    f"可用工具：{tool_names}\n"
-                    f"当前草稿：{draft_blob}\n"
-                    f"上一轮：{fit_prompt_blob(last_results, budget=400)}\n"
-                    "输出下一轮 1～3 个 actions；完成则 [{name:done}]。勿输出解释。"
-                )
-            ),
+            HumanMessage(content=packed_user),
         ]
         compact_msgs = [
             SystemMessage(
@@ -376,8 +454,8 @@ def _run_structured_action_loop(
             ),
             HumanMessage(
                 content=(
-                    f"{fit_prompt_blob(user_blob, budget=500)}\n"
-                    f"工具：{tool_names}\n草稿：{draft_blob}\n上一轮：{last_results[:300]}"
+                    f"{fit_prompt_blob(user_blob, budget=min(500, in_budget // 3))}\n"
+                    f"工具：{tool_names}\n草稿：{draft_blob}\n上一轮：{last_trim[:300]}"
                 )
             ),
         ]
@@ -441,7 +519,7 @@ def _run_structured_action_loop(
             )
         if not result_lines:
             break
-        last_results = "\n".join(result_lines)[:2000]
+        last_results = distill_tool_result("\n".join(result_lines), max_tokens=500)
     return proc
 
 
@@ -457,6 +535,7 @@ def _run_tool_loop(
     assistant_id: str,
     proc: list[dict[str, Any]],
     max_iters: int = 10,
+    cfg: AiConfig | None = None,
 ) -> list[dict[str, Any]]:
     """
     Build via tools: prefer JSON action protocol (no chat-template tools), then
@@ -475,6 +554,7 @@ def _run_tool_loop(
         assistant_id=assistant_id,
         proc=proc,
         max_iters=max_iters,
+        cfg=cfg,
     )
     after = len(session.draft.get("nodes") or {})
     if after > before or any(
@@ -594,6 +674,21 @@ def make_flow_nodes(
             intent=str(state.get("intent") or ""),
             compact=None,
         )
+        # Dual-budget: reserve output first, then pack input to available_input
+        in_budget = plan_call(cfg, "understand").available_input
+        mem = MemoryRouter(conversation_id).retrieve(
+            query=str(state.get("input") or ""),
+            working={
+                "intent": state.get("intent"),
+                "known_slots": slots,
+                "clarify_answers": state.get("clarify_answers") or {},
+                "outline": state.get("outline"),
+                "gap_hints": state.get("gap_hints") or [],
+                "validation_errors": state.get("validation_errors") or [],
+            },
+            compact=prior_compact,
+            retrieval_budget=plan_call(cfg, "understand").retrieval_budget,
+        )
         ctx, compact, did_compact = maybe_compact(
             raw_ctx,
             intent=str(state.get("intent") or ""),
@@ -608,8 +703,19 @@ def make_flow_nodes(
             process=list(state.get("process") or []),
             user_text=str(state.get("input") or ""),
             prior_compact=prior_compact,
+            budget=in_budget,
             cfg=cfg,
         )
+        # Attach memory summary into compact note when present
+        if compact is None and (mem.get("summary") or mem.get("episodic")):
+            compact = {"compact_version": 1, "summary": mem.get("summary") or ""}
+        elif isinstance(compact, dict) and mem.get("episodic"):
+            note = str(compact.get("summary") or "")
+            epi = mem["episodic"][:600]
+            compact = {
+                **compact,
+                "summary": (note + ("\n" if note and epi else "") + epi)[:800],
+            }
         if did_compact and compact:
             # Rebuild draft context in compact mode (no full block catalog)
             ctx = build_draft_context(
@@ -695,25 +801,45 @@ def make_flow_nodes(
         intent_tag = "other"
         uir: UnderstandIR
         try:
-            llm = create_chat_model(
-                cfg, temperature=0.1, streaming=False, max_tokens=384
+            ctx_blob = str(state.get("context") or "")
+            compact_note = ""
+            cc = state.get("context_compact")
+            if isinstance(cc, dict):
+                compact_note = str(cc.get("summary") or "")
+            packed, _ = _compile_user_blob(
+                cfg,
+                "understand",
+                system=UNDERSTAND_SYSTEM,
+                layers=[
+                    ContextLayer(
+                        "task",
+                        0,
+                        (
+                            f"话术：{user_input}\n"
+                            f"已有槽位：{safe_json(prior_slots)}\n"
+                            f"补充：{safe_json(answers)}"
+                        ),
+                        compressible=False,
+                    ),
+                    ContextLayer("short", 1, ctx_blob, compressible=True),
+                    ContextLayer("long", 2, compact_note, compressible=True),
+                ],
             )
             full_msgs = [
                 SystemMessage(content=UNDERSTAND_SYSTEM),
-                HumanMessage(
-                    content=(
-                        f"话术：{user_input}\n"
-                        f"已有槽位：{safe_json(prior_slots)}\n"
-                        f"补充：{safe_json(answers)}"
-                    )
-                ),
+                HumanMessage(content=packed),
             ]
             compact_msgs = [
                 SystemMessage(content="输出 UnderstandIR：intent_tag,slots,missing。极简。"),
                 HumanMessage(content=user_input),
             ]
-            raw = invoke_structured(
-                llm, UnderstandIR, full_msgs, compact_messages=compact_msgs
+            raw = _structured_with_budget(
+                cfg,
+                "understand",
+                UnderstandIR,
+                full_msgs,
+                compact_messages=compact_msgs,
+                temperature=0.1,
             )
             uir = (
                 raw
@@ -737,7 +863,7 @@ def make_flow_nodes(
                     "kind": "warn",
                     "node": "understand",
                     "label": "理解回退",
-                    "text": f"话术抽槽回退：{_short_err(exc)}",
+                    "text": f"话术抽槽回退：{_short_err(exc, length_retried=is_length_limit_error(exc))}",
                 }
             )
         slots = merge_and_normalize(
@@ -866,26 +992,41 @@ def make_flow_nodes(
         det = plan_ir_from_slots(intent, slots, utterance=state.get("input") or "")
         plan: PlanIR
         try:
-            llm = create_chat_model(
-                cfg, temperature=0.2, streaming=False, max_tokens=384
+            ctx_blob = str(state.get("context") or "")
+            packed, _ = _compile_user_blob(
+                cfg,
+                "plan_ir",
+                system=OUTLINE_SYSTEM,
+                layers=[
+                    ContextLayer(
+                        "task",
+                        0,
+                        (
+                            f"意图：{intent}\n槽位：{safe_json(slots)}\n"
+                            f"补洞：{safe_json(hints)}\n"
+                            f"上一版IR：{format_ir_for_prompt(prev_ir)}\n"
+                            f"话术：{state.get('input') or intent}"
+                        ),
+                        compressible=False,
+                    ),
+                    ContextLayer("short", 1, ctx_blob, compressible=True),
+                ],
             )
             full_msgs = [
                 SystemMessage(content=OUTLINE_SYSTEM),
-                HumanMessage(
-                    content=(
-                        f"意图：{intent}\n槽位：{safe_json(slots)}\n"
-                        f"补洞：{safe_json(hints)}\n"
-                        f"上一版IR：{format_ir_for_prompt(prev_ir)}\n"
-                        f"话术：{state.get('input') or intent}"
-                    )
-                ),
+                HumanMessage(content=packed),
             ]
             compact_msgs = [
                 SystemMessage(content="输出 PlanIR：steps[{op,a}]。极简。"),
                 HumanMessage(content=f"意图：{intent}\n槽位：{safe_json(slots)}"),
             ]
-            raw = invoke_structured(
-                llm, PlanIR, full_msgs, compact_messages=compact_msgs
+            raw = _structured_with_budget(
+                cfg,
+                "plan_ir",
+                PlanIR,
+                full_msgs,
+                compact_messages=compact_msgs,
+                temperature=0.2,
             )
             plan = raw if isinstance(raw, PlanIR) else PlanIR.model_validate(raw)
             plan = normalize_plan_ir(plan, slots)
@@ -906,7 +1047,7 @@ def make_flow_nodes(
                     "kind": "warn",
                     "node": "plan_outline",
                     "label": "大纲回退",
-                    "text": _short_err(exc),
+                    "text": _short_err(exc, length_retried=is_length_limit_error(exc)),
                 }
             )
         # Strip schedule if once
@@ -1058,8 +1199,13 @@ def make_flow_nodes(
             )
             tools = build_orchestration_tools(session, cfg=cfg)
             try:
+                patch_b = plan_call(cfg, "patch", system_text=BUILD_SYSTEM)
                 llm = create_chat_model(
-                    cfg, temperature=0.1, streaming=False, max_tokens=512
+                    cfg,
+                    temperature=0.1,
+                    streaming=False,
+                    max_tokens=patch_b.max_tokens,
+                    for_structured=True,
                 )
                 proc = _run_tool_loop(
                     llm=llm,
@@ -1076,6 +1222,7 @@ def make_flow_nodes(
                     assistant_id=assistant_id,
                     proc=proc,
                     max_iters=6,
+                    cfg=cfg,
                 )
                 draft = session.draft
                 artifacts = session.artifacts
@@ -1197,8 +1344,13 @@ def make_flow_nodes(
         if errors:
             tools = build_orchestration_tools(session, cfg=cfg)
             try:
+                repair_b = plan_call(cfg, "repair", system_text=REPAIR_SYSTEM)
                 llm = create_chat_model(
-                    cfg, temperature=0, streaming=False, max_tokens=384
+                    cfg,
+                    temperature=0,
+                    streaming=False,
+                    max_tokens=repair_b.max_tokens,
+                    for_structured=True,
                 )
                 proc = _run_tool_loop(
                     llm=llm,
@@ -1215,6 +1367,7 @@ def make_flow_nodes(
                     assistant_id=assistant_id,
                     proc=proc,
                     max_iters=4,
+                    cfg=cfg,
                 )
             except Exception as exc:
                 proc.append(
@@ -1280,8 +1433,12 @@ def make_flow_nodes(
         # Skip LLM polish for weak drafts — local models often invent "无需澄清"
         if not clarify and ncount > 0 and not weak_draft:
             try:
+                sum_b = plan_call(cfg, "summarize", system_text=SUMMARIZE_SYSTEM)
                 llm = create_chat_model(
-                    cfg, temperature=0, streaming=True, max_tokens=512
+                    cfg,
+                    temperature=0,
+                    streaming=True,
+                    max_tokens=sum_b.max_tokens,
                 )
                 content, _ = stream_chat_model(
                     llm,

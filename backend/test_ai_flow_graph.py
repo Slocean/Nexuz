@@ -245,3 +245,48 @@ def test_send_utterance_compiles_via_ir(monkeypatch):
     types = [n["type"] for n in (out["draft"].get("nodes") or {}).values()]
     assert "window_activate" in types and "type_text" in types
     assert any(p.get("label") == "落图" for p in out["process"])
+
+
+def test_structured_with_budget_retries_higher_max_tokens(monkeypatch):
+    """First call hits length limit → retry with higher max_tokens succeeds."""
+    import backend.core.ai.graphs.flow_graph as fg
+
+    calls: list[int] = []
+
+    class FakeLLM:
+        def __init__(self, max_tokens: int):
+            self.max_tokens = int(max_tokens or 0)
+
+        def with_structured_output(self, schema, **_kwargs):
+            parent = self
+
+            class Bound:
+                def invoke(self, _messages):
+                    calls.append(parent.max_tokens)
+                    # First budget for kimi understand is 4096; retry lifts to 8192
+                    if parent.max_tokens < 5000:
+                        raise RuntimeError(
+                            "Could not parse response content as the length limit was reached"
+                        )
+                    return UnderstandIR(intent_tag="other", slots={"message": "x"}, missing=[])
+
+            return Bound()
+
+    def fake_create(_cfg, **kwargs):
+        return FakeLLM(kwargs.get("max_tokens") or 0)
+
+    monkeypatch.setattr(fg, "create_chat_model", fake_create)
+    cfg = AiConfig(
+        base_url="https://api.moonshot.cn/v1",
+        api_key="k",
+        model="kimi-k2.5",
+    )
+    out = fg._structured_with_budget(
+        cfg,
+        "understand",
+        UnderstandIR,
+        [("user", "ping")],
+    )
+    assert getattr(out, "slots", {}).get("message") == "x"
+    assert calls[0] == 4096
+    assert calls[1] == 8192

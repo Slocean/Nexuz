@@ -76,6 +76,9 @@ class AiConfig:
     supports_structured: bool | None = None
     allow_dangerous: bool = False
     disabled_skills: list[str] = field(default_factory=list)
+    # Token scheduler capability overrides (None = resolve from preset/local/cloud)
+    context_window_tokens: int | None = None
+    max_output_tokens: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -91,6 +94,8 @@ class AiConfig:
             "supports_structured": self.supports_structured,
             "allow_dangerous": bool(self.allow_dangerous),
             "disabled_skills": list(self.disabled_skills or []),
+            "context_window_tokens": self.context_window_tokens,
+            "max_output_tokens": self.max_output_tokens,
         }
 
     @classmethod
@@ -111,6 +116,17 @@ class AiConfig:
             disabled = []
         vis = raw.get("supports_vision")
         structured = raw.get("supports_structured")
+
+        def _opt_int(key: str) -> int | None:
+            val = raw.get(key)
+            if val is None or val == "":
+                return None
+            try:
+                n = int(val)
+                return n if n >= 64 else None
+            except (TypeError, ValueError):
+                return None
+
         return cls(
             enabled=bool(raw.get("enabled", False)),
             provider=str(raw.get("provider") or "openai_compat").strip() or "openai_compat",
@@ -124,6 +140,8 @@ class AiConfig:
             supports_structured=None if structured is None else bool(structured),
             allow_dangerous=bool(raw.get("allow_dangerous", False)),
             disabled_skills=[str(x) for x in disabled],
+            context_window_tokens=_opt_int("context_window_tokens"),
+            max_output_tokens=_opt_int("max_output_tokens"),
         )
 
 

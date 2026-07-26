@@ -58,7 +58,8 @@ load_context → understand → clarify? → plan_outline → gap_check ↔ plan
 - 槽位键：`window_title|contact|message|run_at|…`（别名如 platform/recipient/content 会归一化）  
 - opcode：`activate|ocr_click|type|key|wait|send_im|…`  
 - 禁止解释器编造 slots 中未出现的联系人/窗口  
-- 结构化调用：`lc/structured_call.invoke_structured`（`json_schema` 优先）
+- 结构化调用：`lc/structured_call.invoke_structured`（`json_schema` 优先）  
+- Token 调度：[`FLOW_AI_TOKEN_SCHEDULER.md`](./FLOW_AI_TOKEN_SCHEDULER.md) — 先锁输出再装输入；`guarded_structured_invoke` 抬额 + 结构化续写；`lc/completion_budget.py` 为兼容薄封装
 
 ### 感知策略（写在编译/recipe 规则）
 

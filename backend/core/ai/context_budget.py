@@ -8,17 +8,22 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import Any
 
 from backend.core.ai.draft_builder import draft_summary
+from backend.core.ai.token_scheduler.estimate import estimate_tokens
+from backend.core.ai.token_scheduler.scheduler import plan_call
 
 # Leave headroom for structured outputs on ~4k local models.
 DEFAULT_CONTEXT_TOKEN_BUDGET = 2800
 COMPACT_VERSION = 1
 
 
-def context_token_budget() -> int:
+def context_token_budget(cfg: Any = None) -> int:
+    """
+    Input-side budget. Prefer dual-budget scheduler when cfg is present
+    (output reserved first); env NEXUZ_AI_CONTEXT_BUDGET still overrides.
+    """
     raw = os.environ.get("NEXUZ_AI_CONTEXT_BUDGET", "").strip()
     if raw:
         try:
@@ -27,19 +32,12 @@ def context_token_budget() -> int:
                 return n
         except ValueError:
             pass
+    if cfg is not None:
+        try:
+            return int(plan_call(cfg, "understand").available_input)
+        except Exception:
+            pass
     return DEFAULT_CONTEXT_TOKEN_BUDGET
-
-
-def estimate_tokens(text: str | None) -> int:
-    """Conservative token estimate without a tokenizer dependency."""
-    s = text or ""
-    if not s:
-        return 0
-    # CJK / fullwidth tend to be ~1–2 chars per token; Latin ~4 chars.
-    cjk = len(re.findall(r"[\u4e00-\u9fff\u3400-\u4dbf]", s))
-    other = max(0, len(s) - cjk)
-    # Bias high so we compact before the gateway hard-fails.
-    return int(cjk / 1.5 + other / 3.5) + 1
 
 
 def build_compact_payload(
@@ -227,7 +225,7 @@ def maybe_llm_tighten_summary(
     budget: int | None = None,
 ) -> dict[str, Any]:
     """Optional short LLM note when deterministic compact still over budget."""
-    limit = budget if budget is not None else context_token_budget()
+    limit = budget if budget is not None else context_token_budget(cfg)
     text = render_compact_context(payload)
     if estimate_tokens(text) <= limit:
         return payload
@@ -236,7 +234,15 @@ def maybe_llm_tighten_summary(
 
         from backend.core.ai.lc.models import create_chat_model
 
-        llm = create_chat_model(cfg, temperature=0, streaming=False, max_tokens=256)
+        from backend.core.ai.token_scheduler.scheduler import plan_call as _plan
+
+        tighten_budget = _plan(cfg, "tighten")
+        llm = create_chat_model(
+            cfg,
+            temperature=0,
+            streaming=False,
+            max_tokens=tighten_budget.max_tokens,
+        )
         msg = llm.invoke(
             [
                 SystemMessage(
@@ -286,7 +292,7 @@ def maybe_compact(
     If raw_context exceeds budget (or force), return compact context.
     Returns (context_str, compact_payload_or_None, did_compact).
     """
-    limit = budget if budget is not None else context_token_budget()
+    limit = budget if budget is not None else context_token_budget(cfg)
     # Prefer prior compact when resuming and raw is huge
     if isinstance(prior_compact, dict) and prior_compact.get("compact_version"):
         prior_text = render_compact_context(prior_compact)

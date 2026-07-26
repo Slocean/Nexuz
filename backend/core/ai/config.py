@@ -116,6 +116,8 @@ def set_ai_config(patch: dict[str, Any] | None) -> AiConfig:
         "supports_structured",
         "allow_dangerous",
         "disabled_skills",
+        "context_window_tokens",
+        "max_output_tokens",
     ):
         if key in patch:
             merged[key] = patch[key]

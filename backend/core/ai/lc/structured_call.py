@@ -44,17 +44,21 @@ def _is_unsupported_json_mode(exc: BaseException) -> bool:
     )
 
 
-def _is_length_limit_error(exc: BaseException) -> bool:
+def is_length_limit_error(exc: BaseException) -> bool:
+    """True when completion was cut by max_tokens / length limit (not full context)."""
     msg = _err_text(exc)
     return any(
         n in msg
         for n in (
             "length limit",
             "max_tokens",
-            "context length",
             "could not parse response content as the length limit",
         )
     )
+
+
+def _is_length_limit_error(exc: BaseException) -> bool:
+    return is_length_limit_error(exc)
 
 
 def _bind_structured(llm: Any, schema: type, method: str | None) -> Any:
