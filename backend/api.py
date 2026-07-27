@@ -46,6 +46,7 @@ from backend.core.hotkey_prefs import (
     get_plugin_mode_label,
     get_start_run_label,
     get_stop_run_label,
+    load_hotkeys_from_map,
 )
 from backend.core.record_hotkeys import get_record_stop_hotkeys
 from backend.core.run_hotkeys import get_run_hotkeys
@@ -89,6 +90,18 @@ class Api:
             target=self._emit_worker, daemon=True, name="nexuz-ui-events"
         )
         self._emit_thread.start()
+        self._bootstrap_persisted_prefs()
+
+    def _bootstrap_persisted_prefs(self) -> None:
+        """Load file-backed UI prefs (hotkeys / diag) into process memory."""
+        try:
+            from backend.core.ui_settings import get_ui_settings
+
+            ui = get_ui_settings()
+            load_hotkeys_from_map(ui.get("hotkeys") if isinstance(ui.get("hotkeys"), dict) else {})
+            get_app_log_manager().set_diag_enabled(bool(ui.get("diagLogging")))
+        except Exception:
+            pass
 
     def set_window(self, window: webview.Window) -> None:
         self._window = window
@@ -188,6 +201,13 @@ class Api:
         result = apply_hotkeys(prefs if isinstance(prefs, dict) else {})
         if not result.get("ok"):
             return result
+        hotkeys = result.get("hotkeys") or get_all_hotkeys()
+        try:
+            from backend.core.ui_settings import patch_ui_settings
+
+            patch_ui_settings({"hotkeys": hotkeys})
+        except Exception:
+            pass
         # Rebind live watchers when prefs change.
         try:
             get_app_hotkeys().restart()
@@ -204,7 +224,6 @@ class Api:
             self._sync_plugin_escape_hotkey(force=True)
         except Exception:
             pass
-        hotkeys = result.get("hotkeys") or get_all_hotkeys()
         labels = result.get("labels") or get_all_hotkey_labels()
         return {
             "ok": True,
@@ -214,6 +233,39 @@ class Api:
             "labels": labels,
             "defaults": get_defaults(),
         }
+
+    def get_ui_settings(self) -> dict:
+        from backend.core.ui_settings import get_ui_settings, ui_settings_persisted
+
+        try:
+            return {
+                "ok": True,
+                "settings": get_ui_settings(),
+                "persisted": ui_settings_persisted(),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def set_ui_settings(self, patch: dict | None = None) -> dict:
+        from backend.core.ui_settings import patch_ui_settings
+
+        try:
+            settings = patch_ui_settings(patch if isinstance(patch, dict) else {})
+            if isinstance(patch, dict) and "hotkeys" in patch:
+                load_hotkeys_from_map(settings.get("hotkeys"))
+                try:
+                    get_app_hotkeys().restart()
+                except Exception:
+                    pass
+                try:
+                    get_run_hotkeys().restart()
+                except Exception:
+                    pass
+            if isinstance(patch, dict) and "diagLogging" in patch:
+                get_app_log_manager().set_diag_enabled(bool(settings.get("diagLogging")))
+            return {"ok": True, "settings": settings, "persisted": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def _on_run_hotkey_stop(self) -> None:
         interp = get_interpreter()
@@ -417,7 +469,14 @@ class Api:
         return {"ok": True}
 
     def set_diag_logging(self, enabled: bool = False) -> dict:
-        get_app_log_manager().set_diag_enabled(bool(enabled))
+        on = bool(enabled)
+        get_app_log_manager().set_diag_enabled(on)
+        try:
+            from backend.core.ui_settings import patch_ui_settings
+
+            patch_ui_settings({"diagLogging": on})
+        except Exception:
+            pass
         return {"ok": True, "enabled": get_app_log_manager().diag_enabled()}
 
     def get_diag_logging(self) -> dict:

@@ -383,9 +383,19 @@ export default function SettingsPage({
   const syncAllOutputCoordinateModes = useFlowStore(s => s.syncAllOutputCoordinateModes);
   const flowNodes = useFlowStore(s => s.flow.nodes || {});
 
-  const [diagLogging, setDiagLogging] = useState(false);
+  const diagLogging = useFlowStore(s => s.diagLogging);
+  const setDiagLogging = useFlowStore(s => s.setDiagLogging);
+  const autoCheckUpdate = useFlowStore(s => s.autoCheckUpdate);
+  const setAutoCheckUpdate = useFlowStore(s => s.setAutoCheckUpdate);
 
   type AiPreset = { id: string; label: string; base_url: string; model: string };
+  type AiOptionSlot = {
+    base_url?: string;
+    model?: string;
+    api_key?: string;
+    has_api_key?: boolean;
+    api_key_masked?: string;
+  };
   const [aiPreset, setAiPreset] = useState('custom');
   const [aiBaseUrl, setAiBaseUrl] = useState('https://api.openai.com/v1');
   const [aiModel, setAiModel] = useState('gpt-4o-mini');
@@ -393,6 +403,7 @@ export default function SettingsPage({
   const [aiHasKey, setAiHasKey] = useState(false);
   const [aiKeyMasked, setAiKeyMasked] = useState('');
   const [aiPresets, setAiPresets] = useState<AiPreset[]>([]);
+  const [aiOptions, setAiOptions] = useState<Record<string, AiOptionSlot>>({});
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState('');
   const [aiDirty, setAiDirty] = useState(false);
@@ -428,33 +439,13 @@ export default function SettingsPage({
     let cancelled = false;
     (async () => {
       try {
-        const res = await bridge.getDiagLogging?.();
-        if (!cancelled && res?.ok) {
-          setDiagLogging(!!res.enabled);
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-      try {
-        if (!cancelled) setDiagLogging(localStorage.getItem('nexuz.diagLogging') === '1');
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
         const res = await bridge.aiGetConfig?.();
         if (cancelled || !res?.ok || !res.config) return;
         const c = res.config;
-        setAiPreset(c.preset || 'custom');
+        const opts =
+          c.options && typeof c.options === 'object' ? (c.options as Record<string, AiOptionSlot>) : {};
+        const preset = c.preset || 'custom';
+        setAiPreset(preset);
         setAiBaseUrl(c.base_url || '');
         setAiModel(c.model || '');
         setAiHasKey(!!c.has_api_key);
@@ -462,6 +453,16 @@ export default function SettingsPage({
         setAiApiKey('');
         setAiPresets(Array.isArray(c.presets) ? c.presets : []);
         setAiAllowDangerous(!!c.allow_dangerous);
+        setAiOptions({
+          ...opts,
+          [preset]: {
+            ...(opts[preset] || {}),
+            base_url: c.base_url || '',
+            model: c.model || '',
+            has_api_key: !!c.has_api_key,
+            api_key_masked: c.api_key_masked || ''
+          }
+        });
         setAiDirty(false);
       } catch {
         /* ignore */
@@ -521,22 +522,47 @@ export default function SettingsPage({
     }
   };
 
+  const stashCurrentAiOption = (presetId: string, options: Record<string, AiOptionSlot>) => {
+    const next = { ...options };
+    const prev = next[presetId] || {};
+    next[presetId] = {
+      ...prev,
+      base_url: aiBaseUrl,
+      model: aiModel,
+      has_api_key: !!aiApiKey.trim() || !!aiHasKey || !!prev.has_api_key,
+      api_key_masked: aiKeyMasked || prev.api_key_masked || '',
+      ...(aiApiKey.trim() ? { api_key: aiApiKey.trim() } : {})
+    };
+    return next;
+  };
+
   const applyAiPreset = (presetId: string) => {
-    setAiPreset(presetId);
-    setAiDirty(true);
+    if (presetId === aiPreset) return;
+    const stashed = stashCurrentAiOption(aiPreset, aiOptions);
+    const saved = stashed[presetId];
     const found = aiPresets.find(p => p.id === presetId);
-    let nextUrl = aiBaseUrl;
-    if (found && presetId !== 'custom') {
-      if (found.base_url) {
-        nextUrl = found.base_url;
-        setAiBaseUrl(found.base_url);
+    let nextUrl = saved?.base_url ?? '';
+    let nextModel = saved?.model ?? '';
+    if (!saved) {
+      if (found && presetId !== 'custom') {
+        nextUrl = found.base_url || '';
+        nextModel = found.model || (presetId === 'lmstudio' ? '' : '');
+      } else {
+        nextUrl = aiBaseUrl;
+        nextModel = aiModel;
       }
-      if (found.model) setAiModel(found.model);
-      else if (presetId === 'lmstudio') setAiModel('');
     }
+    setAiOptions(stashed);
+    setAiPreset(presetId);
+    setAiBaseUrl(nextUrl);
+    setAiModel(nextModel);
+    setAiHasKey(!!saved?.has_api_key);
+    setAiKeyMasked(saved?.api_key_masked || '');
+    setAiApiKey(saved?.api_key || '');
+    setAiDirty(true);
     // Local OpenAI-compat servers: auto-discover loaded models
     if (presetId === 'lmstudio' || presetId === 'ollama') {
-      void fetchAiModels(nextUrl, aiApiKey);
+      void fetchAiModels(nextUrl, saved?.api_key || '');
     }
   };
 
@@ -545,6 +571,18 @@ export default function SettingsPage({
     setAiBusy(true);
     setAiMsg('正在保存…');
     try {
+      const stashed = stashCurrentAiOption(aiPreset, aiOptions);
+      const optionsPayload: Record<string, Record<string, string>> = {};
+      for (const [pid, slot] of Object.entries(stashed)) {
+        const item: Record<string, string> = {
+          base_url: String(slot.base_url || '').trim(),
+          model: String(slot.model || '').trim()
+        };
+        if (slot.api_key && String(slot.api_key).trim()) {
+          item.api_key = String(slot.api_key).trim();
+        }
+        optionsPayload[pid] = item;
+      }
       const patch: Record<string, unknown> = {
         enabled: true,
         provider: 'openai_compat',
@@ -552,7 +590,8 @@ export default function SettingsPage({
         base_url: aiBaseUrl.trim(),
         model: aiModel.trim(),
         allow_dangerous: aiAllowDangerous,
-        keep_existing_key: true
+        keep_existing_key: true,
+        options: optionsPayload
       };
       if (aiApiKey.trim()) {
         patch.api_key = aiApiKey.trim();
@@ -563,14 +602,17 @@ export default function SettingsPage({
         return;
       }
       const c = res.config || {};
+      const opts =
+        c.options && typeof c.options === 'object' ? (c.options as Record<string, AiOptionSlot>) : {};
       setAiPreset(c.preset || aiPreset);
       setAiBaseUrl(c.base_url || aiBaseUrl);
       setAiModel(c.model || aiModel);
       setAiHasKey(!!c.has_api_key);
       setAiKeyMasked(c.api_key_masked || '');
       setAiApiKey('');
+      setAiOptions(opts);
       setAiDirty(false);
-      setAiMsg('已保存');
+      setAiMsg('已保存（含各厂商选项）');
       appendAuditLog?.('已更新 Nexuz Ai 配置', { preset: c.preset, model: c.model });
       try {
         window.dispatchEvent(new CustomEvent('nexuz-ai-config-changed', { detail: c }));
@@ -616,11 +658,6 @@ export default function SettingsPage({
 
   const handleDiagLoggingChange = async (enabled: boolean) => {
     setDiagLogging(enabled);
-    try {
-      localStorage.setItem('nexuz.diagLogging', enabled ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
     try {
       await bridge.setDiagLogging?.(enabled);
     } catch {
@@ -765,15 +802,6 @@ export default function SettingsPage({
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateMsg, setUpdateMsg] = useState('');
   const [updateInfo, setUpdateInfo] = useState<any>(null);
-  const [autoCheckUpdate, setAutoCheckUpdate] = useState(() => {
-    try {
-      const v = localStorage.getItem('nexuz.autoCheckUpdate');
-      if (v === null) return true;
-      return v !== '0' && v !== 'false';
-    } catch {
-      return true;
-    }
-  });
   const [announcement, setAnnouncement] = useState<any>(null);
   const [updateHistory, setUpdateHistory] = useState<any[]>([]);
   const [annOpenIds, setAnnOpenIds] = useState<Record<string, boolean>>({});
@@ -1340,11 +1368,6 @@ export default function SettingsPage({
 
   const handleAutoCheckChange = (checked: boolean) => {
     setAutoCheckUpdate(checked);
-    try {
-      localStorage.setItem('nexuz.autoCheckUpdate', checked ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
   };
 
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(
@@ -2138,7 +2161,7 @@ export default function SettingsPage({
               type="number"
               min={0}
               step={10}
-              value={defaultNodeIntervalMs ?? 100}
+              value={defaultNodeIntervalMs ?? 500}
               onChange={e => setDefaultNodeIntervalMs(e.target.value)}
             />
           </div>

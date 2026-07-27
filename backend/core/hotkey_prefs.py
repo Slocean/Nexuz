@@ -185,6 +185,15 @@ def apply_hotkeys(prefs: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def load_hotkeys_from_map(prefs: dict[str, Any] | None) -> dict[str, list[str]]:
+    """Replace in-memory prefs from a stored map (no conflict check; used at boot)."""
+    prefs = prefs if isinstance(prefs, dict) else {}
+    for slot in SLOTS:
+        if slot in prefs:
+            _prefs[slot] = normalize_hotkey(prefs.get(slot), default=DEFAULTS[slot])
+    return get_all_hotkeys()
+
+
 # --- convenience accessors (used by watchers / overlays) ---
 
 

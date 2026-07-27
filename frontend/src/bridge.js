@@ -1504,6 +1504,37 @@ async function call(method, ...args) {
   }
 }
 
+/** In-memory UI settings for Vite browser preview (not localStorage). */
+const _browserUiSettings = {
+  hideWindowOnRecord: false,
+  showToolbarLabels: true,
+  nodeContextMenuMode: 'grouped',
+  hideSidePanelsOnSettings: true,
+  autoSaveEnabled: false,
+  autoSaveIntervalSec: 60,
+  saveAfterRun: true,
+  defaultCaptureMode: 'coord',
+  defaultPickMethod: 'screenshot',
+  defaultCoordinateMode: 'window_client',
+  defaultOutputCoordinateMode: 'window_client',
+  defaultNodeIntervalMs: 500,
+  themeName: 'Ocean',
+  themeMode: 'dark',
+  diagLogging: false,
+  autoCheckUpdate: true,
+  aiMode: 'chat',
+  hotkeys: {
+    start_run: ['x', 'f3'],
+    stop_run: ['x', 'f4'],
+    pause_run: ['x', 'f5'],
+    record_stop: ['x', 'f10'],
+    plugin_mode: ['x', 'f6'],
+    click_through: ['x', 'f7']
+  }
+};
+let _browserUiSettingsPersisted = false;
+const _browserAiOptions = {};
+
 function mockCall(method, ...args) {
   switch (method) {
     case 'ping':
@@ -1760,10 +1791,15 @@ function mockCall(method, ...args) {
         plugin_mode: ['x', 'f6'],
         click_through: ['x', 'f7']
       };
+      if (!_browserUiSettings.hotkeys) _browserUiSettings.hotkeys = { ...defaults };
       const prefs = args[0] && typeof args[0] === 'object' ? args[0] : {};
-      const hotkeys = { ...defaults };
-      for (const slot of Object.keys(defaults)) {
-        if (Array.isArray(prefs[slot])) hotkeys[slot] = prefs[slot];
+      const hotkeys = { ..._browserUiSettings.hotkeys };
+      if (method === 'set_hotkeys') {
+        for (const slot of Object.keys(defaults)) {
+          if (Array.isArray(prefs[slot])) hotkeys[slot] = prefs[slot];
+        }
+        _browserUiSettings.hotkeys = hotkeys;
+        _browserUiSettingsPersisted = true;
       }
       const label = keys => (keys || []).map(k => String(k).toUpperCase()).join('+');
       const labels = Object.fromEntries(Object.entries(hotkeys).map(([k, v]) => [k, label(v)]));
@@ -1774,6 +1810,22 @@ function mockCall(method, ...args) {
         hotkeys,
         labels,
         defaults
+      });
+    }
+    case 'get_ui_settings':
+      return Promise.resolve({
+        ok: true,
+        settings: { ..._browserUiSettings },
+        persisted: _browserUiSettingsPersisted
+      });
+    case 'set_ui_settings': {
+      const patch = args[0] && typeof args[0] === 'object' ? args[0] : {};
+      Object.assign(_browserUiSettings, patch);
+      _browserUiSettingsPersisted = true;
+      return Promise.resolve({
+        ok: true,
+        settings: { ..._browserUiSettings },
+        persisted: true
       });
     }
     case 'get_notice_read_id': {
@@ -1832,21 +1884,12 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: true });
     case 'set_diag_logging': {
       const enabled = !!args[0];
-      try {
-        localStorage.setItem('nexuz.diagLogging', enabled ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
+      _browserUiSettings.diagLogging = enabled;
+      _browserUiSettingsPersisted = true;
       return Promise.resolve({ ok: true, enabled });
     }
     case 'get_diag_logging': {
-      let enabled = false;
-      try {
-        enabled = localStorage.getItem('nexuz.diagLogging') === '1';
-      } catch {
-        /* ignore */
-      }
-      return Promise.resolve({ ok: true, enabled });
+      return Promise.resolve({ ok: true, enabled: !!_browserUiSettings.diagLogging });
     }
     case 'export_app_logs': {
       const cats = Array.isArray(args[0]) ? args[0] : ['system', 'audit'];
@@ -1906,19 +1949,34 @@ function mockCall(method, ...args) {
       } catch (e) {
         return Promise.resolve({ ok: false, error: String(e) });
       }
-    case 'ai_get_config':
+    case 'ai_get_config': {
+      const active = _browserAiOptions.__active || {
+        enabled: false,
+        provider: 'openai_compat',
+        preset: 'custom',
+        base_url: 'https://api.openai.com/v1',
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        timeout_s: 120,
+        has_api_key: false,
+        api_key_masked: '',
+        allow_dangerous: false
+      };
+      const options = {};
+      for (const [pid, slot] of Object.entries(_browserAiOptions)) {
+        if (pid === '__active' || !slot || typeof slot !== 'object') continue;
+        options[pid] = {
+          base_url: slot.base_url || '',
+          model: slot.model || '',
+          has_api_key: !!slot.has_api_key || !!slot.api_key,
+          api_key_masked: slot.api_key_masked || (slot.api_key ? '****' : '')
+        };
+      }
       return Promise.resolve({
         ok: true,
         config: {
-          enabled: false,
-          provider: 'openai_compat',
-          preset: 'custom',
-          base_url: 'https://api.openai.com/v1',
-          model: 'gpt-4o-mini',
-          temperature: 0.7,
-          timeout_s: 120,
-          has_api_key: false,
-          api_key_masked: '',
+          ...active,
+          options,
           presets: [
             { id: 'openai', label: 'OpenAI', base_url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
             { id: 'deepseek', label: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
@@ -1928,22 +1986,61 @@ function mockCall(method, ...args) {
           ]
         }
       });
-    case 'ai_set_config':
+    }
+    case 'ai_set_config': {
+      const patch = (args[0] && typeof args[0] === 'object' ? args[0] : {}) || {};
+      const preset = patch.preset || 'custom';
+      const prev = _browserAiOptions[preset] || {};
+      const apiKey = String(patch.api_key || '').trim();
+      const slot = {
+        base_url: patch.base_url ?? prev.base_url ?? '',
+        model: patch.model ?? prev.model ?? '',
+        api_key: apiKey || prev.api_key || '',
+        has_api_key: !!(apiKey || prev.api_key || prev.has_api_key),
+        api_key_masked: apiKey || prev.api_key ? '****' : ''
+      };
+      _browserAiOptions[preset] = slot;
+      if (patch.options && typeof patch.options === 'object') {
+        for (const [pid, other] of Object.entries(patch.options)) {
+          if (!other || typeof other !== 'object') continue;
+          const existing = _browserAiOptions[pid] || {};
+          const otherKey = String(other.api_key || '').trim();
+          _browserAiOptions[pid] = {
+            base_url: other.base_url ?? existing.base_url ?? '',
+            model: other.model ?? existing.model ?? '',
+            api_key: otherKey || existing.api_key || '',
+            has_api_key: !!(otherKey || existing.api_key || existing.has_api_key || other.has_api_key),
+            api_key_masked: otherKey || existing.api_key ? '****' : ''
+          };
+        }
+      }
+      _browserAiOptions.__active = {
+        enabled: patch.enabled !== undefined ? !!patch.enabled : true,
+        provider: 'openai_compat',
+        preset,
+        base_url: slot.base_url,
+        model: slot.model,
+        temperature: 0.7,
+        timeout_s: 120,
+        has_api_key: !!slot.has_api_key,
+        api_key_masked: slot.api_key_masked,
+        allow_dangerous: !!patch.allow_dangerous
+      };
+      const options = {};
+      for (const [pid, s] of Object.entries(_browserAiOptions)) {
+        if (pid === '__active' || !s || typeof s !== 'object') continue;
+        options[pid] = {
+          base_url: s.base_url || '',
+          model: s.model || '',
+          has_api_key: !!s.has_api_key,
+          api_key_masked: s.api_key_masked || ''
+        };
+      }
       return Promise.resolve({
         ok: true,
-        config: {
-          enabled: !!(args[0] && args[0].enabled),
-          provider: 'openai_compat',
-          preset: (args[0] && args[0].preset) || 'custom',
-          base_url: (args[0] && args[0].base_url) || '',
-          model: (args[0] && args[0].model) || '',
-          temperature: 0.7,
-          timeout_s: 120,
-          has_api_key: !!(args[0] && args[0].api_key),
-          api_key_masked: args[0] && args[0].api_key ? '****' : '',
-          presets: []
-        }
+        config: { ..._browserAiOptions.__active, options, presets: [] }
       });
+    }
     case 'ai_test_connection':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持连接 LLM' });
     case 'ai_list_models':
@@ -2193,6 +2290,8 @@ export const bridge = {
   windowBeginResize: (edge = 'se') => call('window_begin_resize', edge),
   getHotkeys: () => call('get_hotkeys'),
   setHotkeys: (prefs = {}) => call('set_hotkeys', prefs),
+  getUiSettings: () => call('get_ui_settings'),
+  setUiSettings: (patch = {}) => call('set_ui_settings', patch),
   // Flow AI
   aiGetConfig: () => call('ai_get_config'),
   aiSetConfig: (patch = {}) => call('ai_set_config', patch),

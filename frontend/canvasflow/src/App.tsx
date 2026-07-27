@@ -38,7 +38,13 @@ import {
 } from './nexuzAdapter';
 import { parseNodeRef } from './bindValue';
 import { collectFlowBindIssues } from './bindValidate';
-import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '../../src/store/flowModelStore';
+import {
+  clearLegacyUiSettingsLocalStorage,
+  collectLegacyUiSettingsFromLocalStorage,
+  DEFAULT_HOTKEYS,
+  formatHotkeyLabel,
+  useFlowStore
+} from '../../src/store/flowModelStore';
 import { bridge, waitForBridge, MOCK_SCHEMAS } from '../../src/bridge';
 import WindowResizeHandles from './components/WindowResizeHandles';
 import RunMonitorView from './components/RunMonitorView';
@@ -507,19 +513,21 @@ function AppShell() {
       drainTimer = window.setInterval(pollUiEvents, 50);
       pollUiEvents();
       try {
+        const uiRes = await bridge.getUiSettings?.();
+        let settings = uiRes?.ok && uiRes.settings ? { ...uiRes.settings } : {};
+        if (!uiRes?.persisted) {
+          const legacy = collectLegacyUiSettingsFromLocalStorage();
+          if (Object.keys(legacy).length) {
+            const migrated = await bridge.setUiSettings?.(legacy);
+            if (migrated?.ok && migrated.settings) settings = migrated.settings;
+            else settings = { ...settings, ...legacy };
+          }
+        }
+        useFlowStore.getState().hydrateUiSettings?.(settings);
+        clearLegacyUiSettingsLocalStorage();
         const keys = useFlowStore.getState().hotkeys || DEFAULT_HOTKEYS;
         await bridge.setHotkeys?.(keys);
-      } catch {
-        /* ignore */
-      }
-      try {
-        let diag = false;
-        try {
-          diag = localStorage.getItem('nexuz.diagLogging') === '1';
-        } catch {
-          /* ignore */
-        }
-        await bridge.setDiagLogging?.(diag);
+        await bridge.setDiagLogging?.(!!useFlowStore.getState().diagLogging);
       } catch {
         /* ignore */
       }
@@ -586,13 +594,7 @@ function AppShell() {
         }
       }
       if (!cancelled) {
-        let autoCheck = true;
-        try {
-          const v = localStorage.getItem('nexuz.autoCheckUpdate');
-          if (v === '0' || v === 'false') autoCheck = false;
-        } catch {
-          /* ignore */
-        }
+        const autoCheck = useFlowStore.getState().autoCheckUpdate !== false;
         if (autoCheck) {
           try {
             const upd = await bridge.checkForUpdate();

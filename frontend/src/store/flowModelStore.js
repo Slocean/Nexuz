@@ -416,136 +416,132 @@ function createEmptyFlow() {
   });
 }
 
-function loadHideWindowOnRecord() {
-  try {
-    const v = localStorage.getItem('nexuz.hideWindowOnRecord');
-    // Default OFF: keep window visible so users can click「停止录制」
-    if (v === null) return false;
-    return v === '1' || v === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function loadShowToolbarLabels() {
-  try {
-    const v = localStorage.getItem('nexuz.showToolbarLabels');
-    // Default ON: show text next to top toolbar icons
-    if (v === null) return true;
-    return v === '1' || v === 'true';
-  } catch {
-    return true;
-  }
-}
-
-/** flat = all items on L1; grouped = short L1 + More/Delete submenus */
-function loadNodeContextMenuMode() {
-  try {
-    const v = localStorage.getItem('nexuz.nodeContextMenuMode');
-    if (v === 'flat' || v === 'grouped') return v;
-    return 'grouped';
-  } catch {
-    return 'grouped';
-  }
-}
-
-function loadHideSidePanelsOnSettings() {
-  try {
-    const v = localStorage.getItem('nexuz.hideSidePanelsOnSettings');
-    // Default ON: settings is a full-bleed config page
-    if (v === null) return true;
-    return v === '1' || v === 'true';
-  } catch {
-    return true;
-  }
-}
-
-function loadAutoSaveEnabled() {
-  try {
-    const v = localStorage.getItem('nexuz.autoSaveEnabled');
-    if (v === null) return false;
-    return v === '1' || v === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function loadAutoSaveIntervalSec() {
-  try {
-    const value = Number(localStorage.getItem('nexuz.autoSaveIntervalSec'));
-    if (!Number.isFinite(value)) return 60;
-    return Math.min(3600, Math.max(10, Math.round(value)));
-  } catch {
-    return 60;
-  }
-}
-
-function loadSaveAfterRun() {
-  try {
-    const v = localStorage.getItem('nexuz.saveAfterRun');
-    // Default ON: auto-save after run (including first-time named save)
-    if (v === null) return true;
-    return v === '1' || v === 'true';
-  } catch {
-    return true;
-  }
-}
-
-function loadDefaultCaptureMode() {
-  try {
-    const v = localStorage.getItem('nexuz.defaultCaptureMode');
-    if (v === 'frida_ui' || v === 'coord') return v;
-    return 'coord';
-  } catch {
-    return 'coord';
-  }
-}
-
-/** screenshot = 截图弹窗取点；live = 实地全屏叠加取点 */
-function loadDefaultPickMethod() {
-  try {
-    const v = localStorage.getItem('nexuz.defaultPickMethod');
-    if (v === 'live' || v === 'screenshot') return v;
-    return 'screenshot';
-  } catch {
-    return 'screenshot';
-  }
-}
-
-function loadDefaultCoordinateMode() {
-  try {
-    const v = localStorage.getItem('nexuz.defaultCoordinateMode');
-    if (v === 'window_client' || v === 'virtual_norm' || v === 'screen_abs') return v;
-    return 'window_client';
-  } catch {
-    return 'window_client';
-  }
-}
-
 function normalizeOutputCoordinateMode(v) {
   if (v === 'region_rel' || v === 'screen_abs' || v === 'window_client') return v;
   return 'window_client';
 }
 
-function loadDefaultOutputCoordinateMode() {
+const OUTPUT_COORD_NODE_TYPES = new Set(['ocr_recognize', 'find_image']);
+
+/** Defaults for file-backed UI settings (config.json `ui`). */
+export const DEFAULT_UI_SETTINGS = {
+  hideWindowOnRecord: false,
+  showToolbarLabels: true,
+  nodeContextMenuMode: 'grouped',
+  hideSidePanelsOnSettings: true,
+  autoSaveEnabled: false,
+  autoSaveIntervalSec: 60,
+  saveAfterRun: true,
+  defaultCaptureMode: 'coord',
+  defaultPickMethod: 'screenshot',
+  defaultCoordinateMode: 'window_client',
+  defaultOutputCoordinateMode: 'window_client',
+  // Default 500ms between nodes when unset
+  defaultNodeIntervalMs: 500,
+  themeName: 'Ocean',
+  themeMode: 'dark',
+  diagLogging: false,
+  autoCheckUpdate: true,
+  aiMode: 'chat'
+};
+
+const LEGACY_UI_STORAGE_KEYS = [
+  'nexuz.hideWindowOnRecord',
+  'nexuz.showToolbarLabels',
+  'nexuz.nodeContextMenuMode',
+  'nexuz.hideSidePanelsOnSettings',
+  'nexuz.autoSaveEnabled',
+  'nexuz.autoSaveIntervalSec',
+  'nexuz.saveAfterRun',
+  'nexuz.defaultCaptureMode',
+  'nexuz.defaultPickMethod',
+  'nexuz.defaultCoordinateMode',
+  'nexuz.defaultOutputCoordinateMode',
+  'nexuz.defaultNodeIntervalMs',
+  'nexuz.hotkeys',
+  'nexuz.recordStopHotkey',
+  'nexuz.themeName',
+  'nexuz.themeMode',
+  'nexuz.diagLogging',
+  'nexuz.autoCheckUpdate',
+  'nexuz.ai.mode'
+];
+
+function boolFromLegacy(v, fallback) {
+  if (v === null || v === undefined) return fallback;
+  if (v === '1' || v === 'true') return true;
+  if (v === '0' || v === 'false') return false;
+  return fallback;
+}
+
+/** One-time migrate from browser localStorage → file settings. */
+export function collectLegacyUiSettingsFromLocalStorage() {
+  const out = {};
   try {
-    return normalizeOutputCoordinateMode(localStorage.getItem('nexuz.defaultOutputCoordinateMode'));
+    const hide = localStorage.getItem('nexuz.hideWindowOnRecord');
+    if (hide !== null) out.hideWindowOnRecord = boolFromLegacy(hide, false);
+    const labels = localStorage.getItem('nexuz.showToolbarLabels');
+    if (labels !== null) out.showToolbarLabels = boolFromLegacy(labels, true);
+    const menu = localStorage.getItem('nexuz.nodeContextMenuMode');
+    if (menu === 'flat' || menu === 'grouped') out.nodeContextMenuMode = menu;
+    const hideSide = localStorage.getItem('nexuz.hideSidePanelsOnSettings');
+    if (hideSide !== null) out.hideSidePanelsOnSettings = boolFromLegacy(hideSide, true);
+    const autoSave = localStorage.getItem('nexuz.autoSaveEnabled');
+    if (autoSave !== null) out.autoSaveEnabled = boolFromLegacy(autoSave, false);
+    const autoSec = Number(localStorage.getItem('nexuz.autoSaveIntervalSec'));
+    if (Number.isFinite(autoSec)) out.autoSaveIntervalSec = Math.min(3600, Math.max(10, Math.round(autoSec)));
+    const saveAfter = localStorage.getItem('nexuz.saveAfterRun');
+    if (saveAfter !== null) out.saveAfterRun = boolFromLegacy(saveAfter, true);
+    const capture = localStorage.getItem('nexuz.defaultCaptureMode');
+    if (capture === 'frida_ui' || capture === 'coord') out.defaultCaptureMode = capture;
+    const pick = localStorage.getItem('nexuz.defaultPickMethod');
+    if (pick === 'live' || pick === 'screenshot') out.defaultPickMethod = pick;
+    const coord = localStorage.getItem('nexuz.defaultCoordinateMode');
+    if (coord === 'window_client' || coord === 'virtual_norm' || coord === 'screen_abs') {
+      out.defaultCoordinateMode = coord;
+    }
+    const outCoord = localStorage.getItem('nexuz.defaultOutputCoordinateMode');
+    if (outCoord) out.defaultOutputCoordinateMode = normalizeOutputCoordinateMode(outCoord);
+    const interval = Number(localStorage.getItem('nexuz.defaultNodeIntervalMs'));
+    if (Number.isFinite(interval)) out.defaultNodeIntervalMs = Math.max(0, Math.round(interval));
+    const themeName = localStorage.getItem('nexuz.themeName');
+    if (themeName) out.themeName = themeName;
+    const themeMode = localStorage.getItem('nexuz.themeMode');
+    if (themeMode === 'light' || themeMode === 'dark') out.themeMode = themeMode;
+    const diag = localStorage.getItem('nexuz.diagLogging');
+    if (diag !== null) out.diagLogging = boolFromLegacy(diag, false);
+    const autoCheck = localStorage.getItem('nexuz.autoCheckUpdate');
+    if (autoCheck !== null) out.autoCheckUpdate = boolFromLegacy(autoCheck, true);
+    const aiMode = localStorage.getItem('nexuz.ai.mode');
+    if (aiMode === 'chat' || aiMode === 'flow') out.aiMode = aiMode;
+    const hotRaw = localStorage.getItem('nexuz.hotkeys');
+    if (hotRaw) {
+      try {
+        const parsed = JSON.parse(hotRaw);
+        if (parsed && typeof parsed === 'object') out.hotkeys = parsed;
+      } catch {
+        /* ignore */
+      }
+    }
   } catch {
-    return 'window_client';
+    /* ignore */
+  }
+  return out;
+}
+
+export function clearLegacyUiSettingsLocalStorage() {
+  try {
+    for (const key of LEGACY_UI_STORAGE_KEYS) localStorage.removeItem(key);
+  } catch {
+    /* ignore */
   }
 }
 
-const OUTPUT_COORD_NODE_TYPES = new Set(['ocr_recognize', 'find_image']);
-
-function loadDefaultNodeIntervalMs() {
-  try {
-    const value = Number(localStorage.getItem('nexuz.defaultNodeIntervalMs'));
-    // Default 100ms between nodes when unset
-    if (!Number.isFinite(value)) return 100;
-    return Math.max(0, Math.round(value));
-  } catch {
-    return 100;
-  }
+function persistUiSettings(patch) {
+  if (!patch || typeof patch !== 'object') return;
+  void import('../bridge.js')
+    .then(mod => mod.bridge?.setUiSettings?.(patch))
+    .catch(() => {});
 }
 
 export const DEFAULT_HOTKEYS = {
@@ -599,55 +595,17 @@ function normalizeHotkey(keys, fallback) {
   return [...modPart, ...held, trigger];
 }
 
-function loadHotkeys() {
+function defaultHotkeys() {
   const out = {};
   for (const slot of HOTKEY_SLOTS) {
     out[slot] = [...DEFAULT_HOTKEYS[slot]];
-  }
-  try {
-    const raw = localStorage.getItem('nexuz.hotkeys');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        for (const slot of HOTKEY_SLOTS) {
-          if (parsed[slot] != null) {
-            out[slot] = normalizeHotkey(parsed[slot], DEFAULT_HOTKEYS[slot]);
-          }
-        }
-      }
-    } else {
-      // Migrate previous single-key setting.
-      const legacy = localStorage.getItem('nexuz.recordStopHotkey');
-      if (legacy) {
-        out.record_stop = normalizeHotkey(JSON.parse(legacy), DEFAULT_HOTKEYS.record_stop);
-      }
-    }
-  } catch {
-    /* keep defaults */
   }
   return out;
 }
 
 function persistHotkeys(hotkeys) {
-  try {
-    localStorage.setItem('nexuz.hotkeys', JSON.stringify(hotkeys));
-  } catch {
-    /* ignore */
-  }
+  persistUiSettings({ hotkeys });
 }
-
-function loadTheme() {
-  try {
-    return {
-      themeName: localStorage.getItem('nexuz.themeName') || 'Ocean',
-      themeMode: localStorage.getItem('nexuz.themeMode') || 'dark'
-    };
-  } catch {
-    return { themeName: 'Ocean', themeMode: 'dark' };
-  }
-}
-
-const initialTheme = loadTheme();
 
 export const useFlowStore = create((set, get) => ({
   flow: createEmptyFlow(),
@@ -661,25 +619,29 @@ export const useFlowStore = create((set, get) => ({
   lastFlowViewMode: 'canvas', // canvas | code | flowchart
   bridgeReady: false,
   filePath: null,
+  uiSettingsReady: false,
 
   // theme (CanvasFlow)
-  themeName: initialTheme.themeName,
-  themeMode: initialTheme.themeMode,
+  themeName: DEFAULT_UI_SETTINGS.themeName,
+  themeMode: DEFAULT_UI_SETTINGS.themeMode,
 
-  // app settings
-  hideWindowOnRecord: loadHideWindowOnRecord(),
-  showToolbarLabels: loadShowToolbarLabels(),
-  nodeContextMenuMode: loadNodeContextMenuMode(),
-  hideSidePanelsOnSettings: loadHideSidePanelsOnSettings(),
-  autoSaveEnabled: loadAutoSaveEnabled(),
-  autoSaveIntervalSec: loadAutoSaveIntervalSec(),
-  saveAfterRun: loadSaveAfterRun(),
-  defaultCaptureMode: loadDefaultCaptureMode(),
-  defaultPickMethod: loadDefaultPickMethod(),
-  defaultCoordinateMode: loadDefaultCoordinateMode(),
-  defaultOutputCoordinateMode: loadDefaultOutputCoordinateMode(),
-  defaultNodeIntervalMs: loadDefaultNodeIntervalMs(),
-  hotkeys: loadHotkeys(),
+  // app settings (hydrated from config.json via bridge)
+  hideWindowOnRecord: DEFAULT_UI_SETTINGS.hideWindowOnRecord,
+  showToolbarLabels: DEFAULT_UI_SETTINGS.showToolbarLabels,
+  nodeContextMenuMode: DEFAULT_UI_SETTINGS.nodeContextMenuMode,
+  hideSidePanelsOnSettings: DEFAULT_UI_SETTINGS.hideSidePanelsOnSettings,
+  autoSaveEnabled: DEFAULT_UI_SETTINGS.autoSaveEnabled,
+  autoSaveIntervalSec: DEFAULT_UI_SETTINGS.autoSaveIntervalSec,
+  saveAfterRun: DEFAULT_UI_SETTINGS.saveAfterRun,
+  defaultCaptureMode: DEFAULT_UI_SETTINGS.defaultCaptureMode,
+  defaultPickMethod: DEFAULT_UI_SETTINGS.defaultPickMethod,
+  defaultCoordinateMode: DEFAULT_UI_SETTINGS.defaultCoordinateMode,
+  defaultOutputCoordinateMode: DEFAULT_UI_SETTINGS.defaultOutputCoordinateMode,
+  defaultNodeIntervalMs: DEFAULT_UI_SETTINGS.defaultNodeIntervalMs,
+  diagLogging: DEFAULT_UI_SETTINGS.diagLogging,
+  autoCheckUpdate: DEFAULT_UI_SETTINGS.autoCheckUpdate,
+  aiMode: DEFAULT_UI_SETTINGS.aiMode,
+  hotkeys: defaultHotkeys(),
 
   // run history for sidebar
   runHistory: [],
@@ -700,73 +662,106 @@ export const useFlowStore = create((set, get) => ({
   logs: [],
   runLog: null,
 
-  setHideWindowOnRecord: hideWindowOnRecord => {
-    try {
-      localStorage.setItem('nexuz.hideWindowOnRecord', hideWindowOnRecord ? '1' : '0');
-    } catch {
-      /* ignore */
+  hydrateUiSettings: (settings = {}) => {
+    const s = settings && typeof settings === 'object' ? settings : {};
+    const patch = { uiSettingsReady: true };
+    if ('hideWindowOnRecord' in s) patch.hideWindowOnRecord = !!s.hideWindowOnRecord;
+    if ('showToolbarLabels' in s) patch.showToolbarLabels = !!s.showToolbarLabels;
+    if ('nodeContextMenuMode' in s) {
+      patch.nodeContextMenuMode = s.nodeContextMenuMode === 'flat' ? 'flat' : 'grouped';
     }
-    set({ hideWindowOnRecord: !!hideWindowOnRecord });
+    if ('hideSidePanelsOnSettings' in s) {
+      patch.hideSidePanelsOnSettings = !!s.hideSidePanelsOnSettings;
+    }
+    if ('autoSaveEnabled' in s) patch.autoSaveEnabled = !!s.autoSaveEnabled;
+    if ('autoSaveIntervalSec' in s) {
+      const value = Number(s.autoSaveIntervalSec);
+      patch.autoSaveIntervalSec = Number.isFinite(value)
+        ? Math.min(3600, Math.max(10, Math.round(value)))
+        : 60;
+    }
+    if ('saveAfterRun' in s) patch.saveAfterRun = !!s.saveAfterRun;
+    if ('defaultCaptureMode' in s) {
+      patch.defaultCaptureMode = s.defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
+    }
+    if ('defaultPickMethod' in s) {
+      patch.defaultPickMethod = s.defaultPickMethod === 'live' ? 'live' : 'screenshot';
+    }
+    if ('defaultCoordinateMode' in s) {
+      const mode = s.defaultCoordinateMode;
+      patch.defaultCoordinateMode =
+        mode === 'window_client' || mode === 'virtual_norm' || mode === 'screen_abs'
+          ? mode
+          : 'window_client';
+    }
+    if ('defaultOutputCoordinateMode' in s) {
+      patch.defaultOutputCoordinateMode = normalizeOutputCoordinateMode(s.defaultOutputCoordinateMode);
+    }
+    if ('defaultNodeIntervalMs' in s) {
+      const value = Number(s.defaultNodeIntervalMs);
+      patch.defaultNodeIntervalMs = Number.isFinite(value)
+        ? Math.max(0, Math.round(value))
+        : DEFAULT_UI_SETTINGS.defaultNodeIntervalMs;
+    }
+    if ('themeName' in s && s.themeName) patch.themeName = String(s.themeName);
+    if ('themeMode' in s) patch.themeMode = s.themeMode === 'light' ? 'light' : 'dark';
+    if ('diagLogging' in s) patch.diagLogging = !!s.diagLogging;
+    if ('autoCheckUpdate' in s) patch.autoCheckUpdate = !!s.autoCheckUpdate;
+    if ('aiMode' in s) patch.aiMode = s.aiMode === 'flow' ? 'flow' : 'chat';
+    if (s.hotkeys && typeof s.hotkeys === 'object') {
+      const next = defaultHotkeys();
+      for (const slot of HOTKEY_SLOTS) {
+        if (s.hotkeys[slot] != null) {
+          next[slot] = normalizeHotkey(s.hotkeys[slot], DEFAULT_HOTKEYS[slot]);
+        }
+      }
+      patch.hotkeys = next;
+    }
+    set(patch);
+    return get();
+  },
+
+  setHideWindowOnRecord: hideWindowOnRecord => {
+    const value = !!hideWindowOnRecord;
+    set({ hideWindowOnRecord: value });
+    persistUiSettings({ hideWindowOnRecord: value });
   },
 
   setShowToolbarLabels: showToolbarLabels => {
-    try {
-      localStorage.setItem('nexuz.showToolbarLabels', showToolbarLabels ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-    set({ showToolbarLabels: !!showToolbarLabels });
+    const value = !!showToolbarLabels;
+    set({ showToolbarLabels: value });
+    persistUiSettings({ showToolbarLabels: value });
   },
 
   setNodeContextMenuMode: mode => {
     const next = mode === 'flat' ? 'flat' : 'grouped';
-    try {
-      localStorage.setItem('nexuz.nodeContextMenuMode', next);
-    } catch {
-      /* ignore */
-    }
     set({ nodeContextMenuMode: next });
+    persistUiSettings({ nodeContextMenuMode: next });
   },
 
   setHideSidePanelsOnSettings: hideSidePanelsOnSettings => {
-    try {
-      localStorage.setItem(
-        'nexuz.hideSidePanelsOnSettings',
-        hideSidePanelsOnSettings ? '1' : '0',
-      );
-    } catch {
-      /* ignore */
-    }
-    set({ hideSidePanelsOnSettings: !!hideSidePanelsOnSettings });
+    const value = !!hideSidePanelsOnSettings;
+    set({ hideSidePanelsOnSettings: value });
+    persistUiSettings({ hideSidePanelsOnSettings: value });
   },
 
   setAutoSaveEnabled: autoSaveEnabled => {
-    try {
-      localStorage.setItem('nexuz.autoSaveEnabled', autoSaveEnabled ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-    set({ autoSaveEnabled: !!autoSaveEnabled });
+    const value = !!autoSaveEnabled;
+    set({ autoSaveEnabled: value });
+    persistUiSettings({ autoSaveEnabled: value });
   },
 
   setAutoSaveIntervalSec: autoSaveIntervalSec => {
     const value = Number(autoSaveIntervalSec);
     const sec = Number.isFinite(value) ? Math.min(3600, Math.max(10, Math.round(value))) : 60;
-    try {
-      localStorage.setItem('nexuz.autoSaveIntervalSec', String(sec));
-    } catch {
-      /* ignore */
-    }
     set({ autoSaveIntervalSec: sec });
+    persistUiSettings({ autoSaveIntervalSec: sec });
   },
 
   setSaveAfterRun: saveAfterRun => {
-    try {
-      localStorage.setItem('nexuz.saveAfterRun', saveAfterRun ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-    set({ saveAfterRun: !!saveAfterRun });
+    const value = !!saveAfterRun;
+    set({ saveAfterRun: value });
+    persistUiSettings({ saveAfterRun: value });
   },
 
   setHotkey: (slot, keys) => {
@@ -774,7 +769,7 @@ export const useFlowStore = create((set, get) => ({
     if (!HOTKEY_SLOTS.includes(key)) return get().hotkeys;
     const fallback = DEFAULT_HOTKEYS[key];
     const nextKeys = normalizeHotkey(keys, fallback);
-    const prev = get().hotkeys || loadHotkeys();
+    const prev = get().hotkeys || defaultHotkeys();
     const next = { ...prev, [key]: nextKeys };
     // Reject duplicate combos against other slots.
     const sig = nextKeys.join('+');
@@ -790,7 +785,7 @@ export const useFlowStore = create((set, get) => ({
   },
 
   setHotkeys: prefs => {
-    const prev = get().hotkeys || loadHotkeys();
+    const prev = get().hotkeys || defaultHotkeys();
     const next = { ...prev };
     for (const slot of HOTKEY_SLOTS) {
       if (prefs && prefs[slot] != null) {
@@ -815,8 +810,7 @@ export const useFlowStore = create((set, get) => ({
   },
 
   resetHotkeys: () => {
-    const next = {};
-    for (const slot of HOTKEY_SLOTS) next[slot] = [...DEFAULT_HOTKEYS[slot]];
+    const next = defaultHotkeys();
     persistHotkeys(next);
     set({ hotkeys: next });
     return next;
@@ -829,22 +823,14 @@ export const useFlowStore = create((set, get) => ({
 
   setDefaultCaptureMode: defaultCaptureMode => {
     const mode = defaultCaptureMode === 'frida_ui' ? 'frida_ui' : 'coord';
-    try {
-      localStorage.setItem('nexuz.defaultCaptureMode', mode);
-    } catch {
-      /* ignore */
-    }
     set({ defaultCaptureMode: mode });
+    persistUiSettings({ defaultCaptureMode: mode });
   },
 
   setDefaultPickMethod: defaultPickMethod => {
     const method = defaultPickMethod === 'live' ? 'live' : 'screenshot';
-    try {
-      localStorage.setItem('nexuz.defaultPickMethod', method);
-    } catch {
-      /* ignore */
-    }
     set({ defaultPickMethod: method });
+    persistUiSettings({ defaultPickMethod: method });
   },
 
   setDefaultCoordinateMode: defaultCoordinateMode => {
@@ -852,33 +838,41 @@ export const useFlowStore = create((set, get) => ({
       defaultCoordinateMode === 'window_client' || defaultCoordinateMode === 'virtual_norm'
         ? defaultCoordinateMode
         : 'screen_abs';
-    try {
-      localStorage.setItem('nexuz.defaultCoordinateMode', mode);
-    } catch {
-      /* ignore */
-    }
     set({ defaultCoordinateMode: mode });
+    persistUiSettings({ defaultCoordinateMode: mode });
   },
 
   setDefaultOutputCoordinateMode: defaultOutputCoordinateMode => {
     const mode = normalizeOutputCoordinateMode(defaultOutputCoordinateMode);
-    try {
-      localStorage.setItem('nexuz.defaultOutputCoordinateMode', mode);
-    } catch {
-      /* ignore */
-    }
     set({ defaultOutputCoordinateMode: mode });
+    persistUiSettings({ defaultOutputCoordinateMode: mode });
   },
 
   setDefaultNodeIntervalMs: defaultNodeIntervalMs => {
     const value = Number(defaultNodeIntervalMs);
-    const interval = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
-    try {
-      localStorage.setItem('nexuz.defaultNodeIntervalMs', String(interval));
-    } catch {
-      /* ignore */
-    }
+    const interval = Number.isFinite(value)
+      ? Math.max(0, Math.round(value))
+      : DEFAULT_UI_SETTINGS.defaultNodeIntervalMs;
     set({ defaultNodeIntervalMs: interval });
+    persistUiSettings({ defaultNodeIntervalMs: interval });
+  },
+
+  setDiagLogging: diagLogging => {
+    const value = !!diagLogging;
+    set({ diagLogging: value });
+    persistUiSettings({ diagLogging: value });
+  },
+
+  setAutoCheckUpdate: autoCheckUpdate => {
+    const value = !!autoCheckUpdate;
+    set({ autoCheckUpdate: value });
+    persistUiSettings({ autoCheckUpdate: value });
+  },
+
+  setAiMode: aiMode => {
+    const value = aiMode === 'flow' ? 'flow' : 'chat';
+    set({ aiMode: value });
+    persistUiSettings({ aiMode: value });
   },
 
   /** Force all nodes with an explicit pick_method to the given value */
@@ -969,26 +963,14 @@ export const useFlowStore = create((set, get) => ({
 
   setThemeName: themeName => {
     set({ themeName });
-    const persist = () => {
-      try {
-        localStorage.setItem('nexuz.themeName', themeName);
-      } catch {
-        /* ignore */
-      }
-    };
+    const persist = () => persistUiSettings({ themeName });
     if (typeof requestIdleCallback === 'function') requestIdleCallback(persist);
     else setTimeout(persist, 0);
   },
 
   setThemeMode: themeMode => {
     set({ themeMode });
-    const persist = () => {
-      try {
-        localStorage.setItem('nexuz.themeMode', themeMode);
-      } catch {
-        /* ignore */
-      }
-    };
+    const persist = () => persistUiSettings({ themeMode });
     if (typeof requestIdleCallback === 'function') requestIdleCallback(persist);
     else setTimeout(persist, 0);
   },

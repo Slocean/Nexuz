@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { bridge } from "@/bridge";
+import { useFlowStore } from "@/store/flowModelStore";
 import PointConfirmPanel, {
   AiPointPreview,
   AiShotPreview,
@@ -255,26 +256,6 @@ const WELCOME_CHAT =
 
 const WELCOME_FLOW =
   "你好！我是 Nexuz Flow AI（编排模式）。用自然语言描述自动化意图，我会编排积木草稿并在需要时截图 OCR 取点。确认后即可应用到画布。";
-
-const MODE_STORAGE_KEY = "nexuz.ai.mode";
-
-function loadAiMode(): "chat" | "flow" {
-  try {
-    const v = localStorage.getItem(MODE_STORAGE_KEY);
-    if (v === "chat" || v === "flow") return v;
-  } catch {
-    /* ignore */
-  }
-  return "chat";
-}
-
-function saveAiMode(mode: "chat" | "flow") {
-  try {
-    localStorage.setItem(MODE_STORAGE_KEY, mode);
-  } catch {
-    /* ignore */
-  }
-}
 
 function OrchestrationResultCard({
   card,
@@ -653,7 +634,8 @@ export default function AIAssistant({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [applying, setApplying] = useState(false);
   const [applyingMsgId, setApplyingMsgId] = useState<string | null>(null);
-  const [aiMode, setAiMode] = useState<"chat" | "flow">(loadAiMode);
+  const aiMode = useFlowStore(s => (s.aiMode === "flow" ? "flow" : "chat"));
+  const setAiMode = useFlowStore(s => s.setAiMode);
 
   const colors = getThemeColors(themeName, themeMode);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -664,7 +646,6 @@ export default function AIAssistant({
 
   const switchMode = useCallback((next: "chat" | "flow") => {
     setAiMode(next);
-    saveAiMode(next);
     setAttachShot(false);
     setStatusError("");
     setActiveId(null);
@@ -683,7 +664,7 @@ export default function AIAssistant({
     setPointPanelDismissed(false);
     setToolTrace([]);
     setWarnings([]);
-  }, []);
+  }, [setAiMode]);
 
   const sidebarBg =
     themeMode === "light" ? "rgba(0, 0, 0, 0.02)" : "rgba(255, 255, 255, 0.03)";
