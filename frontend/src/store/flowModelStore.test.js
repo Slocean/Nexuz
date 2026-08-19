@@ -29,6 +29,18 @@ describe('flow store contract', () => {
     expect(state.future).toEqual([]);
   });
 
+  it('preserves legacy policy absence and explicit safe policy', () => {
+    useFlowStore.getState().setFlow({ entry: null, nodes: {} });
+    expect(useFlowStore.getState().flow).not.toHaveProperty('execution_policy');
+
+    useFlowStore.getState().setFlow({
+      entry: null,
+      nodes: {},
+      execution_policy: { mode: 'safe' },
+    });
+    expect(useFlowStore.getState().flow.execution_policy).toEqual({ mode: 'safe' });
+  });
+
   it('duplicates linked nodes with remapped edges and offset positions', () => {
     useFlowStore.getState().setFlow({
       entry: 'a',

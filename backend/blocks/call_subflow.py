@@ -114,6 +114,8 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
         "variables": flow_vars,
         "__global_node_interval_ms": parent_flow.get("__global_node_interval_ms", 0),
     }
+    if "execution_policy" not in flow and "execution_policy" in parent_flow:
+        flow["execution_policy"] = parent_flow["execution_policy"]
 
     sub_ctx = interp._execute(flow)
 

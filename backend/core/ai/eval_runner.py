@@ -177,7 +177,7 @@ def run_eval_suite(path: Path | None = None) -> dict[str, Any]:
     rate = (passed / total) if total else 0.0
     min_rate = 0.85 if total >= 60 else 0.9
     return {
-        "ok": total == 0 or rate >= min_rate,
+        "ok": total > 0 and rate >= min_rate,
         "passed": passed,
         "total": total,
         "pass_rate": rate,

@@ -1,0 +1,140 @@
+[
+  {
+    "id": "activate_wechat",
+    "utterance": "打开微信窗口",
+    "slots": {"window_title": "微信"},
+    "plan_ir": [{"op": "activate", "a": {"window": "微信"}}],
+    "expected_ops": ["activate"],
+    "expected_types": ["window_activate"],
+    "must_validate": true
+  },
+  {
+    "id": "activate_browser",
+    "utterance": "激活浏览器",
+    "slots": {"window_title": "Chrome"},
+    "plan_ir": [{"op": "activate", "a": {"window": "Chrome"}}],
+    "expected_ops": ["activate"],
+    "expected_types": ["window_activate"],
+    "must_validate": true
+  },
+  {
+    "id": "type_message",
+    "utterance": "输入 hello",
+    "slots": {"message": "hello"},
+    "plan_ir": [{"op": "type", "a": {"text": "hello"}}],
+    "expected_ops": ["type"],
+    "expected_types": ["type_text"],
+    "must_validate": true
+  },
+  {
+    "id": "press_enter",
+    "utterance": "按回车键",
+    "slots": {"key": "Enter"},
+    "plan_ir": [{"op": "key", "a": {"keys": "Enter"}}],
+    "expected_ops": ["key"],
+    "expected_types": ["key_press"],
+    "must_validate": true
+  },
+  {
+    "id": "wait_half_second",
+    "utterance": "等待半秒",
+    "slots": {"ms": "500"},
+    "plan_ir": [{"op": "wait", "a": {"ms": "500"}}],
+    "expected_ops": ["wait"],
+    "expected_types": ["delay"],
+    "must_validate": true
+  },
+  {
+    "id": "activate_type_submit",
+    "utterance": "打开记事本，输入完成并回车",
+    "slots": {"window_title": "记事本", "message": "完成", "key": "Enter"},
+    "plan_ir": [
+      {"op": "activate", "a": {"window": "记事本"}},
+      {"op": "type", "a": {"text": "完成"}},
+      {"op": "key", "a": {"keys": "Enter"}}
+    ],
+    "expected_ops": ["activate", "type", "key"],
+    "expected_types": ["window_activate", "type_text", "key_press"],
+    "expect_connected": true,
+    "must_validate": true
+  },
+  {
+    "id": "ocr_click_contact",
+    "utterance": "点击联系人 mom",
+    "slots": {"contact": "mom", "match_text": "mom"},
+    "plan_ir": [{"op": "ocr_click", "a": {"text": "mom"}}],
+    "expected_ops": ["ocr_click"],
+    "expected_types": ["ocr_recognize", "click"],
+    "expect_connected": true,
+    "forbid_raw_click_coords": true,
+    "expect_binding_on_click": true,
+    "must_validate": true
+  },
+  {
+    "id": "wechat_send_message",
+    "utterance": "打开微信给 mom 发送消息 hello",
+    "slots": {
+      "window_title": "微信",
+      "contact": "mom",
+      "message": "hello",
+      "key": "Enter"
+    },
+    "plan_ir": [
+      {"op": "activate", "a": {"window": "微信"}},
+      {"op": "ocr_click", "a": {"text": "mom"}},
+      {"op": "type", "a": {"text": "hello"}},
+      {"op": "key", "a": {"keys": "Enter"}}
+    ],
+    "expected_ops": ["activate", "ocr_click", "type", "key"],
+    "expected_types": [
+      "window_activate",
+      "ocr_recognize",
+      "click",
+      "type_text",
+      "key_press"
+    ],
+    "expect_connected": true,
+    "forbid_raw_click_coords": true,
+    "expect_binding_on_click": true,
+    "must_validate": true
+  },
+  {
+    "id": "find_image_and_click",
+    "utterance": "找到保存按钮图片并点击",
+    "slots": {"image_ref": "save-button.png"},
+    "plan_ir": [
+      {"op": "find_image_click", "a": {"image_ref": "save-button.png"}}
+    ],
+    "expected_ops": ["find_image_click"],
+    "expected_types": ["find_image", "click"],
+    "expect_connected": true,
+    "forbid_raw_click_coords": true,
+    "expect_binding_on_click": true,
+    "must_validate": true
+  },
+  {
+    "id": "wait_for_text",
+    "utterance": "等待出现完成",
+    "slots": {"match_text": "完成"},
+    "plan_ir": [{"op": "wait_text", "a": {"text": "完成"}}],
+    "expected_ops": ["wait_text"],
+    "expected_types": ["wait_until"],
+    "must_validate": true
+  },
+  {
+    "id": "schedule_daily",
+    "utterance": "每天九点执行",
+    "slots": {"schedule": "0 9 * * *"},
+    "plan_ir": [{"op": "schedule", "a": {"schedule": "0 9 * * *"}}],
+    "expected_ops": ["schedule"],
+    "expected_types": ["schedule_trigger"],
+    "must_validate": true
+  },
+  {
+    "id": "clarify_missing_target",
+    "utterance": "帮我发一条消息",
+    "slots": {"message": "你好"},
+    "plan_ir": [{"op": "type", "a": {"text": "你好"}}],
+    "clarify_only": true
+  }
+]

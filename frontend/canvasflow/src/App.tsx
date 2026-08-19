@@ -1027,6 +1027,7 @@ function AppShell() {
         flow_id: `flow_${Date.now()}`,
         name: '',
         version: 1,
+        execution_policy: { mode: 'safe' },
         variables: {},
         entry: null,
         nodes: {}

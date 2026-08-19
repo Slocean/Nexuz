@@ -4,18 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.core.execution_policy import CRITICAL_TYPES
 from backend.core.registry import BLOCK_REGISTRY, get_schemas
 
 # Default denied for AI draft_add_node (can be overridden via allow_dangerous).
-DEFAULT_DENIED_BLOCKS = frozenset(
-    {
-        "run_command",
-        "python_script",
-    }
-)
+DEFAULT_DENIED_BLOCKS = CRITICAL_TYPES
 
 # Require explicit allowlist even when allow_dangerous is on for file_io.
-SENSITIVE_BLOCKS = frozenset({"file_io", "run_command", "python_script"})
+SENSITIVE_BLOCKS = frozenset(CRITICAL_TYPES | {"file_io"})
 
 
 def is_block_allowed(

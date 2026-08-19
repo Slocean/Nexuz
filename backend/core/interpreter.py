@@ -8,6 +8,11 @@ import traceback
 from typing import Any, Callable
 
 
+from .execution_policy import (
+    ExecutionPolicyError,
+    check_node_allowed,
+    resolve_execution_policy,
+)
 from .expression import evaluate_expression
 from .registry import get_handler
 from .runtime_payload import (
@@ -185,6 +190,17 @@ class FlowInterpreter:
                 self._emit("flow_finished", {"ok": True})
             except InterruptedError:
                 self._emit("flow_finished", {"ok": False, "error": "已停止", "stopped": True})
+            except ExecutionPolicyError as exc:
+                self._emit(
+                    "flow_finished",
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "policy_blocked": True,
+                        "policy": exc.policy.to_dict(),
+                        "violation": exc.violation,
+                    },
+                )
             except Exception as exc:
                 self._emit(
                     "flow_finished",
@@ -412,6 +428,7 @@ class FlowInterpreter:
         entry = flow.get("entry")
         if not entry or entry not in nodes:
             raise ValueError("流程缺少有效 entry 节点")
+        execution_policy = resolve_execution_policy(flow)
 
         context: dict[str, Any] = {}
         for k, v in (flow.get("variables") or {}).items():
@@ -482,6 +499,9 @@ class FlowInterpreter:
             handler = get_handler(block_type)
             if handler is None:
                 raise ValueError(f"未知 Block 类型: {block_type}")
+            violation = check_node_allowed(execution_policy, str(node_id), node)
+            if violation:
+                raise ExecutionPolicyError(violation, execution_policy)
 
             raw_params = node.get("params") or {}
             params = resolve_variables(raw_params, context)

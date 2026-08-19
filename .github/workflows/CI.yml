@@ -36,6 +36,9 @@ jobs:
       - name: Run backend unit checks
         run: python -m pytest
 
+      - name: Enforce AI offline eval quality gate
+        run: python -c "from backend.core.ai.eval_runner import run_eval_suite; r = run_eval_suite(); assert r['total'] > 0 and r['ok'], r"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

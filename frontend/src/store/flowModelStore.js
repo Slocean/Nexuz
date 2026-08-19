@@ -408,6 +408,7 @@ function createEmptyFlow() {
     flow_id: uid('flow'),
     name: '未命名流程',
     version: 1,
+    execution_policy: { mode: 'safe' },
     variables: {},
     variable_schemas: {},
     nodes: {},
@@ -1080,13 +1081,19 @@ export const useFlowStore = create((set, get) => ({
    */
   setFlow: (flow, filePath = undefined, options = {}) =>
     set(state => {
+      const normalizedFlow = withDefaultVariables({
+        ...createEmptyFlow(),
+        ...flow,
+        nodes: flow.nodes || {},
+        breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : []
+      });
+      // Missing policy identifies a legacy/imported flow and preserves its
+      // historical runtime behavior. Newly created flows declare safe mode.
+      if (!Object.prototype.hasOwnProperty.call(flow, 'execution_policy')) {
+        delete normalizedFlow.execution_policy;
+      }
       const next = {
-        flow: withDefaultVariables({
-          ...createEmptyFlow(),
-          ...flow,
-          nodes: flow.nodes || {},
-          breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : []
-        }),
+        flow: normalizedFlow,
         selectedNodeId: null,
         highlightNodeId: null,
         filePath: filePath === undefined ? state.filePath : filePath,

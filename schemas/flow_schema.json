@@ -8,6 +8,26 @@
     "flow_id": { "type": "string" },
     "name": { "type": "string" },
     "version": { "type": "integer", "minimum": 1 },
+    "execution_policy": {
+      "type": ["object", "string"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["safe", "standard", "legacy", "unrestricted"]
+        },
+        "allowlist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "denylist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
     "variables": {
       "type": "object",
       "additionalProperties": true

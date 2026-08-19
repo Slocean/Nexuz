@@ -5,6 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from backend.core.ai.api_key_crypto import (
+    dpapi_available,
+    protect_api_key,
+    unprotect_api_key,
+)
 from backend.core.ai.types import AiConfig
 from backend.paths import load_app_config, save_app_config
 
@@ -56,6 +61,81 @@ def mask_api_key(api_key: str) -> str:
     if len(key) <= 4:
         return "****"
     return f"{'*' * max(4, len(key) - 4)}{key[-4:]}"
+
+
+def _decrypt_key(raw: Any) -> tuple[str, bool]:
+    try:
+        return unprotect_api_key(raw)
+    except ValueError:
+        # A DPAPI blob may have been copied from another account or machine.
+        # Treat it as unavailable without exposing or rewriting the blob.
+        return "", False
+
+
+def _decrypt_ai_section(
+    raw_ai: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """Return plaintext view, migration-safe persisted view, and changed flag."""
+    decrypted = dict(raw_ai)
+    persisted = dict(raw_ai)
+    changed = False
+
+    key, legacy = _decrypt_key(raw_ai.get("api_key"))
+    decrypted["api_key"] = key
+    if key and legacy and dpapi_available():
+        persisted["api_key"] = protect_api_key(key)
+        changed = True
+
+    raw_options = raw_ai.get("options")
+    if isinstance(raw_options, dict):
+        decrypted_options: dict[str, Any] = {}
+        persisted_options: dict[str, Any] = {}
+        for option_id, raw_slot in raw_options.items():
+            if not isinstance(raw_slot, dict):
+                decrypted_options[option_id] = raw_slot
+                persisted_options[option_id] = raw_slot
+                continue
+            slot = dict(raw_slot)
+            stored_slot = dict(raw_slot)
+            slot_key, slot_legacy = _decrypt_key(raw_slot.get("api_key"))
+            slot["api_key"] = slot_key
+            if slot_key and slot_legacy and dpapi_available():
+                stored_slot["api_key"] = protect_api_key(slot_key)
+                changed = True
+            decrypted_options[option_id] = slot
+            persisted_options[option_id] = stored_slot
+        decrypted["options"] = decrypted_options
+        persisted["options"] = persisted_options
+
+    return decrypted, persisted, changed
+
+
+def _load_ai_section(*, migrate: bool = True) -> tuple[dict[str, Any], dict[str, Any]]:
+    cfg = load_app_config()
+    raw = cfg.get("ai")
+    raw_ai = raw if isinstance(raw, dict) else {}
+    decrypted, persisted, changed = _decrypt_ai_section(raw_ai)
+    if migrate and changed:
+        cfg["ai"] = persisted
+        save_app_config(cfg)
+    return cfg, decrypted
+
+
+def _encrypt_ai_section(plain_ai: dict[str, Any]) -> dict[str, Any]:
+    stored = dict(plain_ai)
+    stored["api_key"] = protect_api_key(str(plain_ai.get("api_key") or ""))
+    options = plain_ai.get("options")
+    if isinstance(options, dict):
+        stored_options: dict[str, Any] = {}
+        for option_id, raw_slot in options.items():
+            if not isinstance(raw_slot, dict):
+                stored_options[option_id] = raw_slot
+                continue
+            slot = dict(raw_slot)
+            slot["api_key"] = protect_api_key(str(raw_slot.get("api_key") or ""))
+            stored_options[option_id] = slot
+        stored["options"] = stored_options
+    return stored
 
 
 def _apply_env_overrides(cfg: AiConfig) -> AiConfig:
@@ -146,15 +226,14 @@ def _public_options(options: dict[str, dict[str, str]]) -> dict[str, dict[str, A
 
 
 def get_ai_config() -> AiConfig:
-    stored = load_app_config().get("ai")
-    base = AiConfig.from_dict(stored if isinstance(stored, dict) else {})
+    _, raw_ai = _load_ai_section()
+    base = AiConfig.from_dict(raw_ai)
     return _apply_env_overrides(base)
 
 
 def public_ai_config(cfg: AiConfig | None = None) -> dict[str, Any]:
     """Safe for frontend: no full api_key."""
-    raw = load_app_config().get("ai")
-    raw_ai = raw if isinstance(raw, dict) else {}
+    _, raw_ai = _load_ai_section()
     c = cfg or get_ai_config()
     d = c.to_dict()
     key = d.pop("api_key", "") or ""
@@ -185,8 +264,7 @@ def set_ai_config(patch: dict[str, Any] | None) -> AiConfig:
     patch = dict(patch or {})
     keep_existing = bool(patch.pop("keep_existing_key", True))
     options_patch = patch.pop("options", None)
-    cfg = load_app_config()
-    current_raw = cfg.get("ai") if isinstance(cfg.get("ai"), dict) else {}
+    cfg, current_raw = _load_ai_section()
     current = AiConfig.from_dict(current_raw)
     options = _read_options(current_raw)
 
@@ -252,6 +330,6 @@ def set_ai_config(patch: dict[str, Any] | None) -> AiConfig:
 
     stored = normalized.to_dict()
     stored["options"] = options
-    cfg["ai"] = stored
+    cfg["ai"] = _encrypt_ai_section(stored)
     save_app_config(cfg)
     return _apply_env_overrides(normalized)

@@ -5,19 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Iterable
 
-CAPABILITY_LABELS = {
-    "python_script": "Python 脚本（可信代码）",
-    "run_command": "执行系统命令",
-    "file_io": "文件读写",
-    "http_request": "HTTP / 网络请求",
-    "clipboard": "剪贴板访问",
-    "call_subflow": "调用子流程",
-    "window_close": "关闭窗口或进程",
-    "schedule_trigger": "定时执行",
-    "frida": "Frida 进程操作",
-}
-
-HIGH_RISK_TYPES = frozenset(CAPABILITY_LABELS)
+from backend.core.execution_policy import CAPABILITY_LABELS, HIGH_RISK_TYPES
 
 
 def analyze_flow_risks(
