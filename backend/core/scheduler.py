@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,11 +32,20 @@ def _jobs_file() -> Path:
     return folder / "jobs.json"
 
 
+def _failures_file() -> Path:
+    return _jobs_file().with_name("failures.jsonl")
+
+
 class FlowScheduler:
     def __init__(self):
         self._jobs: dict[str, dict[str, Any]] = {}
+        self._pending: dict[str, dict[str, Any]] = {}
+        self._last_failure: dict[str, dict[str, Any]] = {}
+        self._state_lock = threading.RLock()
+        self._drain_scheduled = False
         self._aps = None
         self._emit = None
+        self._load_last_failures()
         try:
             from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -53,28 +63,222 @@ class FlowScheduler:
 
     def list_jobs(self) -> list[dict]:
         out = []
-        for jid, meta in self._jobs.items():
-            out.append(
-                {
-                    "job_id": jid,
-                    "trigger_type": meta.get("trigger_type"),
-                    "next_run": meta.get("next_run"),
-                    "file_path": meta.get("file_path"),
-                    "interval_seconds": meta.get("interval_seconds"),
-                    "run_at": meta.get("run_at"),
-                    "cron_expression": meta.get("cron_expression"),
-                }
-            )
+        with self._state_lock:
+            for jid, meta in self._jobs.items():
+                pending = self._pending.get(jid)
+                out.append(
+                    {
+                        "job_id": jid,
+                        "trigger_type": meta.get("trigger_type"),
+                        "next_run": meta.get("next_run"),
+                        "file_path": meta.get("file_path"),
+                        "interval_seconds": meta.get("interval_seconds"),
+                        "run_at": meta.get("run_at"),
+                        "cron_expression": meta.get("cron_expression"),
+                        "pending": bool(pending),
+                        "pending_since": pending.get("queued_at") if pending else None,
+                        "last_failure": self._last_failure.get(jid),
+                    }
+                )
         return out
 
     def remove_job(self, job_id: str) -> None:
-        self._jobs.pop(job_id, None)
+        with self._state_lock:
+            self._jobs.pop(job_id, None)
+            self._pending.pop(job_id, None)
         if self._aps:
             try:
                 self._aps.remove_job(job_id)
             except Exception:
                 pass
         self._persist()
+
+    def _load_last_failures(self) -> None:
+        path = _failures_file()
+        if not path.is_file():
+            return
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()[-1000:]
+            for line in lines:
+                row = json.loads(line)
+                if isinstance(row, dict) and row.get("job_id"):
+                    self._last_failure[str(row["job_id"])] = row
+        except Exception as exc:
+            logger.warning("无法读取定时任务失败记录: %s", exc)
+
+    def _record_failure(
+        self,
+        job_id: str,
+        *,
+        reason: str,
+        error: str,
+        meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        info = meta or self._jobs.get(job_id) or {}
+        row = {
+            "ts": time.time(),
+            "job_id": job_id,
+            "reason": reason,
+            "error": str(error),
+            "trigger_type": info.get("trigger_type"),
+            "file_path": info.get("file_path"),
+        }
+        with self._state_lock:
+            self._last_failure[job_id] = row
+            try:
+                path = _failures_file()
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+            except OSError as exc:
+                logger.warning("无法写入定时任务失败记录: %s", exc)
+        return row
+
+    def _queue_pending(
+        self,
+        job_id: str,
+        payload: dict[str, Any],
+        meta: dict[str, Any],
+    ) -> None:
+        queued_at = time.time()
+        with self._state_lock:
+            if job_id in self._pending:
+                error = "该定时任务已有一次待补跑，本次触发已丢弃"
+                self._record_failure(
+                    job_id,
+                    reason="pending_full",
+                    error=error,
+                    meta=meta,
+                )
+                if self._emit:
+                    self._emit(
+                        "schedule_error",
+                        {"job_id": job_id, "reason": "pending_full", "error": error},
+                    )
+                return
+            self._pending[job_id] = {
+                "payload": payload,
+                "meta": dict(meta),
+                "queued_at": queued_at,
+            }
+        if self._emit:
+            self._emit("schedule_pending", {"job_id": job_id, "queued_at": queued_at})
+
+    def _start_or_queue(
+        self,
+        job_id: str,
+        payload: dict[str, Any],
+        meta: dict[str, Any],
+    ) -> None:
+        from backend.core.block_params_validate import validate_flow_params
+        from backend.core.interpreter import get_interpreter
+        from backend.core.runtime_log import get_runtime_log_manager
+
+        issues = validate_flow_params(payload)
+        errors = [issue for issue in issues if issue.get("level") == "error"]
+        if errors:
+            message = f"流程参数校验未通过：{errors[0].get('message')}"
+            self._record_failure(
+                job_id,
+                reason="validation_error",
+                error=message,
+                meta=meta,
+            )
+            if self._emit:
+                self._emit(
+                    "schedule_error",
+                    {
+                        "job_id": job_id,
+                        "reason": "validation_error",
+                        "error": message,
+                    },
+                )
+            return
+        interp = get_interpreter()
+        if interp.running:
+            self._queue_pending(job_id, payload, meta)
+            return
+        try:
+            get_runtime_log_manager().start(payload)
+            interp.run_flow(payload, step_mode=False)
+            if self._emit:
+                self._emit("schedule_fired", {"job_id": job_id})
+        except Exception as exc:
+            if interp.running:
+                self._queue_pending(job_id, payload, meta)
+                return
+            try:
+                get_runtime_log_manager().finish({"ok": False, "error": str(exc)})
+            except Exception:
+                pass
+            self._record_failure(
+                job_id,
+                reason="execution_error",
+                error=str(exc),
+                meta=meta,
+            )
+            if self._emit:
+                self._emit(
+                    "schedule_error",
+                    {"job_id": job_id, "reason": "execution_error", "error": str(exc)},
+                )
+
+    def _run_job(
+        self,
+        job_id: str,
+        snapshot: dict[str, Any],
+        meta: dict[str, Any],
+        file_path: str | None,
+    ) -> None:
+        try:
+            payload = snapshot
+            fp = meta.get("file_path") or file_path
+            if fp and Path(fp).is_file():
+                payload = json.loads(Path(fp).read_text(encoding="utf-8"))
+            elif meta.get("flow"):
+                payload = meta["flow"]
+            payload = dict(payload)
+            if fp:
+                payload["__file_path__"] = fp
+            self._start_or_queue(job_id, payload, meta)
+        except Exception as exc:
+            self._record_failure(
+                job_id,
+                reason="execution_error",
+                error=str(exc),
+                meta=meta,
+            )
+            if self._emit:
+                self._emit(
+                    "schedule_error",
+                    {"job_id": job_id, "reason": "execution_error", "error": str(exc)},
+                )
+
+    def on_flow_finished(self) -> None:
+        with self._state_lock:
+            if not self._pending or self._drain_scheduled:
+                return
+            self._drain_scheduled = True
+        timer = threading.Timer(0.15, self._drain_pending_once)
+        timer.daemon = True
+        timer.start()
+
+    def _drain_pending_once(self) -> None:
+        from backend.core.interpreter import get_interpreter
+
+        with self._state_lock:
+            self._drain_scheduled = False
+        if get_interpreter().running:
+            self.on_flow_finished()
+            return
+        with self._state_lock:
+            if not self._pending:
+                return
+            job_id, pending = min(
+                self._pending.items(),
+                key=lambda item: float(item[1].get("queued_at") or 0),
+            )
+            self._pending.pop(job_id, None)
+        self._start_or_queue(job_id, pending["payload"], pending["meta"])
 
     def register_flow_job(
         self,
@@ -110,33 +314,7 @@ class FlowScheduler:
         }
 
         def _run():
-            try:
-                from backend.core.interpreter import get_interpreter
-                from backend.core.runtime_log import get_runtime_log_manager
-
-                payload = snapshot
-                fp = meta.get("file_path") or file_path
-                if fp and Path(fp).is_file():
-                    payload = json.loads(Path(fp).read_text(encoding="utf-8"))
-                elif meta.get("flow"):
-                    payload = meta["flow"]
-                payload = dict(payload)
-                if fp:
-                    payload["__file_path__"] = fp
-                interp = get_interpreter()
-                if interp.running:
-                    raise RuntimeError("已有流程正在执行，跳过本次定时任务")
-                get_runtime_log_manager().start(payload)
-                interp.run_flow(payload, step_mode=False)
-                if self._emit:
-                    self._emit("schedule_fired", {"job_id": job_id})
-            except Exception as exc:
-                try:
-                    get_runtime_log_manager().finish({"ok": False, "error": str(exc)})
-                except Exception:
-                    pass
-                if self._emit:
-                    self._emit("schedule_error", {"job_id": job_id, "error": str(exc)})
+            self._run_job(job_id, snapshot, meta, file_path)
 
         if trigger_type == "once":
             if not str(run_at).strip():
@@ -251,3 +429,17 @@ class FlowScheduler:
         if restored:
             self._persist()
         return restored
+
+    def reload_from_disk(self) -> int:
+        """Replace in-memory jobs with the definitions currently on disk."""
+        with self._state_lock:
+            job_ids = list(self._jobs)
+            self._jobs.clear()
+            self._pending.clear()
+        if self._aps:
+            for job_id in job_ids:
+                try:
+                    self._aps.remove_job(job_id)
+                except Exception:
+                    pass
+        return self.restore_from_disk()

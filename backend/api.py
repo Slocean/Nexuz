@@ -13,6 +13,7 @@ from typing import Any
 import webview
 
 from backend.core.dpi import get_dpi_scale, screen_size_logical
+from backend.core.block_params_validate import validate_flow_params
 from backend.core.execution_policy import resolve_execution_policy, scan_flow_violations
 from backend.core.input.provider_registry import get_provider_registry
 from backend.core.input.session import get_recording_session
@@ -53,11 +54,13 @@ from backend.core.record_hotkeys import get_record_stop_hotkeys
 from backend.core.run_hotkeys import get_run_hotkeys
 from backend.core.run_overlay import hide_run_overlay
 from backend.paths import (
+    config_path,
     default_data_dir,
     exe_dir,
     get_data_dir,
     load_app_config,
     project_root,
+    save_app_config,
     set_data_dir,
 )
 
@@ -80,6 +83,7 @@ class Api:
         self._run_monitor_restore: dict[str, Any] | None = None
         self._run_monitor_flow: dict[str, Any] | None = None
         self._pending_flow_imports: dict[str, dict[str, Any]] = {}
+        self._pending_data_imports: dict[str, dict[str, Any]] = {}
         self._runtime_logs = get_runtime_log_manager()
         self._emit_lock = threading.RLock()
         self._emit_queue: list[dict[str, Any]] = []
@@ -400,6 +404,12 @@ class Api:
             log_info = self._runtime_logs.finish(event_payload)
             if log_info:
                 event_payload["run_log"] = log_info
+            try:
+                from backend.core.scheduler import get_scheduler
+
+                get_scheduler().on_flow_finished()
+            except Exception:
+                pass
         message = {"event": event, "payload": event_payload}
         critical = event in {
             "flow_finished",
@@ -410,6 +420,7 @@ class Api:
             "force_reset",
             "recording_stopped",
             "schedule_fired",
+            "schedule_pending",
             "schedule_error",
             "plugin_mode_changed",
         } or (event == "node_end" and not bool(event_payload.get("ok", True)))
@@ -1418,6 +1429,17 @@ class Api:
         err = self._validate_flow(flow)
         if err:
             return {"ok": False, "error": err}
+        param_issues = validate_flow_params(flow)
+        blocking_param_issues = [
+            issue for issue in param_issues if issue.get("level") == "error"
+        ]
+        if blocking_param_issues:
+            return {
+                "ok": False,
+                "error": f"流程参数校验未通过（{len(blocking_param_issues)} 处）",
+                "blocked": True,
+                "validation_issues": param_issues,
+            }
         execution_policy = resolve_execution_policy(flow)
         violations = scan_flow_violations(flow, execution_policy)
         if violations:
@@ -1741,6 +1763,129 @@ class Api:
             return {"ok": True, "path": str(root)}
         except Exception as exc:
             return {"ok": False, "error": str(exc), "path": str(root)}
+
+    def export_data_pack(self) -> dict:
+        from backend.core.data_pack import build_data_pack_bytes
+
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        suggested = f"nexuz-data-{stamp}.nexuz.zip"
+        if self._window:
+            result = self._window.create_file_dialog(
+                webview.SAVE_DIALOG,
+                directory=str(Path.home()),
+                save_filename=suggested,
+                file_types=("Nexuz 数据包 (*.nexuz.zip;*.zip)",),
+            )
+            if not result:
+                return {"ok": False, "cancelled": True}
+            selected = result[0] if isinstance(result, (list, tuple)) else result
+            target = Path(str(selected))
+        else:
+            target = exe_dir() / "exports" / suggested
+        if not target.name.lower().endswith((".nexuz.zip", ".zip")):
+            target = target.with_name(target.name + ".nexuz.zip")
+        try:
+            payload = build_data_pack_bytes(
+                self._data_root(create=False),
+                load_app_config(),
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            part = target.with_name(target.name + ".part")
+            part.write_bytes(payload)
+            part.replace(target)
+            return {"ok": True, "path": str(target), "size": len(payload)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def preview_import_data_pack(self) -> dict:
+        from backend.core.data_pack import inspect_data_pack
+
+        if not self._window:
+            return {"ok": False, "error": "窗口未就绪"}
+        result = self._window.create_file_dialog(
+            webview.OPEN_DIALOG,
+            directory=str(Path.home()),
+            allow_multiple=False,
+            file_types=("Nexuz 数据包 (*.nexuz.zip;*.zip)", "All files (*.*)"),
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+        selected = result[0] if isinstance(result, (list, tuple)) else result
+        path = Path(str(selected))
+        try:
+            inspected = inspect_data_pack(path)
+            now = time.time()
+            self._pending_data_imports = {
+                key: value
+                for key, value in self._pending_data_imports.items()
+                if now - float(value.get("created_at") or 0) < 600
+            }
+            token = secrets.token_urlsafe(24)
+            self._pending_data_imports[token] = {
+                "path": str(path),
+                "created_at": now,
+            }
+            return {
+                "ok": True,
+                "import_token": token,
+                "file_count": inspected["file_count"],
+                "total_size": inspected["total_size"],
+                "exported_at": inspected["manifest"].get("exported_at"),
+                "config_redacted": bool(
+                    inspected["manifest"].get("config_redacted")
+                ),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def commit_import_data_pack(self, import_token: str) -> dict:
+        from backend.core.data_pack import restore_data_pack
+        from backend.core.scheduler import get_scheduler
+
+        pending = self._pending_data_imports.pop(str(import_token or ""), None)
+        if not pending:
+            return {"ok": False, "error": "恢复确认已失效，请重新选择数据包"}
+        if time.time() - float(pending.get("created_at") or 0) >= 600:
+            return {"ok": False, "error": "恢复确认已过期，请重新选择数据包"}
+        if get_interpreter().running:
+            return {"ok": False, "error": "请先停止当前流程，再恢复数据包"}
+        backup = None
+        data_root = self._data_root(create=True)
+        try:
+            merged, backup = restore_data_pack(
+                Path(str(pending["path"])),
+                data_root,
+                load_app_config(),
+            )
+            cfg_path = config_path()
+            if cfg_path.is_file():
+                backup.mkdir(parents=True, exist_ok=True)
+                import shutil
+
+                shutil.copy2(cfg_path, backup / "config.json")
+            save_app_config(merged)
+            register_all_blocks()
+            restored_jobs = get_scheduler().reload_from_disk()
+            return {
+                "ok": True,
+                "backup_path": str(backup),
+                "restored_jobs": restored_jobs,
+                "restart_recommended": True,
+            }
+        except Exception as exc:
+            if backup and (backup / "data").is_dir():
+                try:
+                    import shutil
+
+                    if data_root.exists():
+                        shutil.rmtree(data_root)
+                    shutil.copytree(backup / "data", data_root)
+                    backup_config = backup / "config.json"
+                    if backup_config.is_file():
+                        shutil.copy2(backup_config, config_path())
+                except Exception:
+                    pass
+            return {"ok": False, "error": str(exc)}
 
     def clear_data_dir(self) -> dict:
         """Delete the entire data directory tree. Recreated only on next save."""
@@ -2514,7 +2659,23 @@ class Api:
         err = self._validate_flow(flow)
         if err:
             return {"ok": False, "error": err}
-        return {"ok": True}
+        issues = validate_flow_params(flow)
+        errors = [issue for issue in issues if issue.get("level") == "error"]
+        if errors:
+            return {
+                "ok": False,
+                "error": errors[0].get("message") or "流程参数校验未通过",
+                "issues": issues,
+                "issue_count": {
+                    "error": len(errors),
+                    "warn": len(issues) - len(errors),
+                },
+            }
+        return {
+            "ok": True,
+            "issues": issues,
+            "issue_count": {"error": 0, "warn": len(issues)},
+        }
 
     def _validate_flow(self, flow: dict) -> str | None:
         if not isinstance(flow, dict):

@@ -16,6 +16,13 @@ interface ScheduleJob {
   trigger?: string;
   trigger_type?: string;
   file_path?: string;
+  pending?: boolean;
+  pending_since?: number;
+  last_failure?: {
+    ts?: number;
+    reason?: string;
+    error?: string;
+  } | null;
 }
 
 export default function SchedulePanel({
@@ -118,6 +125,16 @@ export default function SchedulePanel({
                 <div style={{ color: colors.secondaryText }} className="text-xs opacity-70">
                   下次: {job.next_run || job.next_run_time || '—'}
                 </div>
+                {job.pending && (
+                  <div className="text-xs text-amber-500 mt-0.5">
+                    等待当前流程结束后补跑
+                  </div>
+                )}
+                {job.last_failure?.error && (
+                  <div className="text-xs text-rose-400 mt-0.5 truncate" title={job.last_failure.error}>
+                    最近失败: {job.last_failure.error}
+                  </div>
+                )}
                 {job.file_path && (
                   <div style={{ color: colors.secondaryText }} className="text-xs opacity-50 truncate">
                     {job.file_path}

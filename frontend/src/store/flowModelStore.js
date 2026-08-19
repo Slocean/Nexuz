@@ -17,7 +17,7 @@ function eventCategory(event, payload) {
   if (payload?.category) return normalizeLogCategory(payload.category);
   const ev = String(event || '');
   if (ev === 'log') return normalizeLogCategory(payload?.category, 'runtime');
-  if (ev.startsWith('node_') || ev.startsWith('flow_') || ev === 'schedule_fired' || ev === 'schedule_error') {
+  if (ev.startsWith('node_') || ev.startsWith('flow_') || ev.startsWith('schedule_')) {
     return 'runtime';
   }
   if (ev === 'recording_stopped') return 'audit';
@@ -2113,6 +2113,14 @@ export const useFlowStore = create((set, get) => ({
         category: 'runtime',
         scope: 'run',
         message: `定时任务已触发：${payload?.job_id || ''}`
+      });
+    } else if (event === 'schedule_pending') {
+      set(state => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));
+      appendLog({
+        level: 'warn',
+        category: 'runtime',
+        scope: 'run',
+        message: `定时任务等待补跑：${payload?.job_id || ''}`
       });
     } else if (event === 'schedule_error') {
       set(state => ({ scheduleRefreshToken: (state.scheduleRefreshToken || 0) + 1 }));

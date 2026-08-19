@@ -1223,6 +1223,51 @@ export default function SettingsPage({
     }
   };
 
+  const handleExportDataPack = async () => {
+    setDataDirBusy(true);
+    setDataDirMsg('');
+    try {
+      const res = await bridge.exportDataPack();
+      if (res?.cancelled) return;
+      setDataDirMsg(res?.ok ? `数据包已导出：${res.path}` : res?.error || '导出失败');
+    } catch (e: any) {
+      setDataDirMsg(String(e?.message || e));
+    } finally {
+      setDataDirBusy(false);
+    }
+  };
+
+  const handleRestoreDataPack = async () => {
+    setDataDirBusy(true);
+    setDataDirMsg('');
+    try {
+      const preview = await bridge.previewImportDataPack();
+      if (preview?.cancelled) return;
+      if (!preview?.ok) {
+        setDataDirMsg(preview?.error || '无法读取数据包');
+        return;
+      }
+      const ok = await confirm({
+        title: '恢复 Nexuz 数据包',
+        description: `将恢复 ${preview.file_count || 0} 个用户文件。现有数据会先自动备份，API Key 不会从数据包导入。是否继续？`,
+        confirmText: '备份并恢复',
+        destructive: true
+      });
+      if (!ok) return;
+      const res = await bridge.commitImportDataPack(preview.import_token);
+      setDataDirMsg(
+        res?.ok
+          ? `恢复完成，原数据备份于：${res.backup_path}。建议重启应用。`
+          : res?.error || '恢复失败'
+      );
+      if (res?.ok) await refreshDataDir();
+    } catch (e: any) {
+      setDataDirMsg(String(e?.message || e));
+    } finally {
+      setDataDirBusy(false);
+    }
+  };
+
   const handleClearDataDir = async () => {
     const ok = await confirm({
       title: '清空数据目录',
@@ -1772,6 +1817,22 @@ export default function SettingsPage({
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={dataDirBusy}
+              onClick={() => void handleExportDataPack()}>
+              导出数据包
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={dataDirBusy}
+              onClick={() => void handleRestoreDataPack()}>
+              恢复数据包
+            </Button>
             <Button
               type="button"
               size="sm"
