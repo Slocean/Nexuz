@@ -2513,7 +2513,7 @@ export default function Inspector({
             );
           })}
 
-        <Field label="完成日志（可选）" stacked>
+        <Field label="完成日志（可选，覆盖内置模板）" stacked>
           <Textarea
             rows={2}
             value={
@@ -2522,7 +2522,7 @@ export default function Inspector({
                 : ''
             }
             placeholder={
-              '留空则使用默认日志；支持 {{字段}} 引用本节点输出，例：已成功处理{{sheets}}个文件，总输出{{count}}张图片'
+              '留空则使用该节点内置的日志模板（如有）；填写则以本模板为准，支持 {{字段}} 引用本节点输出'
             }
             onChange={e =>
               onUpdateNodeConfig(selectedNode.id, {

@@ -1959,9 +1959,12 @@ export const useFlowStore = create((set, get) => ({
       const result = summarizeDetail(payload.result || {}) || {};
       const nid = payload.node_id;
       const nodeName = resolveNodeName(get(), nid);
+      // 完成日志模板：节点上手动填写的优先，否则回落到 Block SCHEMA 内置的代码级模板
+      const node = get().flow.nodes?.[nid];
+      const schemaDoneLog = String(get().schemaMap?.[node?.type]?.done_log || '').trim();
       const doneLogTemplate =
         payload.ok && !payload.stopped
-          ? String(get().flow.nodes?.[nid]?.config?.done_log || '').trim()
+          ? String(node?.config?.done_log || '').trim() || schemaDoneLog
           : '';
       const doneSummary = doneLogTemplate
         ? interpolateDoneLog(doneLogTemplate, payload.result || {})

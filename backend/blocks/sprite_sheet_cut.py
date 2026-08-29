@@ -17,6 +17,9 @@ SCHEMA = {
     "type": "sprite_sheet_cut",
     "label": "精灵图智能切图",
     "category": "识别类",
+    # 代码级完成日志模板：流程结束时自动拼进「流程执行完成」日志；
+    # 节点上手动填写的完成日志可覆盖此模板。{{字段}} 引用本节点输出。
+    "done_log": "已成功处理{{sheets}}个文件，总输出{{count}}张图片",
     "inputs": [
         {
             "name": "image_path",
