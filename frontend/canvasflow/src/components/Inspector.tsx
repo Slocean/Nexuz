@@ -2278,7 +2278,7 @@ export default function Inspector({
                           className="h-8 shrink-0 px-2"
                           title="选择文件"
                           onClick={async () => {
-                            const picked = await bridge.pickLocalPath?.('open');
+                            const picked = await bridge.pickLocalPath?.('open', null, input.accept);
                             if (picked?.ok && picked.path) {
                               handleFieldChange(input.name, picked.path);
                               return;
@@ -2340,7 +2340,7 @@ export default function Inspector({
                             typeof value === 'string' && value.trim()
                               ? value.replace(/^.*[\\/]/, '')
                               : 'untitled.txt';
-                          const picked = await bridge.pickLocalPath?.(mode, suggested);
+                          const picked = await bridge.pickLocalPath?.(mode, suggested, input.accept);
                           if (picked?.ok && picked.path) {
                             handleFieldChange(input.name, picked.path);
                             return;

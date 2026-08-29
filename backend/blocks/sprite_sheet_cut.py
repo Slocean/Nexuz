@@ -28,6 +28,7 @@ SCHEMA = {
             "default": "",
             "placeholder": "图片文件，或包含多张精灵图的文件夹（批量）",
             "ui": "file_or_dir",
+            "accept": "*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif",
             "bindable": True,
         },
         {

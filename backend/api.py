@@ -2611,11 +2611,18 @@ class Api:
             return {"ok": False, "error": "请选择数据目录中的流程"}
         return {"ok": True, "path": str(path)}
 
-    def pick_local_path(self, mode: str = "open", suggested_name: str | None = None) -> dict:
+    def pick_local_path(
+        self,
+        mode: str = "open",
+        suggested_name: str | None = None,
+        accept: str | None = None,
+    ) -> dict:
         """Open Windows file dialog and return a local path (for file_io etc.).
 
         mode: ``open`` → existing file; ``save`` → save-as path (may not exist yet);
         ``folder`` → existing directory.
+        accept: optional extension filter like ``*.png;*.jpg`` (pywebview filter
+        format); when omitted the dialog only offers ``All files``.
         """
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
@@ -2623,10 +2630,12 @@ class Api:
         if kind not in ("open", "save", "folder"):
             kind = "open"
         start = str(Path.home())
-        file_types = (
-            "Text & data (*.txt;*.json;*.csv;*.log;*.md;*.xml;*.yaml;*.yml)",
-            "All files (*.*)",
-        )
+        file_types: tuple[str, ...]
+        patterns = [p.strip() for p in str(accept or "").split(";") if p.strip()]
+        if patterns:
+            file_types = (f"匹配的类型 ({';'.join(patterns)})", "All files (*.*)")
+        else:
+            file_types = ("All files (*.*)",)
         try:
             if kind == "folder":
                 result = self._window.create_file_dialog(

@@ -22,6 +22,7 @@ SCHEMA = {
             "default": "",
             "placeholder": "手动输入，或点「浏览」选择",
             "ui": "file_path",
+            "accept": "*.txt;*.json;*.csv;*.log;*.md;*.xml;*.yaml;*.yml",
             "bindable": True,
         },
         {
