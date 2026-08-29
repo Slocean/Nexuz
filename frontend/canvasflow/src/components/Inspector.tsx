@@ -2118,6 +2118,7 @@ export default function Inspector({
               input.ui === 'textarea' ||
               input.type === 'textarea' ||
               input.ui === 'file_path' ||
+              input.ui === 'file_or_dir' ||
               input.ui === 'flow_path' ||
               input.ui === 'window_pick' ||
               input.name === 'subflow_path' ||
@@ -2257,6 +2258,63 @@ export default function Inspector({
                   <FlowPathField
                     value={String(value ?? '')}
                     onChange={(path) => handleFieldChange(input.name, path)}
+                  />
+                ) : input.ui === 'file_or_dir' ? (
+                  <BindableInput
+                    value={value ?? ''}
+                    inputType="string"
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={v => handleFieldChange(input.name, v)}
+                    placeholder={input.placeholder || '文件路径或文件夹路径'}
+                    multiline
+                    valueLabel="路径"
+                    trailing={
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0 px-2"
+                          title="选择文件"
+                          onClick={async () => {
+                            const picked = await bridge.pickLocalPath?.('open');
+                            if (picked?.ok && picked.path) {
+                              handleFieldChange(input.name, picked.path);
+                              return;
+                            }
+                            if (picked?.cancelled) return;
+                            await alert({
+                              title: '选择失败',
+                              description: picked?.error || '无法打开文件对话框，请手动填写路径',
+                            });
+                          }}
+                        >
+                          文件
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0 px-2"
+                          title="选择文件夹（批量处理其中所有图片）"
+                          onClick={async () => {
+                            const picked = await bridge.pickLocalPath?.('folder');
+                            if (picked?.ok && picked.path) {
+                              handleFieldChange(input.name, picked.path);
+                              return;
+                            }
+                            if (picked?.cancelled) return;
+                            await alert({
+                              title: '选择失败',
+                              description: picked?.error || '无法打开文件夹对话框，请手动填写路径',
+                            });
+                          }}
+                        >
+                          文件夹
+                        </Button>
+                      </>
+                    }
                   />
                 ) : input.ui === 'file_path' ? (
                   <BindableInput

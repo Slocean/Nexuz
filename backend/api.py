@@ -2614,12 +2614,13 @@ class Api:
     def pick_local_path(self, mode: str = "open", suggested_name: str | None = None) -> dict:
         """Open Windows file dialog and return a local path (for file_io etc.).
 
-        mode: ``open`` → existing file; ``save`` → save-as path (may not exist yet).
+        mode: ``open`` → existing file; ``save`` → save-as path (may not exist yet);
+        ``folder`` → existing directory.
         """
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
         kind = str(mode or "open").strip().lower()
-        if kind not in ("open", "save"):
+        if kind not in ("open", "save", "folder"):
             kind = "open"
         start = str(Path.home())
         file_types = (
@@ -2627,7 +2628,13 @@ class Api:
             "All files (*.*)",
         )
         try:
-            if kind == "save":
+            if kind == "folder":
+                result = self._window.create_file_dialog(
+                    webview.FOLDER_DIALOG,
+                    directory=start,
+                    allow_multiple=False,
+                )
+            elif kind == "save":
                 name = (str(suggested_name or "").strip() or "untitled.txt")
                 result = self._window.create_file_dialog(
                     webview.SAVE_DIALOG,
