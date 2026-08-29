@@ -319,6 +319,21 @@ function summarizeRuntimeValue(value, depth = 0, key = null) {
   return String(value).slice(0, 240);
 }
 
+function interpolateDoneLog(template, result) {
+  // 完成日志模板：{{字段}} 或 {{a.b}} 引用本节点原始输出，缺失字段替换为空串
+  return String(template)
+    .replace(/\{\{\s*([\w.$]+)\s*\}\}/g, (_, path) => {
+      const value = path
+        .split('.')
+        .reduce((acc, key) => (acc == null ? undefined : acc[key]), result);
+      if (value == null) return '';
+      if (Array.isArray(value)) return value.map(v => (v == null ? '' : String(v))).join(', ');
+      if (typeof value === 'object') return JSON.stringify(value);
+      return String(value);
+    })
+    .trim();
+}
+
 function summarizeDetail(detail) {
   if (detail == null) return detail;
   if (typeof detail === 'string') return summarizeRuntimeValue(detail);
@@ -1886,6 +1901,7 @@ export const useFlowStore = create((set, get) => ({
 
   // execution UI
   nodeOutputs: {}, // nodeId -> last summarized result (UI only)
+  pendingDoneLogs: [], // 本次运行中各节点配置的完成日志摘要，flow_finished 时拼进完成日志并清空
   debugContext: {}, // runtime context snapshot at breakpoint
   clearLogs: () => set({ logs: [], runLog: null }),
   appendLog: entry =>
@@ -1943,6 +1959,13 @@ export const useFlowStore = create((set, get) => ({
       const result = summarizeDetail(payload.result || {}) || {};
       const nid = payload.node_id;
       const nodeName = resolveNodeName(get(), nid);
+      const doneLogTemplate =
+        payload.ok && !payload.stopped
+          ? String(get().flow.nodes?.[nid]?.config?.done_log || '').trim()
+          : '';
+      const doneSummary = doneLogTemplate
+        ? interpolateDoneLog(doneLogTemplate, payload.result || {})
+        : '';
       set(state => {
         // Interrupted mid-node: leave idle — flow_stopped/finished clears UI; don't paint error.
         if (payload.stopped) {
@@ -1955,7 +1978,10 @@ export const useFlowStore = create((set, get) => ({
             ...state.execNodeStates,
             [nid]: payload.ok ? 'done' : 'error'
           },
-          nodeOutputs: payload.ok ? { ...state.nodeOutputs, [nid]: result } : state.nodeOutputs
+          nodeOutputs: payload.ok ? { ...state.nodeOutputs, [nid]: result } : state.nodeOutputs,
+          pendingDoneLogs: doneSummary
+            ? [...state.pendingDoneLogs, doneSummary]
+            : state.pendingDoneLogs
         };
       });
       appendLog({
@@ -2023,6 +2049,7 @@ export const useFlowStore = create((set, get) => ({
         appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '正在停止流程…' });
       }
     } else if (event === 'flow_finished') {
+      const doneSummaries = get().pendingDoneLogs;
       // Keep only the selected node's output for Inspector; drop the rest.
       set(state => {
         const keepId = state.selectedNodeId;
@@ -2037,6 +2064,7 @@ export const useFlowStore = create((set, get) => ({
           execNodeId: null,
           execNodeStates: payload.stopped ? {} : nextStates,
           nodeOutputs: slim,
+          pendingDoneLogs: [],
           debugContext: {},
           runLog: payload?.run_log || state.runLog
         };
@@ -2054,7 +2082,11 @@ export const useFlowStore = create((set, get) => ({
           level: payload.ok ? 'ok' : 'error',
           category: 'runtime',
           scope: 'run',
-          message: payload.ok ? '流程执行完成' : `流程结束: ${payload.error || '失败'}`
+          message: payload.ok
+            ? doneSummaries.length
+              ? `流程执行完成；${doneSummaries.join('；')}`
+              : '流程执行完成'
+            : `流程结束: ${payload.error || '失败'}`
         });
       } else {
         appendLog({ level: 'warn', category: 'runtime', scope: 'run', message: '流程已停止' });

@@ -145,6 +145,15 @@ def test_invalid_params_raise(sheet_path):
         )
 
 
+def test_default_output_dir_is_sibling_cut_folder(tmp_path, sheet_path):
+    result = _run(tmp_path, sheet_path, output_dir="")
+
+    out = Path(result["output_dir"])
+    assert out == sheet_path.parent / "sheet_cut"  # 图片名开头的新文件夹
+    assert Path(result["paths"][0]).parent == out
+    assert out.is_dir()
+
+
 def test_folder_batch_mode(tmp_path, sheet_path):
     folder = tmp_path / "sheets"
     folder.mkdir()

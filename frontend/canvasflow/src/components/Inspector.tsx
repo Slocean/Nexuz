@@ -2513,6 +2513,26 @@ export default function Inspector({
             );
           })}
 
+        <Field label="完成日志（可选）" stacked>
+          <Textarea
+            rows={2}
+            value={
+              typeof selectedNode.config?.done_log === 'string'
+                ? selectedNode.config.done_log
+                : ''
+            }
+            placeholder={
+              '留空则使用默认日志；支持 {{字段}} 引用本节点输出，例：已成功处理{{sheets}}个文件，总输出{{count}}张图片'
+            }
+            onChange={e =>
+              onUpdateNodeConfig(selectedNode.id, {
+                ...selectedNode.config,
+                done_log: e.target.value
+              })
+            }
+          />
+        </Field>
+
         {onSetEntry && (
           <Button type="button" variant="outline" size="sm" onClick={() => onSetEntry(selectedNode.id)}>
             设为入口节点

@@ -32,7 +32,7 @@ SCHEMA = {
             "type": "string",
             "label": "输出目录",
             "default": "",
-            "placeholder": "留空则输出到输入路径所在目录",
+            "placeholder": "留空则输出到输入旁的 图名_cut/ 文件夹",
             "ui": "file_or_dir",
         },
         {
@@ -314,11 +314,13 @@ def handler(params, context, **kwargs):
 
 
 def _resolve_output_root(params, src: Path) -> Path:
-    """解析输出根目录：默认输出到输入路径所在目录（单图=图片所在文件夹，批量=所选文件夹本身）。"""
+    """解析输出根目录：单图默认在图片所在文件夹下新建「图名_cut/」；批量默认为所选文件夹本身。"""
     out_dir = str(params.get("output_dir") or "").strip()
     if out_dir:
         return Path(out_dir)
-    return src if src.is_dir() else src.parent
+    if src.is_dir():
+        return src
+    return src.parent / f"{src.stem}_cut"
 
 
 def _run_batch(folder: Path, params) -> dict:
