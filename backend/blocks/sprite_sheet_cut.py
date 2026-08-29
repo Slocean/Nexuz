@@ -42,11 +42,11 @@ SCHEMA = {
             "name": "grid_mode",
             "type": "select",
             "label": "宫格划分",
-            "options": ["manual", "auto"],
-            "default": "manual",
+            "options": ["auto", "manual"],
+            "default": "auto",
             "option_labels": {
-                "manual": "手动行列",
                 "auto": "自动识别（投影法）",
+                "manual": "手动行列",
             },
         },
         {
@@ -401,7 +401,7 @@ def _run_single(src: Path, params, out_dir: Path | None = None) -> dict:
         # 已有透明像素直接视为背景
         bg_mask |= data[:, :, 3] == 0
 
-    grid_mode = str(params.get("grid_mode") or "manual")
+    grid_mode = str(params.get("grid_mode") or "auto")
     close_radius = max(
         0, int(params.get("close_radius") if params.get("close_radius") is not None else 2)
     )
