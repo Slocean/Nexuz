@@ -1,0 +1,25 @@
+name: Quota probe
+
+# Tiny workflow used to detect when the Actions artifact storage quota has
+# been recalculated after hitting the limit. Uploads a ~1 KB artifact; if the
+# upload succeeds the caller deletes it and re-triggers the real release.
+# Safe to delete once the quota issue is resolved.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Upload probe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quota-probe
+          path: README.md
+          if-no-files-found: error
+          retention-days: 1
