@@ -72,7 +72,6 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "release_name=Nexuz ${RAW}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=Nexuz-${RAW}" >> "$GITHUB_OUTPUT"
           echo "Resolved version=$RAW tag=$TAG prerelease=$PRERELEASE"
 
       - name: Setup Node.js
@@ -116,18 +115,9 @@ jobs:
           Get-Content -LiteralPath dist\Nexuz.exe.sha256
           exit 0
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.ver.outputs.artifact_name }}
-          path: |
-            dist/Nexuz.exe
-            dist/Nexuz.exe.sha256
-          if-no-files-found: error
-          # The exe is attached to the GitHub Release itself; the artifact is
-          # only a download convenience for the run page. Keep it briefly to
-          # avoid eating into the Actions storage quota.
-          retention-days: 3
+      # No artifact upload: the exe + sha256 are attached to the GitHub Release
+      # itself by the step below, and artifacts would eat into the Actions
+      # storage quota (which has already forced releases to be re-run once).
 
       - name: Build release notes from app_update.json
         id: notes

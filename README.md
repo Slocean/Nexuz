@@ -47,7 +47,7 @@ cd frontend
 npm run dev
 ```
 
-也可设置 `NEXUZ_DEV_URL`（默认 `http://127.0.0.1:5173`）。
+也可设置 `NEXUZ_DEV_URL`（默认 `http://127.0.0.1:2342`）。
 
 ## 生产/打包前构建
 

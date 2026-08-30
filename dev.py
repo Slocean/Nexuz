@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 FRONTEND = ROOT / "frontend"
 DEV_HOST = "127.0.0.1"
-DEV_PORT = 5173
+DEV_PORT = 2342
 DEV_URL = f"http://{DEV_HOST}:{DEV_PORT}"
 
 

@@ -60,7 +60,7 @@ from backend.api import Api
 
 def resolve_ui_url() -> str:
     """Dev: Vite server; Prod: frontend/dist/index.html."""
-    dev_url = os.environ.get("NEXUZ_DEV_URL", "http://127.0.0.1:5173")
+    dev_url = os.environ.get("NEXUZ_DEV_URL", "http://127.0.0.1:2342")
     dist = ROOT / "frontend" / "dist" / "index.html"
     use_dist = os.environ.get("NEXUZ_USE_DIST", "").lower() in ("1", "true", "yes")
     if use_dist and dist.exists():
