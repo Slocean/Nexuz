@@ -2247,7 +2247,7 @@ export const bridge = {
   removeScheduleJob: jobId => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),
   pickFlowFile: (libraryOnly = true) => call('pick_flow_file', libraryOnly),
-  pickLocalPath: (mode = 'open', suggestedName = null, accept = null) => call('pick_local_path', mode, suggestedName, accept),
+  pickLocalPath: (mode = 'open', suggestedName = null, accept = null, scope = null) => call('pick_local_path', mode, suggestedName, accept, scope),
   deleteFlow: filepath => call('delete_flow', filepath),
   duplicateFlow: (filepath, newName = null) => call('duplicate_flow', filepath, newName),
   renameFlow: (filepath, newName) => call('rename_flow', filepath, newName),

@@ -2278,7 +2278,8 @@ export default function Inspector({
                           className="h-8 shrink-0 px-2"
                           title="选择文件"
                           onClick={async () => {
-                            const picked = await bridge.pickLocalPath?.('open', null, input.accept);
+                            const scope = `${selectedNode.subType}.${input.name}`;
+                            const picked = await bridge.pickLocalPath?.('open', null, input.accept, scope);
                             if (picked?.ok && picked.path) {
                               handleFieldChange(input.name, picked.path);
                               return;
@@ -2299,7 +2300,8 @@ export default function Inspector({
                           className="h-8 shrink-0 px-2"
                           title="选择文件夹（批量处理其中所有图片）"
                           onClick={async () => {
-                            const picked = await bridge.pickLocalPath?.('folder');
+                            const scope = `${selectedNode.subType}.${input.name}`;
+                            const picked = await bridge.pickLocalPath?.('folder', null, null, scope);
                             if (picked?.ok && picked.path) {
                               handleFieldChange(input.name, picked.path);
                               return;

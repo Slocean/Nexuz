@@ -2616,6 +2616,7 @@ class Api:
         mode: str = "open",
         suggested_name: str | None = None,
         accept: str | None = None,
+        scope: str | None = None,
     ) -> dict:
         """Open Windows file dialog and return a local path (for file_io etc.).
 
@@ -2623,13 +2624,17 @@ class Api:
         ``folder`` → existing directory.
         accept: optional extension filter like ``*.png;*.jpg`` (pywebview filter
         format); when omitted the dialog only offers ``All files``.
+        scope: optional key (e.g. ``transparent_cut.image_path``) remembering the
+        last used directory per node field; falls back to the per-mode memory.
         """
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
         kind = str(mode or "open").strip().lower()
         if kind not in ("open", "save", "folder"):
             kind = "open"
-        start = str(Path.home())
+        dirs = self._load_last_dirs()
+        scope_key = str(scope or "").strip()
+        start = self._remembered_dir(dirs, scope_key, kind)
         file_types: tuple[str, ...]
         patterns = [p.strip() for p in str(accept or "").split(";") if p.strip()]
         if patterns:
@@ -2663,12 +2668,43 @@ class Api:
         if not result:
             return {"ok": False, "cancelled": True}
         filepath = result if isinstance(result, str) else result[0]
-        path = Path(str(filepath)).expanduser()
+        chosen = Path(str(filepath)).expanduser()
         try:
-            path = path.resolve(strict=False)
+            chosen = chosen.resolve(strict=False)
         except Exception:
             pass
-        return {"ok": True, "path": str(path), "mode": kind}
+        # 记住本次选择的目录：按节点字段（scope）+ 按对话框类型，下次打开直接定位
+        self._save_last_dirs(dirs, scope_key, kind, chosen)
+        return {"ok": True, "path": str(chosen), "mode": kind}
+
+    @staticmethod
+    def _load_last_dirs() -> dict:
+        from backend.paths import load_app_config
+
+        raw = load_app_config().get("last_pick_dirs")
+        return raw if isinstance(raw, dict) else {}
+
+    @staticmethod
+    def _remembered_dir(dirs: dict, scope_key: str, kind: str) -> str:
+        """Dialog start dir: scope memory → per-mode memory → home（失效则回退主目录）。"""
+        for key in (scope_key, kind):
+            raw = str(dirs.get(key) or "").strip()
+            if raw and Path(raw).is_dir():
+                return raw
+        return str(Path.home())
+
+    @staticmethod
+    def _save_last_dirs(dirs: dict, scope_key: str, kind: str, chosen: Path) -> None:
+        from backend.paths import load_app_config, save_app_config
+
+        chosen_dir = chosen if chosen.is_dir() else chosen.parent
+        updated = dict(dirs)
+        updated[kind] = str(chosen_dir)
+        if scope_key:
+            updated[scope_key] = str(chosen_dir)
+        cfg = load_app_config()
+        cfg["last_pick_dirs"] = updated
+        save_app_config(cfg)
 
     def validate_flow(self, flow_json: str) -> dict:
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
