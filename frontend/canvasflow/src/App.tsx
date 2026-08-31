@@ -464,6 +464,12 @@ function AppShell() {
       if (msg.event === 'ai_progress') {
         window.dispatchEvent(new CustomEvent('nexuz-ai-progress', { detail: msg.payload || {} }));
       }
+      if (msg.event === 'native_file_drop') {
+        // OS 拖入的文件/文件夹真实路径（pywebview 原生补全），转发给拖放目标字段
+        window.dispatchEvent(
+          new CustomEvent('nexuz-native-file-drop', { detail: msg.payload?.paths || [] })
+        );
+      }
       if (msg.event === 'hotkey_run') {
         if (msg.payload?.message) {
           appendLog({

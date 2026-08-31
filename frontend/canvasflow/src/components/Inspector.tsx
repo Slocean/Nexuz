@@ -31,6 +31,7 @@ import JsonTreeView from './JsonTreeView';
 import CodeChromePanel from './CodeChromePanel';
 import PythonScriptEditor from './PythonScriptEditor';
 import FlowPathField from './FlowPathField';
+import FileOrDirField from './FileOrDirField';
 import WindowPickField from './WindowPickField';
 import SplitHandle from './SplitHandle';
 import { listFlowVariableNames } from '../bindValue';
@@ -1078,6 +1079,63 @@ function inputVisible(input: any, config: Record<string, any> | undefined): bool
   return true;
 }
 
+// 日志文本中的 Windows 盘符路径（识别类节点的完成日志会带输出目录），
+// 渲染为可点击链接：点击在资源管理器中打开/定位（bridge.openPath）。
+// 末段可含空格时须以文件扩展名结尾（如 "shot 01.png"）；否则末段不允许空格
+const WIN_PATH_RE = /(?<![\w:/\\])[A-Za-z]:[\\/](?:[^"'\n\r\\/:，。；！？、（）【】《》]+[\\/])*(?:[^"'\n\r\\/:，。；！？、（）【】《》]*\.[A-Za-z0-9]{1,6}|[^"'\n\r\\/:，。；！？、（）【】《》\s]*)/g;
+const PATH_TRAILING_TRIM = '.,;:，。；：、）】》\'"';
+
+function splitMessagePaths(message: string): Array<{ kind: 'text' | 'path'; text: string }> {
+  const parts: Array<{ kind: 'text' | 'path'; text: string }> = [];
+  let last = 0;
+  for (const m of String(message || '').matchAll(WIN_PATH_RE)) {
+    const raw = m[0];
+    const trimmed = raw.replace(/[.,;:，。；：、）】》'"\\]+$/, '');
+    if (trimmed.length < 4) continue; // 需要至少 X:\x 的形状
+    const start = m.index ?? 0;
+    if (start > last) parts.push({ kind: 'text', text: message.slice(last, start) });
+    parts.push({ kind: 'path', text: trimmed });
+    last = start + raw.length;
+  }
+  if (last < message.length) parts.push({ kind: 'text', text: message.slice(last) });
+  return parts.length ? parts : [{ kind: 'text', text: message }];
+}
+
+function LogMessageText({ message }: { message: string }) {
+  const parts = splitMessagePaths(message);
+  if (parts.length === 1 && parts[0].kind === 'text') return <>{message}</>;
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.kind === 'text' ? (
+          <span key={i}>{p.text}</span>
+        ) : (
+          <span
+            key={i}
+            role="link"
+            tabIndex={0}
+            className="text-sky-400 underline decoration-dotted underline-offset-2 cursor-pointer hover:text-sky-300"
+            title="在资源管理器中打开"
+            onClick={e => {
+              e.stopPropagation();
+              void bridge.openPath?.(p.text);
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                void bridge.openPath?.(p.text);
+              }
+            }}
+          >
+            {p.text}
+          </span>
+        )
+      )}
+    </>
+  );
+}
+
 export default function Inspector({
   selectedNode,
   onUpdateNodeConfig,
@@ -1435,7 +1493,7 @@ export default function Inspector({
               {nodeTag ? (
                 <span className="text-rose-300/90 mr-1 font-medium">[{nodeTag}]</span>
               ) : null}
-              {displayMessage}
+              <LogMessageText message={displayMessage} />
             </div>
             {hasDetail && open ? (
               <div
@@ -2260,63 +2318,14 @@ export default function Inspector({
                     onChange={(path) => handleFieldChange(input.name, path)}
                   />
                 ) : input.ui === 'file_or_dir' ? (
-                  <BindableInput
-                    value={value ?? ''}
-                    inputType="string"
+                  <FileOrDirField
+                    value={value}
+                    onChange={v => handleFieldChange(input.name, v)}
                     currentNodeId={selectedNode.id}
                     schemaMap={schemaMap}
-                    onChange={v => handleFieldChange(input.name, v)}
-                    placeholder={input.placeholder || '文件路径或文件夹路径'}
-                    multiline
-                    valueLabel="路径"
-                    trailing={
-                      <>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 shrink-0 px-2"
-                          title="选择文件"
-                          onClick={async () => {
-                            const scope = `${selectedNode.subType}.${input.name}`;
-                            const picked = await bridge.pickLocalPath?.('open', null, input.accept, scope);
-                            if (picked?.ok && picked.path) {
-                              handleFieldChange(input.name, picked.path);
-                              return;
-                            }
-                            if (picked?.cancelled) return;
-                            await alert({
-                              title: '选择失败',
-                              description: picked?.error || '无法打开文件对话框，请手动填写路径',
-                            });
-                          }}
-                        >
-                          文件
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 shrink-0 px-2"
-                          title="选择文件夹（批量处理其中所有图片）"
-                          onClick={async () => {
-                            const scope = `${selectedNode.subType}.${input.name}`;
-                            const picked = await bridge.pickLocalPath?.('folder', null, null, scope);
-                            if (picked?.ok && picked.path) {
-                              handleFieldChange(input.name, picked.path);
-                              return;
-                            }
-                            if (picked?.cancelled) return;
-                            await alert({
-                              title: '选择失败',
-                              description: picked?.error || '无法打开文件夹对话框，请手动填写路径',
-                            });
-                          }}
-                        >
-                          文件夹
-                        </Button>
-                      </>
-                    }
+                    placeholder={input.placeholder}
+                    accept={input.accept}
+                    scope={`${selectedNode.subType}.${input.name}`}
                   />
                 ) : input.ui === 'file_path' ? (
                   <BindableInput

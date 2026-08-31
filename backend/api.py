@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -1763,6 +1764,35 @@ class Api:
             return {"ok": True, "path": str(root)}
         except Exception as exc:
             return {"ok": False, "error": str(exc), "path": str(root)}
+
+    def open_path(self, path: str = "") -> dict:
+        """Open a folder in Explorer, or reveal a file selected in its folder.
+
+        目录 → 直接打开；文件 → 资源管理器定位选中；路径不存在 → 回落到其父目录。
+        """
+        raw = str(path or "").strip().strip('"')
+        if not raw:
+            return {"ok": False, "error": "路径为空", "path": ""}
+        target = Path(raw)
+        try:
+            if target.is_dir():
+                os.startfile(str(target))  # type: ignore[attr-defined]
+                return {"ok": True, "path": str(target), "kind": "dir"}
+            if target.is_file():
+                if os.name == "nt":
+                    # explorer 的 /select, 逗号必须紧跟路径；命令行串传给 Popen 最稳
+                    subprocess.Popen(f'explorer /select,"{target}"')  # noqa: S603
+                else:
+                    os.startfile(str(target.parent))  # type: ignore[attr-defined]
+                return {"ok": True, "path": str(target), "kind": "file"}
+            # 路径已不存在：尝试打开其父目录
+            parent = target.parent
+            if parent.is_dir():
+                os.startfile(str(parent))  # type: ignore[attr-defined]
+                return {"ok": True, "path": str(parent), "kind": "dir", "missing_target": True}
+            return {"ok": False, "error": f"路径不存在: {target}", "path": str(target)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "path": str(target)}
 
     def export_data_pack(self) -> dict:
         from backend.core.data_pack import build_data_pack_bytes

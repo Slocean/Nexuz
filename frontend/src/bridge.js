@@ -1934,6 +1934,7 @@ function mockCall(method, ...args) {
     case 'force_reset':
     case 'step_flow':
     case 'set_breakpoints':
+    case 'open_path':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持此操作' });
     case 'validate_flow':
       try {
@@ -2260,6 +2261,7 @@ export const bridge = {
   pickDataDir: () => call('pick_data_dir'),
   setDataDirPath: (path = null) => call('set_data_dir_path', path),
   openDataDir: () => call('open_data_dir'),
+  openPath: path => call('open_path', path),
   exportDataPack: () => call('export_data_pack'),
   previewImportDataPack: () => call('preview_import_data_pack'),
   commitImportDataPack: importToken => call('commit_import_data_pack', importToken),

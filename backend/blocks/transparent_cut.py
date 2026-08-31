@@ -18,7 +18,7 @@ SCHEMA = {
     "category": "识别类",
     # 代码级完成日志模板：流程结束时自动拼进「流程执行完成」日志；
     # 节点上手动填写的完成日志可覆盖此模板。{{字段}} 引用本节点输出。
-    "done_log": "已成功处理{{sheets}}个文件，总输出{{count}}张图片",
+    "done_log": "已成功处理{{sheets}}个文件，总输出{{count}}张图片，输出目录：{{output_dir}}",
     "inputs": [
         {
             "name": "image_path",

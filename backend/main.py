@@ -85,6 +85,49 @@ def resolve_app_icon() -> str | None:
     return None
 
 
+def _enable_native_file_drop(window: "webview.Window", api: "Api") -> None:
+    """OS 文件/文件夹拖入窗口时，把真实路径转发给 UI（native_file_drop 事件）。
+
+    WebView2 的 HTML5 drop 事件拿不到文件路径；pywebview 只有通过其 DOM API
+    注册的 drop 监听才能从原生侧补全完整路径（pywebviewFullPath）。这里在
+    document 级注册一次全局监听，路径经 UI 事件队列转发，前端通过自定义事件
+    nexuz-native-file-drop 消费（识别类节点的「路径/文件夹」输入框据此支持
+    直接拖入）。走事件队列而非 evaluate_js，避免 JS-API 线程死锁。
+    """
+
+    def _on_drop(event: dict) -> None:
+        try:
+            files = ((event or {}).get("dataTransfer") or {}).get("files") or []
+            paths = [
+                str(f["pywebviewFullPath"])
+                for f in files
+                if isinstance(f, dict) and f.get("pywebviewFullPath")
+            ]
+            if paths:
+                api._queue_ui_event(
+                    {"event": "native_file_drop", "payload": {"paths": paths}},
+                    urgent=True,
+                )
+        except Exception:
+            pass
+
+    def _register(*_args, **_kwargs) -> None:
+        import threading
+        import time as _time
+
+        def _try_register(attempt: int = 0) -> None:
+            try:
+                window.dom.document.events.drop += _on_drop
+            except Exception:
+                # 页面刚加载时 pywebview JS 运行时可能尚未就绪，稍后重试
+                if attempt < 4:
+                    threading.Timer(2.0, _try_register, args=(attempt + 1,)).start()
+
+        _try_register()
+
+    window.events.loaded += _register
+
+
 def main() -> None:
     try:
         from backend.core.updater import cleanup_old_exe
@@ -120,6 +163,7 @@ def main() -> None:
     else:
         window = webview.create_window(**window_kwargs)
     api.set_window(window)
+    _enable_native_file_drop(window, api)
     start_kwargs: dict = {"debug": "--dev" in sys.argv}
     if icon:
         start_kwargs["icon"] = icon
