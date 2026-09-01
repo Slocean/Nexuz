@@ -47,6 +47,20 @@ def _build_two_sprites() -> np.ndarray:
     return img
 
 
+def _build_overlap_sheet() -> np.ndarray:
+    """L 形大素材 + 完全落在其包围盒内的小素材（200x200）。
+
+    L 形像素面积 8700，包围盒 (20,20)-(180,180)；小素材 (100..140)^2
+    与 L 像素不相连，但包围盒被 L 完全包含，用于验证切分形状差异。
+    """
+    img = np.zeros((200, 200, 4), dtype=np.uint8)
+    img[:, :, :3] = (30, 120, 200)
+    img[20:180, 20:50, 3] = 255  # L 竖臂
+    img[20:50, 20:180, 3] = 255  # L 横臂
+    img[100:140, 100:140, 3] = 255  # 小素材，落在 L 包围盒内部
+    return img
+
+
 def _encode(path, img) -> Path:
     ok, buf = cv2.imencode(".png", img)
     assert ok
@@ -166,6 +180,69 @@ def test_gap_tolerance(tmp_path, sheet_path):
     # 粘连后包围盒覆盖两块素材
     out = _read(merged_c["paths"][0])
     assert out.shape[:2] == (60, 120)
+
+
+def test_shape_mode_rect_keeps_foreign_pixels(tmp_path):
+    """规则矩形（默认）：L 的包围盒包含小素材，小素材像素混进 L 的切图。"""
+    p = _encode(tmp_path / "overlap.png", _build_overlap_sheet())
+
+    result = _run(tmp_path, p)
+    assert result["count"] == 2
+
+    l_img = _read(result["paths"][0])  # 阅读顺序：L 在前
+    assert l_img.shape[:2] == (160, 160)
+    assert l_img[80, 80, 3] == 255  # 小素材像素被混入
+    assert int((l_img[:, :, 3] > 0).sum()) == 8700 + 1600
+
+
+def test_shape_mode_irregular_cuts_own_pixels_only(tmp_path):
+    """不规则形状：每张切图只保留本素材像素，重叠素材不互相混入。"""
+    p = _encode(tmp_path / "overlap.png", _build_overlap_sheet())
+
+    result = _run(tmp_path, p, shape_mode="irregular")
+    assert result["count"] == 2  # 分组与规则矩形一致，仅像素归属不同
+
+    l_img = _read(result["paths"][0])
+    assert l_img.shape[:2] == (160, 160)
+    assert l_img[80, 80, 3] == 0  # 小素材位置抹为透明
+    assert l_img[5, 5, 3] == 255  # 自身像素保留
+    assert int((l_img[:, :, 3] > 0).sum()) == 8700  # 只剩 L 自身
+
+    small = _read(result["paths"][1])
+    assert small.shape[:2] == (40, 40)
+    assert int((small[:, :, 3] > 0).sum()) == 1600
+
+
+def test_shape_mode_irregular_with_gap_tolerance(tmp_path, sheet_path):
+    """闭运算粘连的贴身部件同属一个连通域，两块像素都保留。"""
+    gap_path = _encode(sheet_path.parent / "gap.png", _build_gap_sheet())
+
+    result = _run(tmp_path, gap_path, gap_tolerance=4, shape_mode="irregular")
+    assert result["count"] == 1
+
+    out = _read(result["paths"][0])
+    assert out.shape[:2] == (60, 120)
+    assert out[10, 10, 3] == 255  # 左块
+    assert out[10, 60, 3] == 0  # 原 2px 透明缝（闭运算填充区 alpha 仍为 0）
+    assert out[10, 70, 3] == 255  # 右块
+
+
+def test_shape_mode_irregular_with_padding_feather(tmp_path):
+    p = _encode(tmp_path / "overlap.png", _build_overlap_sheet())
+
+    result = _run(tmp_path, p, shape_mode="irregular", padding=2, feather=2)
+    l_img = _read(result["paths"][0])
+    # 外扩 padding 2 + 羽化余量 4 → 每边 6px
+    assert l_img.shape[:2] == (160 + 12, 160 + 12)
+    assert l_img[80 + 6, 80 + 6, 3] == 0  # 小素材仍被抹除（含外扩偏移）
+    alphas = l_img[:, :, 3]
+    assert ((alphas > 0) & (alphas < 255)).any()  # 自身边缘正常羽化
+
+
+def test_shape_mode_ignored_in_projection(tmp_path, sheet_path):
+    """行列投影按条带切分本就不会混入邻居，形状选项不影响结果。"""
+    result = _run(tmp_path, sheet_path, cut_mode="projection", shape_mode="irregular")
+    assert result["count"] == 3
 
 
 def test_single_sprite(tmp_path):

@@ -2,7 +2,8 @@
 
 流水线：alpha 前景提取（阈值过滤抗锯齿半透明边缘）→ 切割模式（全图
 连通域识别 / 行列投影扫描）→ 间隙容忍粘连 → 面积阈值过滤噪点 →
-阅读顺序排序 → 紧贴包围盒裁切（可选外扩/羽化）→ 批量导出透明 PNG。
+阅读顺序排序 → 按包围盒裁切（切分形状可选：规则矩形 / 不规则形状，
+不规则时盒内非本素材像素置为透明；可选外扩/羽化）→ 批量导出透明 PNG。
 """
 
 from __future__ import annotations
@@ -48,6 +49,18 @@ SCHEMA = {
                 "components": "连通域识别",
                 "projection": "行列投影扫描",
             },
+        },
+        {
+            "name": "shape_mode",
+            "type": "select",
+            "label": "切分形状",
+            "options": ["rect", "irregular"],
+            "default": "rect",
+            "option_labels": {
+                "rect": "规则矩形",
+                "irregular": "不规则形状",
+            },
+            "placeholder": "不规则：包围盒内只保留本素材像素，重叠素材不互相混入（仅连通域识别生效）",
         },
         {
             "name": "alpha_threshold",
@@ -145,10 +158,12 @@ def _fg_mask(alpha: np.ndarray, threshold: int) -> np.ndarray:
 
 def _components_boxes(
     fg: np.ndarray, gap: int
-) -> tuple[list[tuple[int, int, int, int, int]], int]:
-    """全图 8 连通域分割，返回 ([x1,y1,x2,y2,像素面积) 列表, 连通域总数)。
+) -> tuple[list[tuple[int, int, int, int, int, int]], np.ndarray, int]:
+    """全图 8 连通域分割。
 
-    gap>0 时先闭运算粘连近邻部件（贴身光效等），避免被细小透明缝拆开。
+    返回 ([x1,y1,x2,y2,像素面积,连通域编号) 列表, 连通域标签图, 连通域总数)。
+    gap>0 时先闭运算粘连近邻部件（贴身光效等），避免被细小透明缝拆开；
+    标签图同样基于闭运算后的掩码，供不规则形状切分判定像素归属。
     """
     work = fg
     if gap > 0:
@@ -159,7 +174,7 @@ def _components_boxes(
             cv2.morphologyEx(fg.astype(np.uint8), cv2.MORPH_CLOSE, kernel)
             .astype(bool)
         )
-    n, _labels, stats, _ = cv2.connectedComponentsWithStats(
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(
         work.astype(np.uint8), connectivity=8
     )
     boxes = [
@@ -169,10 +184,11 @@ def _components_boxes(
             int(stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH]),
             int(stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT]),
             int(stats[i, cv2.CC_STAT_AREA]),
+            i,
         )
         for i in range(1, n)
     ]
-    return boxes, n - 1
+    return boxes, labels, n - 1
 
 
 def _projection_boxes(
@@ -230,10 +246,13 @@ def _cut_transparent(
     box: tuple[int, int, int, int, ...],
     padding: int,
     feather: int,
+    labels: np.ndarray | None = None,
 ) -> np.ndarray:
     """按包围盒裁切素材（无需去底），返回 BGRA。
 
-    feather>0 时对裁出的 alpha 做高斯羽化，包围盒先外扩 2*feather
+    labels 传入连通域标签图时按不规则形状切分：盒内不属于本素材
+    （box[5] 连通域编号）的像素 alpha 置 0，包围盒重叠时不混入邻居。
+    feather>0 时对遮罩后的 alpha 做高斯羽化，包围盒先外扩 2*feather
     让过渡完整落在裁切图内。
     """
     x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
@@ -244,6 +263,9 @@ def _cut_transparent(
 
     crop = data[y1:y2, x1:x2]
     alpha = crop[:, :, 3]
+    if labels is not None:
+        own = labels[y1:y2, x1:x2] == box[5]
+        alpha = np.where(own, alpha, 0).astype(np.uint8)
     if feather > 0:
         alpha = cv2.GaussianBlur(alpha, (0, 0), sigmaX=float(feather))
     return cv2.merge(
@@ -341,13 +363,17 @@ def _run_single(src: Path, params, out_dir: Path | None = None) -> dict:
         raise ValueError("未检测到不透明素材：整张图 alpha 均低于阈值")
 
     cut_mode = str(params.get("cut_mode") or "components")
+    shape_mode = str(params.get("shape_mode") or "rect").strip() or "rect"
+    # 不规则形状只在连通域模式下有像素级归属；投影行列带本身不会混入邻居
+    irregular = shape_mode == "irregular" and cut_mode == "components"
     gap = max(0, int(params.get("gap_tolerance") if params.get("gap_tolerance") is not None else 0))
 
     rows = cols = 0
+    labels: np.ndarray | None = None
     if cut_mode == "projection":
         boxes, rows, cols = _projection_boxes(fg, gap)
     else:
-        boxes, _total = _components_boxes(fg, gap)
+        boxes, labels, _total = _components_boxes(fg, gap)
 
     min_area = int(params.get("min_area") if params.get("min_area") is not None else 0)
     if min_area <= 0:
@@ -374,7 +400,13 @@ def _run_single(src: Path, params, out_dir: Path | None = None) -> dict:
 
     paths: list[str] = []
     for i, box in enumerate(kept):
-        result = _cut_transparent(data, box, padding=padding, feather=feather)
+        result = _cut_transparent(
+            data,
+            box,
+            padding=padding,
+            feather=feather,
+            labels=labels if irregular else None,
+        )
         if cut_mode == "projection":
             # 行/列带序号来自投影划分，对齐精灵图 r/c 命名
             name = f"{prefix or src.stem}_r{box[5]:03d}c{box[6]:03d}.png"
