@@ -3,6 +3,10 @@
 端点与密钥在 设置 → Nexuz AI → 生图模型 配置；Base URL / API Key 留空时
 自动沿用聊天模型的服务商配置，仅需单独填写生图模型 ID。
 响应同时兼容 URL 与 Base64 两种返回格式。
+
+默认按时间戳自动命名，历史图片不会相互覆盖；也提供固定文件名模式
+（覆盖旧图）供需要固定路径的流程使用。模式选"图片编辑（图生图）"时，
+以上传的参考图为底进行修改，走 OpenAI 兼容 /images/edits 端点。
 """
 
 from __future__ import annotations
@@ -23,6 +27,28 @@ SCHEMA = {
     "category": "识别类",
     "done_log": "已生成{{count}}张图片：{{first_path}}",
     "inputs": [
+        {
+            "name": "mode",
+            "type": "select",
+            "label": "生成模式",
+            "options": ["text2img", "img2img"],
+            "default": "text2img",
+            "option_labels": {
+                "text2img": "文生图",
+                "img2img": "图片编辑（图生图）",
+            },
+        },
+        {
+            "name": "source_image",
+            "type": "string",
+            "label": "参考图",
+            "default": "",
+            "placeholder": "本地图片路径 / URL，可绑定上游输出的图片路径",
+            "ui": "file_or_dir",
+            "bindable": True,
+            "required": True,
+            "show_when": {"mode": "img2img"},
+        },
         {
             "name": "prompt",
             "type": "string",
@@ -114,6 +140,17 @@ SCHEMA = {
             "ui": "file_or_dir",
         },
         {
+            "name": "filename_mode",
+            "type": "select",
+            "label": "文件命名",
+            "options": ["timestamp", "fixed"],
+            "default": "timestamp",
+            "option_labels": {
+                "timestamp": "自动命名（时间戳，不覆盖旧图）",
+                "fixed": "固定文件名（覆盖旧图）",
+            },
+        },
+        {
             "name": "timeout_s",
             "type": "number",
             "label": "超时秒数",
@@ -148,6 +185,15 @@ def _images_url(base_url: str) -> str:
     if url.endswith("/images/generations"):
         return url
     return f"{url}/images/generations"
+
+
+def _images_edit_url(base_url: str) -> str:
+    url = (base_url or "").strip().rstrip("/")
+    if not url:
+        raise ValueError("生图 Base URL 为空，请在设置中填写或让聊天模型配置保持有效")
+    if url.endswith("/images/edits"):
+        return url
+    return f"{url}/images/edits"
 
 
 def _build_body(params: dict[str, Any], model: str) -> dict[str, Any]:
@@ -234,6 +280,85 @@ def _request_images(
     return payload
 
 
+def _build_edit_form(params: dict[str, Any], model: str) -> dict[str, str]:
+    """图片编辑的表单字段（multipart，不含图片文件本体）。"""
+    prompt = str(params.get("prompt") or "").strip()
+    if not prompt:
+        raise ValueError("提示词不能为空")
+    suffix = STYLE_SUFFIXES.get(str(params.get("style_preset") or "none"), "")
+    final_prompt = f"{prompt}，{suffix}" if suffix else prompt
+
+    form: dict[str, str] = {"model": model, "prompt": final_prompt}
+
+    size = str(params.get("size") or "auto")
+    if size == "custom":
+        width = int(float(params.get("custom_width") or 0))
+        height = int(float(params.get("custom_height") or 0))
+        if width <= 0 or height <= 0:
+            raise ValueError("自定义尺寸需要填写有效的宽和高")
+        form["size"] = f"{width}x{height}"
+    elif size in _SIZE_PRESETS:
+        form["size"] = size
+
+    try:
+        count = int(float(params.get("count") or 1))
+    except (TypeError, ValueError):
+        count = 1
+    form["n"] = str(max(1, min(_MAX_COUNT, count)))
+
+    negative = str(params.get("negative_prompt") or "").strip()
+    if negative:
+        form["negative_prompt"] = negative
+
+    raw_seed = params.get("seed")
+    if raw_seed not in (None, ""):
+        try:
+            form["seed"] = str(int(float(raw_seed)))
+        except (TypeError, ValueError):
+            pass
+
+    raw_extra = str(params.get("extra_params") or "").strip()
+    if raw_extra:
+        try:
+            extra = json.loads(raw_extra)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"额外参数不是合法 JSON：{exc}") from exc
+        if not isinstance(extra, dict):
+            raise ValueError("额外参数必须是 JSON 对象，如 {\"steps\": 30}")
+        for key, value in extra.items():
+            if key in ("model", "prompt"):
+                continue
+            form[str(key)] = str(value)
+
+    return form
+
+
+def _request_image_edits(
+    url: str,
+    headers: dict[str, str],
+    form: dict[str, str],
+    image: tuple[bytes, str, str],
+    timeout_s: float,
+) -> dict[str, Any]:
+    data, filename, mime = image
+    files = {"image": (filename, data, mime)}
+    try:
+        resp = httpx.post(url, headers=headers, data=form, files=files, timeout=timeout_s)
+    except httpx.HTTPError as exc:
+        raise ValueError(f"图片编辑请求失败：{exc}") from exc
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = None
+    if resp.status_code != 200:
+        raise ValueError(
+            f"图片编辑失败（{_parse_error_message(resp.status_code, payload)}）"
+        )
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise ValueError("图片编辑响应格式异常：缺少 data 数组")
+    return payload
+
+
 def _download_bytes(url: str, timeout_s: float) -> bytes:
     try:
         resp = httpx.get(url, timeout=timeout_s)
@@ -244,27 +369,108 @@ def _download_bytes(url: str, timeout_s: float) -> bytes:
     return resp.content
 
 
-def _resolve_output_target(save_path: str, index: int, total: int) -> Path:
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+
+
+def _load_source_image(source: Any, timeout_s: float) -> tuple[bytes, str, str]:
+    """读取参考图，返回 (字节, 文件名, MIME)。
+
+    支持本地路径、http(s) URL、data URL；绑定上游数组时取第一个图片路径。
+    """
+    if isinstance(source, (list, tuple)):
+        source = next(
+            (s for s in source if isinstance(s, str) and s.strip()), ""
+        )
+    raw = str(source or "").strip()
+    if not raw:
+        raise ValueError("图片编辑模式需要提供参考图")
+
+    if raw.startswith("data:"):
+        header, _, b64 = raw.partition(",")
+        mime = "image/png"
+        if ";" in header:
+            mime = header[5:].split(";", 1)[0] or mime
+        try:
+            return base64.b64decode(b64), "source.png", mime
+        except ValueError as exc:
+            raise ValueError("data URL 参考图不是合法 Base64") from exc
+
+    if raw.startswith(("http://", "https://")):
+        data = _download_bytes(raw, timeout_s)
+        name = Path(raw.split("?", 1)[0]).name or "source.png"
+        mime = _IMAGE_MIME.get(Path(name).suffix.lower(), "image/png")
+        return data, name, mime
+
+    path = Path(raw)
+    if not path.is_file():
+        raise ValueError(f"参考图不存在：{raw}")
+    mime = _IMAGE_MIME.get(path.suffix.lower(), "image/png")
+    name = path.name if path.suffix.lower() in _IMAGE_MIME else f"{path.stem}.png"
+    try:
+        return path.read_bytes(), name, mime
+    except OSError as exc:
+        raise ValueError(f"读取参考图失败：{exc}") from exc
+
+
+def _resolve_output_target(
+    save_path: str,
+    index: int,
+    total: int,
+    *,
+    filename_mode: str = "timestamp",
+    timestamp: str | None = None,
+) -> Path:
     raw = str(save_path or "").strip()
+    ts = timestamp or strftime("%Y%m%d_%H%M%S")
+    unique = filename_mode != "fixed"
+
+    def finalize(out: Path) -> Path:
+        if out.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+            out = out.with_suffix(".png")
+        if unique:
+            out = _unique_path(out)
+        return out
+
     if raw:
         out = Path(raw)
         if out.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
-            out = out if total == 1 else out.with_stem(f"{out.stem}_{index + 1}")
+            stem = f"{out.stem}_{ts}" if unique else out.stem
+            if total > 1:
+                stem = f"{stem}_{index + 1}"
+            out = out.with_name(f"{stem}{out.suffix}")
         else:
-            out = out / f"gen_{index + 1}.png"
-    else:
-        from backend.paths import get_data_dir
+            base = "gen" if not unique else f"gen_{ts}"
+            out = out / f"{base}_{index + 1}.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        return finalize(out)
 
-        out = get_data_dir(create=True) / "generated" / f"gen_{index + 1}.png"
-    if out.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
-        out = out.with_suffix(".png")
+    from backend.paths import get_data_dir
+
+    base = "gen" if not unique else f"gen_{ts}"
+    out = get_data_dir(create=True) / "generated" / f"{base}_{index + 1}.png"
     out.parent.mkdir(parents=True, exist_ok=True)
+    return finalize(out)
+
+
+def _unique_path(out: Path) -> Path:
+    """时间戳秒级仍可能撞名（如循环内连跑），存在时追加序号。"""
+    if not out.exists():
+        return out
+    for n in range(2, 1000):
+        cand = out.with_name(f"{out.stem}_{n}{out.suffix}")
+        if not cand.exists():
+            return cand
     return out
 
 
 def handler(params, context, **kwargs):
     image_cfg = resolve_image_config()
-    body = _build_body(params, image_cfg["model"])
+    mode = str(params.get("mode") or "text2img")
 
     headers = {"Content-Type": "application/json"}
     if image_cfg["api_key"]:
@@ -276,17 +482,35 @@ def handler(params, context, **kwargs):
         timeout_s = 120.0
     timeout_s = max(10.0, timeout_s)
 
-    payload = _request_images(_images_url(image_cfg["base_url"]), headers, body, timeout_s)
+    if mode == "img2img":
+        edit_headers = {k: v for k, v in headers.items() if k != "Content-Type"}
+        form = _build_edit_form(params, image_cfg["model"])
+        image = _load_source_image(params.get("source_image"), timeout_s)
+        payload = _request_image_edits(
+            _images_edit_url(image_cfg["base_url"]),
+            edit_headers,
+            form,
+            image,
+            timeout_s,
+        )
+    else:
+        body = _build_body(params, image_cfg["model"])
+        payload = _request_images(_images_url(image_cfg["base_url"]), headers, body, timeout_s)
 
-    expected = int(body.get("n") or 1)
-    items = [it for it in payload["data"] if isinstance(it, dict)]
-    if not items:
-        raise ValueError("生图接口未返回任何图片")
-
+    timestamp = strftime("%Y%m%d_%H%M%S")
+    filename_mode = str(params.get("filename_mode") or "timestamp")
     save_path = str(params.get("save_path") or "")
     paths: list[str] = []
-    for i, item in enumerate(items):
-        out = _resolve_output_target(save_path, i, expected)
+    for i, item in enumerate(payload["data"]):
+        if not isinstance(item, dict):
+            continue
+        out = _resolve_output_target(
+            save_path,
+            i,
+            len(payload["data"]),
+            filename_mode=filename_mode,
+            timestamp=timestamp,
+        )
         if item.get("b64_json"):
             out.write_bytes(base64.b64decode(str(item["b64_json"])))
         elif item.get("url"):
@@ -295,9 +519,18 @@ def handler(params, context, **kwargs):
             raise ValueError(f"第{i + 1}张图片响应中既无 b64_json 也无 url 字段")
         paths.append(str(out.resolve()))
 
+    if not paths:
+        raise ValueError("生图接口未返回任何图片")
+
     return {
         "first_path": paths[0],
         "paths": paths,
         "count": len(paths),
-        "prompt": body["prompt"],
+        "prompt": _final_prompt(params),
     }
+
+
+def _final_prompt(params: dict[str, Any]) -> str:
+    prompt = str(params.get("prompt") or "").strip()
+    suffix = STYLE_SUFFIXES.get(str(params.get("style_preset") or "none"), "")
+    return f"{prompt}，{suffix}" if suffix else prompt

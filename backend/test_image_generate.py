@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import base64
 import json
+from pathlib import Path
 
 import pytest
 
 from backend.blocks import image_generate
-from backend.blocks.image_generate import handler, _build_body, _images_url
+from backend.blocks.image_generate import (
+    _build_edit_form,
+    _images_edit_url,
+    handler,
+    _build_body,
+    _images_url,
+    _resolve_output_target,
+)
 
 
 @pytest.fixture
@@ -114,7 +122,12 @@ def test_handler_saves_base64_images(image_env, tmp_path):
     monkey_host.setattr(image_generate, "_request_images", fake_request)
     try:
         result = handler(
-            {"prompt": "一只猫", "count": 2, "save_path": str(image_env / "out")},
+            {
+                "prompt": "一只猫",
+                "count": 2,
+                "save_path": str(image_env / "out"),
+                "filename_mode": "fixed",
+            },
             None,
         )
     finally:
@@ -140,7 +153,10 @@ def test_handler_downloads_url_images(image_env, tmp_path):
         image_generate, "_download_bytes", lambda u, t: b"downloaded" if u == url else b""
     )
     try:
-        result = handler({"prompt": "一只猫", "save_path": str(tmp_path / "cat.png")}, None)
+        result = handler(
+            {"prompt": "一只猫", "save_path": str(tmp_path / "cat.png"), "filename_mode": "fixed"},
+            None,
+        )
     finally:
         monkey_host.undo()
     assert result["count"] == 1
@@ -181,3 +197,131 @@ def test_schema_registered():
     from backend.core.registry import register_block
 
     register_block(image_generate.SCHEMA, handler)
+
+
+# ---------- 文件命名：默认不覆盖 ----------
+
+
+def test_resolve_output_target_timestamp_never_overwrites(tmp_path):
+    ts = "20260901_143000"
+    first = _resolve_output_target(
+        str(tmp_path), 0, 1, filename_mode="timestamp", timestamp=ts
+    )
+    first.write_bytes(b"a")
+    again = _resolve_output_target(
+        str(tmp_path), 0, 1, filename_mode="timestamp", timestamp=ts
+    )
+    assert again != first
+    assert not again.exists()
+    # 固定命名模式保留旧行为：直接覆盖
+    fixed = _resolve_output_target(
+        str(tmp_path), 0, 1, filename_mode="fixed", timestamp=ts
+    )
+    assert fixed.name == "gen_1.png"
+
+
+def test_resolve_output_target_file_save_path_timestamp(tmp_path):
+    ts = "20260901_143000"
+    out = _resolve_output_target(
+        str(tmp_path / "cat.png"), 0, 1, filename_mode="timestamp", timestamp=ts
+    )
+    assert out.name == f"cat_{ts}.png"
+    multi = _resolve_output_target(
+        str(tmp_path / "cat.png"), 1, 3, filename_mode="timestamp", timestamp=ts
+    )
+    assert multi.name == f"cat_{ts}_2.png"
+
+
+def test_handler_default_naming_keeps_history(image_env, tmp_path):
+    payload = _fake_response([{"b64_json": base64.b64encode(b"v1").decode()}])
+    monkey_host = pytest.MonkeyPatch()
+    monkey_host.setattr(image_generate, "_request_images", lambda *a, **k: payload)
+    try:
+        r1 = handler({"prompt": "x", "save_path": str(tmp_path / "out")}, None)
+        r2 = handler({"prompt": "x", "save_path": str(tmp_path / "out")}, None)
+    finally:
+        monkey_host.undo()
+    assert r1["first_path"] != r2["first_path"]
+    assert Path(r1["first_path"]).read_bytes() == b"v1"
+    assert Path(r2["first_path"]).read_bytes() == b"v1"
+
+
+# ---------- 图片编辑（图生图） ----------
+
+
+def test_images_edit_url_variants():
+    assert _images_edit_url("https://api.openai.com/v1") == "https://api.openai.com/v1/images/edits"
+    assert (
+        _images_edit_url("https://x.example.com/v1/images/edits")
+        == "https://x.example.com/v1/images/edits"
+    )
+
+
+def test_build_edit_form_fields():
+    form = _build_edit_form(
+        {
+            "prompt": "把背景改成夜晚",
+            "count": 2,
+            "size": "1024x1024",
+            "seed": 7,
+            "extra_params": '{"quality": "high"}',
+        },
+        "gpt-image-1",
+    )
+    assert form["model"] == "gpt-image-1"
+    assert form["prompt"] == "把背景改成夜晚"
+    assert form["n"] == "2"
+    assert form["size"] == "1024x1024"
+    assert form["seed"] == "7"
+    assert form["quality"] == "high"
+    with pytest.raises(ValueError, match="提示词"):
+        _build_edit_form({}, "m")
+
+
+def test_load_source_image_local_and_data_url(tmp_path):
+    img = tmp_path / "src.png"
+    img.write_bytes(b"local-bytes")
+    data, name, mime = image_generate._load_source_image(str(img), 10)
+    assert (data, name, mime) == (b"local-bytes", "src.png", "image/png")
+
+    b64 = base64.b64encode(b"inline").decode()
+    data, name, mime = image_generate._load_source_image(
+        f"data:image/jpeg;base64,{b64}", 10
+    )
+    assert (data, mime) == (b"inline", "image/jpeg")
+
+    with pytest.raises(ValueError, match="参考图不存在"):
+        image_generate._load_source_image(str(tmp_path / "missing.png"), 10)
+
+
+def test_handler_img2img_uses_multipart(image_env, tmp_path):
+    src = tmp_path / "src.png"
+    src.write_bytes(b"src-bytes")
+    captured = {}
+
+    def fake_edits(url, headers, form, image, timeout_s):
+        captured.update(url=url, headers=headers, form=form, image=image)
+        return _fake_response([{"b64_json": base64.b64encode(b"edited").decode()}])
+
+    monkey_host = pytest.MonkeyPatch()
+    monkey_host.setattr(image_generate, "_request_image_edits", fake_edits)
+    try:
+        result = handler(
+            {
+                "mode": "img2img",
+                "prompt": "把背景换成雪地",
+                "source_image": str(src),
+                "save_path": str(tmp_path / "out"),
+            },
+            None,
+        )
+    finally:
+        monkey_host.undo()
+
+    assert captured["url"] == "https://api.openai.com/v1/images/edits"
+    assert "Content-Type" not in captured["headers"]
+    assert captured["form"]["model"] == "dall-e-3"
+    data, name, mime = captured["image"]
+    assert (data, name, mime) == (b"src-bytes", "src.png", "image/png")
+    assert result["count"] == 1
+    assert (tmp_path / "out").exists()

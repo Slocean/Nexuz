@@ -356,6 +356,76 @@ export function looksLikeImagePath(value: unknown): value is string {
   return /\.(png|jpe?g|bmp|webp|gif)$/i.test(p);
 }
 
+/** Recursively collect image-path strings from arrays/objects (depth-limited). */
+function collectImagePaths(value: unknown, depth = 3, out: string[] = []): string[] {
+  if (depth < 0 || value == null) return out;
+  if (typeof value === 'string') {
+    if (looksLikeImagePath(value) && !out.includes(value.trim())) out.push(value.trim());
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value.slice(0, 24)) collectImagePaths(v, depth - 1, out);
+    return out;
+  }
+  if (typeof value === 'object') {
+    for (const v of Object.values(value as Record<string, unknown>).slice(0, 24))
+      collectImagePaths(v, depth - 1, out);
+    return out;
+  }
+  return out;
+}
+
+function Thumb({ path, onOpen }: { path: string; onOpen: () => void }) {
+  const { dataUrl, error, loading } = useLocalImage(path, true);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`${path}（点击放大）`}
+      className="w-14 h-14 shrink-0 rounded-md border border-black/10 dark:border-white/10 bg-black/5 dark:bg-black/40 flex items-center justify-center overflow-hidden hover:border-blue-400/70 transition-colors"
+    >
+      {loading && !dataUrl ? (
+        <span className="text-[9px] opacity-50">…</span>
+      ) : error && !dataUrl ? (
+        <span className="text-[9px] text-rose-400 px-1 text-center leading-tight">加载失败</span>
+      ) : dataUrl ? (
+        <img
+          src={dataUrl}
+          alt="缩略图"
+          className="w-full h-full object-contain"
+          draggable={false}
+        />
+      ) : null}
+    </button>
+  );
+}
+
+/** Inline thumbnail strip for values containing image paths (e.g. 生图 paths 数组). */
+export function ImageThumbStrip({ value, max = 8 }: { value: unknown; max?: number }) {
+  const paths = useMemo(() => collectImagePaths(value), [value]);
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  if (paths.length === 0) return null;
+  return (
+    <>
+      <div className="flex flex-wrap gap-1.5 pl-5 pb-1">
+        {paths.slice(0, max).map((p, i) => (
+          <Thumb key={`${p}-${i}`} path={p} onOpen={() => setOpenPath(p)} />
+        ))}
+        {paths.length > max ? (
+          <span className="text-[10px] opacity-50 self-center">+{paths.length - max}</span>
+        ) : null}
+      </div>
+      <LocalImagePreviewDialog
+        path={openPath || ''}
+        open={!!openPath}
+        onOpenChange={(o) => {
+          if (!o) setOpenPath(null);
+        }}
+      />
+    </>
+  );
+}
+
 function useLocalImage(path: string | null, enabled: boolean) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -617,19 +687,22 @@ export function OutputRefChip({
         </button>
       </div>
       {pathChips.length > 0 ? (
-        <div className="flex flex-wrap gap-1 pl-5">
-          {pathChips.map((p) => (
-            <button
-              type="button"
-              key={p}
-              className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100"
-              title={`复制 ${formatNodeRef(nodeId, `${field}.${p}`)}`}
-              onClick={() => copyRef(`${field}.${p}`)}
-            >
-              .{p}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="flex flex-wrap gap-1 pl-5">
+            {pathChips.map((p) => (
+              <button
+                type="button"
+                key={p}
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-black/10 dark:border-white/10 opacity-70 hover:opacity-100"
+                title={`复制 ${formatNodeRef(nodeId, `${field}.${p}`)}`}
+                onClick={() => copyRef(`${field}.${p}`)}
+              >
+                .{p}
+              </button>
+            ))}
+          </div>
+          <ImageThumbStrip value={value} />
+        </>
       ) : null}
     </div>
   );
