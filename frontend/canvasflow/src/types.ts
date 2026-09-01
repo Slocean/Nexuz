@@ -49,6 +49,7 @@ export interface WorkflowNode {
   collapsed?: boolean;
   /** Runtime skip; still keeps flow links */
   disabled?: boolean;
+  ai_refine?: boolean;
 }
 
 export interface NodeConnection {

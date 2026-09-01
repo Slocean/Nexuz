@@ -1615,7 +1615,7 @@ export default function SettingsPage({
               themeMode={themeMode}
             />
           }>
-          <Tabs value={aiTab} onValueChange={v => setAiTab(v as 'chat' | 'image' | 'agent')}>
+          <Tabs value={aiTab} onValueChange={v => setAiTab(v as 'general' | 'image')}>
             <TabsList>
               <TabsTrigger value="general">通用模型 / Agent</TabsTrigger>
               <TabsTrigger value="image">生图模型</TabsTrigger>

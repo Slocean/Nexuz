@@ -442,6 +442,7 @@ export function flowToCanvas(
       outputData: nodeOutputs[id] || null,
       collapsed: !!node.collapsed,
       disabled: !!node.disabled,
+      ai_refine: !!node.ai_refine,
     });
 
     const links: [string, string | null | undefined][] = [
