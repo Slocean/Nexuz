@@ -416,6 +416,11 @@ export default function SettingsPage({
   const [aiAuditEvents, setAiAuditEvents] = useState<{ ts?: string; event?: string; skill?: string }[]>(
     []
   );
+  const [aiImageBaseUrl, setAiImageBaseUrl] = useState('');
+  const [aiImageModel, setAiImageModel] = useState('');
+  const [aiImageApiKey, setAiImageApiKey] = useState('');
+  const [aiImageHasKey, setAiImageHasKey] = useState(false);
+  const [aiImageKeyMasked, setAiImageKeyMasked] = useState('');
 
   const refreshAiSkills = useCallback(async () => {
     try {
@@ -453,6 +458,11 @@ export default function SettingsPage({
         setAiApiKey('');
         setAiPresets(Array.isArray(c.presets) ? c.presets : []);
         setAiAllowDangerous(!!c.allow_dangerous);
+        setAiImageBaseUrl(c.image_base_url || '');
+        setAiImageModel(c.image_model || '');
+        setAiImageHasKey(!!c.has_image_api_key);
+        setAiImageKeyMasked(c.image_api_key_masked || '');
+        setAiImageApiKey('');
         setAiOptions({
           ...opts,
           [preset]: {
@@ -596,6 +606,11 @@ export default function SettingsPage({
       if (aiApiKey.trim()) {
         patch.api_key = aiApiKey.trim();
       }
+      patch.image_base_url = aiImageBaseUrl.trim();
+      patch.image_model = aiImageModel.trim();
+      if (aiImageApiKey.trim()) {
+        patch.image_api_key = aiImageApiKey.trim();
+      }
       const res = await bridge.aiSetConfig(patch);
       if (!res?.ok) {
         setAiMsg(res?.error || '保存失败');
@@ -610,6 +625,11 @@ export default function SettingsPage({
       setAiHasKey(!!c.has_api_key);
       setAiKeyMasked(c.api_key_masked || '');
       setAiApiKey('');
+      setAiImageBaseUrl(c.image_base_url || '');
+      setAiImageModel(c.image_model || '');
+      setAiImageHasKey(!!c.has_image_api_key);
+      setAiImageKeyMasked(c.image_api_key_masked || '');
+      setAiImageApiKey('');
       setAiOptions(opts);
       setAiDirty(false);
       setAiMsg('已保存（含各厂商选项）');
@@ -1654,6 +1674,65 @@ export default function SettingsPage({
               className="h-9 font-mono text-xs"
               autoComplete="off"
             />
+          </div>
+
+          <div
+            className="rounded-xl border px-3 py-2.5 space-y-2 mt-1"
+            style={{ borderColor: colors.border }}>
+            <p className="text-xs font-medium" style={{ color: colors.text }}>
+              生图模型（AI 生图积木）
+            </p>
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                模型 ID
+              </Label>
+              <Input
+                value={aiImageModel}
+                onChange={e => {
+                  setAiImageModel(e.target.value);
+                  setAiDirty(true);
+                }}
+                placeholder="如 cogview-4 / dall-e-3 / Kolors"
+                className="h-9 font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                Base URL
+              </Label>
+              <Input
+                value={aiImageBaseUrl}
+                onChange={e => {
+                  setAiImageBaseUrl(e.target.value);
+                  setAiDirty(true);
+                }}
+                placeholder="留空则沿用上方聊天模型的 Base URL"
+                className="h-9 font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                API Key
+              </Label>
+              <Input
+                type="password"
+                value={aiImageApiKey}
+                onChange={e => {
+                  setAiImageApiKey(e.target.value);
+                  setAiDirty(true);
+                }}
+                placeholder={
+                  aiImageHasKey
+                    ? `已保存 ${aiImageKeyMasked || '****'}（留空则保持不变）`
+                    : '留空则沿用上方聊天模型的 API Key'
+                }
+                className="h-9 font-mono text-xs"
+                autoComplete="off"
+              />
+            </div>
+            <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+              走 OpenAI 兼容 /images/generations 接口；同厂商生图只需填模型 ID。
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

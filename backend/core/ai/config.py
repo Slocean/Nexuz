@@ -49,6 +49,9 @@ _ENV_MAP = {
     "model": "NEXUZ_AI_MODEL",
     "temperature": "NEXUZ_AI_TEMPERATURE",
     "timeout_s": "NEXUZ_AI_TIMEOUT_S",
+    "image_base_url": "NEXUZ_AI_IMAGE_BASE_URL",
+    "image_api_key": "NEXUZ_AI_IMAGE_API_KEY",
+    "image_model": "NEXUZ_AI_IMAGE_MODEL",
 }
 
 _OPTION_KEYS = ("base_url", "api_key", "model")
@@ -84,6 +87,12 @@ def _decrypt_ai_section(
     decrypted["api_key"] = key
     if key and legacy and dpapi_available():
         persisted["api_key"] = protect_api_key(key)
+        changed = True
+
+    image_key, image_legacy = _decrypt_key(raw_ai.get("image_api_key"))
+    decrypted["image_api_key"] = image_key
+    if image_key and image_legacy and dpapi_available():
+        persisted["image_api_key"] = protect_api_key(image_key)
         changed = True
 
     raw_options = raw_ai.get("options")
@@ -124,6 +133,7 @@ def _load_ai_section(*, migrate: bool = True) -> tuple[dict[str, Any], dict[str,
 def _encrypt_ai_section(plain_ai: dict[str, Any]) -> dict[str, Any]:
     stored = dict(plain_ai)
     stored["api_key"] = protect_api_key(str(plain_ai.get("api_key") or ""))
+    stored["image_api_key"] = protect_api_key(str(plain_ai.get("image_api_key") or ""))
     options = plain_ai.get("options")
     if isinstance(options, dict):
         stored_options: dict[str, Any] = {}
@@ -239,6 +249,9 @@ def public_ai_config(cfg: AiConfig | None = None) -> dict[str, Any]:
     key = d.pop("api_key", "") or ""
     d["has_api_key"] = bool(key.strip())
     d["api_key_masked"] = mask_api_key(key)
+    image_key = d.pop("image_api_key", "") or ""
+    d["has_image_api_key"] = bool(image_key.strip())
+    d["image_api_key_masked"] = mask_api_key(image_key)
     d["presets"] = list(PROVIDER_PRESETS)
     options = _read_options(raw_ai)
     # Ensure active preset appears in options for UI restore.
@@ -283,6 +296,8 @@ def set_ai_config(patch: dict[str, Any] | None) -> AiConfig:
         "disabled_skills",
         "context_window_tokens",
         "max_output_tokens",
+        "image_base_url",
+        "image_model",
     ):
         if key in patch:
             merged[key] = patch[key]
@@ -294,6 +309,13 @@ def set_ai_config(patch: dict[str, Any] | None) -> AiConfig:
         elif not keep_existing:
             merged["api_key"] = ""
         # empty + keep_existing → leave previous key
+
+    if "image_api_key" in patch:
+        new_image_key = str(patch.get("image_api_key") or "").strip()
+        if new_image_key:
+            merged["image_api_key"] = new_image_key
+        elif not keep_existing:
+            merged["image_api_key"] = ""
 
     # Merge multi-preset option map first (may include other vendors).
     if isinstance(options_patch, dict):
@@ -333,3 +355,23 @@ def set_ai_config(patch: dict[str, Any] | None) -> AiConfig:
     cfg["ai"] = _encrypt_ai_section(stored)
     save_app_config(cfg)
     return _apply_env_overrides(normalized)
+
+
+def resolve_image_config(cfg: AiConfig | None = None) -> dict[str, str]:
+    """Effective image-generation endpoint config for the image_generate block.
+
+    Empty image_base_url / image_api_key fall back to the chat provider so a
+    same-vendor setup only needs the image model filled in.
+    Raises ValueError with a user-facing message when unusable.
+    """
+    c = cfg or get_ai_config()
+    base_url = str(c.image_base_url or "").strip() or str(c.base_url or "").strip()
+    api_key = str(c.image_api_key or "").strip() or str(c.api_key or "").strip()
+    model = str(c.image_model or "").strip()
+    if not model:
+        raise ValueError(
+            "未配置生图模型：请在 设置 → Nexuz AI → 生图模型 中填写模型 ID（如 cogview-4 / dall-e-3）"
+        )
+    if not base_url:
+        raise ValueError("未配置生图 Base URL：请填写或让聊天模型配置保持有效以自动沿用")
+    return {"base_url": base_url, "api_key": api_key, "model": model}

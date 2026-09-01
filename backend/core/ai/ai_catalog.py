@@ -109,6 +109,11 @@ _AI_HINTS: dict[str, dict[str, Any]] = {
     "window_close": {"description": "关闭窗口", "key_params": ["title"]},
     "if_color_match": {"description": "颜色匹配分支", "key_params": ["target_color"]},
     "if_logic": {"description": "逻辑组合分支", "key_params": []},
+    "image_generate": {
+        "description": "AI 生图：调 OpenAI 兼容生图接口存盘",
+        "key_params": ["prompt", "size", "count", "save_path"],
+        "ai_hints": "需在设置中配置生图模型；输出 first_path 可接 find_image/image_scale",
+    },
 }
 
 

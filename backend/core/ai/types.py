@@ -79,6 +79,11 @@ class AiConfig:
     # Token scheduler capability overrides (None = resolve from preset/local/cloud)
     context_window_tokens: int | None = None
     max_output_tokens: int | None = None
+    # Image generation (image_generate block). Empty base_url/api_key falls back
+    # to the chat provider at runtime; image_model must be set explicitly.
+    image_base_url: str = ""
+    image_api_key: str = ""
+    image_model: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -96,6 +101,9 @@ class AiConfig:
             "disabled_skills": list(self.disabled_skills or []),
             "context_window_tokens": self.context_window_tokens,
             "max_output_tokens": self.max_output_tokens,
+            "image_base_url": self.image_base_url,
+            "image_api_key": self.image_api_key,
+            "image_model": self.image_model,
         }
 
     @classmethod
@@ -142,6 +150,9 @@ class AiConfig:
             disabled_skills=[str(x) for x in disabled],
             context_window_tokens=_opt_int("context_window_tokens"),
             max_output_tokens=_opt_int("max_output_tokens"),
+            image_base_url=str(raw.get("image_base_url") or "").strip(),
+            image_api_key=str(raw.get("image_api_key") or "").strip(),
+            image_model=str(raw.get("image_model") or "").strip(),
         )
 
 

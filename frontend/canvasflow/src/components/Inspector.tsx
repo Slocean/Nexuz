@@ -2460,7 +2460,7 @@ export default function Inspector({
                     schemaMap={schemaMap}
                     onChange={v => handleFieldChange(input.name, v)}
                     placeholder={input.placeholder || placeholder || ''}
-                    allowJson
+                    multiline
                   />
                 ) : selectedNode.subType === 'switch' && input.name === 'default' ? (
                   <div className="flex-1 min-w-0 space-y-1">
