@@ -137,6 +137,12 @@ def main() -> None:
         pass
 
     api = Api()
+    try:
+        from backend.core.mcp_bridge import start_mcp_bridge
+
+        start_mcp_bridge(api)
+    except Exception:
+        pass
     url = resolve_ui_url()
     icon = resolve_app_icon()
     # Frameless: no OS title bar; app Toolbar provides drag + min/max/close

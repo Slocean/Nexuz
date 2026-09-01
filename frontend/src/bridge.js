@@ -2167,6 +2167,28 @@ function mockCall(method, ...args) {
         blocks: [{ type: 'delay', label: '延时', description: '等待毫秒' }],
         coverage: { ok: true, count: 1, missing_description: [] }
       });
+    case 'mcp_get_status':
+      return Promise.resolve({
+        ok: true,
+        enabled: true,
+        configured_port: 0,
+        running: false,
+        listen_port: null,
+        token: null,
+        pid: null,
+        port_file: '',
+        version: '0.1.0-dev'
+      });
+    case 'mcp_set_config':
+      return Promise.resolve({ ok: true, config: { enabled: !!args[0]?.enabled, port: 0 }, running: false, listen_port: null });
+    case 'mcp_client_config':
+      return Promise.resolve({
+        ok: true,
+        command: 'claude mcp add nexuz -- python nexuz_mcp.py',
+        shell_path: 'nexuz_mcp.py',
+        shell_exists: true,
+        port_file: ''
+      });
     default:
       return Promise.resolve({ ok: false, error: `未知方法: ${method}` });
   }
@@ -2334,5 +2356,9 @@ export const bridge = {
     call('ai_override_point', conversationId, pointRef, x, y),
   aiApplyDraft: (conversationId, messageId = '') =>
     call('ai_apply_draft', conversationId, messageId || ''),
-  aiCancelDraft: conversationId => call('ai_cancel_draft', conversationId)
+  aiCancelDraft: conversationId => call('ai_cancel_draft', conversationId),
+  // MCP bridge (external AI access)
+  mcpGetStatus: () => call('mcp_get_status'),
+  mcpSetConfig: (patch = {}) => call('mcp_set_config', patch),
+  mcpClientConfig: () => call('mcp_client_config')
 };

@@ -92,6 +92,7 @@ class Api:
         self._emit_wake = threading.Event()
         self._last_ui_node_event_at = 0.0
         self._last_memory_sample_at = 0.0
+        self._last_flow_finished: dict[str, Any] | None = None
         self._emit_thread = threading.Thread(
             target=self._emit_worker, daemon=True, name="nexuz-ui-events"
         )
@@ -402,6 +403,7 @@ class Api:
                 return
             self._last_ui_node_event_at = now
         if event == "flow_finished":
+            self._last_flow_finished = event_payload
             log_info = self._runtime_logs.finish(event_payload)
             if log_info:
                 event_payload["run_log"] = log_info
@@ -3411,6 +3413,70 @@ class Api:
         try:
             cfg = set_ai_config(patch if isinstance(patch, dict) else {})
             return {"ok": True, "config": public_ai_config(cfg)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    # ── MCP bridge (external AI access) ───────────────────────────────
+
+    def mcp_get_status(self) -> dict:
+        from backend.core import mcp_bridge
+        from backend.version import __version__
+
+        try:
+            cfg = mcp_bridge.get_mcp_config()
+            status = mcp_bridge.bridge_status()
+            return {
+                "ok": True,
+                "enabled": cfg["enabled"],
+                "configured_port": cfg["port"],
+                "running": status["running"],
+                "listen_port": status["port"],
+                "token": status["token"],
+                "pid": status["pid"],
+                "port_file": str(mcp_bridge.port_file_path()),
+                "version": str(__version__),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def mcp_set_config(self, patch: dict | None = None) -> dict:
+        from backend.core import mcp_bridge
+
+        try:
+            saved = mcp_bridge.set_mcp_config(patch if isinstance(patch, dict) else {})
+            if mcp_bridge.bridge_status()["running"]:
+                mcp_bridge.stop_mcp_bridge()
+            if saved["enabled"]:
+                mcp_bridge.start_mcp_bridge(self)
+            status = mcp_bridge.bridge_status()
+            return {
+                "ok": True,
+                "config": saved,
+                "running": status["running"],
+                "listen_port": status["port"],
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def mcp_client_config(self) -> dict:
+        import sys as _sys
+
+        from backend.core import mcp_bridge
+
+        try:
+            frozen = bool(getattr(_sys, "frozen", False))
+            shell = (exe_dir() if frozen else project_root()) / "nexuz_mcp.py"
+            parts = ["claude", "mcp", "add", "nexuz"]
+            if frozen:
+                parts += ["--env", f"NEXUZ_EXE={_sys.executable}"]
+            parts += ["--", "python", str(shell)]
+            return {
+                "ok": True,
+                "command": " ".join(parts),
+                "shell_path": str(shell),
+                "shell_exists": shell.is_file(),
+                "port_file": str(mcp_bridge.port_file_path()),
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

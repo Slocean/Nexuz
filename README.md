@@ -173,6 +173,43 @@ Release 正文只写入 [`app_update.json`](app_update.json) 里**当前发版�
 13. **插件模式**：标题栏窗口图标可开启——浮在无边框全屏游戏之上、半透明可调；默认 `X+F6` 开关插件模式、`X+F7` 开关点击穿透（均可在设置 → 快捷键中改键）。独占全屏点到本窗口时仍可能退出全屏
 14. **日志分类**：右侧默认只看「运行」；点芯片可切换系统/操作/诊断。行可展开入参出参摘要；设置里「记录诊断日志」默认关闭。导出可区分「当前显示 / 完整运行日志 / 应用日志（系统+操作）」
 
+## 外部 AI 接入（MCP）
+
+Nexuz 内置 MCP 桥，可把积木能力（截图 / OCR / 点击 / 按键 / 执行流程等）开放给本机 AI 编码代理（Claude Code、zcode 等）。执行全部发生在正在运行的 Nexuz 应用内；应用未运行时，壳进程会自动拉起。
+
+```text
+Claude Code / zcode
+   │ stdio (JSON-RPC)
+nexuz_mcp.py（壳，纯标准库；应用不在线时自动唤醒）
+   │ HTTP 127.0.0.1 + 随机 token
+Nexuz 应用内 mcp_bridge（积木白名单 + 安全闸 + 审计）
+```
+
+接入（源码模式）：
+
+```bash
+claude mcp add nexuz -- python E:\Project\Nexuz\nexuz_mcp.py
+```
+
+打包版（exe）需额外用 `NEXUZ_EXE` 告诉壳去哪唤醒应用（壳本身仍需本机 Python 运行）：
+
+```bash
+claude mcp add nexuz --env NEXUZ_EXE=C:\path\to\Nexuz.exe -- python E:\Project\Nexuz\nexuz_mcp.py
+```
+
+设置 →「MCP / 外部 AI」卡片可开关服务、查看运行状态、一键复制接入命令。
+
+**可用工具**：`get_status` / `list_blocks` / `get_block_schema` / `run_block` / `run_flow` / `list_flows` / `flow_control` / `capture_screen` / `locate_text_on_screen` / `reset_session`（积木明细通过 `list_blocks` / `get_block_schema` 动态获取）。
+
+**安全模型**：
+
+- 服务仅监听 `127.0.0.1`，token 每次应用启动随机生成，只经 `%LOCALAPPDATA%\Nexuz\mcp\port.json` 分发
+- `run_block` 受设置页「AI 允许执行积木 / 允许危险动作」双开关控制（默认全关）；`python_script` / `run_command` / 控制流 / 用户插件一律硬拒，无开关可绕
+- `run_flow` 走完整执行链（参数校验 + 执行策略预扫描 + 解释器逐节点闸），无旁路
+- 每次执行写入审计日志（`data_dir/ai/audit/`，按日分文件）；设置页可随时整体关闭服务
+
+**当前限制**：MCP 触发的流程与手动运行互斥（同一时刻仅一条流程）；壳进程需要本机 Python（壳独立打包 exe 留待后续版本）；应用多开时后启动的实例接管端口文件。
+
 ## 示例流程
 
 - [`examples/demo_color_loop.flow.json`](examples/demo_color_loop.flow.json)：delay / 取色 / 循环（几乎无副作用）

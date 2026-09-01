@@ -321,6 +321,7 @@ function SettingsSection({
 const SETTINGS_SECTION_IDS = [
   'about',
   'ai',
+  'mcp',
   'data',
   'userBlocks',
   'announce',
@@ -427,6 +428,14 @@ export default function SettingsPage({
   const [aiImageApiKey, setAiImageApiKey] = useState('');
   const [aiImageHasKey, setAiImageHasKey] = useState(false);
   const [aiImageKeyMasked, setAiImageKeyMasked] = useState('');
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+  const [mcpStatus, setMcpStatus] = useState<{
+    running?: boolean;
+    listen_port?: number | null;
+    pid?: number | null;
+  } | null>(null);
+  const [mcpBusy, setMcpBusy] = useState(false);
+  const [mcpMsg, setMcpMsg] = useState('');
 
   const refreshAiSkills = useCallback(async () => {
     try {
@@ -494,6 +503,61 @@ export default function SettingsPage({
       cancelled = true;
     };
   }, [refreshAiSkills, refreshAiAudit]);
+
+  const refreshMcpStatus = useCallback(async () => {
+    try {
+      const res = await bridge.mcpGetStatus?.();
+      if (res?.ok) {
+        setMcpEnabled(!!res.enabled);
+        setMcpStatus(res);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshMcpStatus();
+  }, [refreshMcpStatus]);
+
+  const handleToggleMcp = async (enabled: boolean) => {
+    setMcpBusy(true);
+    try {
+      const res = await bridge.mcpSetConfig?.({ enabled });
+      if (res?.ok) {
+        setMcpEnabled(!!res.config?.enabled);
+        setMcpMsg(enabled ? '已启动本地 MCP 服务' : '已停止 MCP 服务，外部 AI 将无法连接');
+      } else {
+        setMcpMsg(res?.error || '设置失败');
+      }
+      await refreshMcpStatus();
+    } catch (e: any) {
+      setMcpMsg(String(e?.message || e || '设置失败'));
+    } finally {
+      setMcpBusy(false);
+    }
+  };
+
+  const handleCopyMcpCommand = async () => {
+    setMcpBusy(true);
+    try {
+      const res = await bridge.mcpClientConfig?.();
+      if (!res?.ok) {
+        setMcpMsg(res?.error || '生成接入命令失败');
+        return;
+      }
+      if (!res.shell_exists) {
+        setMcpMsg(`未找到壳进程文件：${res.shell_path}（打包版请将 nexuz_mcp.py 放在程序同目录）`);
+        return;
+      }
+      await navigator.clipboard.writeText(String(res.command || ''));
+      setMcpMsg('接入命令已复制，粘贴到终端执行即可注册到 Claude Code');
+    } catch (e: any) {
+      setMcpMsg(String(e?.message || e || '复制失败'));
+    } finally {
+      setMcpBusy(false);
+    }
+  };
 
   const fetchAiModels = async (
     baseUrl?: string,
@@ -2002,6 +2066,60 @@ export default function SettingsPage({
               </p>
             ) : null}
           </Tabs>
+        </SettingsSection>
+
+        <SettingsSection
+          title="MCP / 外部 AI"
+          icon={<Link2 className="w-4 h-4" />}
+          open={openSections.mcp}
+          onToggle={() => toggleSection('mcp')}
+          colors={colors}
+          headerRight={
+            <HelpHint
+              text="通过 MCP 协议把 Nexuz 积木能力开放给本机 AI 编码代理（Claude Code / zcode 等）。"
+              colors={colors}
+              themeMode={themeMode}
+            />
+          }>
+          <div className="rounded-xl border px-3 py-2.5 space-y-2 mt-1" style={{ borderColor: colors.border }}>
+            <label className="flex items-center gap-2 text-xs" style={{ color: colors.text }}>
+              <Checkbox checked={mcpEnabled} onCheckedChange={v => void handleToggleMcp(!!v)} />
+              允许本地 MCP 服务（仅 127.0.0.1 + 每次启动随机令牌，默认开）
+            </label>
+            <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+              {mcpStatus?.running
+                ? `运行中 · 端口 ${mcpStatus.listen_port} · 进程 ${mcpStatus.pid}`
+                : '已停止（外部 AI 无法连接）'}
+            </p>
+            <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+              外部 AI 的积木执行受「Nexuz AI」页开关约束：安全类积木需开「允许 AI 实时执行积木」，动作类还需「允许高危积木」；
+              python_script / run_command 始终不可由外部 AI 执行。所有调用写入审计日志。
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={mcpBusy}
+                onClick={() => void handleCopyMcpCommand()}>
+                复制接入命令
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={mcpBusy}
+                onClick={() => void refreshMcpStatus()}>
+                <RefreshCw className="w-3.5 h-3.5" />
+                刷新状态
+              </Button>
+            </div>
+            {mcpMsg ? (
+              <p className="text-xs" style={{ color: colors.secondaryText }}>
+                {mcpMsg}
+              </p>
+            ) : null}
+          </div>
         </SettingsSection>
 
         <SettingsSection
