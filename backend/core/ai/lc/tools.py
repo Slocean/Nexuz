@@ -25,14 +25,18 @@ class ToolSession:
         capture_fn: CaptureFn | None = None,
         allow_dangerous: bool = False,
         strict_coords: bool = True,
+        allow_run_block: bool = False,
     ):
         self.draft = draft
         self.artifacts = artifacts if isinstance(artifacts, dict) else {"shots": {}, "points": {}}
         self.tool_trace = tool_trace if tool_trace is not None else []
+        # 会话级执行上下文：run_block 的输出按 {node_id}.{out} 约定跨调用传递。
+        self.run_ctx: dict[str, Any] = {"context": {}, "counter": 0}
         self.runtime = ToolRuntime(
             capture_fn=capture_fn,
             allow_dangerous=allow_dangerous,
             strict_coords=strict_coords,
+            allow_run_block=allow_run_block,
         )
 
     def run(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -42,6 +46,7 @@ class ToolSession:
             draft=self.draft,
             artifacts=self.artifacts,
             tool_trace=self.tool_trace,
+            run_ctx=self.run_ctx,
         )
 
 
@@ -119,6 +124,12 @@ class VisionLocateArgs(BaseModel):
 
 class CallSkillArgs(BaseModel):
     skill_id: str = Field(description="技能 id，如 text_click / type_submit")
+
+
+class RunBlockArgs(BaseModel):
+    type: str = Field(description="积木 type，如 screenshot / ocr_recognize")
+    params: dict[str, Any] = Field(default_factory=dict)
+    point_ref: str | None = Field(default=None, description="坐标类参数使用 point_ref")
     params: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -259,7 +270,15 @@ def build_orchestration_tools(
             }
         )
 
-    return [
+    def run_block(type: str, params: dict[str, Any] | None = None, point_ref: str | None = None) -> str:  # noqa: A002
+        return _json_result(
+            session.run(
+                "run_block",
+                {"type": type, "params": params or {}, "point_ref": point_ref},
+            )
+        )
+
+    tools: list[StructuredTool] = [
         StructuredTool.from_function(
             func=list_blocks,
             name="list_blocks",
@@ -344,3 +363,19 @@ def build_orchestration_tools(
             args_schema=CallSkillArgs,
         ),
     ]
+    # run_block 仅在配置开启后进入工具表，避免模型空耗轮次。
+    if session.runtime.allow_run_block:
+        tools.append(
+            StructuredTool.from_function(
+                func=run_block,
+                name="run_block",
+                description=(
+                    "实时执行一个积木并返回结果（不写草稿）。"
+                    "安全类（截图/OCR/取色/找图/延时等）可直接执行；"
+                    "有真实副作用的（点击/按键/文件/网络等）需危险模式开启。"
+                    "坐标禁止臆造：先 locate/pack_point 取 point_ref 再传入。"
+                ),
+                args_schema=RunBlockArgs,
+            )
+        )
+    return tools

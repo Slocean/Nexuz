@@ -3414,20 +3414,44 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def ai_test_connection(self) -> dict:
+    def ai_test_connection(
+        self,
+        target: str = "chat",
+        base_url: str = "",
+        api_key: str = "",
+        model: str = "",
+    ) -> dict:
+        """target=chat 测聊天配置（已保存）；target=image 测生图端点（可带未保存输入）。"""
         try:
+            if str(target or "chat").strip().lower() == "image":
+                from backend.core.ai.lc.models import test_image_connection
+
+                return test_image_connection(
+                    base_url=base_url or "", api_key=api_key or "", model=model or ""
+                )
             return self._ai_session().test_connection()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def ai_list_models(self, base_url: str = "", api_key: str = "") -> dict:
-        """List models from an OpenAI-compatible gateway (LM Studio / Ollama / cloud)."""
+    def ai_list_models(self, base_url: str = "", api_key: str = "", target: str = "chat") -> dict:
+        """List models from an OpenAI-compatible gateway (LM Studio / Ollama / cloud).
+
+        target=image 时未显式给出的 url/key 按 image_* → 聊天配置 回退链解析。
+        """
         try:
             from backend.core.ai.lc.models import list_remote_models
 
+            b = (base_url or "").strip()
+            k = (api_key or "").strip()
+            if str(target or "").strip().lower() == "image":
+                from backend.core.ai.config import get_ai_config
+
+                cfg = get_ai_config()
+                b = b or str(cfg.image_base_url or "").strip() or str(cfg.base_url or "").strip()
+                k = k or str(cfg.image_api_key or "").strip() or str(cfg.api_key or "").strip()
             return list_remote_models(
-                base_url=(base_url or "").strip() or None,
-                api_key=(api_key or "").strip() or None,
+                base_url=b or None,
+                api_key=k or None,
             )
         except Exception as exc:
             return {"ok": False, "error": str(exc), "models": []}

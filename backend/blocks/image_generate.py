@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx
 
+from backend.core.ai import llm_cache
 from backend.core.ai.config import resolve_image_config
 
 SCHEMA = {
@@ -468,6 +469,34 @@ def _unique_path(out: Path) -> Path:
     return out
 
 
+def _cache_payload(keys: list[str], params: dict[str, Any]) -> dict[str, Any] | None:
+    """缓存全命中时直接落盘返回（跳过 API 请求）；任一未命中返回 None。"""
+    blobs = [llm_cache.get_blob(k) for k in keys]
+    if not blobs or any(b is None for b in blobs):
+        return None
+    timestamp = strftime("%Y%m%d_%H%M%S")
+    filename_mode = str(params.get("filename_mode") or "timestamp")
+    save_path = str(params.get("save_path") or "")
+    paths: list[str] = []
+    for i, data in enumerate(blobs):
+        out = _resolve_output_target(
+            save_path,
+            i,
+            len(blobs),
+            filename_mode=filename_mode,
+            timestamp=timestamp,
+        )
+        out.write_bytes(data)
+        paths.append(str(out.resolve()))
+    return {
+        "first_path": paths[0],
+        "paths": paths,
+        "count": len(paths),
+        "prompt": _final_prompt(params),
+        "cached": True,
+    }
+
+
 def handler(params, context, **kwargs):
     image_cfg = resolve_image_config()
     mode = str(params.get("mode") or "text2img")
@@ -482,10 +511,28 @@ def handler(params, context, **kwargs):
         timeout_s = 120.0
     timeout_s = max(10.0, timeout_s)
 
+    use_cache = llm_cache.enabled()
+    cache_keys: list[str] = []
+
     if mode == "img2img":
         edit_headers = {k: v for k, v in headers.items() if k != "Content-Type"}
         form = _build_edit_form(params, image_cfg["model"])
         image = _load_source_image(params.get("source_image"), timeout_s)
+        if use_cache:
+            base = llm_cache.make_key(
+                purpose="image_generate",
+                model=image_cfg["model"],
+                base_url=image_cfg["base_url"],
+                extra={
+                    "mode": "img2img",
+                    "form": form,
+                    "source_sha": llm_cache.sha256_bytes(image[0]),
+                },
+            )
+            cache_keys = [f"{base}#{i}" for i in range(max(1, int(form.get("n") or 1)))]
+            hit = _cache_payload(cache_keys, params)
+            if hit is not None:
+                return hit
         payload = _request_image_edits(
             _images_edit_url(image_cfg["base_url"]),
             edit_headers,
@@ -495,6 +542,17 @@ def handler(params, context, **kwargs):
         )
     else:
         body = _build_body(params, image_cfg["model"])
+        if use_cache:
+            base = llm_cache.make_key(
+                purpose="image_generate",
+                model=image_cfg["model"],
+                base_url=image_cfg["base_url"],
+                extra={"mode": "text2img", "body": body},
+            )
+            cache_keys = [f"{base}#{i}" for i in range(max(1, int(body.get("n") or 1)))]
+            hit = _cache_payload(cache_keys, params)
+            if hit is not None:
+                return hit
         payload = _request_images(_images_url(image_cfg["base_url"]), headers, body, timeout_s)
 
     timestamp = strftime("%Y%m%d_%H%M%S")
@@ -512,11 +570,14 @@ def handler(params, context, **kwargs):
             timestamp=timestamp,
         )
         if item.get("b64_json"):
-            out.write_bytes(base64.b64decode(str(item["b64_json"])))
+            data = base64.b64decode(str(item["b64_json"]))
         elif item.get("url"):
-            out.write_bytes(_download_bytes(str(item["url"]), timeout_s))
+            data = _download_bytes(str(item["url"]), timeout_s)
         else:
             raise ValueError(f"第{i + 1}张图片响应中既无 b64_json 也无 url 字段")
+        out.write_bytes(data)
+        if cache_keys and i < len(cache_keys):
+            llm_cache.put_blob(cache_keys[i], data)
         paths.append(str(out.resolve()))
 
     if not paths:

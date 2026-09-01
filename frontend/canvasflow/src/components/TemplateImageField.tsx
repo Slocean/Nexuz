@@ -48,6 +48,8 @@ export default function TemplateImageField({
   const { alert } = useAppDialog();
   const dropRef = useRef<HTMLDivElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // dragover 高频连发，热路径不碰 React state —— 用 ref 做去重闸。
+  const dragOverRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const pathValue = useMemo(() => {
     const raw = typeof value === 'string' ? value.trim() : '';
@@ -120,6 +122,7 @@ export default function TemplateImageField({
     async (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      dragOverRef.current = false;
       setDragOver(false);
       const files = e.dataTransfer?.files;
       if (!files?.length) return;
@@ -175,16 +178,22 @@ export default function TemplateImageField({
         onDragEnter={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setDragOver(true);
+          if (!dragOverRef.current) {
+            dragOverRef.current = true;
+            setDragOver(true);
+          }
         }}
         onDragOver={(e) => {
+          // 拖拽期间高频触发：只 preventDefault，禁止 setState（拖动卡顿根因）。
           e.preventDefault();
           e.stopPropagation();
-          setDragOver(true);
         }}
         onDragLeave={(e) => {
           e.preventDefault();
-          if (!dropRef.current?.contains(e.relatedTarget as Node)) setDragOver(false);
+          if (!dropRef.current?.contains(e.relatedTarget as Node)) {
+            dragOverRef.current = false;
+            setDragOver(false);
+          }
         }}
         onDrop={onDrop}
         className={`rounded-lg border border-dashed px-2 py-1.5 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] ${

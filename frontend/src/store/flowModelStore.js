@@ -1482,6 +1482,29 @@ export const useFlowStore = create((set, get) => ({
     });
   },
 
+  setNodesAiRefine: (nodeIds, enabled) => {
+    const ids = [...new Set((nodeIds || []).map(String).filter(Boolean))];
+    if (!ids.length) return;
+    set(state => {
+      let changed = false;
+      const nodes = { ...state.flow.nodes };
+      for (const id of ids) {
+        const node = nodes[id];
+        if (!node) continue;
+        const nextNode = { ...node };
+        if (enabled) nextNode.ai_refine = true;
+        else delete nextNode.ai_refine;
+        nodes[id] = nextNode;
+        changed = true;
+      }
+      if (!changed) return state;
+      return {
+        ...takeFlowHistory(state),
+        flow: { ...state.flow, nodes }
+      };
+    });
+  },
+
   /** Clear all flow out-edges on nodes (next/then/else/body/switch). */
   clearNodesFlowOuts: nodeIds => {
     const ids = [...new Set((nodeIds || []).map(String).filter(Boolean))];

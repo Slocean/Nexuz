@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
+from backend.core.ai import llm_cache
 from backend.core.ai.lc.models import create_chat_model
 from backend.core.ai.lc.structured_call import invoke_structured
 from backend.core.ai.token_scheduler.continuation import continue_structured
@@ -41,6 +42,7 @@ def guarded_structured_invoke(
     max_continues: int = 2,
     tool_overhead_tokens: int = 0,
     create_model: Any = None,
+    use_cache: bool = True,
 ) -> Any:
     """
     Output-first dual budget + length raise once + continuation attempts.
@@ -52,6 +54,25 @@ def guarded_structured_invoke(
     system_text = _system_text_from_messages(messages)
     last_exc: BaseException | None = None
     length_retried = False
+
+    # 应用层结果缓存：purpose + 模型 + 消息哈希（命中可省一次真实 API 调用）。
+    cache_key = ""
+    if use_cache and llm_cache.enabled(cfg) and str(profile or "").strip():
+        try:
+            cache_key = llm_cache.make_key(
+                purpose=str(profile),
+                model=str(getattr(cfg, "model", "") or ""),
+                base_url=str(getattr(cfg, "base_url", "") or ""),
+                temperature=temperature,
+                schema_name=getattr(schema, "__name__", "") or "",
+                messages=messages,
+            )
+        except Exception:
+            cache_key = ""
+    if cache_key:
+        hit = llm_cache.load_structured(cache_key, schema)
+        if hit is not None:
+            return hit
 
     for retry in (False, True):
         budget: CallBudget = plan_call(
@@ -69,12 +90,15 @@ def guarded_structured_invoke(
             for_structured=True,
         )
         try:
-            return invoke_structured(
+            result = invoke_structured(
                 llm,
                 schema,
                 messages,
                 compact_messages=compact_messages,
             )
+            if cache_key:
+                llm_cache.store_structured(cache_key, result)
+            return result
         except Exception as exc:
             last_exc = exc
             kind = classify_generation_failure(exc)
@@ -100,13 +124,16 @@ def guarded_structured_invoke(
                     for_structured=True,
                 )
                 try:
-                    return continue_structured(
+                    cont_result = continue_structured(
                         cont_llm,
                         schema,
                         messages,
                         invoke_fn=invoke_structured,
                         compact_messages=compact_messages,
                     )
+                    if cache_key:
+                        llm_cache.store_structured(cache_key, cont_result)
+                    return cont_result
                 except Exception as cont_exc:
                     last_exc = cont_exc
                     if not should_retry_or_continue(classify_generation_failure(cont_exc)):

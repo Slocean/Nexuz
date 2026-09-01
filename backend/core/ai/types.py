@@ -84,6 +84,10 @@ class AiConfig:
     image_base_url: str = ""
     image_api_key: str = ""
     image_model: str = ""
+    # 应用层 AI 结果缓存（结构化阶段 / 识图命名 / 生图）。False 时全部直连。
+    llm_cache_enabled: bool = True
+    # AI 实时执行积木（run_block）：safe 类直接执行；action 类还需 allow_dangerous。
+    allow_run_block: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +108,8 @@ class AiConfig:
             "image_base_url": self.image_base_url,
             "image_api_key": self.image_api_key,
             "image_model": self.image_model,
+            "llm_cache_enabled": bool(self.llm_cache_enabled),
+            "allow_run_block": bool(self.allow_run_block),
         }
 
     @classmethod
@@ -153,6 +159,8 @@ class AiConfig:
             image_base_url=str(raw.get("image_base_url") or "").strip(),
             image_api_key=str(raw.get("image_api_key") or "").strip(),
             image_model=str(raw.get("image_model") or "").strip(),
+            llm_cache_enabled=bool(raw.get("llm_cache_enabled", True)),
+            allow_run_block=bool(raw.get("allow_run_block", False)),
         )
 
 

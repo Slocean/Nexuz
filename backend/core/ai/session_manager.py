@@ -646,6 +646,7 @@ class SessionManager:
                 on_progress=on_progress,
                 assistant_id=assistant_id,
                 allow_dangerous=bool(cfg.allow_dangerous),
+                allow_run_block=bool(cfg.allow_run_block),
                 use_checkpoint=True,
                 known_slots=dict(agent_state.get("known_slots") or {}),
                 intent=str(agent_state.get("intent") or ""),

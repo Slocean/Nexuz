@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 
+from backend.core.ai import llm_cache
 from backend.core.ai.config import get_ai_config
 
 SCHEMA = {
@@ -375,6 +376,26 @@ def _ai_name(
 ) -> str:
     """调用 OpenAI 兼容 /chat/completions 视觉接口，返回模型给出的命名。"""
     b64 = _image_b64_jpeg(path)
+    # 同一图片 + 同一提示词 + 同一模型 → 直接复用上次命名，省一次视觉 API。
+    cache_key = ""
+    if llm_cache.enabled():
+        try:
+            cache_key = llm_cache.make_key(
+                purpose="image_name",
+                model=str(ai_cfg.get("model") or ""),
+                base_url=str(ai_cfg.get("base_url") or ""),
+                temperature=0.2,
+                extra={
+                    "prompt": prompt,
+                    "image_sha": llm_cache.sha256_bytes(path.read_bytes()),
+                },
+            )
+        except Exception:
+            cache_key = ""
+        if cache_key:
+            hit = llm_cache.get_json(cache_key)
+            if isinstance(hit, str) and hit:
+                return hit
     url = ai_cfg["base_url"].rstrip("/")
     if not url.endswith("/chat/completions"):
         url = f"{url}/chat/completions"
@@ -413,7 +434,10 @@ def _ai_name(
         content = payload["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("AI 命名响应格式异常：缺少 choices[0].message.content") from exc
-    return str(content or "")
+    content = str(content or "")
+    if cache_key and content:
+        llm_cache.put_json(cache_key, content)
+    return content
 
 
 def _target_occupied(target: Path, source: Path, copy_mode: bool, used: set[str]) -> bool:

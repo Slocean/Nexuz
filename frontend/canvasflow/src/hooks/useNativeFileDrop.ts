@@ -53,6 +53,20 @@ export function armNativeDropTarget(handler: DropHandler, ttlMs = 4000): () => v
   };
 }
 
+/**
+ * 已有挂载目标时仅续期 TTL。
+ * dragover 事件在 OS 拖拽期间高频连发，热路径禁止重建回调闭包——
+ * 只重置兜底定时器，保持当前 handler 不变。
+ */
+export function keepAliveNativeDropTarget(ttlMs = 4000): void {
+  if (armedHandler === null) return;
+  if (disarmTimer !== undefined) window.clearTimeout(disarmTimer);
+  disarmTimer = window.setTimeout(() => {
+    armedHandler = null;
+    disarmTimer = undefined;
+  }, ttlMs);
+}
+
 /** 把一次拖入的多个路径归约为单个输入值。 */
 export function pickDropValue(paths: string[]): string | null {
   const unique = [...new Set(paths.map(p => String(p || '').trim()).filter(Boolean))];

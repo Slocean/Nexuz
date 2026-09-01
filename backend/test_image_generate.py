@@ -26,6 +26,8 @@ def image_env(tmp_path, monkeypatch):
     )
     for name in ("NEXUZ_AI_IMAGE_BASE_URL", "NEXUZ_AI_IMAGE_API_KEY", "NEXUZ_AI_IMAGE_MODEL"):
         monkeypatch.delenv(name, raising=False)
+    # 本文件验证 HTTP 行为（含厂商报错透传），禁用结果缓存避免用例间污染。
+    monkeypatch.setenv("NEXUZ_AI_LLM_CACHE", "0")
     from backend.core.ai.config import set_ai_config
 
     set_ai_config(

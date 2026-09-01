@@ -9,7 +9,7 @@ import { bridge } from '@/bridge';
 import { Button } from '@/components/ui/button';
 import BindableInput from './BindableInput';
 import { useAppDialog } from './AppDialogs';
-import { armNativeDropTarget, disarmNativeDropTarget, pickDropValue } from '../hooks/useNativeFileDrop';
+import { armNativeDropTarget, disarmNativeDropTarget, keepAliveNativeDropTarget, pickDropValue } from '../hooks/useNativeFileDrop';
 
 const KNOWN_FILE_EXT = /\.[A-Za-z0-9]{1,6}$/;
 
@@ -42,6 +42,8 @@ export default function FileOrDirField({
   const { alert } = useAppDialog();
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // dragover 高频连发，热路径不碰 React state —— 用 ref 做去重闸。
+  const dragOverRef = useRef(false);
 
   const applyPath = useCallback(
     (path: string) => {
@@ -102,17 +104,22 @@ export default function FileOrDirField({
         className="relative"
         onDragEnter={e => {
           e.preventDefault();
-          setDragOver(true);
+          if (!dragOverRef.current) {
+            dragOverRef.current = true;
+            setDragOver(true);
+          }
           armDropTarget();
         }}
         onDragOver={e => {
+          // 拖拽期间高频触发：只 preventDefault + 续期 TTL。
+          // 此处 setState / 重建闭包会让拖动明显卡顿。
           e.preventDefault();
-          setDragOver(true);
-          armDropTarget();
+          keepAliveNativeDropTarget();
         }}
         onDragLeave={e => {
           e.preventDefault();
           if (!wrapRef.current?.contains(e.relatedTarget as Node)) {
+            dragOverRef.current = false;
             setDragOver(false);
             disarmNativeDropTarget();
           }
@@ -123,6 +130,7 @@ export default function FileOrDirField({
           // 才能把真实文件路径补全回来，拦掉冒泡就永远收不到路径。
           e.preventDefault();
           // 真实路径在原生侧、drop 之后异步到达：保持挂载，靠 TTL 兜底
+          dragOverRef.current = false;
           setDragOver(false);
         }}
       >

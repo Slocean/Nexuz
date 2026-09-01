@@ -55,6 +55,7 @@ class FlowGraphState(TypedDict, total=False):
     reply: str
     error: str
     allow_dangerous: bool
+    allow_run_block: bool
     strict_coords: bool
     prefer_vision: bool
     # Legacy fields (compat)

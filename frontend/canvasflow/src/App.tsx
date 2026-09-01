@@ -318,6 +318,7 @@ function AppShell() {
   const setNodesCollapsed = useFlowStore(s => s.setNodesCollapsed);
   const setBreakpointsForNodes = useFlowStore(s => s.setBreakpointsForNodes);
   const setNodesDisabled = useFlowStore(s => s.setNodesDisabled);
+  const setNodesAiRefine = useFlowStore(s => s.setNodesAiRefine);
   const disconnectNodes = useFlowStore(s => s.disconnectNodes);
   const clearNodesFlowOuts = useFlowStore(s => s.clearNodesFlowOuts);
   const updateNodePosition = useFlowStore(s => s.updateNodePosition);
@@ -1409,6 +1410,19 @@ function AppShell() {
     [setNodesDisabled, appendLog]
   );
 
+  const handleSetNodesAiRefine = useCallback(
+    (nodeIds: string[], enabled: boolean) => {
+      setNodesAiRefine(nodeIds, enabled);
+      appendLog({
+        level: 'info',
+        message: enabled
+          ? `已开启 ${nodeIds.length} 个节点的 AI 参数修正`
+          : `已关闭 ${nodeIds.length} 个节点的 AI 参数修正`
+      });
+    },
+    [setNodesAiRefine, appendLog]
+  );
+
   const handleDisconnectNodes = useCallback(
     async (nodeIds: string[]) => {
       const ids = (nodeIds || []).filter(Boolean);
@@ -1803,6 +1817,7 @@ function AppShell() {
                 onSetNodesCollapsed={handleSetNodesCollapsed}
                 onSetEntry={(id: string) => useFlowStore.getState().setEntry(id)}
                 onSetNodesDisabled={handleSetNodesDisabled}
+                onSetNodesAiRefine={handleSetNodesAiRefine}
                 onDisconnectNodes={handleDisconnectNodes}
                 onDeleteOtherNodes={handleDeleteOtherNodes}
                 onDeleteDownstreamNodes={handleDeleteDownstreamNodes}

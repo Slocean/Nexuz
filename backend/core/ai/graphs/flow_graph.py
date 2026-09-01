@@ -429,6 +429,7 @@ def _run_structured_action_loop(
             "draft_update_node",
             "draft_get",
             "call_skill",
+            "run_block",
             "done",
         )
         if n == "done" or n in tool_map
@@ -1274,6 +1275,7 @@ def make_flow_nodes(
                 capture_fn=capture_fn,
                 allow_dangerous=bool(state.get("allow_dangerous")),
                 strict_coords=bool(state.get("strict_coords", True)),
+                allow_run_block=bool(state.get("allow_run_block")),
             )
             tools = build_orchestration_tools(session, cfg=cfg)
             try:
@@ -1458,6 +1460,7 @@ def make_flow_nodes(
             capture_fn=capture_fn,
             allow_dangerous=bool(state.get("allow_dangerous")),
             strict_coords=bool(state.get("strict_coords", True)),
+            allow_run_block=bool(state.get("allow_run_block")),
         )
         # Only tool-patch structural errors; contract/coverage warnings are not repairable.
         errors = [e for e in (state.get("validation_errors") or []) if "入口" not in str(e)]
@@ -1725,6 +1728,7 @@ def run_flow_graph(
     on_progress: ProgressFn | None = None,
     assistant_id: str = "",
     allow_dangerous: bool = False,
+    allow_run_block: bool = False,
     use_checkpoint: bool = True,
     clarify_answers: dict[str, Any] | None = None,
     known_slots: dict[str, str] | None = None,
@@ -1764,6 +1768,7 @@ def run_flow_graph(
         "max_repair_rounds": 2,
         "max_gap_rounds": 2,
         "allow_dangerous": allow_dangerous,
+        "allow_run_block": allow_run_block,
         "strict_coords": True,
         "clarify_answers": dict(clarify_answers or {}),
         "known_slots": dict(known_slots or {}),

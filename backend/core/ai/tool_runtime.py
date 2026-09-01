@@ -30,6 +30,7 @@ _TOOL_LABELS = {
     "locate_text_on_screen": "OCR 文字定位",
     "pack_point": "打包坐标",
     "bind_point_to_node": "绑定点位到节点",
+    "run_block": "实时执行积木",
 }
 
 
@@ -65,6 +66,10 @@ def _tool_result_summary(name: str, result: dict[str, Any]) -> str:
         return f"点 ({result.get('x')},{result.get('y')}) ref={result.get('point_ref')}"
     if name == "bind_point_to_node":
         return f"{result.get('point_ref')} → 节点 {result.get('node_id')}"
+    if name == "run_block":
+        if result.get("ok"):
+            return f"已执行 {result.get('type')}（{result.get('tier')}）"
+        return str(result.get("error") or "执行失败")
     return "完成"
 
 
@@ -89,6 +94,8 @@ def _args_brief(name: str, args: dict[str, Any]) -> str:
         return f"「{args.get('match_text')}」 mode={args.get('match_mode') or 'contains'}"
     if name == "get_block_schema":
         return str(args.get("type") or "")
+    if name == "run_block":
+        return str(args.get("type") or "")
     if name == "list_blocks" and args.get("category"):
         return str(args.get("category"))
     if name == "bind_point_to_node":
@@ -111,11 +118,13 @@ class ToolRuntime:
         allow_dangerous: bool = False,
         allowlist: set[str] | None = None,
         strict_coords: bool = True,
+        allow_run_block: bool = False,
     ):
         self.capture_fn = capture_fn
         self.allow_dangerous = allow_dangerous
         self.allowlist = allowlist
         self.strict_coords = strict_coords
+        self.allow_run_block = allow_run_block
 
     def execute(
         self,
@@ -125,11 +134,14 @@ class ToolRuntime:
         draft: dict[str, Any],
         artifacts: dict[str, Any],
         tool_trace: list[dict[str, Any]],
+        run_ctx: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         args = arguments if isinstance(arguments, dict) else {}
         started = time.time()
         try:
-            result = self._dispatch(name, args, draft=draft, artifacts=artifacts)
+            result = self._dispatch(
+                name, args, draft=draft, artifacts=artifacts, run_ctx=run_ctx or {}
+            )
         except Exception as exc:
             result = {"ok": False, "error": str(exc)}
         entry = {
@@ -152,6 +164,7 @@ class ToolRuntime:
         *,
         draft: dict[str, Any],
         artifacts: dict[str, Any],
+        run_ctx: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if name == "list_blocks":
             blocks = list_blocks(
@@ -235,7 +248,32 @@ class ToolRuntime:
         if name == "bind_point_to_node":
             return self._bind_point(draft, artifacts, args)
 
+        if name == "run_block":
+            return self._run_block(args, artifacts, run_ctx=run_ctx or {})
+
         return {"ok": False, "error": f"未知 tool: {name}"}
+
+    def _run_block(
+        self,
+        args: dict[str, Any],
+        artifacts: dict[str, Any],
+        *,
+        run_ctx: dict[str, Any],
+    ) -> dict[str, Any]:
+        from backend.core.ai import run_block as run_block_mod
+
+        params = dict(args.get("params") or {}) if isinstance(args.get("params"), dict) else {}
+        point_ref = args.get("point_ref")
+        params, bound = self._apply_point_ref(params, artifacts, point_ref)
+        err = self._check_coords(params, has_point_ref=bound)
+        if err:
+            return err
+        return run_block_mod.run_block_once(
+            {"type": str(args.get("type") or ""), "params": params},
+            run_ctx=run_ctx,
+            allow_run_block=self.allow_run_block,
+            allow_dangerous=self.allow_dangerous,
+        )
 
     def _resolve_point(
         self, artifacts: dict[str, Any], point_ref: str | None

@@ -36,6 +36,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '@/store/flowModelStore';
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
@@ -408,7 +409,12 @@ export default function SettingsPage({
   const [aiMsg, setAiMsg] = useState('');
   const [aiDirty, setAiDirty] = useState(false);
   const [aiRemoteModels, setAiRemoteModels] = useState<{ id: string; owned_by?: string }[]>([]);
+  const [aiImageRemoteModels, setAiImageRemoteModels] = useState<{ id: string; owned_by?: string }[]>([]);
   const [aiAllowDangerous, setAiAllowDangerous] = useState(false);
+  const [aiLlmCache, setAiLlmCache] = useState(true);
+  const [aiAllowRunBlock, setAiAllowRunBlock] = useState(false);
+  const [aiTab, setAiTab] = useState<'general' | 'image'>('general');
+  const [agentCardOpen, setAgentCardOpen] = useState(false);
   const [aiSkills, setAiSkills] = useState<
     { id: string; label?: string; description?: string; enabled?: boolean }[]
   >([]);
@@ -458,6 +464,8 @@ export default function SettingsPage({
         setAiApiKey('');
         setAiPresets(Array.isArray(c.presets) ? c.presets : []);
         setAiAllowDangerous(!!c.allow_dangerous);
+        setAiLlmCache(c.llm_cache_enabled !== false);
+        setAiAllowRunBlock(!!c.allow_run_block);
         setAiImageBaseUrl(c.image_base_url || '');
         setAiImageModel(c.image_model || '');
         setAiImageHasKey(!!c.has_image_api_key);
@@ -490,10 +498,12 @@ export default function SettingsPage({
   const fetchAiModels = async (
     baseUrl?: string,
     apiKey?: string,
-    opts?: { silent?: boolean }
+    opts?: { silent?: boolean; target?: 'general' | 'image' }
   ) => {
     const silent = !!opts?.silent;
-    const url = (baseUrl ?? aiBaseUrl).trim();
+    const target = opts?.target ?? 'general';
+    const isImage = target === 'image';
+    const url = (baseUrl ?? (isImage ? aiImageBaseUrl : aiBaseUrl)).trim();
     if (!url) {
       if (!silent) setAiMsg('请先填写 Base URL');
       return;
@@ -503,15 +513,35 @@ export default function SettingsPage({
       setAiMsg('正在从网关拉取模型列表…');
     }
     try {
-      const res = await bridge.aiListModels?.(url, (apiKey ?? aiApiKey).trim());
+      const res = await bridge.aiListModels?.(
+        url,
+        (apiKey ?? (isImage ? aiImageApiKey : aiApiKey)).trim(),
+        target
+      );
       if (!res?.ok) {
-        setAiRemoteModels([]);
+        if (isImage) setAiImageRemoteModels([]);
+        else setAiRemoteModels([]);
         if (!silent) {
           setAiMsg(res?.error || '拉取模型失败');
         }
         return;
       }
       const models = Array.isArray(res.models) ? res.models : [];
+      if (isImage) {
+        setAiImageRemoteModels(models);
+        if (models.length && !aiImageModel.trim()) {
+          setAiImageModel(models[0].id);
+          setAiDirty(true);
+        }
+        if (!silent) {
+          setAiMsg(
+            models.length
+              ? `已拉取 ${models.length} 个生图模型（可在下方选择）`
+              : '服务已响应，但未返回任何模型'
+          );
+        }
+        return;
+      }
       setAiRemoteModels(models);
       if (models.length && !aiModel.trim()) {
         setAiModel(models[0].id);
@@ -525,7 +555,8 @@ export default function SettingsPage({
         );
       }
     } catch (e: any) {
-      setAiRemoteModels([]);
+      if (isImage) setAiImageRemoteModels([]);
+      else setAiRemoteModels([]);
       if (!silent) setAiMsg(String(e?.message || e || '拉取模型失败'));
     } finally {
       if (!silent) setAiBusy(false);
@@ -600,6 +631,8 @@ export default function SettingsPage({
         base_url: aiBaseUrl.trim(),
         model: aiModel.trim(),
         allow_dangerous: aiAllowDangerous,
+        llm_cache_enabled: aiLlmCache,
+        allow_run_block: aiAllowRunBlock,
         keep_existing_key: true,
         options: optionsPayload
       };
@@ -646,15 +679,39 @@ export default function SettingsPage({
     }
   };
 
-  const handleTestAiConnection = async () => {
+  const handleTestAiConnection = async (target: 'general' | 'image' = 'general') => {
     if (aiBusy) return;
-    if (aiDirty) {
+    const isImage = target === 'image';
+    // 生图测试可带未保存的输入（显式传参）；聊天测试走已保存配置。
+    if (!isImage && aiDirty) {
       setAiMsg('请先保存配置再测试连接');
       return;
     }
     setAiBusy(true);
-    setAiMsg('正在测试连接…');
+    setAiMsg(isImage ? '正在测试生图网关…' : '正在测试连接…');
     try {
+      if (isImage) {
+        const res = await bridge.aiTestConnection?.(
+          'image',
+          aiImageBaseUrl.trim(),
+          aiImageApiKey.trim(),
+          aiImageModel.trim()
+        );
+        if (!res?.ok) {
+          setAiMsg(res?.error || '生图网关连接失败');
+          return;
+        }
+        const bits = [`网关可达（${Number(res.models_count) || 0} 个模型）`];
+        if (res.model) {
+          bits.push(
+            `模型 ${res.model}${res.model_found ? '✓' : '（未在网关列表中，部分网关不列出图像模型，仍可保存使用）'}`
+          );
+        } else {
+          bits.push('尚未填写生图模型 ID');
+        }
+        setAiMsg(bits.join(' · '));
+        return;
+      }
       const res = await bridge.aiTestConnection();
       if (!res?.ok) {
         setAiMsg(res?.error || '连接失败');
@@ -1558,6 +1615,13 @@ export default function SettingsPage({
               themeMode={themeMode}
             />
           }>
+          <Tabs value={aiTab} onValueChange={v => setAiTab(v as 'chat' | 'image' | 'agent')}>
+            <TabsList>
+              <TabsTrigger value="general">通用模型 / Agent</TabsTrigger>
+              <TabsTrigger value="image">生图模型</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="general" className="space-y-3 mt-2">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label className="text-xs opacity-70" style={{ color: colors.text }}>
@@ -1677,100 +1741,22 @@ export default function SettingsPage({
           </div>
 
           <div
-            className="rounded-xl border px-3 py-2.5 space-y-2 mt-1"
+            className="rounded-xl border px-3 py-2.5 mt-1"
             style={{ borderColor: colors.border }}>
-            <p className="text-xs font-medium" style={{ color: colors.text }}>
-              生图模型（AI 生图积木）
-            </p>
-            <div className="space-y-1.5">
-              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
-                模型 ID
-              </Label>
-              <Input
-                value={aiImageModel}
-                onChange={e => {
-                  setAiImageModel(e.target.value);
-                  setAiDirty(true);
-                }}
-                placeholder="如 cogview-4 / dall-e-3 / Kolors"
-                className="h-9 font-mono text-xs"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
-                Base URL
-              </Label>
-              <Input
-                value={aiImageBaseUrl}
-                onChange={e => {
-                  setAiImageBaseUrl(e.target.value);
-                  setAiDirty(true);
-                }}
-                placeholder="留空则沿用上方聊天模型的 Base URL"
-                className="h-9 font-mono text-xs"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
-                API Key
-              </Label>
-              <Input
-                type="password"
-                value={aiImageApiKey}
-                onChange={e => {
-                  setAiImageApiKey(e.target.value);
-                  setAiDirty(true);
-                }}
-                placeholder={
-                  aiImageHasKey
-                    ? `已保存 ${aiImageKeyMasked || '****'}（留空则保持不变）`
-                    : '留空则沿用上方聊天模型的 API Key'
-                }
-                className="h-9 font-mono text-xs"
-                autoComplete="off"
-              />
-            </div>
-            <p className="text-[11px]" style={{ color: colors.secondaryText }}>
-              走 OpenAI 兼容 /images/generations 接口；同厂商生图只需填模型 ID。
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" disabled={aiBusy} onClick={() => void handleSaveAiConfig()}>
-              保存
-            </Button>
-            <Button
+            <button
               type="button"
-              size="sm"
-              variant="outline"
-              disabled={aiBusy}
-              onClick={() => void fetchAiModels()}>
-              拉取模型
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={aiBusy}
-              onClick={() => void handleTestAiConnection()}>
-              测试连接
-            </Button>
-            {aiDirty ? (
-              <span className="text-xs text-amber-600 dark:text-amber-400">有未保存的更改</span>
-            ) : null}
-          </div>
-          {aiMsg ? (
-            <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
-              {aiMsg}
-            </p>
-          ) : null}
-
-          <div
-            className="rounded-xl border px-3 py-2.5 space-y-2 mt-1"
-            style={{ borderColor: colors.border }}>
-            <p className="text-xs font-medium" style={{ color: colors.text }}>
-              Agent 平台
-            </p>
+              className="w-full flex items-center justify-between gap-2 cursor-pointer bg-transparent border-0 p-0"
+              onClick={() => setAgentCardOpen(o => !o)}>
+              <p className="text-xs font-medium" style={{ color: colors.text }}>
+                Agent 平台（策略 / 技能 / 评测）
+              </p>
+              <ChevronDown
+                className={`w-3.5 h-3.5 shrink-0 transition-transform ${agentCardOpen ? '' : '-rotate-90'}`}
+                style={{ color: colors.secondaryText }}
+              />
+            </button>
+            {agentCardOpen ? (
+            <div className="space-y-2 mt-2">
             <label className="flex items-center gap-2 text-xs" style={{ color: colors.text }}>
               <Checkbox
                 checked={aiAllowDangerous}
@@ -1780,6 +1766,26 @@ export default function SettingsPage({
                 }}
               />
               允许高危积木（run_command / python_script / file_io，默认关）
+            </label>
+            <label className="flex items-center gap-2 text-xs" style={{ color: colors.text }}>
+              <Checkbox
+                checked={aiAllowRunBlock}
+                onCheckedChange={v => {
+                  setAiAllowRunBlock(!!v);
+                  setAiDirty(true);
+                }}
+              />
+              允许 AI 实时执行积木（run_block；动作类仍需高危开关，默认关）
+            </label>
+            <label className="flex items-center gap-2 text-xs" style={{ color: colors.text }}>
+              <Checkbox
+                checked={aiLlmCache}
+                onCheckedChange={v => {
+                  setAiLlmCache(!!v);
+                  setAiDirty(true);
+                }}
+              />
+              AI 结果缓存（结构化阶段 / 生图 / 识图命名，默认开）
             </label>
             <div className="space-y-1.5 max-h-40 overflow-y-auto">
               {aiSkills.length === 0 ? (
@@ -1864,7 +1870,138 @@ export default function SettingsPage({
                 ))}
               </div>
             ) : null}
+            </div>
+            ) : null}
           </div>
+            </TabsContent>
+
+            <TabsContent value="image" className="space-y-2 mt-2">
+          <div
+            className="rounded-xl border px-3 py-2.5 space-y-2 mt-1"
+            style={{ borderColor: colors.border }}>
+            <p className="text-xs font-medium" style={{ color: colors.text }}>
+              生图模型（AI 生图积木）
+            </p>
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                模型 ID
+              </Label>
+              {aiImageRemoteModels.length > 0 ? (
+                <Select
+                  value={aiImageModel || aiImageRemoteModels[0]?.id}
+                  onValueChange={v => {
+                    setAiImageModel(v);
+                    setAiDirty(true);
+                  }}>
+                  <SelectTrigger className="h-9 font-mono text-xs">
+                    <SelectValue placeholder="选择已拉取的模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {aiImageRemoteModels.map(m => (
+                      <SelectItem key={m.id} value={m.id} className="font-mono text-xs">
+                        {m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={aiImageModel}
+                  onChange={e => {
+                    setAiImageModel(e.target.value);
+                    setAiDirty(true);
+                  }}
+                  placeholder="如 cogview-4 / dall-e-3 / Kolors"
+                  className="h-9 font-mono text-xs"
+                />
+              )}
+            </div>
+            {aiImageRemoteModels.length > 0 ? (
+              <div className="space-y-1.5">
+                <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                  或手动填写模型 ID
+                </Label>
+                <Input
+                  value={aiImageModel}
+                  onChange={e => {
+                    setAiImageModel(e.target.value);
+                    setAiDirty(true);
+                  }}
+                  placeholder="可覆盖上方选择"
+                  className="h-9 font-mono text-xs"
+                />
+              </div>
+            ) : null}
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                Base URL
+              </Label>
+              <Input
+                value={aiImageBaseUrl}
+                onChange={e => {
+                  setAiImageBaseUrl(e.target.value);
+                  setAiDirty(true);
+                }}
+                placeholder="留空则沿用「通用模型」页的 Base URL"
+                className="h-9 font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs opacity-70" style={{ color: colors.text }}>
+                API Key
+              </Label>
+              <Input
+                type="password"
+                value={aiImageApiKey}
+                onChange={e => {
+                  setAiImageApiKey(e.target.value);
+                  setAiDirty(true);
+                }}
+                placeholder={
+                  aiImageHasKey
+                    ? `已保存 ${aiImageKeyMasked || '****'}（留空则保持不变）`
+                    : '留空则沿用「通用模型」页的 API Key'
+                }
+                className="h-9 font-mono text-xs"
+                autoComplete="off"
+              />
+            </div>
+            <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+              走 OpenAI 兼容 /images/generations 接口；同厂商生图只需填模型 ID。
+            </p>
+          </div>
+            </TabsContent>
+
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <Button type="button" size="sm" disabled={aiBusy} onClick={() => void handleSaveAiConfig()}>
+                保存
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={aiBusy}
+                onClick={() => void fetchAiModels(undefined, undefined, { target: aiTab })}>
+                拉取模型
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={aiBusy}
+                onClick={() => void handleTestAiConnection(aiTab)}>
+                测试连接
+              </Button>
+              {aiDirty ? (
+                <span className="text-xs text-amber-600 dark:text-amber-400">有未保存的更改</span>
+              ) : null}
+            </div>
+            {aiMsg ? (
+              <p className="text-sm leading-relaxed" style={{ color: colors.secondaryText }}>
+                {aiMsg}
+              </p>
+            ) : null}
+          </Tabs>
         </SettingsSection>
 
         <SettingsSection

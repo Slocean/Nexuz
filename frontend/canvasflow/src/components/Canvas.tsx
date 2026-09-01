@@ -59,6 +59,7 @@ interface CanvasProps {
   onSetNodesCollapsed?: (nodeIds: string[], collapsed: boolean) => void;
   onSetEntry?: (nodeId: string) => void;
   onSetNodesDisabled?: (nodeIds: string[], disabled: boolean) => void;
+  onSetNodesAiRefine?: (nodeIds: string[], enabled: boolean) => void;
   onDisconnectNodes?: (nodeIds: string[]) => void;
   onDeleteOtherNodes?: (keepId: string) => void;
   onDeleteDownstreamNodes?: (startId: string) => void;
@@ -223,6 +224,7 @@ function Canvas({
   onSetNodesCollapsed,
   onSetEntry,
   onSetNodesDisabled,
+  onSetNodesAiRefine,
   onDisconnectNodes,
   onDeleteOtherNodes,
   onDeleteDownstreamNodes,
@@ -1981,6 +1983,7 @@ function Canvas({
             isEntry={flowEntry === ctxMenu.nodeId}
             hasBreakpoint={(breakpoints || []).includes(ctxMenu.nodeId)}
             isDisabled={!!ctxNode.disabled}
+            isAiRefine={!!ctxNode.ai_refine}
             isExecuting={_isExecuting}
             onRunSingle={() => onRunSingleNode?.(ctxMenu.nodeId)}
             onRunFrom={() => onRunFromNode?.(ctxMenu.nodeId)}
@@ -2034,6 +2037,10 @@ function Canvas({
             onSetDisabled={() => {
               const next = !ctxNode.disabled;
               onSetNodesDisabled?.(menuIds, next);
+            }}
+            onSetAiRefine={() => {
+              const next = !ctxNode.ai_refine;
+              onSetNodesAiRefine?.(menuIds, next);
             }}
             onDisconnect={() => onDisconnectNodes?.(menuIds)}
             onDeleteDownstream={() => onDeleteDownstreamNodes?.(ctxMenu.nodeId)}

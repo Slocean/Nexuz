@@ -100,3 +100,46 @@ def test_resolve_requires_model(isolated_config):
     _base_chat()
     with pytest.raises(ValueError, match="生图模型"):
         resolve_image_config()
+
+
+def test_image_connection_fallback_and_presence(monkeypatch):
+    from backend.core.ai.lc import models as models_mod
+    from backend.core.ai.lc.models import test_image_connection
+    from backend.core.ai.types import AiConfig
+
+    captured: dict = {}
+
+    def fake_list(*, base_url=None, api_key=None):
+        captured["url"] = base_url
+        captured["key"] = api_key
+        return {"ok": True, "models": [{"id": "cogview-4"}]}
+
+    monkeypatch.setattr(models_mod, "list_remote_models", fake_list)
+
+    cfg = AiConfig(
+        base_url="https://chat.example/v1", api_key="sk-chat", image_model="cogview-4"
+    )
+    # image_* 为空 → 回退聊天配置
+    out = test_image_connection(cfg)
+    assert out["ok"] is True and out["model_found"] is True
+    assert captured["url"] == "https://chat.example/v1"
+    assert captured["key"] == "sk-chat"
+
+    # 显式参数（未保存输入）优先
+    out2 = test_image_connection(cfg, base_url="https://img.example/v1", api_key="sk-img")
+    assert out2["ok"] is True
+    assert captured["url"] == "https://img.example/v1"
+    assert captured["key"] == "sk-img"
+
+    # 模型不在网关列表 → 仍 ok，但 model_found=False
+    out3 = test_image_connection(cfg, model="dall-e-3")
+    assert out3["ok"] is True and out3["model_found"] is False
+
+    # 网关失败 → 透传错误
+    monkeypatch.setattr(
+        models_mod,
+        "list_remote_models",
+        lambda *, base_url=None, api_key=None: {"ok": False, "error": "HTTP 401"},
+    )
+    out4 = test_image_connection(cfg)
+    assert out4["ok"] is False and "401" in out4["error"]

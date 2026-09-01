@@ -2300,8 +2300,10 @@ export const bridge = {
   // Flow AI
   aiGetConfig: () => call('ai_get_config'),
   aiSetConfig: (patch = {}) => call('ai_set_config', patch),
-  aiTestConnection: () => call('ai_test_connection'),
-  aiListModels: (baseUrl = '', apiKey = '') => call('ai_list_models', baseUrl || '', apiKey || ''),
+  aiTestConnection: (target = 'chat', baseUrl = '', apiKey = '', model = '') =>
+    call('ai_test_connection', target, baseUrl || '', apiKey || '', model || ''),
+  aiListModels: (baseUrl = '', apiKey = '', target = 'chat') =>
+    call('ai_list_models', baseUrl || '', apiKey || '', target),
   aiListSkills: () => call('ai_list_skills'),
   aiSetSkillEnabled: (skillId, enabled = true) => call('ai_set_skill_enabled', skillId, !!enabled),
   aiRunEval: () => call('ai_run_eval'),

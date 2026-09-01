@@ -14,6 +14,7 @@ OutputProfile = Literal[
     "patch",
     "summarize",
     "tighten",
+    "node_refine",
 ]
 
 # profile → (local, cloud, reasoning_hint)
@@ -24,6 +25,7 @@ _PROFILE_TABLE: dict[str, tuple[int, int, int]] = {
     "patch": (512, 1024, 2048),
     "summarize": (512, 768, 1536),
     "tighten": (256, 256, 384),
+    "node_refine": (512, 768, 2048),
 }
 
 _RETRY_CAP = 8192

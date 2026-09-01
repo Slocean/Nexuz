@@ -423,6 +423,55 @@ class FlowInterpreter:
         if self._is_stop_requested():
             raise InterruptedError("流程已停止")
 
+    def _maybe_ai_refine(
+        self,
+        node: dict[str, Any],
+        block_type: str,
+        params: dict[str, Any],
+        context: dict[str, Any],
+        node_id: str,
+    ) -> dict[str, Any]:
+        """参数级 AI 修正：节点声明 ai_refine 时，执行前由 LLM 依据上下文修正 params。
+
+        失败 / 未启用 / 无需修正时原样返回，绝不阻塞流程。
+        """
+        if not node.get("ai_refine"):
+            return params
+        try:
+            from backend.core.ai import node_refine
+
+            outcome = node_refine.refine_node_params(block_type, params, context)
+        except Exception as exc:
+            outcome = None
+            self._emit(
+                "log",
+                {
+                    "level": "warn",
+                    "category": "ai",
+                    "scope": "node",
+                    "node_id": node_id,
+                    "message": f"AI 参数修正失败: {exc}",
+                },
+            )
+        if not outcome:
+            return params
+        refined, reason = outcome
+        changed = sorted(
+            k for k in dict(refined) if dict(params).get(k) != refined.get(k)
+        )
+        self._emit(
+            "log",
+            {
+                "level": "info",
+                "category": "ai",
+                "scope": "node",
+                "node_id": node_id,
+                "message": f"AI 参数修正: {reason or '已调整'}（变更: {', '.join(changed) or '无'}）",
+                "detail": {"changed": changed},
+            },
+        )
+        return refined
+
     def _execute(self, flow: dict[str, Any]) -> dict[str, Any]:
         nodes = flow.get("nodes") or {}
         entry = flow.get("entry")
@@ -507,6 +556,7 @@ class FlowInterpreter:
             params = resolve_variables(raw_params, context)
             if block_type in ("click", "mouse_hover", "drag"):
                 params = attach_inferred_window_target(raw_params, params, context)
+            params = self._maybe_ai_refine(node, block_type, params, context, str(node_id))
             wait_ms = node_pre_delay_ms(
                 node_index,
                 params.get("node_delay_ms"),

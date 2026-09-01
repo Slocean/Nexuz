@@ -52,7 +52,11 @@ _ENV_MAP = {
     "image_base_url": "NEXUZ_AI_IMAGE_BASE_URL",
     "image_api_key": "NEXUZ_AI_IMAGE_API_KEY",
     "image_model": "NEXUZ_AI_IMAGE_MODEL",
+    "llm_cache_enabled": "NEXUZ_AI_LLM_CACHE",
+    "allow_run_block": "NEXUZ_AI_RUN_BLOCK",
 }
+
+_BOOL_ENV_FIELDS = ("enabled", "llm_cache_enabled", "allow_run_block")
 
 _OPTION_KEYS = ("base_url", "api_key", "model")
 
@@ -154,8 +158,8 @@ def _apply_env_overrides(cfg: AiConfig) -> AiConfig:
         raw = os.environ.get(env_name)
         if raw is None or raw == "":
             continue
-        if field == "enabled":
-            data["enabled"] = raw.strip().lower() in ("1", "true", "yes", "on")
+        if field in _BOOL_ENV_FIELDS:
+            data[field] = raw.strip().lower() in ("1", "true", "yes", "on")
         elif field in ("temperature", "timeout_s"):
             try:
                 data[field] = float(raw)
@@ -298,6 +302,8 @@ def set_ai_config(patch: dict[str, Any] | None) -> AiConfig:
         "max_output_tokens",
         "image_base_url",
         "image_model",
+        "llm_cache_enabled",
+        "allow_run_block",
     ):
         if key in patch:
             merged[key] = patch[key]

@@ -156,6 +156,61 @@ def test_chat_model(cfg: AiConfig | None = None) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+def test_image_connection(
+    cfg: AiConfig | None = None,
+    *,
+    base_url: str = "",
+    api_key: str = "",
+    model: str = "",
+) -> dict[str, Any]:
+    """生图端点连通性测试：GET /models + 模型在场检查（不真实生图，零成本）。
+
+    显式参数（设置页未保存的输入）优先；否则走 image_* → 聊天配置 的回退链
+    （与 resolve_image_config 一致，但不要求已填模型——先测连通、后填模型）。
+    """
+    c = cfg or get_ai_config()
+    base = (
+        (base_url or "").strip()
+        or str(c.image_base_url or "").strip()
+        or str(c.base_url or "").strip()
+    )
+    key = (
+        (api_key or "").strip()
+        or str(c.image_api_key or "").strip()
+        or str(c.api_key or "").strip()
+    )
+    img_model = (model or "").strip() or str(c.image_model or "").strip()
+    if not base:
+        return {"ok": False, "error": "未配置生图 Base URL（留空则沿用通用模型的 Base URL）"}
+
+    res = list_remote_models(base_url=base, api_key=key or None)
+    if not res.get("ok"):
+        return {
+            "ok": False,
+            "error": res.get("error") or "生图网关连接失败",
+            "base_url": base,
+        }
+
+    models = res.get("models") or []
+    ids = {str(m.get("id") or "") for m in models}
+    model_found: bool | None = None
+    if not img_model:
+        hint = "网关可达，但还未填写生图模型 ID"
+    else:
+        model_found = img_model in ids
+        bits = [f"网关可达（{len(models)} 个模型）", f"模型 {img_model}"]
+        bits.append("在列表中✓" if model_found else "不在列表中（部分网关不列出图像模型，仍可保存使用）")
+        hint = " · ".join(bits)
+    return {
+        "ok": True,
+        "model": img_model,
+        "model_found": model_found,
+        "models_count": len(models),
+        "base_url": base,
+        "hint": hint,
+    }
+
+
 def list_remote_models(
     *,
     base_url: str | None = None,

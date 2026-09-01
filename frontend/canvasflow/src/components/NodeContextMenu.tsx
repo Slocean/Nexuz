@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   PlayCircle,
+  Sparkles,
   Trash2,
   Eraser,
   Ellipsis,
@@ -39,6 +40,7 @@ type Props = {
   isEntry: boolean;
   hasBreakpoint: boolean;
   isDisabled: boolean;
+  isAiRefine: boolean;
   isExecuting: boolean;
   onRunSingle: () => void;
   onRunFrom: () => void;
@@ -49,6 +51,7 @@ type Props = {
   onSetEntry: () => void;
   onSetBreakpoint: () => void;
   onSetDisabled: () => void;
+  onSetAiRefine: () => void;
   onDisconnect: () => void;
   onDeleteDownstream: () => void;
   onDeleteOthers: () => void;
@@ -130,6 +133,7 @@ export default function NodeContextMenu({
   isEntry,
   hasBreakpoint,
   isDisabled,
+  isAiRefine,
   isExecuting,
   onRunSingle,
   onRunFrom,
@@ -140,6 +144,7 @@ export default function NodeContextMenu({
   onSetEntry,
   onSetBreakpoint,
   onSetDisabled,
+  onSetAiRefine,
   onDisconnect,
   onDeleteDownstream,
   onDeleteOthers,
@@ -302,6 +307,12 @@ export default function NodeContextMenu({
         icon={<Ban className="w-3.5 h-3.5" />}
         checked={isDisabled}
         onClick={() => run(onSetDisabled)}
+      />
+      <MenuItem
+        label={isAiRefine ? '关闭 AI 参数修正' : 'AI 参数修正'}
+        icon={<Sparkles className="w-3.5 h-3.5" />}
+        checked={isAiRefine}
+        onClick={() => run(onSetAiRefine)}
       />
       <MenuItem
         label="断开全部连线"

@@ -300,6 +300,28 @@ def openai_tools() -> list[dict[str, Any]]:
                 "required": ["node_id", "point_ref"],
             },
         },
+        {
+            "name": "run_block",
+            "description": (
+                "实时执行一个积木并返回结果（不写草稿）。"
+                "安全类（screenshot/ocr_recognize/color_detect/find_image/delay/wait_until/assign/notify 等）可直接执行；"
+                "有真实副作用的（click/key_press/file_io/http_request 等）需要危险模式开启。"
+                "控制流积木与 python_script/run_command 不支持。"
+                "坐标禁止臆造：先 locate_text_on_screen / pack_point 取 point_ref 再传入。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "description": "积木 type，如 screenshot"},
+                    "params": {"type": "object", "description": "积木参数（同 SCHEMA inputs）"},
+                    "point_ref": {
+                        "type": "string",
+                        "description": "坐标类参数使用 artifacts 中的 point_ref",
+                    },
+                },
+                "required": ["type"],
+            },
+        },
     ]
     return [
         {
