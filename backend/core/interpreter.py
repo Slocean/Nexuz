@@ -227,6 +227,12 @@ class FlowInterpreter:
                 except Exception:
                     pass
                 try:
+                    from backend.core.browser.session import close_browser_session
+
+                    close_browser_session()
+                except Exception:
+                    pass
+                try:
                     import gc
 
                     gc.collect()

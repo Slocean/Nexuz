@@ -12,6 +12,7 @@ import {
   Link2,
   Megaphone,
   Monitor,
+  Globe,
   MousePointer2,
   RefreshCw,
   Save,
@@ -322,6 +323,7 @@ const SETTINGS_SECTION_IDS = [
   'about',
   'ai',
   'mcp',
+  'browser',
   'data',
   'userBlocks',
   'announce',
@@ -556,6 +558,68 @@ export default function SettingsPage({
       setMcpMsg(String(e?.message || e || '复制失败'));
     } finally {
       setMcpBusy(false);
+    }
+  };
+
+  type BrowserConfigShape = {
+    engine: string;
+    headless: boolean;
+    keep_alive: boolean;
+    profile_dir: string;
+    edge_path: string;
+  };
+
+  const [browserCfg, setBrowserCfg] = useState<BrowserConfigShape>({
+    engine: 'auto',
+    headless: true,
+    keep_alive: false,
+    profile_dir: '',
+    edge_path: ''
+  });
+  const [browserRunning, setBrowserRunning] = useState(false);
+  const [browserEngineLive, setBrowserEngineLive] = useState<string | null>(null);
+  const [browserFound, setBrowserFound] = useState(true);
+  const [browserBusy, setBrowserBusy] = useState(false);
+  const [browserMsg, setBrowserMsg] = useState('');
+
+  const refreshBrowserStatus = useCallback(async () => {
+    try {
+      const res = await bridge.browserStatus?.();
+      if (res?.ok) {
+        setBrowserCfg({
+          engine: res.config?.engine || 'auto',
+          headless: !!res.config?.headless,
+          keep_alive: !!res.config?.keep_alive,
+          profile_dir: res.config?.profile_dir || '',
+          edge_path: res.config?.edge_path || ''
+        });
+        setBrowserRunning(!!res.running);
+        setBrowserEngineLive(res.engine || null);
+        setBrowserFound(!!res.browser_found);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshBrowserStatus();
+  }, [refreshBrowserStatus]);
+
+  const handleSaveBrowser = async (patch: Partial<BrowserConfigShape>) => {
+    setBrowserBusy(true);
+    try {
+      const res = await bridge.browserSetConfig?.(patch);
+      if (res?.ok) {
+        setBrowserMsg('已保存（正在运行的浏览器会话会按新配置重建）');
+      } else {
+        setBrowserMsg(res?.error || '保存失败');
+      }
+      await refreshBrowserStatus();
+    } catch (e: any) {
+      setBrowserMsg(String(e?.message || e || '保存失败'));
+    } finally {
+      setBrowserBusy(false);
     }
   };
 
@@ -2117,6 +2181,95 @@ export default function SettingsPage({
             {mcpMsg ? (
               <p className="text-xs" style={{ color: colors.secondaryText }}>
                 {mcpMsg}
+              </p>
+            ) : null}
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          title="浏览器引擎"
+          icon={<Globe className="w-4 h-4" />}
+          open={openSections.browser}
+          onToggle={() => toggleSection('browser')}
+          colors={colors}
+          headerRight={
+            <HelpHint
+              text="浏览器积木（导航/提取/点击等）使用的引擎：默认驱动本机 Edge（CDP），独立隔离 profile，不影响日常浏览器。安装 DrissionPage 后可选 drission 引擎。"
+              colors={colors}
+              themeMode={themeMode}
+            />
+          }>
+          <div className="rounded-xl border px-3 py-2.5 space-y-2 mt-1" style={{ borderColor: colors.border }}>
+            <div className="flex items-center gap-2 text-xs" style={{ color: colors.text }}>
+              <span className="shrink-0">引擎</span>
+              <Select
+                value={browserCfg.engine}
+                onValueChange={v => void handleSaveBrowser({ engine: v })}>
+                <SelectTrigger className="h-8 w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">自动（推荐）</SelectItem>
+                  <SelectItem value="cdp">CDP（本机 Edge/Chrome）</SelectItem>
+                  <SelectItem value="drission">DrissionPage</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="flex items-center gap-2 text-xs" style={{ color: colors.text }}>
+              <Checkbox
+                checked={browserCfg.headless}
+                onCheckedChange={v => void handleSaveBrowser({ headless: !!v })}
+              />
+              默认无头模式（不弹浏览器窗口）
+            </label>
+            <label className="flex items-center gap-2 text-xs" style={{ color: colors.text }}>
+              <Checkbox
+                checked={browserCfg.keep_alive}
+                onCheckedChange={v => void handleSaveBrowser({ keep_alive: !!v })}
+              />
+              流程结束后保持浏览器（keep-alive）
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                value={browserCfg.edge_path}
+                placeholder="浏览器路径（留空自动查找 Edge/Chrome）"
+                className="h-8 flex-1 font-mono text-xs"
+                onChange={e => setBrowserCfg(c => ({ ...c, edge_path: e.target.value }))}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={browserBusy}
+                onClick={() => void handleSaveBrowser({ edge_path: browserCfg.edge_path.trim() })}>
+                <Save className="w-3.5 h-3.5" />
+                保存路径
+              </Button>
+            </div>
+            <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+              {browserRunning
+                ? `浏览器会话运行中 · 引擎 ${browserEngineLive || '…'}`
+                : '浏览器未启动（首次使用浏览器积木时自动拉起）'}
+              {!browserFound ? ' · ⚠ 未找到本机 Edge/Chrome，请在上方指定浏览器路径' : ''}
+            </p>
+            <p className="text-[11px]" style={{ color: colors.secondaryText }}>
+              浏览器使用独立隔离 profile（data_dir/browser_profile），默认不含你的登录态；
+              导航/点击/填充/JS 属动作类积木，外部 AI 执行需同时开启「Nexuz AI」页的两个开关。
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={browserBusy}
+                onClick={() => void refreshBrowserStatus()}>
+                <RefreshCw className="w-3.5 h-3.5" />
+                刷新状态
+              </Button>
+            </div>
+            {browserMsg ? (
+              <p className="text-xs" style={{ color: colors.secondaryText }}>
+                {browserMsg}
               </p>
             ) : null}
           </div>

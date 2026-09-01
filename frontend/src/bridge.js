@@ -2189,6 +2189,21 @@ function mockCall(method, ...args) {
         shell_exists: true,
         port_file: ''
       });
+    case 'browser_get_config':
+      return Promise.resolve({
+        ok: true,
+        config: { engine: 'auto', headless: true, keep_alive: false, profile_dir: '', edge_path: '' }
+      });
+    case 'browser_set_config':
+      return Promise.resolve({ ok: true, config: { ...args[0] } });
+    case 'browser_status':
+      return Promise.resolve({
+        ok: true,
+        config: { engine: 'auto', headless: true, keep_alive: false, profile_dir: '', edge_path: '' },
+        running: false,
+        engine: null,
+        browser_found: true
+      });
     default:
       return Promise.resolve({ ok: false, error: `未知方法: ${method}` });
   }
@@ -2360,5 +2375,8 @@ export const bridge = {
   // MCP bridge (external AI access)
   mcpGetStatus: () => call('mcp_get_status'),
   mcpSetConfig: (patch = {}) => call('mcp_set_config', patch),
-  mcpClientConfig: () => call('mcp_client_config')
+  mcpClientConfig: () => call('mcp_client_config'),
+  browserGetConfig: () => call('browser_get_config'),
+  browserSetConfig: (patch = {}) => call('browser_set_config', patch),
+  browserStatus: () => call('browser_status')
 };

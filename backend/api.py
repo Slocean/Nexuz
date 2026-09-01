@@ -3480,6 +3480,43 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    # ── Browser engine (crawler / automation blocks) ──────────────────
+
+    def browser_get_config(self) -> dict:
+        from backend.core.browser import get_browser_config
+
+        try:
+            return {"ok": True, "config": get_browser_config()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def browser_set_config(self, patch: dict | None = None) -> dict:
+        from backend.core.browser import close_browser_session, set_browser_config
+
+        try:
+            saved = set_browser_config(patch if isinstance(patch, dict) else {})
+            close_browser_session(force=True)
+            return {"ok": True, "config": saved}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def browser_status(self) -> dict:
+        from backend.core.browser import get_browser_config, session_status
+        from backend.core.browser.discovery import find_browser
+
+        try:
+            cfg = get_browser_config()
+            st = session_status()
+            return {
+                "ok": True,
+                "config": cfg,
+                "running": st["alive"],
+                "engine": st["engine"],
+                "browser_found": bool(find_browser(str(cfg.get("edge_path") or ""))),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def ai_test_connection(
         self,
         target: str = "chat",

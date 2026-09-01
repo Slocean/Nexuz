@@ -36,6 +36,10 @@ RUN_BLOCK_SAFE = frozenset(
         "find_image",
         "wait_until",
         "window_wait",
+        "browser_extract",
+        "browser_screenshot",
+        "browser_wait",
+        "browser_close",
     }
 )
 
@@ -60,6 +64,10 @@ RUN_BLOCK_ACTION = frozenset(
         "image_scale",
         "transparent_cut",
         "sprite_sheet_cut",
+        "browser_navigate",
+        "browser_click",
+        "browser_fill",
+        "browser_eval",
     }
 )
 
