@@ -37,6 +37,7 @@ export function waitForBridge(timeoutMs = 10000) {
  * 字段再交给原 stringify，任何 DOM 节点都不进入序列化。
  */
 function patchDropEventSerialization(attempt = 0) {
+  if (typeof window === 'undefined') return; // Node/测试环境无 window
   const pv = window.pywebview;
   if (!pv || typeof pv.stringify !== 'function') {
     if (attempt < 100) setTimeout(() => patchDropEventSerialization(attempt + 1), 50);
