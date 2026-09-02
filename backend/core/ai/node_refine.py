@@ -92,6 +92,10 @@ def build_refine_messages(
     return [SystemMessage(content=REFINE_SYSTEM), HumanMessage(content=blob)]
 
 
+# 执行热路径上的同步 LLM 往返上限：超时按失败处理（保留原参数，不阻塞流程）。
+_REFINE_TIMEOUT_S = 20.0
+
+
 def refine_node_params(
     block_type: str,
     params: dict[str, Any],
@@ -100,6 +104,7 @@ def refine_node_params(
     cfg: Any = None,
     create_model: Any = None,
     invoke_fn: Any = None,
+    timeout_s: float | None = None,
 ) -> tuple[dict[str, Any], str] | None:
     """返回 (修正后 params, 原因)；无需修正 / AI 未启用 / 失败 → None。
 
@@ -116,8 +121,11 @@ def refine_node_params(
 
     messages = build_refine_messages(btype, params, context)
     _invoke = invoke_fn or _guarded_invoke
-    try:
-        raw = _invoke(
+
+    from backend.core.ai import cancel as ai_cancel
+
+    def _call() -> Any:
+        return _invoke(
             c,
             "node_refine",
             RefinedNodeParams,
@@ -125,7 +133,14 @@ def refine_node_params(
             temperature=0.1,
             create_model=create_model,
         )
+
+    try:
+        finished, raw = ai_cancel.run_with_timeout(
+            _call, timeout_s=float(timeout_s or _REFINE_TIMEOUT_S)
+        )
     except Exception:
+        return None
+    if not finished:
         return None
 
     if hasattr(raw, "params"):

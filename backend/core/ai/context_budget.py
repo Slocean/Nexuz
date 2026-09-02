@@ -243,16 +243,21 @@ def maybe_llm_tighten_summary(
             streaming=False,
             max_tokens=tighten_budget.max_tokens,
         )
-        msg = llm.invoke(
-            [
-                SystemMessage(
-                    content=(
-                        "将编排状态压成不超过 8 句中文备忘。禁止改动或编造 slots 中的值；"
-                        "只复述事实：意图、槽位、大纲步骤名、草稿节点类型、待澄清。"
-                    )
-                ),
-                HumanMessage(content=text[:4000]),
-            ]
+        from backend.core.ai.retry import with_retry
+
+        msg = with_retry(
+            lambda: llm.invoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "将编排状态压成不超过 8 句中文备忘。禁止改动或编造 slots 中的值；"
+                            "只复述事实：意图、槽位、大纲步骤名、草稿节点类型、待澄清。"
+                        )
+                    ),
+                    HumanMessage(content=text[:4000]),
+                ]
+            ),
+            what="tighten",
         )
         content = getattr(msg, "content", "") or ""
         if isinstance(content, list):

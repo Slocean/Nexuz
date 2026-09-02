@@ -2100,6 +2100,8 @@ function mockCall(method, ...args) {
       return Promise.resolve({ ok: true, deleted: 0 });
     case 'ai_chat':
       return Promise.resolve({ ok: false, error: '浏览器预览模式不支持 AI 对话' });
+    case 'ai_chat_stop':
+      return Promise.resolve({ ok: true, stopped: false });
     case 'ai_get_draft':
       return Promise.resolve({
         ok: true,
@@ -2364,6 +2366,7 @@ export const bridge = {
       !!attachScreenshot,
       mode === 'chat' ? 'chat' : 'flow'
     ),
+  aiChatStop: conversationId => call('ai_chat_stop', conversationId || ''),
   aiGetDraft: conversationId => call('ai_get_draft', conversationId),
   aiGetOrchestration: (conversationId, messageId, includeShotImage = false) =>
     call('ai_get_orchestration', conversationId, messageId, !!includeShotImage),

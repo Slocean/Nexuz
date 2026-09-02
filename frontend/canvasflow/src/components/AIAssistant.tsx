@@ -1375,6 +1375,15 @@ export default function AIAssistant({
     await sendUserMessage(inputValue, { withShot: attachShot });
   };
 
+  const handleStop = async () => {
+    if (!activeId) return;
+    try {
+      await bridge.aiChatStop(activeId);
+    } catch {
+      // 桥接失败时静默——后端检查点仍会随轮次结束清理
+    }
+  };
+
   const handleClarifyAnswer = (text: string) => {
     void sendUserMessage(text);
   };
@@ -2026,22 +2035,22 @@ export default function AIAssistant({
                 disabled={isLoading || !activeId}
               />
               <Button
-                type="submit"
+                type={isLoading ? "button" : "submit"}
                 size="icon"
                 disabled={
-                  (!inputValue.trim() && !(isFlowMode && attachShot)) ||
-                  isLoading ||
-                  !activeId
+                  !isLoading &&
+                  ((!inputValue.trim() && !(isFlowMode && attachShot)) || !activeId)
                 }
+                onClick={isLoading ? () => void handleStop() : undefined}
+                title={isLoading ? "停止本轮 AI" : "发送"}
                 className="absolute right-1.5 h-8 w-8"
                 style={{
-                  backgroundColor:
-                    (inputValue.trim() || (isFlowMode && attachShot)) && !isLoading
-                      ? colors.primary
-                      : undefined,
+                  backgroundColor: isLoading || ((inputValue.trim() || (isFlowMode && attachShot)) && !isLoading)
+                    ? colors.primary
+                    : undefined,
                 }}
               >
-                <Send className="w-3.5 h-3.5" />
+                {isLoading ? <Square className="w-3 h-3" /> : <Send className="w-3.5 h-3.5" />}
               </Button>
             </div>
           </form>

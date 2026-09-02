@@ -113,7 +113,7 @@ def test_guarded_structured_invoke_cache_hit(isolated_cache):
         def __init__(self, schema):
             self.schema = schema
 
-        def invoke(self, messages):
+        def invoke(self, messages, config=None):
             calls["n"] += 1
             return self.schema(ok=True, tag="gen")
 
@@ -164,7 +164,7 @@ def test_guarded_structured_invoke_cache_disabled(isolated_cache, monkeypatch):
         def __init__(self, schema):
             self.schema = schema
 
-        def invoke(self, messages):
+        def invoke(self, messages, config=None):
             calls["n"] += 1
             return self.schema(ok=True)
 
@@ -183,3 +183,22 @@ def test_guarded_structured_invoke_cache_disabled(isolated_cache, monkeypatch):
         create_model=lambda *a, **k: _LLM(),
     )
     assert calls["n"] == 2
+
+
+def test_hit_rate_metrics(isolated_cache, monkeypatch):
+    llm_cache.put_json("k1", {"a": 1})
+    assert llm_cache.get_json("k1") == {"a": 1}  # hit
+    assert llm_cache.get_json("nope") is None  # miss
+    monkeypatch.setenv("NEXUZ_AI_LLM_CACHE_TTL_HOURS", "0")
+    assert llm_cache.get_json("k1") is None  # miss_expired
+
+    stats = llm_cache.stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 2
+    assert stats["miss_expired"] == 1
+    assert stats["hit_rate"] == round(1 / 3, 4)
+
+    # 手动清空 → 指标一并归零
+    assert llm_cache.clear() == 1
+    stats = llm_cache.stats()
+    assert stats["hits"] == 0 and stats["hit_rate"] is None

@@ -255,3 +255,52 @@ def test_get_mcp_config_defaults(monkeypatch, tmp_path):
     monkeypatch.setattr(paths, "config_path", lambda: tmp_path / "config.json")
     cfg = mb.get_mcp_config()
     assert cfg["enabled"] is True and cfg["port"] == 0
+
+
+def test_flow_control_not_blocked_by_run_lock(server):
+    """run_flow(wait=True) 持有 _run_lock 时，stop 仍必须可达（止损通道）。"""
+    base, token, _api = server
+    with mb._run_lock:
+        status, data = rpc(base, token, "flow_control", {"action": "stop"})
+    assert status == 200 and data["result"]["ok"] is True
+
+
+def test_run_flow_wait_timeout_reports_timed_out(server, monkeypatch):
+    """wait=True 超时后流程仍在运行 → timed_out:true（而非静默 finished:null）。"""
+    base, token, _api = server
+
+    class _StubInterp:
+        running = True  # wait 超时后仍在执行
+
+        def wait_until_idle(self, timeout=None):
+            self.waited = timeout
+            return None
+
+    stub = _StubInterp()
+    monkeypatch.setattr("backend.core.interpreter.get_interpreter", lambda: stub)
+    flow_file = _api._flows_dir() / "demo.flow.json"
+    flow_file.parent.mkdir(exist_ok=True)
+    flow_file.write_text(json.dumps({"name": "demo", "nodes": {}}), encoding="utf-8")
+    _status, data = rpc(base, token, "run_flow", {"flow_path": "demo.flow.json", "wait": True, "timeout_s": 1})
+    result = data["result"]
+    assert result["ok"] is True
+    assert result["timed_out"] is True
+    assert stub.waited == 1
+    assert result["finished"] is None
+
+
+def test_rpc_concurrency_limit(server, monkeypatch):
+    """在途 RPC 达到上限 → 503 busy（而不是无限堆线程）。"""
+    import urllib.error
+
+    base, token, _api = server
+    acquired = []
+    while mb._rpc_slots.acquire(blocking=False):
+        acquired.append(True)
+    try:
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            rpc(base, token, "get_status")
+        assert exc_info.value.code == 503
+    finally:
+        for _ in acquired:
+            mb._rpc_slots.release()

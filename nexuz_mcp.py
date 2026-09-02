@@ -70,7 +70,7 @@ TOOLS = [
     },
     {
         "name": "run_flow",
-        "description": "执行 Nexuz 流程库中的一条流程（走完整参数校验与执行策略）。默认阻塞等待执行结束并返回结果摘要。",
+        "description": "执行 Nexuz 流程库中的一条流程（走完整参数校验与执行策略）。默认阻塞等待执行结束并返回结果摘要；等待超时返回 timed_out:true（流程仍在运行，可用 flow_control stop 止损）。",
         "inputSchema": {
             "type": "object",
             "properties": {

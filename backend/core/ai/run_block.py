@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from backend.core.block_params_validate import validate_flow_params
@@ -73,6 +74,17 @@ RUN_BLOCK_ACTION = frozenset(
 
 # 单次执行墙钟上限（防 AI 传超长等待卡住会话线程）。
 _MAX_DELAY_MS = 60_000.0
+# handler 墙钟上限：协作型积木（delay/wait_*）受 _clamp_wait 钳制可自然完成，
+# 此上限兜底卡死的 handler（网络挂起等）；MCP 客户端默认超时 120s > 90s。
+_HANDLER_TIMEOUT_S = 90.0
+
+# 等待类积木的时长参数钳制：(参数名, 上限)。timeout<=0 视为无限等待，一并钳制。
+_WAIT_PARAM_CAPS: dict[str, tuple[str, float]] = {
+    "delay": ("ms", _MAX_DELAY_MS),
+    "wait_until": ("timeout_ms", _MAX_DELAY_MS),
+    "browser_wait": ("timeout_ms", _MAX_DELAY_MS),
+    "window_wait": ("timeout_sec", 60.0),
+}
 
 
 def classify_run_block(block_type: Any) -> str | None:
@@ -88,13 +100,16 @@ def classify_run_block(block_type: Any) -> str | None:
 
 
 def _clamp_wait(btype: str, params: dict[str, Any]) -> None:
-    if btype == "delay":
-        try:
-            ms = float(params.get("ms"))
-        except (TypeError, ValueError):
-            return
-        if ms > _MAX_DELAY_MS:
-            params["ms"] = _MAX_DELAY_MS
+    cap = _WAIT_PARAM_CAPS.get(btype)
+    if cap is None:
+        return
+    key, limit = cap
+    try:
+        val = float(params.get(key))
+    except (TypeError, ValueError):
+        return
+    if val <= 0 or val > limit:
+        params[key] = limit
 
 
 def run_block_once(
@@ -103,8 +118,13 @@ def run_block_once(
     run_ctx: dict[str, Any],
     allow_run_block: bool = False,
     allow_dangerous: bool = False,
+    timeout_s: float | None = None,
 ) -> dict[str, Any]:
-    """执行一个积木并返回紧凑结果。args: {type, params}。"""
+    """执行一个积木并返回紧凑结果。args: {type, params}。
+
+    timeout_s：handler 墙钟上限（默认 _HANDLER_TIMEOUT_S）；超时返回
+    {"ok": False, "timed_out": True}，弃置的 handler 线程靠 should_stop 自行退出。
+    """
     btype = str(args.get("type") or "").strip()
     entry = BLOCK_REGISTRY.get(btype)
     if not isinstance(entry, dict):
@@ -152,19 +172,39 @@ def run_block_once(
     if not callable(handler):
         return {"ok": False, "error": f"积木 {btype} 无可执行 handler（控制流类）"}
 
-    try:
-        result = handler(
+    from backend.core.ai import cancel as ai_cancel
+
+    stop_event = threading.Event()
+
+    def _invoke_handler() -> dict[str, Any]:
+        return handler(
             params,
             ctx,
             node={"type": btype, "params": params, "id": node_id},
             node_id=node_id,
             flow={},
             emit=lambda *a, **k: None,
-            should_stop=lambda: False,
+            should_stop=stop_event.is_set,
             cooperate=lambda: None,
         ) or {}
+
+    try:
+        timeout_s = float(timeout_s) if timeout_s else _HANDLER_TIMEOUT_S
+        finished, result = ai_cancel.run_with_timeout(
+            _invoke_handler, timeout_s=timeout_s
+        )
     except Exception as exc:
         return {"ok": False, "error": f"{btype} 执行失败: {exc}", "node_id": node_id}
+    if not finished:
+        # 通知协作型积木（should_stop）尽快自行退出并释放资源/锁
+        stop_event.set()
+        return {
+            "ok": False,
+            "timed_out": True,
+            "error": f"{btype} 执行超时（>{timeout_s:.0f}s），已中止等待",
+            "node_id": node_id,
+            "tier": tier,
+        }
 
     for out_name, val in (result or {}).items():
         ctx[f"{node_id}.{out_name}"] = val

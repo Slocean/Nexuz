@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import json
 import re
 from typing import Any
@@ -119,6 +121,7 @@ class MemoryRouter:
             msgs = data.get("messages") or []
             return [m for m in msgs if isinstance(m, dict)]
         except Exception:
+            logging.getLogger(__name__).warning("情景记忆读取失败", exc_info=True)
             return []
 
     def retrieve(

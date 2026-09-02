@@ -8,6 +8,10 @@ from typing import Any
 VAR_PATTERN = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
 # $name or $name.0.field (path segments: word or digits)
 DOLLAR_PATTERN = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)")
+# 转义：$$name → 字面量 $name（不做变量替换）。$$ 后必须紧跟变量形态的 token，
+# 避免 "$$ 100 元" 这类普通文本被误当转义。
+DOLLAR_ESCAPE_PATTERN = re.compile(r"\$\$(\$?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)")
+_ESCAPE_SENTINEL = "\x00nx-esc-\x00"
 
 
 def resolve_value(value: Any, context: dict[str, Any]) -> Any:
@@ -202,17 +206,29 @@ def _lookup(key: str, context: dict[str, Any]) -> Any:
 
 
 def _resolve_string(text: str, context: dict[str, Any]) -> Any:
+    # $$name → 字面量 $name：先 stash，替换完成后再还原，保证不参与变量解析
+    escaped: list[str] = []
+
+    def _stash(match: re.Match) -> str:
+        escaped.append(match.group(1))
+        return f"{_ESCAPE_SENTINEL}{len(escaped) - 1}{_ESCAPE_SENTINEL}"
+
+    if DOLLAR_ESCAPE_PATTERN.search(text):
+        text = DOLLAR_ESCAPE_PATTERN.sub(_stash, text)
+
     # Exact match {{node.field}} / {{node.matches.0.x}} → return raw typed value
     m = VAR_PATTERN.fullmatch(text.strip())
     if m:
         val = _lookup(m.group(1), context)
-        return "" if val is None else val
+        out = "" if val is None else val
+        return _restore_escapes(out, escaped) if isinstance(out, str) else out
 
     # Exact $name or $name.0.field → typed value (not stringified)
     m = DOLLAR_PATTERN.fullmatch(text.strip())
     if m:
         val = _lookup(m.group(1), context)
-        return "" if val is None else val
+        out = "" if val is None else val
+        return _restore_escapes(out, escaped) if isinstance(out, str) else out
 
     def repl_brace(match: re.Match) -> str:
         val = _lookup(match.group(1), context)
@@ -224,4 +240,12 @@ def _resolve_string(text: str, context: dict[str, Any]) -> Any:
 
     out = VAR_PATTERN.sub(repl_brace, text)
     out = DOLLAR_PATTERN.sub(repl_dollar, out)
-    return out
+    return _restore_escapes(out, escaped)
+
+
+def _restore_escapes(value: str, escaped: list[str]) -> str:
+    if not escaped:
+        return value
+    for i, name in enumerate(escaped):
+        value = value.replace(f"{_ESCAPE_SENTINEL}{i}{_ESCAPE_SENTINEL}", f"${name}")
+    return value

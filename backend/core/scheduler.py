@@ -170,6 +170,7 @@ class FlowScheduler:
         meta: dict[str, Any],
     ) -> None:
         from backend.core.block_params_validate import validate_flow_params
+        from backend.core.execution_policy import resolve_execution_policy, scan_flow_violations
         from backend.core.interpreter import get_interpreter
         from backend.core.runtime_log import get_runtime_log_manager
 
@@ -191,6 +192,22 @@ class FlowScheduler:
                         "reason": "validation_error",
                         "error": message,
                     },
+                )
+            return
+        # 与 api.run_flow 同一道预扫描：高危积木在启动前整体拒绝，
+        # 而不是只依赖运行时逐节点检查兜底。
+        execution_policy = resolve_execution_policy(payload)
+        violations = scan_flow_violations(payload, execution_policy)
+        if violations:
+            labels = "、".join(
+                f"{item['block_type']}（{item['node_id']}）" for item in violations[:5]
+            )
+            message = f"流程含未授权的高危积木：{labels}"
+            self._record_failure(job_id, reason="policy_blocked", error=message, meta=meta)
+            if self._emit:
+                self._emit(
+                    "schedule_error",
+                    {"job_id": job_id, "reason": "policy_blocked", "error": message},
                 )
             return
         interp = get_interpreter()

@@ -79,6 +79,13 @@ def _get_conn() -> sqlite3.Connection:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_kv_created ON kv (created_at)"
         )
+        # 命中率指标（进程间持久化；key ∈ hit/miss/miss_expired/miss_corrupt）
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS metrics ("
+            " key TEXT PRIMARY KEY,"
+            " value INTEGER NOT NULL"
+            ")"
+        )
         conn.commit()
         _conn = conn
         _conn_path = path
@@ -184,6 +191,19 @@ def make_key(
 # ---------------------------------------------------------------------------
 
 
+def _bump_metric(conn: sqlite3.Connection, name: str, delta: int = 1) -> None:
+    try:
+        with _db_lock:
+            conn.execute(
+                "INSERT INTO metrics (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = value + excluded.value",
+                (name, delta),
+            )
+            conn.commit()
+    except Exception:
+        pass  # 指标失败不影响主流程
+
+
 def get_json(key: str) -> Any | None:
     ttl = _ttl_seconds()
     try:
@@ -194,13 +214,18 @@ def get_json(key: str) -> Any | None:
     except Exception:
         return None
     if not row:
+        _bump_metric(conn, "miss")
         return None
     if (time.time() - float(row[1])) > ttl:
+        _bump_metric(conn, "miss_expired")
         return None
     try:
-        return json.loads(bytes(row[0]).decode("utf-8"))
+        value = json.loads(bytes(row[0]).decode("utf-8"))
     except Exception:
+        _bump_metric(conn, "miss_corrupt")
         return None
+    _bump_metric(conn, "hit")
+    return value
 
 
 def put_json(key: str, value: Any) -> None:
@@ -276,12 +301,13 @@ def put_blob(key: str, data: bytes) -> None:
 
 
 def clear() -> int:
-    """手动清空缓存，返回清除条数。"""
+    """手动清空缓存，返回清除条数（命中率指标一并归零）。"""
     try:
         conn = _get_conn()
         with _db_lock:
             n = conn.execute("SELECT COUNT(*) FROM kv").fetchone()[0]
             conn.execute("DELETE FROM kv")
+            conn.execute("DELETE FROM metrics")
             conn.commit()
         return int(n)
     except Exception:
@@ -289,19 +315,42 @@ def clear() -> int:
 
 
 def stats() -> dict[str, Any]:
-    """缓存概况（设置页展示/诊断用）。"""
+    """缓存概况（设置页展示/诊断用），含累计命中率。"""
     try:
         conn = _get_conn()
         count, size = conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(LENGTH(value)), 0) FROM kv"
         ).fetchone()
+        metrics = {
+            str(k): int(v)
+            for k, v in conn.execute("SELECT key, value FROM metrics").fetchall()
+        }
+        hits = metrics.get("hit", 0)
+        misses = (
+            metrics.get("miss", 0)
+            + metrics.get("miss_expired", 0)
+            + metrics.get("miss_corrupt", 0)
+        )
+        total = hits + misses
         return {
             "count": int(count),
             "bytes": int(size),
             "path": str(_db_path()),
+            "hits": hits,
+            "misses": misses,
+            "miss_expired": metrics.get("miss_expired", 0),
+            "hit_rate": round(hits / total, 4) if total else None,
         }
     except Exception as exc:
-        return {"count": 0, "bytes": 0, "error": str(exc)}
+        return {
+            "count": 0,
+            "bytes": 0,
+            "hits": 0,
+            "misses": 0,
+            "miss_expired": 0,
+            "hit_rate": None,
+            "error": str(exc),
+        }
 
 
 # ---------------------------------------------------------------------------

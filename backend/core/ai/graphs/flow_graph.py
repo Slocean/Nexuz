@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
+import time
 from typing import Any, Callable, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
+from backend.core.ai import cancel as turn_cancel
 from backend.core.ai.checkpointer import get_checkpointer, thread_config
 from backend.core.ai.context_budget import (
     estimate_tokens,
@@ -87,8 +90,24 @@ def _draft_shell_for_recompile(source: dict[str, Any] | None) -> dict[str, Any]:
         shell["variable_schemas"] = copy.deepcopy(src["variable_schemas"])
     return shell
 
-# After LM Studio / bad chat-template 400, skip bind_tools for the process lifetime.
+# After LM Studio / bad chat-template 400, skip bind_tools — with a TTL so a
+# gateway restart / config fix is picked up instead of degrading for the
+# whole process lifetime.
 _NATIVE_TOOLS_UNAVAILABLE = False
+_NATIVE_TOOLS_UNAVAILABLE_AT = 0.0
+_NATIVE_TOOLS_REPROBE_S = 600.0
+
+
+def _native_tools_unavailable() -> bool:
+    if not _NATIVE_TOOLS_UNAVAILABLE:
+        return False
+    return (time.monotonic() - _NATIVE_TOOLS_UNAVAILABLE_AT) <= _NATIVE_TOOLS_REPROBE_S
+
+
+def _mark_native_tools_unavailable() -> None:
+    global _NATIVE_TOOLS_UNAVAILABLE, _NATIVE_TOOLS_UNAVAILABLE_AT
+    _NATIVE_TOOLS_UNAVAILABLE = True
+    _NATIVE_TOOLS_UNAVAILABLE_AT = time.monotonic()
 
 
 def _short_err(
@@ -335,11 +354,6 @@ def _is_native_tools_broken(exc: BaseException) -> bool:
     return any(n in msg for n in needles)
 
 
-def _mark_native_tools_unavailable() -> None:
-    global _NATIVE_TOOLS_UNAVAILABLE
-    _NATIVE_TOOLS_UNAVAILABLE = True
-
-
 def _emit_tool_step(
     *,
     proc: list[dict[str, Any]],
@@ -382,6 +396,44 @@ def _invoke_named_tool(tool_map: dict[str, Any], name: str, args: Any) -> str:
         return str(tool.invoke(args or {}))
     except Exception as exc:
         return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+
+
+def _invoke_action_loop_cached(
+    llm: Any,
+    schema: Any,
+    messages: list[Any],
+    compact_messages: list[Any],
+    cfg: AiConfig | None,
+) -> Any:
+    """工具循环的结构化调用，接入应用层结果缓存。
+
+    键含完整 messages（任务 + 工具集 + 当前草稿 + 上一轮结果），因此只有
+    同一任务在同一草稿状态下的重跑才会命中——演进中的草稿天然不命中，
+    代价仅为一次哈希。
+    """
+    from backend.core.ai import llm_cache
+
+    cache_key = ""
+    if llm_cache.enabled(cfg):
+        try:
+            cache_key = llm_cache.make_key(
+                purpose="action_loop",
+                model=str(getattr(cfg, "model", "") or ""),
+                base_url=str(getattr(cfg, "base_url", "") or ""),
+                temperature=float(getattr(cfg, "temperature", 0.0) or 0.0),
+                schema_name=getattr(schema, "__name__", "") or "",
+                messages=messages,
+            )
+        except Exception:
+            cache_key = ""
+    if cache_key:
+        hit = llm_cache.load_structured(cache_key, schema)
+        if hit is not None:
+            return hit
+    result = invoke_structured(llm, schema, messages, compact_messages=compact_messages)
+    if cache_key:
+        llm_cache.store_structured(cache_key, result)
+    return result
 
 
 def _run_structured_action_loop(
@@ -439,6 +491,7 @@ def _run_structured_action_loop(
     patch_budget = plan_call(cfg, "patch", system_text=BUILD_STRUCTURED_SYSTEM)
     in_budget = max(400, patch_budget.available_input)
     for _ in range(max_iters):
+        turn_cancel.checkpoint(conversation_id)
         draft_blob = fit_prompt_blob(
             safe_json(draft_summary(session.draft)),
             budget=min(500, in_budget // 4),
@@ -483,8 +536,8 @@ def _run_structured_action_loop(
             ),
         ]
         try:
-            batch = invoke_structured(
-                llm, ToolActionBatch, full_msgs, compact_messages=compact_msgs
+            batch = _invoke_action_loop_cached(
+                llm, ToolActionBatch, full_msgs, compact_msgs, cfg
             )
         except Exception as exc:
             proc.append(
@@ -564,7 +617,6 @@ def _run_tool_loop(
     Build via tools: prefer JSON action protocol (no chat-template tools), then
     native bind_tools if JSON path produced nothing and native is still available.
     """
-    global _NATIVE_TOOLS_UNAVAILABLE
     tool_map = {t.name: t for t in tools}
     before = len(session.draft.get("nodes") or {})
     proc = _run_structured_action_loop(
@@ -584,7 +636,7 @@ def _run_tool_loop(
         p.get("kind") == "tool" and p.get("name") for p in proc[-30:]
     ):
         return proc
-    if _NATIVE_TOOLS_UNAVAILABLE:
+    if _native_tools_unavailable():
         return proc
 
     try:
@@ -1596,7 +1648,8 @@ def make_flow_nodes(
                             replace=True,
                         )
             except Exception:
-                pass
+                # summarize 打磨是可选优化：失败保留未打磨回复，但要可观测
+                logging.getLogger(__name__).debug("summarize 打磨失败", exc_info=True)
         _broadcast_process(proc)
         return {"reply": reply, "process": proc}
 
@@ -1679,9 +1732,19 @@ def build_flow_graph(
         conversation_id=conversation_id,
         assistant_id=assistant_id,
     )
+
+    def _with_cancel_checkpoint(fn: Callable[[dict], dict]) -> Callable[[dict], dict]:
+        """每个图节点入口的取消检查点：已取消时抛 TurnCancelled 终止整轮编排。"""
+
+        def _inner(state: dict) -> dict:
+            turn_cancel.checkpoint(conversation_id)
+            return fn(state)
+
+        return _inner
+
     g = StateGraph(FlowGraphState)
     for name, fn in nodes.items():
-        g.add_node(name, fn)
+        g.add_node(name, _with_cancel_checkpoint(fn))
     g.add_edge(START, "load_context")
     g.add_conditional_edges(
         "load_context",

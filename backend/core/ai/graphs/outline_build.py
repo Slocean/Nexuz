@@ -188,7 +188,10 @@ def _apply_outline_step(
         _auto_connect(draft, last_node_id, nid)
         return nid
 
-    if hint in ("ocr_click", "text_click", "click") or sense == "ocr":
+    # OCR 识别+点击链仅用于"点击"类 hint。wait_until / if_text_contains 是
+    # 自感知积木（内部自带截图 OCR），此前被 `or sense == "ocr"` 劫持成点击链，
+    # 导致 wait_text 编译成"点击目标文字"、if_text 丢失 if 节点。
+    if hint in ("ocr_click", "text_click", "click"):
         text = str(
             match_text
             or params.get("contact")

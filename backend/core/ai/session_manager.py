@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -389,18 +390,40 @@ class SessionManager:
     ) -> dict[str, Any]:
         ai_mode = normalize_ai_mode(mode)
         progress = on_progress or _noop_progress
-        if ai_mode == "chat":
-            return self._chat_plain(
-                conversation_id, message, on_progress=progress
-            )
-        return self._chat_flow(
-            conversation_id,
-            message,
-            base_flow=base_flow,
-            attach_screenshot=attach_screenshot,
-            allow_dangerous=allow_dangerous,
-            on_progress=progress,
-        )
+        # 轮次级 token usage 统计：LLM 调用点（structured/streaming）自动上报，
+        # 结束后写入 result["usage"]；轮次中途的审计事件取 snapshot()。
+        from backend.core.ai import cancel as turn_cancel
+        from backend.core.ai import usage_tracker
+
+        usage_tracker.start_turn()
+        turn_cancel.start_turn(cid := conversation_id)
+        try:
+            if ai_mode == "chat":
+                result = self._chat_plain(
+                    conversation_id, message, on_progress=progress
+                )
+            else:
+                result = self._chat_flow(
+                    conversation_id,
+                    message,
+                    base_flow=base_flow,
+                    attach_screenshot=attach_screenshot,
+                    allow_dangerous=allow_dangerous,
+                    on_progress=progress,
+                )
+        except turn_cancel.TurnCancelled:
+            result = {
+                "ok": False,
+                "cancelled": True,
+                "error": "已按用户要求停止",
+                "conversation_id": conversation_id,
+            }
+        finally:
+            usage = usage_tracker.finish_turn()
+            turn_cancel.finish_turn(cid)
+        if isinstance(result, dict):
+            result["usage"] = usage
+        return result
 
     def _chat_plain(
         self,
@@ -744,6 +767,7 @@ class SessionManager:
         }
         orch = lean_orchestration_card(orch_raw, message_id=assistant_id) or orch_raw
         try:
+            from backend.core.ai import usage_tracker
             from backend.core.ai.audit import write_audit_event
 
             write_audit_event(
@@ -764,10 +788,13 @@ class SessionManager:
                         if isinstance(out.get("outline"), dict)
                         else []
                     ),
+                    "usage": usage_tracker.snapshot(),
                 }
             )
         except Exception:
-            pass
+            logging.getLogger(__name__).warning("flow 审计写入失败", exc_info=True)
+
+        from backend.core.ai import usage_tracker as _usage_tracker
 
         agent_log = {
             "version": 1,
@@ -797,6 +824,7 @@ class SessionManager:
             "status_hint": out.get("status_hint") or "",
             "context_compact": next_agent_state.get("context_compact") or {},
             "did_compact": bool(out.get("did_compact")),
+            "usage": _usage_tracker.snapshot(),
         }
         assistant_msg = ChatMessage(
             id=assistant_id,

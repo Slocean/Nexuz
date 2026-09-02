@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -65,6 +66,8 @@ def run_chat_graph(
     messages.extend(_history_to_lc_messages(history))
     messages.append(HumanMessage(content=user_text))
 
+    from backend.core.ai import cancel as turn_cancel
+
     llm = create_chat_model(cfg, streaming=True)
     content, reasoning = stream_chat_model(
         llm,
@@ -73,6 +76,7 @@ def run_chat_graph(
         mode="chat",
         conversation_id=conversation_id,
         assistant_id=assistant_id,
+        cancel_check=lambda: turn_cancel.is_cancelled(conversation_id),
     )
     reply = (content or "").strip() or "好的。"
 
@@ -90,7 +94,9 @@ def run_chat_graph(
                     config=thread_config(conversation_id),
                 )
         except Exception:
-            pass
+            # checkpoint 形同记录用途，失败不阻塞对话；但静默会让跨轮恢复
+            # 失效难以察觉（本图 checkpoint 只写不读，见 run_chat_graph）。
+            logging.getLogger(__name__).warning("chat checkpoint 写入失败", exc_info=True)
 
     process: list[dict[str, Any]] = []
     if reasoning:

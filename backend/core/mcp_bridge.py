@@ -36,9 +36,18 @@ _state: dict[str, Any] = {"server": None, "thread": None, "token": None, "api": 
 
 # Cross-call context for run_block ({"context": dict, "counter": int}), same
 # {node_id}.{output} convention as the interpreter / AI sessions.
+# _run_lock serializes mutating work (run_block/run_flow/...). flow_control
+# uses a SEPARATE lock: when run_flow(wait=True) holds _run_lock on a hung
+# flow, stop/pause must still get through — that is the whole point of 止损.
 _run_lock = threading.RLock()
+_control_lock = threading.RLock()
 _run_ctx: dict[str, Any] = {"context": {}, "counter": 0}
 _artifacts: dict[str, Any] = {"shots": {}, "points": {}}
+
+# Bound concurrent RPC dispatch (each slot holds a worker thread for the whole
+# call — run_flow(wait=True) can occupy one for minutes).
+_MAX_CONCURRENT_RPC = 8
+_rpc_slots = threading.BoundedSemaphore(_MAX_CONCURRENT_RPC)
 
 
 def port_file_path() -> Path:
@@ -160,17 +169,20 @@ def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
     if tool == "list_flows":
         return api.list_flows()
 
-    mutating = {"run_block", "run_flow", "flow_control", "capture_screen", "locate_text_on_screen", "reset_session"}
-    if tool not in mutating:
+    known = {"run_block", "run_flow", "flow_control", "capture_screen", "locate_text_on_screen", "reset_session"}
+    if tool not in known:
         return {"ok": False, "error": f"未知工具: {tool}"}
+
+    if tool == "flow_control":
+        # 独立锁：run_flow(wait=True) 挂死时 stop 必须仍可达
+        with _control_lock:
+            return _tool_flow_control(api, args)
 
     with _run_lock:
         if tool == "run_block":
             return _tool_run_block(args)
         if tool == "run_flow":
             return _tool_run_flow(api, args)
-        if tool == "flow_control":
-            return _tool_flow_control(api, args)
         if tool == "capture_screen":
             return _tool_capture_screen(api, args)
         if tool == "locate_text_on_screen":
@@ -254,13 +266,17 @@ def _tool_run_flow(api: Any, args: dict[str, Any]) -> dict[str, Any]:
 
     result = api.run_flow(flow, hide_window=bool(args.get("hide_window", True)))
     finished: dict[str, Any] | None = None
+    timed_out = False
     if wait and result.get("ok"):
         from backend.core.interpreter import get_interpreter
 
-        get_interpreter().wait_until_idle(timeout=timeout_s)
+        interp = get_interpreter()
+        interp.wait_until_idle(timeout=timeout_s)
         finished = getattr(api, "_last_flow_finished", None)
         if not isinstance(finished, dict):
             finished = None
+        # wait_until_idle 无返回值：超时后流程仍在跑即为 timed_out
+        timed_out = bool(getattr(interp, "running", False))
 
     _audit(
         {
@@ -270,10 +286,11 @@ def _tool_run_flow(api: Any, args: dict[str, Any]) -> dict[str, Any]:
             "ok": bool(result.get("ok")),
             "started": bool(result.get("started")),
             "blocked": bool(result.get("blocked")),
+            "timed_out": timed_out,
             "error": result.get("error"),
         }
     )
-    return {"ok": True, "run": result, "finished": finished}
+    return {"ok": True, "run": result, "finished": finished, "timed_out": timed_out}
 
 
 def _tool_flow_control(api: Any, args: dict[str, Any]) -> dict[str, Any]:
@@ -334,6 +351,8 @@ def _tool_locate_text(args: dict[str, Any]) -> dict[str, Any]:
 def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        # 死连接看门狗：socket 读写级超时（非请求总时长），只杀无响应的对端
+        timeout = 30
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             return
@@ -377,12 +396,18 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
                 self._send_json(400, {"ok": False, "error": "invalid JSON body"})
                 return
             tool = str((req or {}).get("tool") or "").strip()
+            # 并发上限：超过 _MAX_CONCURRENT_RPC 个在途 RPC 直接拒绝（503）
+            if not _rpc_slots.acquire(timeout=2.0):
+                self._send_json(503, {"ok": False, "error": "busy: too many concurrent rpc"})
+                return
             try:
                 result = dispatch(api, tool, (req or {}).get("args"))
             except Exception as exc:
                 _log_system(f"rpc dispatch failed: {tool}: {exc}", level="error")
                 self._send_json(500, {"ok": False, "error": str(exc)})
                 return
+            finally:
+                _rpc_slots.release()
             self._send_json(200, {"ok": True, "result": result})
 
     return Handler

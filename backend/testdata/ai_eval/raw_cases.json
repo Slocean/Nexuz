@@ -1,0 +1,154 @@
+[
+  {
+    "id": "raw_alias_click",
+    "utterance": "点击确定按钮",
+    "slots": {"match_text": "确定"},
+    "raw_steps": [{"op": "click", "a": {"text": "确定"}}],
+    "expected_ops": ["ocr_click"],
+    "expected_args": [{"op": "ocr_click", "key": "text", "value": "确定"}]
+  },
+  {
+    "id": "raw_alias_tap",
+    "utterance": "点一下保存",
+    "raw_steps": [{"op": "tap", "a": {"text": "保存"}}],
+    "expected_ops": ["ocr_click"],
+    "expected_args": [{"op": "ocr_click", "key": "text", "value": "保存"}]
+  },
+  {
+    "id": "raw_alias_type_text",
+    "utterance": "输入你好世界",
+    "raw_steps": [{"op": "type_text", "a": {"text": "你好世界"}}],
+    "expected_ops": ["type"],
+    "expected_args": [{"op": "type", "key": "text", "value": "你好世界"}]
+  },
+  {
+    "id": "raw_alias_input",
+    "utterance": "填写备注内容",
+    "raw_steps": [{"op": "input", "a": {"text": "备注内容"}}],
+    "expected_ops": ["type"]
+  },
+  {
+    "id": "raw_alias_press",
+    "utterance": "按 Escape",
+    "raw_steps": [{"op": "press", "a": {"keys": "Escape"}}],
+    "expected_ops": ["key"],
+    "expected_args": [{"op": "key", "key": "keys", "value": "Escape"}]
+  },
+  {
+    "id": "raw_alias_hotkey",
+    "utterance": "复制",
+    "raw_steps": [{"op": "hotkey", "a": {"keys": "Ctrl+C"}}],
+    "expected_ops": ["key"]
+  },
+  {
+    "id": "raw_alias_sleep",
+    "utterance": "睡两秒",
+    "raw_steps": [{"op": "sleep", "a": {"ms": "2000"}}],
+    "expected_ops": ["wait"],
+    "expected_args": [{"op": "wait", "key": "ms", "value": "2000"}]
+  },
+  {
+    "id": "raw_alias_delay",
+    "utterance": "延迟 100 毫秒",
+    "raw_steps": [{"op": "delay", "a": {"ms": "100"}}],
+    "expected_ops": ["wait"]
+  },
+  {
+    "id": "raw_bare_string_args",
+    "utterance": "打开记事本输入 hello 回车",
+    "slots": {"window_title": "记事本"},
+    "raw_steps": [
+      {"op": "open", "a": "记事本"},
+      {"op": "write", "a": "hello"},
+      {"op": "press", "a": "Enter"}
+    ],
+    "expected_ops": ["activate", "type", "key"],
+    "expected_args": [
+      {"op": "activate", "key": "window", "value": "记事本"},
+      {"op": "type", "key": "text", "value": "hello"},
+      {"op": "key", "key": "keys", "value": "Enter"}
+    ]
+  },
+  {
+    "id": "raw_key_text_arg_normalized",
+    "utterance": "回车确认",
+    "raw_steps": [{"op": "key", "a": {"text": "Enter"}}],
+    "expected_ops": ["key"],
+    "expected_args": [{"op": "key", "key": "keys", "value": "Enter"}]
+  },
+  {
+    "id": "raw_arg_key_alias_url_to_text",
+    "utterance": "打开网址",
+    "raw_steps": [{"op": "type", "a": {"url": "https://example.com"}}],
+    "expected_ops": ["type"],
+    "expected_args": [{"op": "type", "key": "text", "value": "https://example.com"}]
+  },
+  {
+    "id": "raw_activate_title_arg",
+    "utterance": "切换到微信",
+    "raw_steps": [{"op": "activate_window", "a": {"title": "微信"}}],
+    "expected_ops": ["activate"],
+    "expected_args": [{"op": "activate", "key": "window", "value": "微信"}]
+  },
+  {
+    "id": "raw_unknown_ops_dropped",
+    "utterance": "执行悬浮独角兽然后输入 hi",
+    "raw_steps": [
+      {"op": "hover_unicorn", "a": {"text": "x"}},
+      {"op": "summon_dragon", "a": "y"},
+      {"op": "type", "a": {"text": "hi"}}
+    ],
+    "expected_ops": ["type"],
+    "forbid_ops": ["hover_unicorn", "summon_dragon"]
+  },
+  {
+    "id": "raw_consecutive_duplicates_deduped",
+    "utterance": "回车（模型重复输出了两次）",
+    "raw_steps": [
+      {"op": "key", "a": {"keys": "Enter"}},
+      {"op": "key", "a": {"keys": "Enter"}}
+    ],
+    "expected_ops": ["key"]
+  },
+  {
+    "id": "raw_mixed_alias_and_canonical",
+    "utterance": "打开微信点击 mom 输入 hi 回车",
+    "slots": {"window_title": "微信", "contact": "mom", "message": "hi"},
+    "raw_steps": [
+      {"op": "switch", "a": "微信"},
+      {"op": "click_text", "a": {"text": "mom"}},
+      {"op": "enter_text", "a": {"text": "hi"}},
+      {"op": "shortcut", "a": "Enter"}
+    ],
+    "expected_ops": ["activate", "ocr_click", "type", "key"],
+    "expected_args": [
+      {"op": "activate", "key": "window", "value": "微信"},
+      {"op": "ocr_click", "key": "text", "value": "mom"},
+      {"op": "type", "key": "text", "value": "hi"},
+      {"op": "key", "key": "keys", "value": "Enter"}
+    ],
+    "models": ["qwen2.5-7b-instruct"]
+  },
+  {
+    "id": "raw_reasoning_style_extra_fields",
+    "utterance": "等待半秒后按回车",
+    "raw_steps": [
+      {"op": "wait", "a": {"ms": "500"}, "thought": "先等界面稳定", "confidence": 0.8},
+      {"op": "key_press", "a": {"keys": "Enter"}, "why": "提交"}
+    ],
+    "expected_ops": ["wait", "key"],
+    "expected_args": [{"op": "wait", "key": "ms", "value": "500"}],
+    "models": ["deepseek-r1-distill-qwen-7b"]
+  },
+  {
+    "id": "raw_all_unknown_falls_back_to_slots",
+    "utterance": "打开窗口输入内容",
+    "slots": {"window_title": "设置", "message": "完成"},
+    "raw_steps": [{"op": "teleport", "a": "x"}],
+    "expected_ops": ["activate", "type"],
+    "expected_args": [
+      {"op": "activate", "key": "window", "value": "设置"},
+      {"op": "type", "key": "text", "value": "完成"}
+    ]
+  }
+]

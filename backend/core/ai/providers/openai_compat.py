@@ -8,20 +8,8 @@ from urllib.parse import urljoin
 
 import httpx
 
+from backend.core.ai.model_capabilities import requires_temperature_one
 from backend.core.ai.types import LlmError, LlmTurn
-
-# Models that reject non-default temperature (must be 1 or omitted).
-_FIXED_TEMP_1_MARKERS = (
-    "o1",
-    "o3",
-    "o4",
-    "gpt-5",
-    "reasoner",
-    "deepseek-r1",
-    "kimi",
-    "k2.5",
-    "k2-",
-)
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -40,10 +28,8 @@ def _chat_url(base_url: str) -> str:
 
 
 def _model_requires_temperature_one(model: str) -> bool:
-    name = (model or "").strip().lower()
-    if not name:
-        return False
-    return any(m in name for m in _FIXED_TEMP_1_MARKERS)
+    # 统一走 model_capabilities 单一能力表（历史本地实现已删除，避免漂移）
+    return requires_temperature_one(model)
 
 
 def _merge_stream_fragment(parts: list[str], piece: str) -> tuple[bool, bool]:

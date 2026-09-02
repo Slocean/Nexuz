@@ -66,6 +66,7 @@ def handler(params, context, node=None, **kwargs):
     items = _as_list(params.get("collection"))
     item = items[index] if 0 <= index < len(items) else None
     item_var = _normalize_item_var(params.get("item_var"))
-    if isinstance(context, dict):
+    # 仅在有效轮次注入：退出访问（index==len）不得把 $item 覆盖为 None
+    if isinstance(context, dict) and item is not None:
         inject_item_var(context, item_var, item)
     return {"index": index, "item": item, "length": len(items)}

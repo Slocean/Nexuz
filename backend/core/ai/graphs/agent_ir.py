@@ -488,7 +488,17 @@ def plan_ir_to_dict(plan: PlanIR | dict[str, Any] | None) -> dict[str, Any]:
         except Exception:
             steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
             return {"steps": steps}
-    return {"steps": []}
+    # 宽松 schema（PlanIRDraft 等）：先严格校验，失败则透传原始步骤供
+    # normalize_plan_ir 做别名/参数归一。此前静默返回空步骤，会整段丢弃
+    # 合法的别名输出。
+    data = plan.model_dump() if hasattr(plan, "model_dump") else {}
+    if not isinstance(data, dict):
+        return {"steps": []}
+    try:
+        return PlanIR.model_validate(data).model_dump()
+    except Exception:
+        steps = data.get("steps") if isinstance(data.get("steps"), list) else []
+        return {"steps": steps}
 
 
 def format_ir_for_prompt(plan: PlanIR | dict[str, Any] | None) -> str:

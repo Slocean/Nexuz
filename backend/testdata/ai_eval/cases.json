@@ -2,69 +2,176 @@
   {
     "id": "activate_wechat",
     "utterance": "打开微信窗口",
-    "slots": {"window_title": "微信"},
-    "plan_ir": [{"op": "activate", "a": {"window": "微信"}}],
-    "expected_ops": ["activate"],
-    "expected_types": ["window_activate"],
+    "slots": {
+      "window_title": "微信"
+    },
+    "plan_ir": [
+      {
+        "op": "activate",
+        "a": {
+          "window": "微信"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate"
+    ],
+    "expected_types": [
+      "window_activate"
+    ],
     "must_validate": true
   },
   {
     "id": "activate_browser",
     "utterance": "激活浏览器",
-    "slots": {"window_title": "Chrome"},
-    "plan_ir": [{"op": "activate", "a": {"window": "Chrome"}}],
-    "expected_ops": ["activate"],
-    "expected_types": ["window_activate"],
+    "slots": {
+      "window_title": "Chrome"
+    },
+    "plan_ir": [
+      {
+        "op": "activate",
+        "a": {
+          "window": "Chrome"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate"
+    ],
+    "expected_types": [
+      "window_activate"
+    ],
     "must_validate": true
   },
   {
     "id": "type_message",
     "utterance": "输入 hello",
-    "slots": {"message": "hello"},
-    "plan_ir": [{"op": "type", "a": {"text": "hello"}}],
-    "expected_ops": ["type"],
-    "expected_types": ["type_text"],
+    "slots": {
+      "message": "hello"
+    },
+    "plan_ir": [
+      {
+        "op": "type",
+        "a": {
+          "text": "hello"
+        }
+      }
+    ],
+    "expected_ops": [
+      "type"
+    ],
+    "expected_types": [
+      "type_text"
+    ],
     "must_validate": true
   },
   {
     "id": "press_enter",
     "utterance": "按回车键",
-    "slots": {"key": "Enter"},
-    "plan_ir": [{"op": "key", "a": {"keys": "Enter"}}],
-    "expected_ops": ["key"],
-    "expected_types": ["key_press"],
+    "slots": {
+      "key": "Enter"
+    },
+    "plan_ir": [
+      {
+        "op": "key",
+        "a": {
+          "keys": "Enter"
+        }
+      }
+    ],
+    "expected_ops": [
+      "key"
+    ],
+    "expected_types": [
+      "key_press"
+    ],
     "must_validate": true
   },
   {
     "id": "wait_half_second",
     "utterance": "等待半秒",
-    "slots": {"ms": "500"},
-    "plan_ir": [{"op": "wait", "a": {"ms": "500"}}],
-    "expected_ops": ["wait"],
-    "expected_types": ["delay"],
+    "slots": {
+      "ms": "500"
+    },
+    "plan_ir": [
+      {
+        "op": "wait",
+        "a": {
+          "ms": "500"
+        }
+      }
+    ],
+    "expected_ops": [
+      "wait"
+    ],
+    "expected_types": [
+      "delay"
+    ],
     "must_validate": true
   },
   {
     "id": "activate_type_submit",
     "utterance": "打开记事本，输入完成并回车",
-    "slots": {"window_title": "记事本", "message": "完成", "key": "Enter"},
+    "slots": {
+      "window_title": "记事本",
+      "message": "完成",
+      "key": "Enter"
+    },
     "plan_ir": [
-      {"op": "activate", "a": {"window": "记事本"}},
-      {"op": "type", "a": {"text": "完成"}},
-      {"op": "key", "a": {"keys": "Enter"}}
+      {
+        "op": "activate",
+        "a": {
+          "window": "记事本"
+        }
+      },
+      {
+        "op": "type",
+        "a": {
+          "text": "完成"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Enter"
+        }
+      }
     ],
-    "expected_ops": ["activate", "type", "key"],
-    "expected_types": ["window_activate", "type_text", "key_press"],
+    "expected_ops": [
+      "activate",
+      "type",
+      "key"
+    ],
+    "expected_types": [
+      "window_activate",
+      "type_text",
+      "key_press"
+    ],
     "expect_connected": true,
     "must_validate": true
   },
   {
     "id": "ocr_click_contact",
     "utterance": "点击联系人 mom",
-    "slots": {"contact": "mom", "match_text": "mom"},
-    "plan_ir": [{"op": "ocr_click", "a": {"text": "mom"}}],
-    "expected_ops": ["ocr_click"],
-    "expected_types": ["ocr_recognize", "click"],
+    "slots": {
+      "contact": "mom",
+      "match_text": "mom"
+    },
+    "plan_ir": [
+      {
+        "op": "ocr_click",
+        "a": {
+          "text": "mom"
+        }
+      }
+    ],
+    "expected_ops": [
+      "ocr_click"
+    ],
+    "expected_types": [
+      "ocr_recognize",
+      "click"
+    ],
     "expect_connected": true,
     "forbid_raw_click_coords": true,
     "expect_binding_on_click": true,
@@ -80,12 +187,37 @@
       "key": "Enter"
     },
     "plan_ir": [
-      {"op": "activate", "a": {"window": "微信"}},
-      {"op": "ocr_click", "a": {"text": "mom"}},
-      {"op": "type", "a": {"text": "hello"}},
-      {"op": "key", "a": {"keys": "Enter"}}
+      {
+        "op": "activate",
+        "a": {
+          "window": "微信"
+        }
+      },
+      {
+        "op": "ocr_click",
+        "a": {
+          "text": "mom"
+        }
+      },
+      {
+        "op": "type",
+        "a": {
+          "text": "hello"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Enter"
+        }
+      }
     ],
-    "expected_ops": ["activate", "ocr_click", "type", "key"],
+    "expected_ops": [
+      "activate",
+      "ocr_click",
+      "type",
+      "key"
+    ],
     "expected_types": [
       "window_activate",
       "ocr_recognize",
@@ -101,12 +233,24 @@
   {
     "id": "find_image_and_click",
     "utterance": "找到保存按钮图片并点击",
-    "slots": {"image_ref": "save-button.png"},
+    "slots": {
+      "image_ref": "save-button.png"
+    },
     "plan_ir": [
-      {"op": "find_image_click", "a": {"image_ref": "save-button.png"}}
+      {
+        "op": "find_image_click",
+        "a": {
+          "image_ref": "save-button.png"
+        }
+      }
     ],
-    "expected_ops": ["find_image_click"],
-    "expected_types": ["find_image", "click"],
+    "expected_ops": [
+      "find_image_click"
+    ],
+    "expected_types": [
+      "find_image",
+      "click"
+    ],
     "expect_connected": true,
     "forbid_raw_click_coords": true,
     "expect_binding_on_click": true,
@@ -115,26 +259,770 @@
   {
     "id": "wait_for_text",
     "utterance": "等待出现完成",
-    "slots": {"match_text": "完成"},
-    "plan_ir": [{"op": "wait_text", "a": {"text": "完成"}}],
-    "expected_ops": ["wait_text"],
-    "expected_types": ["wait_until"],
+    "slots": {
+      "match_text": "完成"
+    },
+    "plan_ir": [
+      {
+        "op": "wait_text",
+        "a": {
+          "text": "完成"
+        }
+      }
+    ],
+    "expected_ops": [
+      "wait_text"
+    ],
+    "expected_types": [
+      "wait_until"
+    ],
     "must_validate": true
   },
   {
     "id": "schedule_daily",
     "utterance": "每天九点执行",
-    "slots": {"schedule": "0 9 * * *"},
-    "plan_ir": [{"op": "schedule", "a": {"schedule": "0 9 * * *"}}],
-    "expected_ops": ["schedule"],
-    "expected_types": ["schedule_trigger"],
+    "slots": {
+      "schedule": "0 9 * * *"
+    },
+    "plan_ir": [
+      {
+        "op": "schedule",
+        "a": {
+          "schedule": "0 9 * * *"
+        }
+      }
+    ],
+    "expected_ops": [
+      "schedule"
+    ],
+    "expected_types": [
+      "schedule_trigger"
+    ],
     "must_validate": true
   },
   {
     "id": "clarify_missing_target",
     "utterance": "帮我发一条消息",
-    "slots": {"message": "你好"},
-    "plan_ir": [{"op": "type", "a": {"text": "你好"}}],
+    "slots": {
+      "message": "你好"
+    },
+    "plan_ir": [
+      {
+        "op": "type",
+        "a": {
+          "text": "你好"
+        }
+      }
+    ],
+    "clarify_only": true
+  },
+  {
+    "id": "alias_open_activate",
+    "utterance": "打开设置窗口",
+    "slots": {
+      "window_title": "设置"
+    },
+    "plan_ir": [
+      {
+        "op": "open",
+        "a": {
+          "window": "设置"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate"
+    ],
+    "expected_types": [
+      "window_activate"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "alias_focus_activate",
+    "utterance": "聚焦记事本",
+    "slots": {
+      "window_title": "记事本"
+    },
+    "plan_ir": [
+      {
+        "op": "focus",
+        "a": {
+          "window": "记事本"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate"
+    ],
+    "expected_types": [
+      "window_activate"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "key_text_arg_normalized",
+    "utterance": "回车确认",
+    "plan_ir": [
+      {
+        "op": "key",
+        "a": {
+          "text": "Enter"
+        }
+      }
+    ],
+    "expected_ops": [
+      "key"
+    ],
+    "expected_types": [
+      "key_press"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "activate_title_arg_normalized",
+    "utterance": "切换到微信窗口",
+    "slots": {
+      "window_title": "微信"
+    },
+    "plan_ir": [
+      {
+        "op": "activate",
+        "a": {
+          "title": "微信"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate"
+    ],
+    "expected_types": [
+      "window_activate"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "bare_string_args_lifted",
+    "utterance": "打开记事本输入 hello 回车",
+    "slots": {
+      "window_title": "记事本",
+      "message": "hello"
+    },
+    "plan_ir": [
+      {
+        "op": "activate",
+        "a": "记事本"
+      },
+      {
+        "op": "type",
+        "a": "hello"
+      },
+      {
+        "op": "key",
+        "a": "Enter"
+      }
+    ],
+    "expected_ops": [
+      "activate",
+      "type",
+      "key"
+    ],
+    "expected_types": [
+      "window_activate",
+      "type_text",
+      "key_press"
+    ],
+    "expect_connected": true,
+    "must_validate": true
+  },
+  {
+    "id": "unknown_op_dropped",
+    "utterance": "执行悬浮独角兽",
+    "plan_ir": [
+      {
+        "op": "hover_unicorn",
+        "a": {
+          "text": "x"
+        }
+      },
+      {
+        "op": "type",
+        "a": {
+          "text": "hi"
+        }
+      }
+    ],
+    "expected_ops": [
+      "type"
+    ],
+    "expected_types": [
+      "type_text"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "activate_window_from_slot",
+    "utterance": "打开对应窗口",
+    "slots": {
+      "window_title": "设置"
+    },
+    "plan_ir": [
+      {
+        "op": "activate"
+      }
+    ],
+    "expected_ops": [
+      "activate"
+    ],
+    "expected_types": [
+      "window_activate"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "type_text_from_message_slot",
+    "utterance": "输入指定内容",
+    "slots": {
+      "message": "自动消息"
+    },
+    "plan_ir": [
+      {
+        "op": "type"
+      }
+    ],
+    "expected_ops": [
+      "type"
+    ],
+    "expected_types": [
+      "type_text"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "ocr_click_text_from_match_slot",
+    "utterance": "点击指定文字",
+    "slots": {
+      "match_text": "登录"
+    },
+    "plan_ir": [
+      {
+        "op": "ocr_click"
+      }
+    ],
+    "expected_ops": [
+      "ocr_click"
+    ],
+    "expected_types": [
+      "ocr_recognize",
+      "click"
+    ],
+    "expect_connected": true,
+    "forbid_raw_click_coords": true,
+    "expect_binding_on_click": true,
+    "must_validate": true
+  },
+  {
+    "id": "slot_ref_inside_args",
+    "utterance": "点击联系人 bob",
+    "slots": {
+      "contact": "bob"
+    },
+    "plan_ir": [
+      {
+        "op": "ocr_click",
+        "a": {
+          "text": "contact"
+        }
+      }
+    ],
+    "expected_ops": [
+      "ocr_click"
+    ],
+    "expected_types": [
+      "ocr_recognize",
+      "click"
+    ],
+    "expect_connected": true,
+    "forbid_raw_click_coords": true,
+    "expect_binding_on_click": true,
+    "must_validate": true
+  },
+  {
+    "id": "loop_three_times",
+    "utterance": "循环执行三次",
+    "plan_ir": [
+      {
+        "op": "loop",
+        "a": {
+          "n": "3"
+        }
+      }
+    ],
+    "expected_ops": [
+      "loop"
+    ],
+    "expected_types": [
+      "loop_n"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "loop_default_times",
+    "utterance": "循环执行",
+    "plan_ir": [
+      {
+        "op": "loop"
+      }
+    ],
+    "expected_ops": [
+      "loop"
+    ],
+    "expected_types": [
+      "loop_n"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "if_text_branch",
+    "utterance": "如果出现完成则继续",
+    "plan_ir": [
+      {
+        "op": "if_text",
+        "a": {
+          "text": "完成"
+        }
+      }
+    ],
+    "expected_ops": [
+      "if_text"
+    ],
+    "expected_types": [
+      "if_text_contains"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "try_catch_wrap",
+    "utterance": "加上容错处理",
+    "plan_ir": [
+      {
+        "op": "try_catch"
+      }
+    ],
+    "expected_ops": [
+      "try_catch"
+    ],
+    "expected_types": [
+      "try_catch"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "schedule_hourly",
+    "utterance": "每小时执行一次",
+    "plan_ir": [
+      {
+        "op": "schedule",
+        "a": {
+          "schedule": "0 * * * *"
+        }
+      }
+    ],
+    "expected_ops": [
+      "schedule"
+    ],
+    "expected_types": [
+      "schedule_trigger"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "schedule_weekday_morning",
+    "utterance": "工作日早上九点跑",
+    "plan_ir": [
+      {
+        "op": "schedule",
+        "a": {
+          "schedule": "0 9 * * 1-5"
+        }
+      }
+    ],
+    "expected_ops": [
+      "schedule"
+    ],
+    "expected_types": [
+      "schedule_trigger"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "wait_for_error_text",
+    "utterance": "等待出现错误提示",
+    "plan_ir": [
+      {
+        "op": "wait_text",
+        "a": {
+          "text": "错误"
+        }
+      }
+    ],
+    "expected_ops": [
+      "wait_text"
+    ],
+    "expected_types": [
+      "wait_until"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "find_image_and_click_ok_btn",
+    "utterance": "找到 OK 图标并点击",
+    "slots": {
+      "image_ref": "ok.png"
+    },
+    "plan_ir": [
+      {
+        "op": "find_image_click",
+        "a": {
+          "image_ref": "ok.png"
+        }
+      }
+    ],
+    "expected_ops": [
+      "find_image_click"
+    ],
+    "expected_types": [
+      "find_image",
+      "click"
+    ],
+    "expect_connected": true,
+    "forbid_raw_click_coords": true,
+    "expect_binding_on_click": true,
+    "must_validate": true
+  },
+  {
+    "id": "notepad_edit_save",
+    "utterance": "打开记事本输入内容并保存",
+    "slots": {
+      "window_title": "记事本",
+      "message": "会议纪要",
+      "key": "Ctrl+S"
+    },
+    "plan_ir": [
+      {
+        "op": "activate",
+        "a": {
+          "window": "记事本"
+        }
+      },
+      {
+        "op": "type",
+        "a": {
+          "text": "会议纪要"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Ctrl+S"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate",
+      "type",
+      "key"
+    ],
+    "expected_types": [
+      "window_activate",
+      "type_text",
+      "key_press"
+    ],
+    "expect_connected": true,
+    "must_validate": true
+  },
+  {
+    "id": "browser_search_flow",
+    "utterance": "在浏览器搜索天气",
+    "slots": {
+      "window_title": "Chrome",
+      "message": "天气",
+      "key": "Enter"
+    },
+    "plan_ir": [
+      {
+        "op": "activate",
+        "a": {
+          "window": "Chrome"
+        }
+      },
+      {
+        "op": "type",
+        "a": {
+          "text": "天气"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Enter"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate",
+      "type",
+      "key"
+    ],
+    "expected_types": [
+      "window_activate",
+      "type_text",
+      "key_press"
+    ],
+    "expect_connected": true,
+    "must_validate": true
+  },
+  {
+    "id": "wechat_send_with_wait",
+    "utterance": "打开微信点开 mom 等窗口加载完发送 hi",
+    "slots": {
+      "window_title": "微信",
+      "contact": "mom",
+      "message": "hi",
+      "key": "Enter",
+      "match_text": "mom"
+    },
+    "plan_ir": [
+      {
+        "op": "activate",
+        "a": {
+          "window": "微信"
+        }
+      },
+      {
+        "op": "ocr_click",
+        "a": {
+          "text": "mom"
+        }
+      },
+      {
+        "op": "wait_text",
+        "a": {
+          "text": "mom"
+        }
+      },
+      {
+        "op": "type",
+        "a": {
+          "text": "hi"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Enter"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate",
+      "ocr_click",
+      "wait_text",
+      "type",
+      "key"
+    ],
+    "expected_types": [
+      "window_activate",
+      "ocr_recognize",
+      "click",
+      "wait_until",
+      "type_text",
+      "key_press"
+    ],
+    "expect_connected": true,
+    "forbid_raw_click_coords": true,
+    "expect_binding_on_click": true,
+    "must_validate": true
+  },
+  {
+    "id": "cross_app_copy_flow",
+    "utterance": "从记事本复制到微信发送",
+    "slots": {
+      "window_title": "记事本",
+      "key": "Enter"
+    },
+    "plan_ir": [
+      {
+        "op": "activate",
+        "a": {
+          "window": "记事本"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Ctrl+A"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Ctrl+C"
+        }
+      },
+      {
+        "op": "activate",
+        "a": {
+          "window": "微信"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Ctrl+V"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Enter"
+        }
+      }
+    ],
+    "expected_ops": [
+      "activate",
+      "key",
+      "activate",
+      "key",
+      "key"
+    ],
+    "expected_types": [
+      "window_activate",
+      "key_press"
+    ],
+    "expect_connected": true,
+    "must_validate": true
+  },
+  {
+    "id": "login_chain_with_color",
+    "utterance": "点击红色登录按钮并输入密码",
+    "slots": {
+      "color": "#FF0000",
+      "message": "secret"
+    },
+    "plan_ir": [
+      {
+        "op": "color_click",
+        "a": {
+          "color": "#FF0000"
+        }
+      },
+      {
+        "op": "type",
+        "a": {
+          "text": "secret"
+        }
+      }
+    ],
+    "expected_ops": [
+      "color_click",
+      "type"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "daily_report_chain",
+    "utterance": "每天九点打开报表输入日期并回车",
+    "slots": {
+      "window_title": "报表",
+      "message": "2026-09-02",
+      "key": "Enter",
+      "schedule": "0 9 * * *"
+    },
+    "plan_ir": [
+      {
+        "op": "schedule",
+        "a": {
+          "schedule": "0 9 * * *"
+        }
+      },
+      {
+        "op": "activate",
+        "a": {
+          "window": "报表"
+        }
+      },
+      {
+        "op": "type",
+        "a": {
+          "text": "2026-09-02"
+        }
+      },
+      {
+        "op": "key",
+        "a": {
+          "keys": "Enter"
+        }
+      }
+    ],
+    "expected_ops": [
+      "schedule",
+      "activate",
+      "type",
+      "key"
+    ],
+    "expected_types": [
+      "schedule_trigger",
+      "window_activate",
+      "type_text",
+      "key_press"
+    ],
+    "expect_connected": true,
+    "must_validate": true
+  },
+  {
+    "id": "long_cjk_type",
+    "utterance": "输入一段很长的中文说明文字",
+    "slots": {
+      "message": "这是一段用于评测的较长中文文本，包含标点、数字 123 与 English 混排。"
+    },
+    "plan_ir": [
+      {
+        "op": "type",
+        "a": {
+          "text": "这是一段用于评测的较长中文文本，包含标点、数字 123 与 English 混排。"
+        }
+      }
+    ],
+    "expected_ops": [
+      "type"
+    ],
+    "expected_types": [
+      "type_text"
+    ],
+    "must_validate": true
+  },
+  {
+    "id": "clarify_missing_window",
+    "utterance": "打开窗口但没有说哪个",
+    "plan_ir": [
+      {
+        "op": "activate"
+      }
+    ],
+    "clarify_only": true
+  },
+  {
+    "id": "clarify_missing_contact",
+    "utterance": "给联系人发消息但没说给谁",
+    "slots": {
+      "message": "hi"
+    },
+    "plan_ir": [
+      {
+        "op": "ocr_click"
+      }
+    ],
     "clarify_only": true
   }
 ]

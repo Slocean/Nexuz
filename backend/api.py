@@ -90,6 +90,10 @@ class Api:
         self._emit_queue: list[dict[str, Any]] = []
         self._emit_stop = threading.Event()
         self._emit_wake = threading.Event()
+        # AI 进度 delta 合帧缓冲：key=(cid, aid, ev_type) → {"text", "sample"}
+        self._ai_delta_lock = threading.Lock()
+        self._ai_delta_bufs: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._dropped_events_total = 0
         self._last_ui_node_event_at = 0.0
         self._last_memory_sample_at = 0.0
         self._last_flow_finished: dict[str, Any] | None = None
@@ -320,12 +324,80 @@ class Api:
 
     def _queue_ui_event(self, message: dict[str, Any], *, urgent: bool = False) -> None:
         """Enqueue a UI event. Never call evaluate_js on the pywebview JS-API thread."""
+        dropped = 0
         with self._emit_lock:
             if len(self._emit_queue) >= 500:
-                del self._emit_queue[:250]
+                # 丢最老一半保新事件；合帧后正常不会触顶，触顶说明消费端卡死
+                dropped = 250
+                del self._emit_queue[:dropped]
             self._emit_queue.append(message)
         if urgent:
             self._emit_wake.set()
+        if dropped:
+            self._dropped_events_total += dropped
+            try:
+                get_app_log_manager().write_row(
+                    build_log_row(
+                        "ui_queue_overflow",
+                        {"dropped": dropped, "queue_len": 251},
+                        message=f"UI 事件队列溢出，丢弃最老 {dropped} 条（累计 {self._dropped_events_total}）",
+                        level="warning",
+                    )
+                )
+            except Exception:
+                pass
+
+    # --- AI 进度事件合帧 ---------------------------------------------------
+    # delta/reasoning 逐 token 入队曾造成 O(n²) 事件量（长输出触发队列溢出丢
+    # token）。现在按 (cid, aid, type) 缓冲：前端 50ms 轮询 drain 时统一冲刷，
+    # 事件量由轮询频率决定而非 token 速率；非 delta 事件先冲刷缓冲保证顺序。
+
+    _AI_DELTA_FLUSH_CHARS = 2048
+
+    def _queue_ai_progress(self, payload: dict[str, Any]) -> None:
+        """ai_progress 事件统一入口：合帧 delta、瘦身 process、保序冲刷。"""
+        payload = dict(payload or {})
+        typ = str(payload.get("type") or "")
+        if typ == "process":
+            # 增量化：只发 step，去掉 O(n²) 全量快照（前端已有累积逻辑）
+            payload.pop("process", None)
+        if typ not in ("delta", "reasoning") or payload.get("replace"):
+            # replace 语义必须整体生效，不能并入之前的增量；其余事件要求有序
+            self._flush_ai_deltas()
+            self._queue_ui_event({"event": "ai_progress", "payload": payload}, urgent=True)
+            return
+        key = (
+            str(payload.get("conversation_id") or ""),
+            str(payload.get("assistant_id") or ""),
+            typ,
+        )
+        text = str(payload.get("text") or "")
+        flush_now = False
+        with self._ai_delta_lock:
+            buf = self._ai_delta_bufs.get(key)
+            if buf is None:
+                self._ai_delta_bufs[key] = {"text": text, "sample": payload}
+            else:
+                buf["text"] += text
+            if len(self._ai_delta_bufs[key]["text"]) >= self._AI_DELTA_FLUSH_CHARS:
+                flush_now = True
+            if flush_now:
+                self._flush_ai_deltas_locked()
+
+    def _flush_ai_deltas_locked(self) -> None:
+        """合并缓冲为整块 delta 事件入队（持有 _ai_delta_lock 时调用）。"""
+        if not self._ai_delta_bufs:
+            return
+        bufs = self._ai_delta_bufs
+        self._ai_delta_bufs = {}
+        for buf in bufs.values():
+            payload = dict(buf["sample"])
+            payload["text"] = buf["text"]
+            self._queue_ui_event({"event": "ai_progress", "payload": payload})
+
+    def _flush_ai_deltas(self) -> None:
+        with self._ai_delta_lock:
+            self._flush_ai_deltas_locked()
 
     def _record_memory_sample(self) -> None:
         try:
@@ -360,6 +432,8 @@ class Api:
 
     def drain_ui_events(self) -> dict:
         """Pull UI events (JS polls). Avoids evaluate_js↔JS-API WebView2 deadlocks."""
+        # 先冲刷合帧中的 delta（≤ 一个轮询间隔的延迟），保证本次 drain 带走
+        self._flush_ai_deltas()
         with self._emit_lock:
             messages = self._emit_queue
             self._emit_queue = []
@@ -3723,10 +3797,7 @@ class Api:
             def on_progress(ev: dict) -> None:
                 payload = dict(ev or {})
                 payload.setdefault("conversation_id", cid)
-                self._queue_ui_event(
-                    {"event": "ai_progress", "payload": payload},
-                    urgent=True,
-                )
+                self._queue_ai_progress(payload)
 
             def worker() -> None:
                 try:
@@ -3745,6 +3816,7 @@ class Api:
                                 "error": res.get("error") or "对话失败",
                                 "conversation_id": cid,
                                 "assistant_id": (res.get("assistant_id") or ""),
+                                "cancelled": bool(res.get("cancelled")),
                             }
                         )
                 except Exception as exc:
@@ -3770,6 +3842,16 @@ class Api:
             }
         except Exception as exc:
             self._ai_chat_busy = False
+            return {"ok": False, "error": str(exc)}
+
+    def ai_chat_stop(self, conversation_id: str = "") -> dict:
+        """请求停止一轮进行中的 AI 对话/编排（协作式：在下一个检查点终止）。"""
+        try:
+            from backend.core.ai import cancel as turn_cancel
+
+            stopped = turn_cancel.stop_turn(str(conversation_id or ""))
+            return {"ok": True, "stopped": bool(stopped)}
+        except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
     def ai_get_draft(self, conversation_id: str) -> dict:

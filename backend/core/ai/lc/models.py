@@ -9,26 +9,8 @@ import httpx
 from langchain_openai import ChatOpenAI
 
 from backend.core.ai.config import get_ai_config
+from backend.core.ai.model_capabilities import fixed_temperature as resolve_fixed_temperature
 from backend.core.ai.types import AiConfig, LlmError
-
-# Models that only accept a fixed temperature (gateway 400 otherwise).
-# Value is the required temperature — do NOT assume all "reasoning" models want 1.0.
-# (kimi-k2.5: only 0.6; OpenAI o-series / some reasoners: 1.0)
-_FIXED_TEMPERATURE: tuple[tuple[tuple[str, ...], float], ...] = (
-    (("kimi", "k2.5", "k2-", "k2."), 0.6),
-    (("o1", "o3", "o4", "gpt-5", "reasoner", "deepseek-r1"), 1.0),
-)
-
-
-def resolve_fixed_temperature(model: str | None) -> float | None:
-    """Return required temperature for the model, or None if any value is ok."""
-    name = (model or "").strip().lower()
-    if not name:
-        return None
-    for markers, temp in _FIXED_TEMPERATURE:
-        if any(m in name for m in markers):
-            return float(temp)
-    return None
 
 
 def _model_requires_temperature_one(model: str) -> bool:
@@ -84,6 +66,10 @@ def create_chat_model(
             if extra:
                 kwargs["extra_body"] = extra
 
+    # SDK 级短退避重试（连接错误/429/5xx）；更慢的持续性抖动由
+    # backend/core/ai/retry.py 在应用层兜底。
+    kwargs.setdefault("max_retries", 2)
+
     return ChatOpenAI(
         model=c.model or "gpt-4o-mini",
         api_key=api_key,
@@ -93,6 +79,7 @@ def create_chat_model(
         streaming=streaming,
         **kwargs,
     )
+
 
 
 def test_chat_model(cfg: AiConfig | None = None) -> dict[str, Any]:
