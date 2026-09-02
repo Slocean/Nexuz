@@ -15,6 +15,10 @@ CAPABILITY_LABELS = {
     "window_close": "关闭窗口或进程",
     "schedule_trigger": "定时执行",
     "frida": "Frida 进程操作",
+    "process_kill": "结束进程",
+    "power_action": "电源操作（关机/重启等）",
+    "zip_archive": "压缩/解压（文件写入）",
+    "open_path": "打开文件/网址（可启动程序）",
 }
 
 CRITICAL_TYPES = frozenset({"python_script", "run_command"})
@@ -26,6 +30,10 @@ ELEVATED_TYPES = frozenset(
         "call_subflow",
         "window_close",
         "schedule_trigger",
+        "process_kill",
+        "power_action",
+        "zip_archive",
+        "open_path",
     }
 )
 HIGH_RISK_TYPES = frozenset(CRITICAL_TYPES | ELEVATED_TYPES)

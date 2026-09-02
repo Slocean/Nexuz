@@ -41,10 +41,16 @@ RUN_BLOCK_SAFE = frozenset(
         "browser_screenshot",
         "browser_wait",
         "browser_close",
+        "system_info",
+        "sys_path",
+        "disk_info",
+        "process_list",
+        "timestamp",
     }
 )
 
 # 有真实副作用的积木：allow_run_block + allow_dangerous 双闸后才可执行。
+# power_action（关机/重启/睡眠）影响整机，不列入 AI 实时执行白名单。
 RUN_BLOCK_ACTION = frozenset(
     {
         "click",
@@ -69,6 +75,11 @@ RUN_BLOCK_ACTION = frozenset(
         "browser_click",
         "browser_fill",
         "browser_eval",
+        "env_var",
+        "open_path",
+        "volume_action",
+        "process_kill",
+        "zip_archive",
     }
 )
 

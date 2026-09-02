@@ -6,7 +6,7 @@ Source of truth for remote clients: repo-root `app_update.json`
 
 from __future__ import annotations
 
-__version__ = "0.9.1"
+__version__ = "0.10.0"
 
 GITHUB_OWNER = "Slocean"
 GITHUB_REPO = "Nexuz"
