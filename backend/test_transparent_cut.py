@@ -374,3 +374,78 @@ def test_schema_registered():
     from backend.core.registry import register_block
 
     register_block(transparent_cut.SCHEMA, transparent_cut.handler)
+
+
+def _build_checker_sheet() -> np.ndarray:
+    """不透明假透明底图（240 高 x 120 宽, BGR）：白/灰棋盘格底 + 彩色素材。
+
+    - 素材A：L 形蓝色 (竖臂 rows 20..100, cols 10..20；横臂 rows 20..40,
+      cols 10..50)，包围盒内含棋盘格背景，内部 (28..34, 25..31) 白色高光
+    - 素材B：绿色 (rows 140..220, cols 60..110)
+    棋盘格 8px 方块 254 白 / 234 灰，模拟截图工具画出来的假透明底。
+    """
+    img = np.zeros((240, 120, 3), dtype=np.uint8)
+    yy, xx = np.mgrid[0:240, 0:120]
+    checker = ((yy // 8 + xx // 8) % 2 == 0)
+    img[checker] = (254, 254, 254)
+    img[~checker] = (234, 234, 234)
+    img[20:100, 10:20] = (200, 120, 30)  # A 竖臂（BGR 蓝）
+    img[20:40, 10:50] = (200, 120, 30)  # A 横臂
+    img[28:34, 25:31] = (255, 255, 255)  # A 内部白色高光（须保留）
+    img[140:220, 60:110] = (30, 200, 80)  # B 绿色
+    return img
+
+
+def test_light_background_checkerboard_cut(tmp_path):
+    """浅色底模式：双色棋盘格假透明底被整体抠掉，素材与内部白色高光保留。"""
+    p = _encode(tmp_path / "checker.png", _build_checker_sheet())
+
+    result = _run(tmp_path, p, background_mode="light")
+
+    assert result["count"] == 2
+    by_name = {Path(p2).name: p2 for p2 in result["paths"]}
+    a = _read(by_name["checker_001.png"])  # 阅读顺序：A 在上
+    b = _read(by_name["checker_002.png"])
+    assert a.shape[:2] == (80, 40)  # L 形包围盒 (rows 20..100, cols 10..50)
+    assert a[8, 18, 3] == 255  # 白色高光（原图 28,28）不被当背景误删
+    assert tuple(a[8, 18, :3]) == (255, 255, 255)
+    assert b.shape[:2] == (80, 50)
+
+
+def test_light_background_rect_mode_clears_bbox_background(tmp_path):
+    """浅色底 + 规则矩形：L 形包围盒内的棋盘格像素输出为透明，L 本体不透明。"""
+    p = _encode(tmp_path / "checker.png", _build_checker_sheet())
+
+    result = _run(tmp_path, p, background_mode="light", shape_mode="rect")
+    assert result["count"] == 2
+
+    a = _read(result["paths"][0])
+    assert a.shape[:2] == (80, 40)
+    assert a[5, 5, 3] == 255  # L 横臂本体（原图 25,15）
+    assert a[70, 5, 3] == 255  # L 竖臂底部（原图 90,15）
+    assert a[70, 35, 3] == 0  # 包围盒内棋盘格背景（原图 90,45）→ 透明
+    assert a[8, 18, 3] == 255  # 内部白色高光仍保留
+
+
+def test_keep_largest_only(tmp_path, sheet_path):
+    """仅保留最大主体：只输出面积最大的连通域（C，60x60 完整方块）。"""
+    result = _run(tmp_path, sheet_path, keep="largest")
+
+    assert result["count"] == 1
+    assert result["skipped"] == 3  # 噪点 + A（带孔洞 3375px）+ B 均视为杂质
+    out = _read(result["paths"][0])
+    assert out.shape[:2] == (60, 60)
+
+
+def test_keep_largest_requires_components_mode(tmp_path, sheet_path):
+    with pytest.raises(ValueError, match="连通域"):
+        _run(tmp_path, sheet_path, keep="largest", cut_mode="projection")
+
+
+def test_no_alpha_still_raises_for_alpha_mode(tmp_path):
+    """默认 alpha 模式遇不透明图的报错指引改为浅色底选项。"""
+    bgr = np.full((40, 40, 3), 100, dtype=np.uint8)
+    p = _encode(tmp_path / "flat.png", bgr)
+
+    with pytest.raises(ValueError, match="浅色底自动抠除"):
+        _run(tmp_path, p)

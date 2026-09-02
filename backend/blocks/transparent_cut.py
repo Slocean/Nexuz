@@ -1,9 +1,14 @@
 """透明图自动切割：按透明区域把多素材图分割成多张独立 PNG。
 
-流水线：alpha 前景提取（阈值过滤抗锯齿半透明边缘）→ 切割模式（全图
-连通域识别 / 行列投影扫描）→ 间隙容忍粘连 → 面积阈值过滤噪点 →
-阅读顺序排序 → 按包围盒裁切（切分形状可选：规则矩形 / 不规则形状，
-不规则时盒内非本素材像素置为透明；可选外扩/羽化）→ 批量导出透明 PNG。
+流水线：背景判定（alpha 通道 / 浅色假透明底自动抠除）→ 前景提取 →
+切割模式（全图连通域识别 / 行列投影扫描）→ 间隙容忍粘连 → 面积阈值
+过滤噪点 → 阅读顺序排序 → 按包围盒裁切（切分形状可选：规则矩形 /
+不规则形状，不规则时盒内非本素材像素置为透明；可选外扩/羽化）→
+批量导出透明 PNG。
+
+浅色底模式面向白底/棋盘格假透明截图：把「低饱和且够亮、且与图像
+边缘连通」的区域视为背景，素材内部的浅色细节（雪山、白花、高光）
+不与边缘连通，得以保留。
 """
 
 from __future__ import annotations
@@ -46,6 +51,34 @@ SCHEMA = {
             "ui": "file_or_dir",
         },
         {
+            "name": "background_mode",
+            "type": "select",
+            "label": "背景判定",
+            "options": ["alpha", "light"],
+            "default": "alpha",
+            "option_labels": {
+                "alpha": "Alpha 通道（真透明图）",
+                "light": "浅色底自动抠除（白底/棋盘格假透明）",
+            },
+            "placeholder": "浅色底：把与边缘连通的浅色区域抠成透明，素材内部浅色细节（雪山/白花/高光）保留",
+        },
+        {
+            "name": "light_tolerance",
+            "type": "number",
+            "label": "浅色饱和容差",
+            "default": 12,
+            "placeholder": "RGB 三通道极差 ≤ 该值视为浅色 0~255，覆盖白/灰/浅灰渐变棋盘格",
+            "show_when": {"background_mode": "light"},
+        },
+        {
+            "name": "light_brightness",
+            "type": "number",
+            "label": "浅色亮度下限",
+            "default": 200,
+            "placeholder": "通道最大值 ≥ 该值才算浅色背景 0~255",
+            "show_when": {"background_mode": "light"},
+        },
+        {
             "name": "cut_mode",
             "type": "select",
             "label": "切割模式",
@@ -55,6 +88,18 @@ SCHEMA = {
                 "components": "连通域识别",
                 "projection": "行列投影扫描",
             },
+        },
+        {
+            "name": "keep",
+            "type": "select",
+            "label": "保留内容",
+            "options": ["all", "largest"],
+            "default": "all",
+            "option_labels": {
+                "all": "全部素材",
+                "largest": "仅最大主体（其余视为杂质去除）",
+            },
+            "show_when": {"cut_mode": "components"},
         },
         {
             "name": "shape_mode",
@@ -160,6 +205,65 @@ def _fg_mask(alpha: np.ndarray, threshold: int) -> np.ndarray:
     """alpha 高于阈值视为前景（bool），threshold 夹取 0~254。"""
     threshold = max(0, min(254, int(threshold)))
     return alpha > threshold
+
+
+def _light_background_mask(
+    data: np.ndarray, tolerance: int, brightness: int
+) -> np.ndarray:
+    """识别浅色假透明底：低饱和且够亮的像素中，仅取与图像边缘连通的区域。
+
+    白底、浅灰底、白/灰双色棋盘格（假透明截图）都整体命中；素材内部
+    的浅色细节（雪山、白花、水花高光）不与边缘连通，不会被误删。
+    4 连通保证相邻棋盘格方块连成同一背景区域。
+    """
+    rgb = data[:, :, :3].astype(np.int16)
+    mx = rgb.max(axis=2)
+    mn = rgb.min(axis=2)
+    light = ((mx - mn) <= tolerance) & (mx >= brightness)
+    if not light.any():
+        return np.zeros(data.shape[:2], dtype=bool)
+    _n, labels = cv2.connectedComponents(light.astype(np.uint8), connectivity=4)
+    border = np.unique(
+        np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]])
+    )
+    border = border[border != 0]
+    if border.size == 0:
+        return np.zeros(data.shape[:2], dtype=bool)
+    return np.isin(labels, border)
+
+
+def _apply_light_background(
+    data: np.ndarray, params, alpha_threshold: int
+) -> np.ndarray:
+    """浅色底抠除预处理：返回 BGRA，浅色背景 alpha 置 0。
+
+    带 alpha 的图先按原 alpha 生成前景基准（真透明仍透明），再叠加
+    浅色底抠除；不透明图整体 alpha=255 参与判定。
+    """
+    has_alpha = data.shape[2] == 4
+    tolerance = int(
+        params.get("light_tolerance")
+        if params.get("light_tolerance") is not None
+        else 12
+    )
+    brightness = max(
+        0,
+        min(
+            255,
+            int(
+                params.get("light_brightness")
+                if params.get("light_brightness") is not None
+                else 200
+            ),
+        ),
+    )
+    bg = _light_background_mask(data, max(0, tolerance), brightness)
+    if has_alpha:
+        alpha = data[:, :, 3].copy()
+        alpha[bg] = 0
+    else:
+        alpha = np.where(bg, 0, 255).astype(np.uint8)
+    return np.dstack([data[:, :, :3], alpha])
 
 
 def _components_boxes(
@@ -367,17 +471,24 @@ def _run_single(src: Path, params, out_dir: Path | None = None) -> dict:
     if data.ndim == 2:
         data = cv2.cvtColor(data, cv2.COLOR_GRAY2BGR)
     has_alpha = data.ndim == 3 and data.shape[2] == 4
-    if not has_alpha:
-        raise ValueError(
-            f"图片没有 Alpha 通道，无法按透明切割: {src}（不透明底图请使用 精灵图智能切图）"
-        )
-
     alpha_threshold = int(
         params.get("alpha_threshold")
         if params.get("alpha_threshold") is not None
         else 30
     )
-    fg = _fg_mask(data[:, :, 3], alpha_threshold)
+
+    background_mode = str(params.get("background_mode") or "alpha").strip() or "alpha"
+    if background_mode == "light":
+        data = _apply_light_background(data, params, alpha_threshold)
+        fg = _fg_mask(data[:, :, 3], alpha_threshold)
+    else:
+        if not has_alpha:
+            raise ValueError(
+                f"图片没有 Alpha 通道，无法按透明切割: {src}"
+                "（白底/棋盘格假透明图请把 背景判定 改为「浅色底自动抠除」，"
+                "深色纯底图请使用 精灵图智能切图）"
+            )
+        fg = _fg_mask(data[:, :, 3], alpha_threshold)
     if not fg.any():
         raise ValueError("未检测到不透明素材：整张图 alpha 均低于阈值")
 
@@ -408,6 +519,14 @@ def _run_single(src: Path, params, out_dir: Path | None = None) -> dict:
         raise ValueError(
             f"未检测到素材：全部 {len(boxes)} 个候选低于最小保留面积 {min_area}"
         )
+    keep = str(params.get("keep") or "all").strip() or "all"
+    if keep == "largest":
+        if cut_mode != "components":
+            raise ValueError(
+                "「仅保留最大主体」只在连通域识别模式下可用（行列投影无法比较主体大小）"
+            )
+        skipped += len(kept) - 1
+        kept = [max(kept, key=lambda b: b[4])]
     kept = _sort_reading_order(kept)
 
     padding = max(0, int(params.get("padding") if params.get("padding") is not None else 0))
