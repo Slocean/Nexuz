@@ -2723,6 +2723,7 @@ class Api:
         suggested_name: str | None = None,
         accept: str | None = None,
         scope: str | None = None,
+        multi: bool = False,
     ) -> dict:
         """Open Windows file dialog and return a local path (for file_io etc.).
 
@@ -2732,6 +2733,8 @@ class Api:
         format); when omitted the dialog only offers ``All files``.
         scope: optional key (e.g. ``transparent_cut.image_path``) remembering the
         last used directory per node field; falls back to the per-mode memory.
+        multi: open dialog allows selecting several files at once; the response
+        carries ``paths`` (list) in addition to ``path`` (first pick).
         """
         if not self._window:
             return {"ok": False, "error": "窗口未就绪"}
@@ -2766,22 +2769,28 @@ class Api:
                 result = self._window.create_file_dialog(
                     webview.OPEN_DIALOG,
                     directory=start,
-                    allow_multiple=False,
+                    allow_multiple=bool(multi),
                     file_types=file_types,
                 )
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
         if not result:
             return {"ok": False, "cancelled": True}
-        filepath = result if isinstance(result, str) else result[0]
-        chosen = Path(str(filepath)).expanduser()
-        try:
-            chosen = chosen.resolve(strict=False)
-        except Exception:
-            pass
+        raw_paths = result if isinstance(result, (list, tuple)) else [result]
+        chosen: list[str] = []
+        for item in raw_paths:
+            p = Path(str(item)).expanduser()
+            try:
+                p = p.resolve(strict=False)
+            except Exception:
+                pass
+            if str(p) not in chosen:
+                chosen.append(str(p))
+        if not chosen:
+            return {"ok": False, "cancelled": True}
         # 记住本次选择的目录：按节点字段（scope）+ 按对话框类型，下次打开直接定位
-        self._save_last_dirs(dirs, scope_key, kind, chosen)
-        return {"ok": True, "path": str(chosen), "mode": kind}
+        self._save_last_dirs(dirs, scope_key, kind, Path(chosen[0]))
+        return {"ok": True, "path": chosen[0], "paths": chosen, "mode": kind}
 
     @staticmethod
     def _load_last_dirs() -> dict:

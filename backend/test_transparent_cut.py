@@ -183,10 +183,10 @@ def test_gap_tolerance(tmp_path, sheet_path):
 
 
 def test_shape_mode_rect_keeps_foreign_pixels(tmp_path):
-    """规则矩形（默认）：L 的包围盒包含小素材，小素材像素混进 L 的切图。"""
+    """规则矩形：L 的包围盒包含小素材，小素材像素混进 L 的切图。"""
     p = _encode(tmp_path / "overlap.png", _build_overlap_sheet())
 
-    result = _run(tmp_path, p)
+    result = _run(tmp_path, p, shape_mode="rect")
     assert result["count"] == 2
 
     l_img = _read(result["paths"][0])  # 阅读顺序：L 在前

@@ -53,26 +53,40 @@ export default function FileOrDirField({
     [onChange],
   );
 
+  // 多路径值：一行一个（OS 拖入多个 / 文件对话框多选），供后端积木按行拆分
+  const applyPaths = useCallback(
+    (paths: string[]) => {
+      const joined = pickDropValue(paths);
+      if (joined) onChange(joined);
+    },
+    [onChange],
+  );
+
   const armDropTarget = useCallback(() => {
     armNativeDropTarget(paths => {
-      const path = pickDropValue(paths);
-      if (!path) return;
       // 有扩展名的按 accept 白名单校验；无扩展名视为文件夹直接接受
       const exts = acceptExts(accept);
-      const m = path.match(KNOWN_FILE_EXT);
-      if (exts && m && !exts.has(m[0].toLowerCase())) {
+      const rejected = paths.filter(p => {
+        const m = p.match(KNOWN_FILE_EXT);
+        return !!(exts && m && !exts.has(m[0].toLowerCase()));
+      });
+      if (rejected.length) {
         void alert({
           title: '不支持的文件类型',
-          description: `${path}\n请拖入图片文件或文件夹（支持 ${accept}）`,
+          description: `${rejected.join('\n')}\n请拖入图片文件或文件夹（支持 ${accept}）`,
         });
         return;
       }
-      applyPath(path);
+      applyPaths(paths);
     });
-  }, [accept, applyPath]);
+  }, [accept, alert, applyPaths]);
 
   const pickFile = async () => {
-    const picked = await bridge.pickLocalPath?.('open', null, accept, scope);
+    const picked = await bridge.pickLocalPath?.('open', null, accept, scope, true);
+    if (picked?.ok && Array.isArray(picked.paths) && picked.paths.length) {
+      applyPaths(picked.paths.map((p: any) => String(p)));
+      return;
+    }
     if (picked?.ok && picked.path) {
       applyPath(String(picked.path));
       return;
@@ -150,7 +164,7 @@ export default function FileOrDirField({
                 variant="outline"
                 size="sm"
                 className="h-8 shrink-0 px-2"
-                title="选择文件"
+                title="选择文件（可按住 Ctrl 多选）"
                 onClick={() => void pickFile()}
               >
                 文件
@@ -177,7 +191,7 @@ export default function FileOrDirField({
           </div>
         ) : null}
       </div>
-      <p className="mt-0.5 text-[10px] opacity-55">可直接把图片文件或整个文件夹拖到此输入框</p>
+      <p className="mt-0.5 text-[10px] opacity-55">可拖入一个或多个图片文件、整个文件夹，文件按钮支持多选</p>
     </div>
   );
 }

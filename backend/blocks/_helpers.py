@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -26,6 +27,66 @@ from backend.core.dpi import (
 # Emergency stop is the app「停止」button, not moving the mouse to a corner.
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0.01
+
+
+def split_input_paths(value: Any) -> list[Path]:
+    """路径参数多输入归一化：一行一个（文件对话框多选/OS 拖入多个），
+    或直接绑定上游输出的路径列表（{{node.paths}} 解析为 list）。文件、
+    文件夹可混排；去重保序，剥离首尾引号与空白。"""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        raw_items: list[Any] = list(value)
+    else:
+        raw_items = str(value).splitlines()
+    out: list[Path] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        text = str(item or "").strip().strip('"').strip("'").strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(Path(text))
+    return out
+
+
+def expand_image_sources(
+    sources: list[Path], exts: set[str], *, label: str = "图片"
+) -> list[Path]:
+    """把若干文件/文件夹来源展开为图片文件列表：文件原样保留，文件夹只扫
+    描一层并排序；去重保序。任一文件夹为空不报错，全部为空才抛 ValueError。"""
+    files: list[Path] = []
+    seen: set[str] = set()
+    for src in sources:
+        if src.is_file():
+            candidates = [src]
+        elif src.is_dir():
+            candidates = sorted(
+                p for p in src.iterdir() if p.is_file() and p.suffix.lower() in exts
+            )
+        else:
+            continue
+        for p in candidates:
+            key = str(p).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            files.append(p)
+    if not files:
+        exts_text = "、".join(sorted(exts))
+        raise ValueError(f"所选文件/文件夹中未找到{label}（支持 {exts_text}）")
+    return files
+
+
+def common_parent_dir(files: list[Path]) -> Path:
+    """多个来源文件的公共父目录，作批量输出根目录兜底；跨盘等异常退回首个文件目录。"""
+    try:
+        return Path(os.path.commonpath([str(f.parent.resolve()) for f in files]))
+    except Exception:
+        return files[0].parent
 
 
 def interruptible_sleep(

@@ -6,15 +6,19 @@ function getApi() {
 
 export function waitForBridge(timeoutMs = 10000) {
   return new Promise(resolve => {
-    if (getApi()) {
+    const done = () => {
+      patchDropEventSerialization();
       resolve(getApi());
+    };
+    if (getApi()) {
+      done();
       return;
     }
     const start = Date.now();
     const timer = setInterval(() => {
       if (getApi()) {
         clearInterval(timer);
-        resolve(getApi());
+        done();
       } else if (Date.now() - start > timeoutMs) {
         clearInterval(timer);
         resolve(null);
@@ -22,6 +26,48 @@ export function waitForBridge(timeoutMs = 10000) {
     }, 50);
   });
 }
+
+/**
+ * pywebview 6.x 经 DOM API 转发事件时，用自定义 stringify 序列化事件对象；
+ * 序列化遇到 Node（drop 事件冒泡到 document，currentTarget 就是 document）
+ * 会用 domJSON deep 模式递归序列化整个文档 DOM——画布编辑器页面元素上千，
+ * 单次 drop 阻塞渲染线程数秒（pywebview#1398），表现为鼠标早已松开但界面
+ * 冻结、「松开以填入路径」提示长时间滞留。Python 侧只消费 type 与文件名
+ * （backend/util.py pywebviewEventHandler），这里把 drop 事件替换为最小
+ * 字段再交给原 stringify，任何 DOM 节点都不进入序列化。
+ */
+function patchDropEventSerialization(attempt = 0) {
+  const pv = window.pywebview;
+  if (!pv || typeof pv.stringify !== 'function') {
+    if (attempt < 100) setTimeout(() => patchDropEventSerialization(attempt + 1), 50);
+    return;
+  }
+  if (pv.__nexuzDropShallow) return;
+  pv.__nexuzDropShallow = true;
+  const originalStringify = pv.stringify.bind(pv);
+  pv.stringify = function (obj) {
+    const ev = obj && typeof obj === 'object' ? obj.event : null;
+    if (ev && typeof Event !== 'undefined' && ev instanceof Event && ev.type === 'drop') {
+      const files = [];
+      try {
+        for (const f of Array.from(ev.dataTransfer?.files || [])) {
+          files.push({ name: f.name });
+        }
+      } catch {
+        /* 尽力收集，失败时交空列表由 Python 侧兜底 */
+      }
+      const shallow = {
+        type: 'drop',
+        clientX: ev.clientX,
+        clientY: ev.clientY,
+        dataTransfer: { files },
+      };
+      return originalStringify({ ...obj, event: shallow });
+    }
+    return originalStringify(obj);
+  };
+}
+patchDropEventSerialization();
 
 const MATCH_POLICY_INPUTS = [
   {
@@ -2287,7 +2333,7 @@ export const bridge = {
   removeScheduleJob: jobId => call('remove_schedule_job', jobId),
   listFlows: () => call('list_flows'),
   pickFlowFile: (libraryOnly = true) => call('pick_flow_file', libraryOnly),
-  pickLocalPath: (mode = 'open', suggestedName = null, accept = null, scope = null) => call('pick_local_path', mode, suggestedName, accept, scope),
+  pickLocalPath: (mode = 'open', suggestedName = null, accept = null, scope = null, multi = false) => call('pick_local_path', mode, suggestedName, accept, scope, multi),
   deleteFlow: filepath => call('delete_flow', filepath),
   duplicateFlow: (filepath, newName = null) => call('duplicate_flow', filepath, newName),
   renameFlow: (filepath, newName) => call('rename_flow', filepath, newName),

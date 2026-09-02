@@ -13,6 +13,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from backend.blocks._helpers import (
+    common_parent_dir,
+    expand_image_sources,
+    split_input_paths,
+)
+
 SCHEMA = {
     "type": "sprite_sheet_cut",
     "label": "精灵图智能切图",
@@ -26,7 +32,7 @@ SCHEMA = {
             "type": "string",
             "label": "精灵图路径/文件夹",
             "default": "",
-            "placeholder": "图片文件，或包含多张精灵图的文件夹（批量）",
+            "placeholder": "图片文件，或包含多张精灵图的文件夹（批量）；支持多选文件，一行一个",
             "ui": "file_or_dir",
             "accept": "*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif",
             "bindable": True,
@@ -305,16 +311,19 @@ def _cut_cell(
 
 
 def handler(params, context, **kwargs):
-    image_path = str(params.get("image_path") or "").strip()
-    if not image_path:
-        raise ValueError("请指定 image_path 精灵图路径（支持文件或文件夹）")
-    src = Path(image_path)
-    if not src.exists():
-        raise FileNotFoundError(f"路径不存在: {src}")
+    sources = split_input_paths(params.get("image_path"))
+    if not sources:
+        raise ValueError("请指定 image_path 精灵图路径（支持文件或文件夹，可多选）")
+    for src in sources:
+        if not src.exists():
+            raise FileNotFoundError(f"路径不存在: {src}")
 
-    if src.is_dir():
-        return _run_batch(src, params)
-    return _run_single(src, params)
+    if len(sources) == 1:
+        src = sources[0]
+        if src.is_dir():
+            return _run_batch(src, params)
+        return _run_single(src, params)
+    return _run_multi(sources, params)
 
 
 def _resolve_output_root(params, src: Path) -> Path:
@@ -336,8 +345,18 @@ def _run_batch(folder: Path, params) -> dict:
         raise ValueError(
             f"文件夹中未找到图片（支持 {'、'.join(sorted(IMAGE_EXTS))}）: {folder}"
         )
+    return _run_files(files, params, _resolve_output_root(params, folder))
 
-    out_root = _resolve_output_root(params, folder)
+
+def _run_multi(sources: list[Path], params) -> dict:
+    """多来源批量模式：多选文件/文件夹混合，逐张切图，单张失败不中断整体。"""
+    files = expand_image_sources(sources, IMAGE_EXTS)
+    out_root = _resolve_output_root(params, common_parent_dir(files))
+    return _run_files(files, params, out_root)
+
+
+def _run_files(files: list[Path], params, out_root: Path) -> dict:
+    """对给定图片列表逐张切图并聚合结果。"""
     out_root.mkdir(parents=True, exist_ok=True)
     paths: list[str] = []
     per_file: list[dict] = []

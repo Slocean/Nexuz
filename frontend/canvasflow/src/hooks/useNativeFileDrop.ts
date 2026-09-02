@@ -67,15 +67,12 @@ export function keepAliveNativeDropTarget(ttlMs = 4000): void {
   }, ttlMs);
 }
 
-/** 把一次拖入的多个路径归约为单个输入值。 */
+/**
+ * 把一次拖入的多个路径归约为输入值：全部保留，一行一个（配合节点批量
+ * 模式；后端积木按行拆分）。仅单个路径时返回该路径本身。
+ */
 export function pickDropValue(paths: string[]): string | null {
   const unique = [...new Set(paths.map(p => String(p || '').trim()).filter(Boolean))];
   if (unique.length === 0) return null;
-  if (unique.length === 1) return unique[0];
-  // 多个文件且同目录 → 取该目录（正好走节点的批量模式）；否则取第一个
-  const parentOf = (p: string) => p.replace(/[\\/][^\\/]*$/, '');
-  const norm = (s: string) => s.toLowerCase().replace(/\//g, '\\');
-  const parents = unique.map(parentOf);
-  if (parents.every(p => norm(p) === norm(parents[0]))) return parents[0];
-  return unique[0];
+  return unique.join('\n');
 }

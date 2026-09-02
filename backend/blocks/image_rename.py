@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 
+from backend.blocks._helpers import expand_image_sources, split_input_paths
 from backend.core.ai import llm_cache
 from backend.core.ai.config import get_ai_config
 
@@ -37,7 +38,7 @@ SCHEMA = {
             "type": "string",
             "label": "图片路径/文件夹",
             "default": "",
-            "placeholder": "图片文件，或整个文件夹（批量）",
+            "placeholder": "图片文件，或整个文件夹（批量）；支持多选文件，一行一个",
             "ui": "file_or_dir",
             "accept": "*.png;*.webp;*.bmp;*.jpg;*.jpeg;*.gif",
             "bindable": True,
@@ -534,12 +535,12 @@ def _status_label(status: str) -> str:
 
 
 def handler(params, context, **kwargs):
-    image_path = str(params.get("image_path") or "").strip()
-    if not image_path:
-        raise ValueError("请指定 image_path 图片路径（支持文件或文件夹）")
-    src = Path(image_path)
-    if not src.exists():
-        raise FileNotFoundError(f"路径不存在: {src}")
+    sources = split_input_paths(params.get("image_path"))
+    if not sources:
+        raise ValueError("请指定 image_path 图片路径（支持文件或文件夹，可多选）")
+    for src in sources:
+        if not src.exists():
+            raise FileNotFoundError(f"路径不存在: {src}")
 
     template = str(params.get("name_template") or "").strip()
     if not template:
@@ -571,7 +572,11 @@ def handler(params, context, **kwargs):
         }
         timeout_s = max(10.0, _to_float(params.get("timeout_s"), 60.0))
 
-    files = _collect_images(src)
+    if len(sources) == 1:
+        files = _collect_images(sources[0])
+    else:
+        # 多来源：文件原样保留、文件夹逐个扫描，去重保序
+        files = expand_image_sources(sources, IMAGE_EXTS, label="图片")
     max_len = max(0, _to_int(params.get("text_max_len"), 20))
     digits = max(0, min(6, _to_int(params.get("index_digits"), 2)))
     start = max(0, _to_int(params.get("start_index"), 1))
