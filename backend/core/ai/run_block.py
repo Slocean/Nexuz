@@ -64,6 +64,7 @@ RUN_BLOCK_ACTION = frozenset(
         "window_close",
         "http_request",
         "file_io",
+        "file_manage",
         "call_subflow",
         "schedule_trigger",
         "image_generate",

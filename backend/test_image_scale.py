@@ -32,6 +32,7 @@ def _read(path) -> np.ndarray:
 
 BASE_PARAMS = {
     "output_dir": "",
+    "scale_mode": "percent",
     "scale_percent": 50,
     "interpolation": "auto",
     "name_suffix": "_scale",

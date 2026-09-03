@@ -10,7 +10,7 @@ _MAX_DICT_KEYS = 40
 _MAX_DEPTH = 6
 _HEAVY_KEYS = frozenset({"box", "image", "bitmap", "pixels", "raw", "screenshot"})
 # Large OCR lists: keep bindable structure, drop only heavy nested keys.
-_LIGHT_LIST_KEYS = frozenset({"boxes", "matches"})
+_LIGHT_LIST_KEYS = frozenset({"boxes", "matches", "items"})
 _WINDOW_TARGET_KEYS = (
     "pid",
     "process_name",
@@ -100,7 +100,7 @@ def _compact_structured_dict(item: dict[str, Any], *, depth: int = 0) -> dict[st
 
 def _compact_structured_list(value: list[Any]) -> list[dict[str, Any]]:
     compact: list[dict[str, Any]] = []
-    for item in value[:80]:
+    for item in value[:200]:
         if isinstance(item, dict):
             compact.append(_compact_structured_dict(item))
     return compact

@@ -154,7 +154,7 @@ Release 正文只写入 [`app_update.json`](app_update.json) 里**当前发版�
 | 识别 | color_detect / if_color_match / ocr_recognize / **locate_text** / if_text_contains / find_image / **screenshot**                     |
 | 浏览器 | **browser_navigate** / **browser_extract** / **browser_click** / **browser_fill** / **browser_screenshot** / **browser_wait** / **browser_eval** / **browser_close** |
 | 控制 | if*condition / switch / loop*\* / **try_catch** / **schedule_trigger** / **call_subflow** / **assign**                               |
-| 系统 | http_request / clipboard / file_io / run_command / notify / python_script / **window_wait** / **window_activate** / **window_close** / **system_info** / **sys_path** / **env_var** / **process_list** / **process_kill** / **open_path** / **disk_info** / **zip_archive** / **power_action** / **volume_action** / **timestamp** |
+| 系统 | http_request / clipboard / file_io / run_command / notify / python_script / **window_wait** / **window_activate** / **window_close** / **system_info** / **sys_path** / **env_var** / **process_list** / **process_kill** / **open_path** / **disk_info** / **zip_archive** / **power_action** / **volume_action** / **timestamp** / **file_manage** |
 | 平台 | 画布↔JSON（可自动同步）、变量面板、参数表单、运行控制、分类日志（运行/系统/操作/诊断）、保存加载、录制、定时任务落盘                 |
 
 ## 使用提示
@@ -175,6 +175,7 @@ Release 正文只写入 [`app_update.json`](app_update.json) 里**当前发版�
 14. **日志分类**：右侧默认只看「运行」；点芯片可切换系统/操作/诊断。行可展开入参出参摘要；设置里「记录诊断日志」默认关闭。导出可区分「当前显示 / 完整运行日志 / 应用日志（系统+操作）」
 15. **浏览器积木（爬虫/自动化）**：「浏览器」分类的 browser_* 积木驱动本机 Edge/Chrome（默认无头、独立隔离 profile，不含你的登录态）；首次使用自动拉起浏览器，流程结束自动关闭（设置 → 浏览器引擎 可改引擎/keep-alive/浏览器路径）。选择器用 CSS 语法
 16. **系统积木**：系统信息 / 系统路径 / 环境变量 / 进程列表 / 结束进程 / 打开路径网址 / 磁盘空间 / 压缩解压 / 电源操作 / 音量控制 / 时间戳。结束进程按名称为精确匹配且硬拒绝系统关键进程；电源操作、结束进程、压缩解压、打开路径属高权限积木，流程安全模式（safe）下会被拦截，需 standard/legacy 放行
+17. **文件整理**（`file_manage`）：移动 / 复制 / 重命名 / 新建文件夹 / 列出目录内容，来源可多个（一行一个），目标已存在默认报错、显式开启才覆盖；不含删除类操作。素材等比缩放（`image_scale`）默认缩放模式为「统一到目标尺寸」（裁透明边 + 脚底居中立绘标准），按比例缩放可手动切回
 
 ## 外部 AI 接入（MCP）
 

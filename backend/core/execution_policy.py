@@ -9,6 +9,7 @@ CAPABILITY_LABELS = {
     "python_script": "Python 脚本（可信代码）",
     "run_command": "执行系统命令",
     "file_io": "文件读写",
+    "file_manage": "文件整理（移动/复制/重命名）",
     "http_request": "HTTP / 网络请求",
     "clipboard": "剪贴板访问",
     "call_subflow": "调用子流程",
@@ -25,6 +26,7 @@ CRITICAL_TYPES = frozenset({"python_script", "run_command"})
 ELEVATED_TYPES = frozenset(
     {
         "file_io",
+        "file_manage",
         "http_request",
         "clipboard",
         "call_subflow",

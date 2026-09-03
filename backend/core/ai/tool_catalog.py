@@ -11,7 +11,7 @@ from backend.core.registry import BLOCK_REGISTRY, get_schemas
 DEFAULT_DENIED_BLOCKS = CRITICAL_TYPES
 
 # Require explicit allowlist even when allow_dangerous is on for file_io.
-SENSITIVE_BLOCKS = frozenset(CRITICAL_TYPES | {"file_io"})
+SENSITIVE_BLOCKS = frozenset(CRITICAL_TYPES | {"file_io", "file_manage"})
 
 
 def is_block_allowed(
@@ -27,7 +27,7 @@ def is_block_allowed(
         return True
     if t in DEFAULT_DENIED_BLOCKS and not allow_dangerous:
         return False
-    if t == "file_io" and not allow_dangerous:
+    if t in ("file_io", "file_manage") and not allow_dangerous:
         return False
     return t in BLOCK_REGISTRY
 

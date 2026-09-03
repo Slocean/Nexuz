@@ -51,7 +51,7 @@ SCHEMA = {
             "type": "select",
             "label": "缩放模式",
             "options": ["percent", "target"],
-            "default": "percent",
+            "default": "target",
             "option_labels": {
                 "percent": "按比例缩放",
                 "target": "统一到目标尺寸",
@@ -192,7 +192,7 @@ def _imdecode(src: Path) -> np.ndarray:
 
 
 def _scale_mode(params) -> str:
-    return "target" if str(params.get("scale_mode") or "percent") == "target" else "percent"
+    return "target" if str(params.get("scale_mode") or "target") == "target" else "percent"
 
 
 def _trim_transparent(data: np.ndarray) -> np.ndarray:
