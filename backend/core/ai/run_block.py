@@ -72,6 +72,7 @@ RUN_BLOCK_ACTION = frozenset(
         "image_scale",
         "transparent_cut",
         "sprite_sheet_cut",
+        "sprite_part_cut",
         "browser_navigate",
         "browser_click",
         "browser_fill",

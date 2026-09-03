@@ -305,7 +305,7 @@ def openai_tools() -> list[dict[str, Any]]:
             "description": (
                 "实时执行一个积木并返回结果（不写草稿）。"
                 "安全类（screenshot/ocr_recognize/color_detect/find_image/delay/wait_until/assign/notify 等）可直接执行；"
-                "有真实副作用的（click/key_press/file_io/http_request 等）需要危险模式开启。"
+                "有真实副作用的（click/key_press/file_io/http_request/sprite_part_cut 等图片与文件输出类）需要危险模式开启。"
                 "控制流积木与 python_script/run_command 不支持。"
                 "坐标禁止臆造：先 locate_text_on_screen / pack_point 取 point_ref 再传入。"
             ),
