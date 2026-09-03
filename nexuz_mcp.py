@@ -186,6 +186,14 @@ def launch_app() -> None:
             subprocess.Popen([sys.executable, "main.py"], cwd=str(shell_dir), close_fds=True)
             log(f"launched dev app: {shell_dir / 'main.py'}")
             return
+        if (shell_dir / "backend" / "main.py").is_file():
+            subprocess.Popen(
+                [sys.executable, str(shell_dir / "backend" / "main.py")],
+                cwd=str(shell_dir),
+                close_fds=True,
+            )
+            log(f"launched dev app: {shell_dir / 'backend' / 'main.py'}")
+            return
         log("no way to launch Nexuz: NEXUZ_EXE not set and main.py not found next to shell")
     except Exception as exc:
         log(f"launch failed: {exc}")
