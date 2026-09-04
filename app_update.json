@@ -1,6 +1,12 @@
 {
   "history": [
     {
+      "version": "0.14.0",
+      "title": "0.14.0 MCP 开箱即用：打包内置壳与技能、设置页接入教程、路径防呆",
+      "body": "【新增：设置页「接入教程」】\n· 「MCP / 外部 AI」卡片新增「接入教程」：分步引导接入（确认服务就绪 → 注册接入命令 → 验证连接 → 安装技能），命令按当前安装形态自动生成、可一键复制\n\n【新增：打包版内置 MCP 壳与 nexuz-mcp 技能】\n· exe 内嵌 nexuz_mcp.py 与技能文件：生成接入命令时壳文件自动释放到程序目录（热更新换 exe 后自动刷新；程序目录不可写时退回数据目录 mcp/）\n· 教程内可「一键安装技能到本机」：写入 %USERPROFILE%\\.agents\\skills\\nexuz-mcp 与 %USERPROFILE%\\.claude\\skills\\nexuz-mcp（覆盖旧副本，随应用更新保持同步）\n· Release 资产附带 nexuz_mcp.py 与 nexuz-mcp-skill.zip（内含 nexuz-mcp/SKILL.md，解压到 skills 目录即完成安装）\n\n【修复：文件整理 / 文件积木路径防呆】\n· 盘符相对路径（如 D:nexuz，反斜杠丢失后的典型产物）此前被静默锚定到进程工作目录，产生「路径被拼接」的错觉——现在直接拒绝并给出修正写法\n· 路径含换行 / 控制字符（JSON 转义事故）同样拒绝并提示；报错中直接给出正确写法，AI 调用方看到即可自查\n\n【文档：run_block 响应结构】\n· 写明外层 ok 仅是执行状态、业务成败与输出在嵌套 result 字段（result.ok / result.error / result.items）——MCP 工具描述、应用内 AI 工具描述、nexuz-mcp 技能三处同步，避免调用方误读结果\n\n【兼容说明】\n· 正常绝对路径行为不变；相对路径仍按应用工作目录解析但不建议使用",
+      "notice": "0.14.0：接入 MCP 更简单——设置页新增「接入教程」，打包版已内置 MCP 壳与技能（教程内可一键安装技能到 zcode / Claude Code）；修复文件整理对丢反斜杠路径（如 D:nexuz）的静默错解析，现在会明确报错并给出修正写法。"
+    },
+    {
       "version": "0.13.0",
       "title": "0.13.0 MCP 安全模型重构：危险命令硬拒、其余积木对外部 AI 全面放开（免开关）",
       "body": "【安全：封堵外部 AI 借道执行危险命令的绕行路径】\n· 修复 run_flow 提权漏洞：此前经 MCP 的 run_flow（内联 JSON 或库内无策略字段的流程）默认 legacy 模式，python_script / run_command 可借 Nexuz 之手绕过 agent 自身权限与应用开关执行——现引入「策略下限」机制，危险命令类 / 自定义积木 / 电源操作在外部 AI 触发的执行链上一律拒绝：执行前静态预扫即时报错，运行期再由随流程传播的下限标记逐节点强制\n· 子流程绕行封堵：call_subflow 加载的子流程文件可能藏有危险积木，下限标记随调用链传播（merge 取并集、只能加严不能削弱），嵌套解释器逐节点拒绝\n· 定时任务 TOCTOU 封堵：MCP 注册的定时任务在每次触发时重新套用下限（来源标记随任务持久化、跨重启恢复），注册后改写流程文件也无法绕过\n· 审计补强：mcp_run_flow 事件记录流程内积木类型清单与命中策略档，出事可回溯\n\n【放开：外部 AI 调用积木不再需要任何开关】\n· run_block / run_flow / list_blocks / get_block_schema 不再受「允许 AI 实时执行积木 / 允许高危积木」双开关约束——授权由所接入的 AI 客户端（工具审批）负责，Nexuz 侧硬拒清单兜底\n· 桌面动作、文件/网络、图片处理（image_scale / transparent_cut / sprite_sheet_cut / sprite_part_cut / image_rename / image_generate）、浏览器、系统类积木全部可直接调用，之前「图片处理必须开危险模式」的摩擦消除\n· 设置页两个开关恢复本意：只约束应用内 AI；「MCP / 外部 AI」卡片提示文案同步\n\n【新增：nexuz-mcp 技能】\n· 随仓库发布 .agents/skills/nexuz-mcp/SKILL.md（调用顺序、执行边界、坐标纪律、变量绑定、超时止损、run_block/run_flow 选择），拷贝到 ~/.agents/skills/ 即装即用；README 已附安装说明并重写「外部 AI 接入（MCP）」一节\n\n【兼容说明】\n· 本地手动运行流程与流程自身 safe/standard 执行策略完全不受影响；仅外部 AI 触发的执行链套用下限\n· 旧客户端无感；升级后外部 agent 调用不再需要引导用户开开关",
