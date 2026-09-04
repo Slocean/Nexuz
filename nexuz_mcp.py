@@ -31,7 +31,7 @@ DEFAULT_CALL_TIMEOUT_S = 120.0
 TOOLS = [
     {
         "name": "get_status",
-        "description": "获取 Nexuz 状态：版本、是否正在执行流程、AI 执行开关（allow_run_block/allow_dangerous）。",
+        "description": "获取 Nexuz 状态：版本、是否正在执行流程、应用内 AI 开关（allow_run_block/allow_dangerous，仅约束应用内 AI，对外部 AI 调用不生效）。",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
@@ -54,9 +54,8 @@ TOOLS = [
     {
         "name": "run_block",
         "description": (
-            "实时执行一个积木并返回结果。安全类（screenshot/ocr_recognize/color_detect/find_image/delay/wait_until/notify/assign）"
-            "需在 Nexuz 设置中开启「允许 AI 实时执行积木」；动作类（click/key_press/type_text/file_io/http_request 等）还需开启危险模式。"
-            "控制流积木与 python_script/run_command 不支持。"
+            "实时执行一个积木并返回结果。无需应用内开关；危险命令类（python_script/run_command）、"
+            "电源操作（power_action）、控制流积木、自定义积木一律拒绝，其余（桌面动作/文件/图片处理/浏览器/系统等）全部可执行。"
             "坐标禁止臆造：先 capture_screen + locate_text_on_screen 获取真实坐标。"
         ),
         "inputSchema": {
@@ -70,7 +69,11 @@ TOOLS = [
     },
     {
         "name": "run_flow",
-        "description": "执行 Nexuz 流程库中的一条流程（走完整参数校验与执行策略）。默认阻塞等待执行结束并返回结果摘要；等待超时返回 timed_out:true（流程仍在运行，可用 flow_control stop 止损）。",
+        "description": (
+            "执行 Nexuz 流程库中的一条流程（走完整参数校验与执行策略）。"
+            "流程内含 python_script/run_command/power_action/自定义积木时整体拒绝（含子流程与定时再触发，运行期逐节点强制）。"
+            "默认阻塞等待执行结束并返回结果摘要；等待超时返回 timed_out:true（流程仍在运行，可用 flow_control stop 止损）。"
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {

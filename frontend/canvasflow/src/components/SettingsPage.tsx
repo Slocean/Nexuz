@@ -2156,8 +2156,9 @@ export default function SettingsPage({
                 : '已停止（外部 AI 无法连接）'}
             </p>
             <p className="text-[11px]" style={{ color: colors.secondaryText }}>
-              外部 AI 的积木执行受「Nexuz AI」页开关约束：安全类积木需开「允许 AI 实时执行积木」，动作类还需「允许高危积木」；
-              python_script / run_command 始终不可由外部 AI 执行。所有调用写入审计日志。
+              外部 AI 的积木执行不受「Nexuz AI」页开关约束（授权由所接入的 AI 客户端负责）；
+              python_script / run_command / 自定义积木 / 电源操作始终不可由外部 AI 执行（含子流程与定时再触发）。
+              所有调用写入审计日志。
             </p>
             <div className="flex flex-wrap gap-2">
               <Button

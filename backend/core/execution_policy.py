@@ -57,6 +57,61 @@ class ExecutionPolicy:
         }
 
 
+# 外部 AI（MCP）执行的策略下限：危险命令类无论流程自身策略如何一律拒绝。
+# power_action（关机/重启）影响整机，与 run_block 的硬拒口径保持一致。
+MCP_FLOOR_DENY = frozenset(CRITICAL_TYPES | {"power_action"})
+
+
+def mcp_policy_floor() -> dict[str, Any]:
+    """__policy_floor__ 流程标记的内容：mode 提到 standard + 危险命令类硬拒。
+
+    该标记随流程字典传播（call_subflow 的 {**flow} 展开、定时任务快照），
+    由 interpreter._execute / scheduler 预扫描统一套用。
+    """
+    return {"deny": sorted(MCP_FLOOR_DENY), "mode_min": "standard"}
+
+
+def merge_policy_floors(primary: Any, secondary: Any) -> dict[str, Any] | None:
+    """合并两个下限标记（deny 并集、mode_min 就严），用于父子流程传递。
+
+    子流程文件自带更弱的标记时，父流程的下限仍然生效——标记只能加严。
+    """
+    floors = [f for f in (primary, secondary) if isinstance(f, dict)]
+    if not floors:
+        return None
+    deny: set[str] = set()
+    mode_min = ""
+    for floor in floors:
+        deny.update(str(t).strip() for t in (floor.get("deny") or []) if str(t).strip())
+        if str(floor.get("mode_min") or "").strip().lower() == "standard":
+            mode_min = "standard"
+    return {"deny": sorted(deny), "mode_min": mode_min}
+
+
+def apply_policy_floor(policy: ExecutionPolicy, floor: Any) -> ExecutionPolicy:
+    """把下限合并进策略：denylist 取并集；mode 只升不降（standard 下限压过 legacy）。
+
+    流程自带字段无法削弱下限（外部传入的标记也只能加严），因此来源不可信的
+    流程可以安全携带该标记。
+    """
+    if not isinstance(floor, dict):
+        return policy
+    deny = frozenset(
+        str(t).strip() for t in (floor.get("deny") or []) if str(t).strip()
+    )
+    mode = policy.mode
+    if str(floor.get("mode_min") or "").strip().lower() == "standard" and mode == "legacy":
+        mode = "standard"
+    if not deny and mode == policy.mode:
+        return policy
+    return ExecutionPolicy(
+        mode=mode,
+        allowlist=policy.allowlist,
+        denylist=policy.denylist | deny,
+        source=policy.source + "+floor",
+    )
+
+
 class ExecutionPolicyError(PermissionError):
     def __init__(self, violation: dict[str, Any], policy: ExecutionPolicy):
         self.violation = violation

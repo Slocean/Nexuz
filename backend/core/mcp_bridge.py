@@ -5,10 +5,15 @@ Security model:
 - Binds 127.0.0.1 only; every app start generates a fresh random bearer token.
 - The token is shared with local clients only via the port file
   (%LOCALAPPDATA%/Nexuz/mcp/port.json), same trust boundary as app config.
-- run_block reuses the AI safety gates (allow_run_block / allow_dangerous);
-  python_script / run_command / control-flow / user plugins stay hard-denied.
-- run_flow goes through Api.run_flow with its full validation + execution
-  policy chain — no bypass.
+- Authorization for external agents lives at the connecting AI client (tool
+  approval) + audit log; the in-app AI switches (allow_run_block /
+  allow_dangerous) do NOT gate MCP calls.
+- Hard-deny regardless of switches or flow content: python_script /
+  run_command / user plugins / power_action (run_block tier lists; run_flow
+  via the __policy_floor__ marker enforced per-node, incl. subflows and
+  scheduled re-fires); control-flow blocks are interpreter-only.
+- run_flow keeps the flow's own execution policy (safe-mode elevated blocks
+  stay blocked) — the floor can only tighten, never loosen.
 - Every mutating call is appended to the AI audit log.
 """
 
@@ -146,22 +151,26 @@ def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
 
     if tool == "list_blocks":
         from backend.core.ai import tool_catalog
+        from backend.core.execution_policy import CRITICAL_TYPES
 
+        blocks = tool_catalog.list_blocks(
+            category=args.get("category"),
+            allow_dangerous=True,
+        )
+        # 危险命令类不可由外部 AI 执行，不进入目录，避免 agent 无效尝试
         return {
             "ok": True,
-            "blocks": tool_catalog.list_blocks(
-                category=args.get("category"),
-                allow_dangerous=_ai_cfg().get("allow_dangerous", False),
-            ),
+            "blocks": [b for b in blocks if str(b.get("type") or "") not in CRITICAL_TYPES],
         }
 
     if tool == "get_block_schema":
         from backend.core.ai import tool_catalog
+        from backend.core.execution_policy import CRITICAL_TYPES
 
-        schema = tool_catalog.get_block_schema(
-            str(args.get("type") or ""),
-            allow_dangerous=_ai_cfg().get("allow_dangerous", False),
-        )
+        btype = str(args.get("type") or "")
+        if btype in CRITICAL_TYPES:
+            return {"ok": False, "error": f"积木 {btype} 不可由外部 AI 执行"}
+        schema = tool_catalog.get_block_schema(btype, allow_dangerous=True)
         if schema is None:
             return {"ok": False, "error": f"未知积木: {args.get('type')}"}
         return {"ok": True, **schema}
@@ -222,12 +231,14 @@ def _ai_cfg() -> dict[str, Any]:
 def _tool_run_block(args: dict[str, Any]) -> dict[str, Any]:
     from backend.core.ai.run_block import run_block_once
 
-    cfg = _ai_cfg()
+    # 外部 AI 的授权由所接入的 AI 客户端（工具审批）负责，不受应用内 AI 开关
+    # 约束；硬拒清单（危险命令类 / 控制流 / 用户插件 / 电源操作）在
+    # run_block_once 内保持不变，无开关可绕。
     result = run_block_once(
         {"type": args.get("type"), "params": args.get("params")},
         run_ctx=_run_ctx,
-        allow_run_block=bool(cfg.get("allow_run_block")),
-        allow_dangerous=bool(cfg.get("allow_dangerous")),
+        allow_run_block=True,
+        allow_dangerous=True,
     )
     _audit(
         {
@@ -261,6 +272,45 @@ def _tool_run_flow(api: Any, args: dict[str, Any]) -> dict[str, Any]:
             return {"ok": False, "error": f"流程文件读取失败: {exc}"}
         flow_label = str(path)
 
+    # 外部 AI 下限闸：危险命令类 / 自定义积木 / 电源操作一律拒绝（双保险）——
+    # ① 此处静态预扫，对顶层节点给出即时明确的报错；
+    # ② __policy_floor__ 随流程字典进入解释器逐节点强制（覆盖 call_subflow
+    #    嵌套加载的子流程，杜绝"外层干净、内层藏 python_script"的绕行），
+    #    并由定时任务在每次触发时重新注入（杜绝注册后改写流程文件的绕行）。
+    # 流程自带的 execution_policy 仍然生效（safe 模式的 elevated 拦截等），
+    # 但无法削弱下限。其余正常积木全部放行，不再要求应用内开关。
+    from backend.core.execution_policy import (
+        apply_policy_floor,
+        mcp_policy_floor,
+        resolve_execution_policy,
+        scan_flow_violations,
+    )
+
+    floor = mcp_policy_floor()
+    policy = apply_policy_floor(resolve_execution_policy(flow), floor)
+    violations = scan_flow_violations(flow, policy)
+    if violations:
+        labels = "、".join(
+            f"{item['block_type']}（{item['node_id']}）" for item in violations[:5]
+        )
+        return {
+            "ok": False,
+            "error": f"外部 AI 不可执行含危险命令类积木的流程：{labels}",
+            "blocked": True,
+            "policy": policy.to_dict(),
+            "violations": violations,
+        }
+
+    flow = {**flow, "__run_origin__": "mcp", "__policy_floor__": floor}
+    node_types = sorted(
+        {
+            str(node.get("type") or "")
+            for node in (flow.get("nodes") or {}).values()
+            if isinstance(node, dict)
+        }
+        - {""}
+    )
+
     wait = bool(args.get("wait", True))
     timeout_s = float(args.get("timeout_s") or 300)
 
@@ -282,6 +332,8 @@ def _tool_run_flow(api: Any, args: dict[str, Any]) -> dict[str, Any]:
         {
             "event": "mcp_run_flow",
             "flow": flow_label[:200],
+            "blocks": node_types,
+            "policy": policy.to_dict(),
             "wait": wait,
             "ok": bool(result.get("ok")),
             "started": bool(result.get("started")),

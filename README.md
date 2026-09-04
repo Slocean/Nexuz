@@ -203,14 +203,46 @@ claude mcp add nexuz --env NEXUZ_EXE=C:\path\to\Nexuz.exe -- python E:\Project\N
 
 设置 →「MCP / 外部 AI」卡片可开关服务、查看运行状态、一键复制接入命令。
 
-**可用工具**：`get_status` / `list_blocks` / `get_block_schema` / `run_block` / `run_flow` / `list_flows` / `flow_control` / `capture_screen` / `locate_text_on_screen` / `reset_session`（积木明细通过 `list_blocks` / `get_block_schema` 动态获取）。
+给接入的 AI 代理装上随仓库发布的技能可以让它直接按正确姿势调用（调用顺序、执行边界、坐标纪律等）：把 [.agents/skills/nexuz-mcp/](.agents/skills/nexuz-mcp/SKILL.md) 整个目录拷到你自己的 `~/.agents/skills/nexuz-mcp/`（Claude Code 为 `~/.claude/skills/`）即可。
+
+### 工具一览
+
+| 工具 | 用途 |
+| ---- | ---- |
+| `get_status` | 版本、是否正在执行流程、应用内 AI 开关状态（不约束外部 AI） |
+| `list_blocks` | 按分类列出可执行积木（编排 / 执行前先调用了解平台能力） |
+| `get_block_schema` | 单个积木的完整 inputs / outputs，据此填写 `run_block` 的 params |
+| `run_block` | 实时执行单个积木并返回结果（受下方「执行边界」约束） |
+| `run_flow` / `list_flows` / `flow_control` | 执行流程库中的流程 / 列出流程 / 急停·暂停·继续 |
+| `capture_screen` / `locate_text_on_screen` | 截取屏幕 + OCR 找字定位，返回真实坐标（配合 `shot_ref` 复用截图） |
+| `reset_session` | 清空跨调用的 `{{变量}}` 上下文 |
+
+### run_block 执行边界
+
+外部 AI 的授权由所接入的 AI 客户端负责（工具审批），**不需要**在 Nexuz 里开任何开关；设置 → Nexuz AI 的「允许 AI 实时执行积木 / 允许高危积木」只约束应用内 AI。`run_block` 的硬边界：
+
+- **全部可执行**：除下方拒绝清单外的所有积木——桌面动作（`click` `key_press` `type_text` 等）、文件 / 网络（`file_io` `file_manage` `http_request` 等）、图片处理（`image_generate` `image_rename` `image_scale` `transparent_cut` `sprite_sheet_cut` `sprite_part_cut`）、浏览器（`browser_*`）、系统（`env_var` `open_path` `process_kill` 等）、只读观察类（`screenshot` `ocr_recognize` `find_image` 等）
+- **始终拒绝**（无开关可绕）：`python_script`、`run_command`（危险命令类）、`power_action`（关机/重启）、控制流（`if_*` / `loop_*` / `switch` / `try_catch`）、用户自定义插件
+
+其他约束：等待类参数会被钳制（`delay` / `wait_until` 等单次 ≤ 60s，单次 handler 执行 ≤ 90s），防止外部 AI 挂死应用。
+
+### run_flow 执行边界
+
+`run_flow`（内联 JSON 或流程库文件）不需要开关，但外部 AI 触发的执行会套用一道**策略下限**：流程内含 `python_script` / `run_command` / `power_action` / 自定义积木时整体拒绝——静态预扫描即时报错，运行期再由随流程传播的 `__policy_floor__` 标记逐节点强制，覆盖 `call_subflow` 嵌套加载的子流程；外部 AI 注册的定时任务在**每次触发**时重新套用下限（杜绝注册后改写流程文件的绕行）。流程自身声明的执行策略仍然生效（safe 模式拦截 elevated 积木等），但只能加严、不能削弱下限。其余正常积木全部放行。
+
+### 推荐 agent 调用顺序
+
+1. `get_status` 确认服务在线；被拒时按错误提示处理（危险命令类拒绝不可解除，agent 不应尝试绕过）
+2. `list_blocks` → `get_block_schema` 查清积木与参数，再发起 `run_block`
+3. 涉及屏幕坐标：先 `capture_screen` + `locate_text_on_screen` 获取真实坐标，**禁止臆造坐标**
+4. `run_block` 的输出按 `{{ai_run_N.输出名}}`（N 为本次会话内的调用序号）进入上下文，后续调用可绑定引用；`reset_session` 可清空
 
 **安全模型**：
 
 - 服务仅监听 `127.0.0.1`，token 每次应用启动随机生成，只经 `%LOCALAPPDATA%\Nexuz\mcp\port.json` 分发
-- `run_block` 受设置页「AI 允许执行积木 / 允许危险动作」双开关控制（默认全关）；`python_script` / `run_command` / 控制流 / 用户插件一律硬拒，无开关可绕
-- `run_flow` 走完整执行链（参数校验 + 执行策略预扫描 + 解释器逐节点闸），无旁路
-- 每次执行写入审计日志（`data_dir/ai/audit/`，按日分文件）；设置页可随时整体关闭服务
+- 外部 AI 无法执行危险命令类：`run_block` 白名单硬拒；`run_flow` 靠策略下限逐节点强制（含子流程递归、定时任务再触发、注册后改写文件等绕行路径均已封堵）
+- `run_flow` 走完整执行链（参数校验 + 执行策略预扫描 + 解释器逐节点闸），流程自身的 safe/standard 策略不受影响
+- 每次执行写入审计日志（`data_dir/ai/audit/`，按日分文件；`mcp_run_flow` 含积木类型清单与策略档）；设置页可随时整体关闭服务
 
 **当前限制**：MCP 触发的流程与手动运行互斥（同一时刻仅一条流程）；壳进程需要本机 Python（壳独立打包 exe 留待后续版本）；应用多开时后启动的实例接管端口文件。
 

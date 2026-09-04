@@ -196,7 +196,13 @@ class FlowScheduler:
             return
         # 与 api.run_flow 同一道预扫描：高危积木在启动前整体拒绝，
         # 而不是只依赖运行时逐节点检查兜底。
-        execution_policy = resolve_execution_policy(payload)
+        # 外部 AI（MCP）注册的任务每次触发都重新套用下限——流程文件可能
+        # 在注册后被改写（TOCTOU），不能只靠注册时的内容。
+        from backend.core.execution_policy import apply_policy_floor
+
+        execution_policy = apply_policy_floor(
+            resolve_execution_policy(payload), payload.get("__policy_floor__")
+        )
         violations = scan_flow_violations(payload, execution_policy)
         if violations:
             labels = "、".join(
@@ -256,6 +262,12 @@ class FlowScheduler:
             payload = dict(payload)
             if fp:
                 payload["__file_path__"] = fp
+            # 外部 AI 注册的任务：磁盘上的流程文件可能已被改写，触发时按
+            # origin 重新注入下限，保证危险命令类在每次触发都被拒绝。
+            if str(meta.get("origin") or "") == "mcp":
+                from backend.core.execution_policy import mcp_policy_floor
+
+                payload["__policy_floor__"] = mcp_policy_floor()
             self._start_or_queue(job_id, payload, meta)
         except Exception as exc:
             self._record_failure(
@@ -308,6 +320,7 @@ class FlowScheduler:
         run_at: str,
         cron_expression: str,
         persist: bool = True,
+        origin: str | None = None,
     ) -> None:
         if not self._aps:
             raise RuntimeError("未安装 APScheduler，请执行: pip install APScheduler")
@@ -328,6 +341,7 @@ class FlowScheduler:
             "interval_seconds": float(interval_seconds or 60),
             "run_at": str(run_at or ""),
             "cron_expression": str(cron_expression or ""),
+            "origin": str(origin or ""),
         }
 
         def _run():
@@ -384,6 +398,7 @@ class FlowScheduler:
                 "run_at": meta.get("run_at") or "",
                 "cron_expression": meta.get("cron_expression") or "",
                 "file_path": meta.get("file_path") or "",
+                "origin": meta.get("origin") or "",
             }
             # Only embed flow when no file on disk (unsaved flow snapshot)
             fp = row["file_path"]
@@ -439,6 +454,7 @@ class FlowScheduler:
                     run_at=str(row.get("run_at") or ""),
                     cron_expression=str(row.get("cron_expression") or ""),
                     persist=False,
+                    origin=str(row.get("origin") or "") or None,
                 )
                 restored += 1
             except Exception as exc:

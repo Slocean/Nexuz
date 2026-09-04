@@ -84,5 +84,6 @@ def handler(params, context, **kwargs):
         interval_seconds=float(params.get("interval_seconds") or 60),
         run_at=str(params.get("run_at") or ""),
         cron_expression=str(params.get("cron_expression") or "0 * * * *"),
+        origin=str(flow.get("__run_origin__") or "") or None,
     )
     return {"registered": True, "job_id": job_id}

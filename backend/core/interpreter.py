@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from .execution_policy import (
     ExecutionPolicyError,
+    apply_policy_floor,
     check_node_allowed,
     resolve_execution_policy,
 )
@@ -483,7 +484,9 @@ class FlowInterpreter:
         entry = flow.get("entry")
         if not entry or entry not in nodes:
             raise ValueError("流程缺少有效 entry 节点")
-        execution_policy = resolve_execution_policy(flow)
+        execution_policy = apply_policy_floor(
+            resolve_execution_policy(flow), flow.get("__policy_floor__")
+        )
 
         context: dict[str, Any] = {}
         for k, v in (flow.get("variables") or {}).items():

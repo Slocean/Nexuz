@@ -117,6 +117,18 @@ def handler(params, context, should_stop=None, cooperate=None, **kwargs):
     if "execution_policy" not in flow and "execution_policy" in parent_flow:
         flow["execution_policy"] = parent_flow["execution_policy"]
 
+    # 执行策略下限 / 来源标记随调用链传播：子流程文件自带更弱的标记时
+    # 仍以父流程为准（只能加严），封堵"外层干净、子流程藏危险命令"的绕行。
+    from backend.core.execution_policy import merge_policy_floors
+
+    merged_floor = merge_policy_floors(
+        parent_flow.get("__policy_floor__"), flow.get("__policy_floor__")
+    )
+    if merged_floor is not None:
+        flow["__policy_floor__"] = merged_floor
+    if parent_flow.get("__run_origin__") and not flow.get("__run_origin__"):
+        flow["__run_origin__"] = parent_flow["__run_origin__"]
+
     sub_ctx = interp._execute(flow)
 
     # Do not mirror the entire sub-context into the parent (can be huge with OCR etc.).

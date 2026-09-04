@@ -50,6 +50,25 @@ def fake_plugin():
     BLOCK_REGISTRY.pop("fake_plugin", None)
 
 
+@pytest.fixture
+def fake_critical():
+    """危险命令类积木（CRITICAL_TYPES）；若真实块已注册则原样保留。"""
+    previous = BLOCK_REGISTRY.get("run_command")
+    schema = {
+        "type": "run_command",
+        "label": "执行系统命令",
+        "category": "系统类",
+        "inputs": [],
+        "outputs": [],
+    }
+    register_block(schema, lambda params, context, **kwargs: {})
+    yield "run_command"
+    if previous is None:
+        BLOCK_REGISTRY.pop("run_command", None)
+    else:
+        BLOCK_REGISTRY["run_command"] = previous
+
+
 class StubApi:
     """只提供 dispatch 所需的最小 Api 表面。"""
 
@@ -145,29 +164,37 @@ def test_get_block_schema_unknown(server):
     assert data["result"]["ok"] is False
 
 
-def test_list_blocks_includes_fake(server, monkeypatch, fake_echo):
-    monkeypatch.setattr(mb, "_ai_cfg", lambda: {"allow_run_block": False, "allow_dangerous": False})
+def test_list_blocks_includes_fake(server, fake_echo, fake_critical):
     base, token, _api = server
     _status, data = rpc(base, token, "list_blocks", {})
     types = [b["type"] for b in data["result"]["blocks"]]
     assert "fake_echo" in types
+    # 危险命令类不进入外部 AI 目录
+    assert "run_command" not in types
 
 
-def test_run_block_gates(server, monkeypatch, fake_echo):
+def test_get_block_schema_critical_denied(server, fake_critical):
+    base, token, _api = server
+    _status, data = rpc(base, token, "get_block_schema", {"type": fake_critical})
+    assert data["result"]["ok"] is False and "不可由外部 AI 执行" in data["result"]["error"]
+
+
+def test_run_block_open_without_switches(server, monkeypatch, fake_echo):
+    """MCP run_block 不再要求应用内开关（授权由接入的 AI 客户端负责）。"""
     from backend.core.ai import run_block as rb
 
     monkeypatch.setattr(rb, "RUN_BLOCK_SAFE", frozenset(rb.RUN_BLOCK_SAFE | {fake_echo}))
     base, token, _api = server
 
-    # 未开启 allow_run_block → 拒绝
+    # 双开关全关 → safe 类仍直接执行；结果在嵌套 result 里
     monkeypatch.setattr(mb, "_ai_cfg", lambda: {"allow_run_block": False, "allow_dangerous": False})
     _status, data = rpc(base, token, "run_block", {"type": fake_echo, "params": {"text": "hi"}})
-    assert data["result"]["ok"] is False and "未开启" in data["result"]["error"]
-
-    # 开启 allow_run_block → safe 类直接执行；结果在嵌套 result 里
-    monkeypatch.setattr(mb, "_ai_cfg", lambda: {"allow_run_block": True, "allow_dangerous": False})
-    _status, data = rpc(base, token, "run_block", {"type": fake_echo, "params": {"text": "hi"}})
     assert data["result"]["ok"] is True and data["result"]["result"]["out"] == "echo:hi"
+
+    # ACTION 档（真实副作用类）同样无需危险模式开关
+    monkeypatch.setattr(rb, "RUN_BLOCK_ACTION", frozenset(rb.RUN_BLOCK_ACTION | {fake_echo}))
+    _status, data = rpc(base, token, "run_block", {"type": fake_echo, "params": {"text": "x"}})
+    assert data["result"]["ok"] is True
 
     # 会话上下文：第二次调用可通过 {{ai_run_1.out}} 引用第一次输出
     _status, data = rpc(
@@ -179,19 +206,11 @@ def test_run_block_gates(server, monkeypatch, fake_echo):
     assert data["result"]["ok"] is True and data["result"]["result"]["out"] == "echo:echo:hi"
 
 
-def test_run_block_action_needs_dangerous(server, monkeypatch, fake_echo):
-    from backend.core.ai import run_block as rb
-
-    # 仅列入 ACTION（SAFE 优先级更高，同时列入会被判为 safe）
-    monkeypatch.setattr(rb, "RUN_BLOCK_ACTION", frozenset(rb.RUN_BLOCK_ACTION | {fake_echo}))
-    base, token, _api = server
-    monkeypatch.setattr(mb, "_ai_cfg", lambda: {"allow_run_block": True, "allow_dangerous": False})
-    _status, data = rpc(base, token, "run_block", {"type": fake_echo, "params": {"text": "x"}})
-    assert data["result"]["ok"] is False and "危险模式" in data["result"]["error"]
-
+def test_run_block_denies_critical(server, monkeypatch, fake_critical):
     monkeypatch.setattr(mb, "_ai_cfg", lambda: {"allow_run_block": True, "allow_dangerous": True})
-    _status, data = rpc(base, token, "run_block", {"type": fake_echo, "params": {"text": "x"}})
-    assert data["result"]["ok"] is True
+    base, token, _api = server
+    _status, data = rpc(base, token, "run_block", {"type": fake_critical, "params": {}})
+    assert data["result"]["ok"] is False and "不支持 AI 实时执行" in data["result"]["error"]
 
 
 def test_run_block_rejects_user_plugin(server, monkeypatch, fake_plugin):
@@ -230,6 +249,64 @@ def test_run_flow_reads_library_file(server, tmp_path):
     _status, data = rpc(base, token, "run_flow", {"flow_path": str(flow_file), "wait": False})
     assert data["result"]["run"]["started"] is True
     assert api.run_flow_calls and api.run_flow_calls[0]["name"] == "demo"
+
+
+def test_run_flow_rejects_critical_inline(server):
+    """内联流程携带 python_script → 无论开关状态一律拒绝。"""
+    base, token, api = server
+    flow = {"name": "evil", "entry": "n1", "nodes": {"n1": {"type": "python_script", "params": {}}}}
+    _status, data = rpc(base, token, "run_flow", {"flow": flow, "wait": False})
+    assert data["result"]["ok"] is False and "不可执行" in data["result"]["error"]
+    assert api.run_flow_calls == []
+
+
+def test_run_flow_rejects_power_action_inline(server):
+    base, token, api = server
+    flow = {"name": "evil", "entry": "n1", "nodes": {"n1": {"type": "power_action", "params": {}}}}
+    _status, data = rpc(base, token, "run_flow", {"flow": flow, "wait": False})
+    assert data["result"]["ok"] is False and api.run_flow_calls == []
+
+
+def test_run_flow_rejects_user_plugin_inline(server, fake_plugin):
+    base, token, api = server
+    flow = {"name": "evil", "entry": "n1", "nodes": {"n1": {"type": fake_plugin, "params": {}}}}
+    _status, data = rpc(base, token, "run_flow", {"flow": flow, "wait": False})
+    assert data["result"]["ok"] is False and api.run_flow_calls == []
+
+
+def test_run_flow_rejects_critical_library_file(server, tmp_path):
+    """流程库文件内的 run_command（legacy 无策略字段）→ 拒绝。"""
+    base, token, api = server
+    flow_file = tmp_path / "flows" / "evil.flow.json"
+    flow_file.parent.mkdir(exist_ok=True)
+    flow_file.write_text(
+        json.dumps(
+            {
+                "name": "evil",
+                "entry": "n1",
+                "nodes": {"n1": {"type": "run_command", "params": {}}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _status, data = rpc(base, token, "run_flow", {"flow_path": str(flow_file), "wait": False})
+    assert data["result"]["ok"] is False and api.run_flow_calls == []
+
+
+def test_run_flow_inline_normal_gets_floor_markers(server, fake_echo):
+    """正常流程放行且注入来源/下限标记（运行期逐节点强制 + 定时再触发用）。"""
+    base, token, api = server
+    flow = {
+        "name": "demo",
+        "entry": "n1",
+        "nodes": {"n1": {"type": fake_echo, "params": {"text": "hi"}}},
+    }
+    _status, data = rpc(base, token, "run_flow", {"flow": flow, "wait": False})
+    assert data["result"]["ok"] is True
+    sent = api.run_flow_calls[0]
+    assert sent["__run_origin__"] == "mcp"
+    assert "python_script" in sent["__policy_floor__"]["deny"]
+    assert "power_action" in sent["__policy_floor__"]["deny"]
 
 
 def test_flow_control(server):

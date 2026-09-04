@@ -94,3 +94,72 @@ def test_builtin_registry_smoke_has_complete_schema_and_handlers():
     for block_type, entry in registry.items():
         assert entry["schema"]["type"] == block_type
         assert callable(entry["handler"])
+
+
+# ---- __policy_floor__（外部 AI 执行下限）----
+
+
+def _floor():
+    return {
+        "deny": ["python_script", "run_command", "power_action"],
+        "mode_min": "standard",
+    }
+
+
+def test_policy_floor_denies_critical_node(isolated_registry):
+    from backend.core.execution_policy import ExecutionPolicyError
+
+    register_block({"type": "python_script"}, lambda params, context, **kwargs: {})
+    flow = {
+        "entry": "evil",
+        # 无 execution_policy 字段（legacy），但下限标记强制拒绝危险命令类
+        "__policy_floor__": _floor(),
+        "nodes": {"evil": {"type": "python_script", "params": {}}},
+    }
+
+    # 逐节点闸在 handler 执行前拒绝（不产生 node_end 事件）
+    with pytest.raises(ExecutionPolicyError):
+        FlowInterpreter()._execute(flow)
+
+
+def test_policy_floor_propagates_into_subflow(isolated_registry, tmp_path):
+    import json
+
+    from backend.blocks.call_subflow import handler as call_subflow_handler
+    from backend.core.execution_policy import ExecutionPolicyError
+
+    register_block({"type": "call_subflow"}, call_subflow_handler)
+    register_block({"type": "python_script"}, lambda params, context, **kwargs: {})
+
+    sub = tmp_path / "sub.flow.json"
+    sub.write_text(
+        json.dumps({"entry": "evil", "nodes": {"evil": {"type": "python_script", "params": {}}}}),
+        encoding="utf-8",
+    )
+    flow = {
+        "entry": "call",
+        "__policy_floor__": _floor(),
+        "nodes": {
+            "call": {"type": "call_subflow", "params": {"subflow_path": str(sub)}},
+        },
+    }
+
+    # 外层无危险积木，但下限随流程字典进入嵌套解释器，子流程内的
+    # python_script 在逐节点闸被拒（handler 异常向上传播）
+    with pytest.raises(ExecutionPolicyError):
+        FlowInterpreter()._execute(flow)
+
+
+def test_policy_floor_allows_normal_blocks(isolated_registry):
+    flow = {
+        "entry": "source",
+        "__policy_floor__": _floor(),
+        "nodes": {
+            "source": {
+                "type": "assign",
+                "params": {"mappings": {"v": 1}},
+            },
+        },
+    }
+    context = FlowInterpreter()._execute(flow)
+    assert context["$v"] == 1
