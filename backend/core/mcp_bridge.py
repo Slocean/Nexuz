@@ -23,6 +23,7 @@ import hmac
 import json
 import os
 import secrets
+import sys
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,6 +36,16 @@ _SERVER_NAME = "nexuz-mcp"
 _MAX_BODY_BYTES = 32 * 1024 * 1024
 _MAX_SHOTS = 8
 _MAX_POINTS = 200
+
+# package.py 以 --add-data 打进冻结包的附属文件（壳进程脚本 + nexuz-mcp 技能），
+# 运行时位于 sys._MEIPASS/nexuz_mcp_shell/ 下。
+_BUNDLED_DIR = "nexuz_mcp_shell"
+
+# 一键安装技能的目标目录（相对用户主目录）。
+SKILL_INSTALL_DIRS = {
+    "zcode": Path(".agents") / "skills" / "nexuz-mcp",
+    "claude": Path(".claude") / "skills" / "nexuz-mcp",
+}
 
 _state_lock = threading.Lock()
 _state: dict[str, Any] = {"server": None, "thread": None, "token": None, "api": None}
@@ -57,6 +68,99 @@ _rpc_slots = threading.BoundedSemaphore(_MAX_CONCURRENT_RPC)
 
 def port_file_path() -> Path:
     return default_data_dir() / "mcp" / "port.json"
+
+
+def _bundle_root() -> Path | None:
+    """冻结包内 nexuz_mcp_shell/ 目录；源码模式返回 None。"""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / _BUNDLED_DIR
+    return None
+
+
+def bundled_shell_path() -> Path | None:
+    """包内内置的 nexuz_mcp.py（package.py --add-data），不存在返回 None。"""
+    bundle = _bundle_root()
+    if bundle is None:
+        return None
+    p = bundle / "nexuz_mcp.py"
+    return p if p.is_file() else None
+
+
+def bundled_skill_text() -> str | None:
+    """nexuz-mcp 技能文本：打包版取内置副本，源码模式取仓库文件。"""
+    candidates: list[Path] = []
+    bundle = _bundle_root()
+    if bundle is not None:
+        candidates.append(bundle / "skills" / "nexuz-mcp" / "SKILL.md")
+    from backend.paths import project_root
+
+    candidates.append(project_root() / ".agents" / "skills" / "nexuz-mcp" / "SKILL.md")
+    for p in candidates:
+        try:
+            if p.is_file():
+                return p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+    return None
+
+
+def ensure_mcp_shell() -> tuple[Path, bool]:
+    """确保壳进程脚本可用，返回 (路径, 是否存在)。
+
+    源码模式直接用仓库根的 nexuz_mcp.py。打包版：exe 旁缺失或内容与内置
+    副本不一致（热更新换 exe 后壳可能过时）时，从内置副本释放——优先 exe
+    目录，不可写则退回数据目录 mcp/。
+    """
+    from backend.paths import exe_dir, project_root
+
+    frozen = bool(getattr(sys, "frozen", False))
+    shell = (exe_dir() if frozen else project_root()) / "nexuz_mcp.py"
+    bundled = bundled_shell_path()
+    if not frozen or bundled is None:
+        return shell, shell.is_file()
+    try:
+        bundled_text = bundled.read_text(encoding="utf-8")
+    except Exception:
+        return shell, shell.is_file()
+    try:
+        if shell.is_file() and shell.read_text(encoding="utf-8") == bundled_text:
+            return shell, True
+    except Exception:
+        pass
+    for target in (exe_dir(), default_data_dir() / "mcp"):
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            dest = target / "nexuz_mcp.py"
+            dest.write_text(bundled_text, encoding="utf-8")
+            if dest != shell:
+                _log_system(f"MCP 壳进程脚本已释放到: {dest}")
+            return dest, True
+        except Exception:
+            continue
+    return shell, shell.is_file()
+
+
+def install_skill_targets(
+    clients: list[str] | None = None, *, home: Path | None = None
+) -> dict[str, Any]:
+    """把内置的 nexuz-mcp 技能写入用户主目录（覆盖旧副本，保持与应用同步）。"""
+    text = bundled_skill_text()
+    if text is None:
+        return {"ok": False, "error": "未找到技能文件 SKILL.md（打包版应内置 nexuz_mcp_shell/skills/）"}
+    base = home or Path.home()
+    chosen = {k: v for k, v in SKILL_INSTALL_DIRS.items() if not clients or k in clients}
+    if not chosen:
+        return {"ok": False, "error": f"未知客户端: {clients}（支持 zcode / claude）"}
+    results: dict[str, Any] = {}
+    for name, rel in chosen.items():
+        dest = base / rel / "SKILL.md"
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(text, encoding="utf-8")
+            results[name] = {"ok": True, "path": str(dest)}
+        except Exception as exc:
+            results[name] = {"ok": False, "path": str(dest), "error": str(exc)}
+    return {"ok": all(r["ok"] for r in results.values()), "results": results}
 
 
 def get_mcp_config() -> dict[str, Any]:

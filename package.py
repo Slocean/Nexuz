@@ -157,6 +157,12 @@ def collect_datas() -> list[tuple[str, str]]:
         ROOT / "backend" / "core" / "input" / "frida" / "scripts",
         "backend/core/input/frida/scripts",
     )
+    # MCP 壳进程脚本 + nexuz-mcp 技能：mcp_bridge 在打包版运行时从这里释放
+    add(ROOT / "nexuz_mcp.py", "nexuz_mcp_shell/nexuz_mcp.py")
+    add(
+        ROOT / ".agents" / "skills" / "nexuz-mcp" / "SKILL.md",
+        "nexuz_mcp_shell/skills/nexuz-mcp/SKILL.md",
+    )
     # Keep examples optional for first-run demos
     add(ROOT / "examples", "examples")
     return pairs

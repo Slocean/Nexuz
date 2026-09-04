@@ -2426,6 +2426,8 @@ export const bridge = {
   mcpGetStatus: () => call('mcp_get_status'),
   mcpSetConfig: (patch = {}) => call('mcp_set_config', patch),
   mcpClientConfig: () => call('mcp_client_config'),
+  mcpSkillSource: () => call('mcp_skill_source'),
+  mcpInstallSkill: (clients = null) => call('mcp_install_skill', clients),
   browserGetConfig: () => call('browser_get_config'),
   browserSetConfig: (patch = {}) => call('browser_set_config', patch),
   browserStatus: () => call('browser_status')

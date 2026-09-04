@@ -3548,7 +3548,8 @@ class Api:
 
         try:
             frozen = bool(getattr(_sys, "frozen", False))
-            shell = (exe_dir() if frozen else project_root()) / "nexuz_mcp.py"
+            # 打包版：exe 旁无壳或内容过时时，自动从内置副本释放（不可写则退回数据目录）
+            shell, shell_exists = mcp_bridge.ensure_mcp_shell()
             parts = ["claude", "mcp", "add", "nexuz"]
             if frozen:
                 parts += ["--env", f"NEXUZ_EXE={_sys.executable}"]
@@ -3557,9 +3558,26 @@ class Api:
                 "ok": True,
                 "command": " ".join(parts),
                 "shell_path": str(shell),
-                "shell_exists": shell.is_file(),
+                "shell_exists": shell_exists,
                 "port_file": str(mcp_bridge.port_file_path()),
             }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def mcp_skill_source(self) -> dict:
+        from backend.core import mcp_bridge
+
+        try:
+            text = mcp_bridge.bundled_skill_text()
+            return {"ok": True, "available": text is not None, "text": text}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def mcp_install_skill(self, clients=None) -> dict:
+        from backend.core import mcp_bridge
+
+        try:
+            return mcp_bridge.install_skill_targets(clients)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

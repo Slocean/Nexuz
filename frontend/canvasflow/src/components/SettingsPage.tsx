@@ -42,6 +42,7 @@ import { DEFAULT_HOTKEYS, formatHotkeyLabel, useFlowStore } from '@/store/flowMo
 import { bridge } from '@/bridge';
 import { useAppDialog } from './AppDialogs';
 import { useUpdateDialog } from './UpdateDialog';
+import McpTutorialDialog from './McpTutorialDialog';
 import PythonScriptEditor from './PythonScriptEditor';
 import { starterForFilename } from '../userBlockTemplate';
 
@@ -438,6 +439,7 @@ export default function SettingsPage({
   } | null>(null);
   const [mcpBusy, setMcpBusy] = useState(false);
   const [mcpMsg, setMcpMsg] = useState('');
+  const [mcpTutorialOpen, setMcpTutorialOpen] = useState(false);
 
   const refreshAiSkills = useCallback(async () => {
     try {
@@ -549,7 +551,7 @@ export default function SettingsPage({
         return;
       }
       if (!res.shell_exists) {
-        setMcpMsg(`未找到壳进程文件：${res.shell_path}（打包版请将 nexuz_mcp.py 放在程序同目录）`);
+        setMcpMsg(`未找到壳进程文件：${res.shell_path}（请将 nexuz_mcp.py 放在程序同目录后重试）`);
         return;
       }
       await navigator.clipboard.writeText(String(res.command || ''));
@@ -2173,6 +2175,13 @@ export default function SettingsPage({
                 type="button"
                 size="sm"
                 variant="outline"
+                onClick={() => setMcpTutorialOpen(true)}>
+                接入教程
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
                 disabled={mcpBusy}
                 onClick={() => void refreshMcpStatus()}>
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -2185,6 +2194,7 @@ export default function SettingsPage({
               </p>
             ) : null}
           </div>
+          <McpTutorialDialog open={mcpTutorialOpen} onOpenChange={setMcpTutorialOpen} colors={colors} />
         </SettingsSection>
 
         <SettingsSection

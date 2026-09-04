@@ -203,7 +203,7 @@ claude mcp add nexuz --env NEXUZ_EXE=C:\path\to\Nexuz.exe -- python E:\Project\N
 
 设置 →「MCP / 外部 AI」卡片可开关服务、查看运行状态、一键复制接入命令。
 
-给接入的 AI 代理装上随仓库发布的技能可以让它直接按正确姿势调用（调用顺序、执行边界、坐标纪律等）：把 [.agents/skills/nexuz-mcp/](.agents/skills/nexuz-mcp/SKILL.md) 整个目录拷到你自己的 `~/.agents/skills/nexuz-mcp/`（Claude Code 为 `~/.claude/skills/`）即可。
+给接入的 AI 代理装上随仓库发布的技能可以让它直接按正确姿势调用（调用顺序、执行边界、坐标纪律等）：打包版已内置技能与壳进程脚本——「接入教程」弹窗里可**一键安装技能**到 zcode / Claude Code，接入命令会自动释放壳文件；也可把 [.agents/skills/nexuz-mcp/](.agents/skills/nexuz-mcp/SKILL.md) 整个目录拷到你自己的 `~/.agents/skills/nexuz-mcp/`（Claude Code 为 `~/.claude/skills/`）。Release 资产附带 `nexuz_mcp.py` 与 `nexuz-mcp-skill.zip`（内含 `nexuz-mcp/SKILL.md`，解压到 skills 目录即完成安装）。
 
 ### 工具一览
 

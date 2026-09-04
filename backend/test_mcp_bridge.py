@@ -381,3 +381,93 @@ def test_rpc_concurrency_limit(server, monkeypatch):
     finally:
         for _ in acquired:
             mb._rpc_slots.release()
+
+
+# ---- 打包版内置壳 / 技能 ----
+
+
+def _make_repo_skill(root):
+    skill = root / ".agents" / "skills" / "nexuz-mcp" / "SKILL.md"
+    skill.parent.mkdir(parents=True, exist_ok=True)
+    skill.write_text("# nexuz-mcp skill\n", encoding="utf-8")
+    return skill
+
+
+def test_bundled_skill_from_repo_in_dev(tmp_path, monkeypatch):
+    """源码模式：从仓库 .agents/skills/ 读取技能文本。"""
+    skill = _make_repo_skill(tmp_path)
+    monkeypatch.setattr("backend.paths.project_root", lambda: tmp_path)
+    assert mb.bundled_skill_text() == skill.read_text(encoding="utf-8")
+
+
+def test_install_skill_targets(tmp_path, monkeypatch):
+    monkeypatch.setattr("backend.paths.project_root", lambda: tmp_path)
+    _make_repo_skill(tmp_path)
+    home = tmp_path / "home"
+    res = mb.install_skill_targets(home=home)
+    assert res["ok"] is True
+    assert res["results"]["zcode"]["ok"] and res["results"]["claude"]["ok"]
+    assert (home / ".agents" / "skills" / "nexuz-mcp" / "SKILL.md").is_file()
+    assert (home / ".claude" / "skills" / "nexuz-mcp" / "SKILL.md").is_file()
+    # 指定单一客户端
+    res2 = mb.install_skill_targets(["zcode"], home=home / "h2")
+    assert res2["ok"] is True and "claude" not in res2["results"]
+    # 未知客户端
+    assert mb.install_skill_targets(["nope"], home=home)["ok"] is False
+
+
+def test_ensure_mcp_shell_dev_uses_repo_copy(tmp_path, monkeypatch):
+    monkeypatch.setattr("backend.paths.project_root", lambda: tmp_path)
+    shell, ok = mb.ensure_mcp_shell()
+    assert ok is (tmp_path / "nexuz_mcp.py").is_file() and shell == tmp_path / "nexuz_mcp.py"
+
+
+def test_ensure_mcp_shell_frozen_materializes(tmp_path, monkeypatch):
+    """打包版：exe 旁无壳 → 从内置副本释放到 exe 目录；内容过时 → 刷新。"""
+    import sys as _sys
+
+    bundle = tmp_path / "bundle"
+    bundled = bundle / "nexuz_mcp_shell" / "nexuz_mcp.py"
+    bundled.parent.mkdir(parents=True)
+    bundled.write_text("# shell v2\n", encoding="utf-8")
+    monkeypatch.setattr(_sys, "frozen", True, raising=False)
+    monkeypatch.setattr(_sys, "_MEIPASS", str(bundle), raising=False)
+    monkeypatch.setattr("backend.paths.exe_dir", lambda: tmp_path / "exe")
+
+    shell, ok = mb.ensure_mcp_shell()
+    assert ok is True
+    assert shell == tmp_path / "exe" / "nexuz_mcp.py"
+    assert shell.read_text(encoding="utf-8") == "# shell v2\n"
+
+    # 内置副本未变 → 返回同一份（不无谓重写）
+    shell2, ok2 = mb.ensure_mcp_shell()
+    assert ok2 is True and shell2 == shell
+
+    # 内置副本更新（应用热更新后）→ exe 旁旧壳被刷新
+    bundled.write_text("# shell v3\n", encoding="utf-8")
+    shell3, ok3 = mb.ensure_mcp_shell()
+    assert ok3 is True and shell3.read_text(encoding="utf-8") == "# shell v3\n"
+
+
+def test_ensure_mcp_shell_frozen_falls_back_to_data_dir(tmp_path, monkeypatch):
+    """exe 目录不可写（路径被文件占用）→ 退回数据目录 mcp/。"""
+    import sys as _sys
+
+    bundle = tmp_path / "bundle"
+    bundled = bundle / "nexuz_mcp_shell" / "nexuz_mcp.py"
+    bundled.parent.mkdir(parents=True)
+    bundled.write_text("# shell\n", encoding="utf-8")
+    monkeypatch.setattr(_sys, "frozen", True, raising=False)
+    monkeypatch.setattr(_sys, "_MEIPASS", str(bundle), raising=False)
+
+    # exe_dir 是一个普通文件 → mkdir(parents=True, exist_ok=True) 抛 FileExistsError
+    blocked = tmp_path / "exe_blocked"
+    blocked.write_text("i am a file", encoding="utf-8")
+    monkeypatch.setattr("backend.paths.exe_dir", lambda: blocked)
+    data_dir = tmp_path / "appdata"
+    monkeypatch.setattr(mb, "default_data_dir", lambda: data_dir)
+
+    shell, ok = mb.ensure_mcp_shell()
+    assert ok is True
+    assert shell == data_dir / "mcp" / "nexuz_mcp.py"
+    assert shell.read_text(encoding="utf-8") == "# shell\n"
