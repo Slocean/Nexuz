@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 # Soft cap for file_io read to avoid blowing up UI / context memory.
 MAX_FILE_READ_BYTES = 2 * 1024 * 1024
+
+# 盘符相对路径（如 D:nexuz）：反斜杠丢失后的典型产物（常见于 JSON 转义错误）。
+# resolve() 会把它静默锚定到该盘符当前目录，产生"路径被拼接"的错觉，直接拒绝并指路。
+_DRIVE_RELATIVE_RE = re.compile(r"^[A-Za-z]:(?![\\/])")
 
 
 def clipboard_write(text: str) -> dict[str, Any]:
@@ -49,6 +54,22 @@ def normalize_path(path: str | None) -> tuple[Path | None, str | None]:
     raw = str(path or "").strip()
     if not raw:
         return None, "路径不能为空"
+    if any(ord(ch) < 0x20 for ch in raw):
+        return None, (
+            f"路径包含换行/控制字符（通常是 JSON 转义错误，反斜杠被吃掉）: {raw!r}。"
+            "Windows 路径的反斜杠在 JSON 中应写作 \\\\"
+        )
+    if _DRIVE_RELATIVE_RE.match(raw):
+        fixed = raw[:2] + "\\" + raw[2:]
+        return None, (
+            f"盘符相对路径缺少分隔符: {raw}。"
+            f"Windows 绝对路径应写作 {fixed}；在 JSON 参数中反斜杠需双写为 {fixed.replace(chr(92), chr(92) * 2)}"
+        )
+    if any(ord(ch) < 0x20 for ch in raw):
+        return None, (
+            f"路径包含换行/控制字符（通常是 JSON 转义错误，反斜杠被吃掉）: {raw!r}。"
+            "Windows 路径的反斜杠在 JSON 中应写作 \\\\"
+        )
     try:
         p = Path(raw).expanduser()
         # resolve(strict=False) so write can create new files

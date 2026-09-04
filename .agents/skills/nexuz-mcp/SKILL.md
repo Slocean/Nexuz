@@ -36,6 +36,30 @@ locate_text_on_screen {"match_text": "设置", "shot_ref": "<capture_screen 返�
 
 同一张截图找多个目标时复用 `shot_ref`，不要重复截屏。
 
+## 响应结构（run_block）
+
+外层 `ok` 只表示"积木是否被执行"，**业务成败与真实输出在嵌套的 `result` 字段里**，判断结果要看 `result`：
+
+```json
+{
+  "ok": true,                // 执行状态（handler 是否跑完）
+  "type": "file_manage",
+  "node_id": "ai_run_1",
+  "result": {
+    "ok": false,             // 业务成败（如"不是文件夹"、目标已存在）
+    "error": "不是文件夹或不存在: D:\\nexuz\\nexuz",
+    "output": "", "count": 0, "items": []
+  }
+}
+```
+
+外层 `ok: true` + `result.ok: false` 是"执行成功但业务失败"，不是 Nexuz 故障；按 `result.error` 修正参数重试即可。后续调用绑定时用积木输出名：`{{ai_run_1.output}}`（不带 result 前缀）。
+
+## 路径纪律
+
+- Windows 路径必须用**绝对路径**，且 JSON 中反斜杠**必须双写**：`"D:\\\\nexuz"`。单写 `"D:\\nexuz"` 会把 `\\n` 变成换行符、丢成 `D:nexuz`，这类路径会被直接拒绝并提示修正写法。
+- 相对路径会按应用工作目录解析，结果不可预期——不要用。
+
 ## 会话变量与绑定
 
 `run_block` 的输出按 `{{ai_run_N.输出名}}` 写入会话上下文（N 是本次会话内第几次 run_block 调用，从 1 起），后续调用可直接绑定引用：

@@ -56,6 +56,8 @@ TOOLS = [
         "description": (
             "实时执行一个积木并返回结果。无需应用内开关；危险命令类（python_script/run_command）、"
             "电源操作（power_action）、控制流积木、自定义积木一律拒绝，其余（桌面动作/文件/图片处理/浏览器/系统等）全部可执行。"
+            "响应结构：外层 ok/type/node_id/tier 是执行状态，积木的真实输出在嵌套 result 字段里"
+            "（如 result.ok 为业务成败、result.output/result.items/result.error 为输出与错误），判断成败要看 result。"
             "坐标禁止臆造：先 capture_screen + locate_text_on_screen 获取真实坐标。"
         ),
         "inputSchema": {

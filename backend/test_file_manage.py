@@ -457,3 +457,42 @@ class TestToolCatalog:
         assert schema and schema["type"] == "file_manage"
         denied = get_block_schema("file_manage", allow_dangerous=False)
         assert denied and "error" in denied and "inputs" not in denied
+
+
+# ---- 路径归一化的防呆（盘符相对路径 / 控制字符）----
+
+
+def test_list_rejects_drive_relative_path(tmp_path):
+    """D:nexuz（丢反斜杠）曾被静默锚定到进程 cwd，造成"路径被拼接"的错觉——现明确报错。"""
+    from backend.blocks._system_io import normalize_path
+
+    p, err = normalize_path("D:nexuz")
+    assert p is None and err is not None
+    assert "盘符相对路径" in err and ("D:" + chr(92) + "nexuz") in err
+
+    r = file_manage.handler({"action": "list", "path": "D:nexuz"}, {})
+    assert r["ok"] is False and "盘符相对路径" in r["error"]
+
+
+def test_list_rejects_control_chars_in_path():
+    """JSON 转义事故（"D:\nexuz" 单反斜杠 → \n 变换行）给出可诊断的报错。"""
+    from backend.blocks._system_io import normalize_path
+
+    mangled = "D:" + chr(10) + "exuz"
+    p, err = normalize_path(mangled)
+    assert p is None and err is not None
+    assert "控制字符" in err
+
+    r = file_manage.handler({"action": "list", "path": mangled}, {})
+    assert r["ok"] is False and "控制字符" in r["error"]
+
+
+def test_list_normal_absolute_forms_still_work(tmp_path):
+    """绝对路径各形态（反斜杠/正斜杠/尾分隔符/双写转义）不受影响。"""
+    base = tmp_path / "nexuz"
+    base.mkdir()
+    (base / "a.txt").write_text("x", encoding="utf-8")
+    for form in (str(base), str(base).replace("\\", "/"), str(base) + "\\", str(base).replace("\\", "\\\\")):
+        r = file_manage.handler({"action": "list", "path": form}, {})
+        assert r["ok"] is True, f"{form!r}: {r['error']}"
+        assert r["count"] == 1 and r["items"][0]["name"] == "a.txt"
