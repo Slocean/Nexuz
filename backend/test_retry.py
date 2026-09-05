@@ -36,6 +36,20 @@ def test_non_transient_text():
     assert is_transient_error(ValueError("bad params")) is False
 
 
+def test_transient_ssl_eof_markers():
+    # 图生图下载生成图实测：CDN 掐断连接，SSL 会话被中途终止
+    assert (
+        is_transient_error(
+            Exception(
+                "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)"
+            )
+        )
+        is True
+    )
+    # 证书校验失败属于配置问题，不重试
+    assert is_transient_error(Exception("SSL: CERTIFICATE_VERIFY_FAILED")) is False
+
+
 def test_non_transient_marker_beats_transient_marker():
     # 文本同时含两类标记时，明确非瞬态优先
     assert is_transient_error(Exception("401 unauthorized: too many requests")) is False

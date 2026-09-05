@@ -2,7 +2,8 @@
 
 端点与密钥在 设置 → Nexuz AI → 生图模型 配置；Base URL / API Key 留空时
 自动沿用聊天模型的服务商配置，仅需单独填写生图模型 ID。
-响应同时兼容 URL 与 Base64 两种返回格式。
+响应同时兼容 URL 与 Base64 两种返回格式；URL 模式的图片下载带浏览器式 UA、
+跟随重定向，并与 API 请求一样对瞬态网络错误（SSL 断流/连接重置/超时）自动重试。
 
 默认按时间戳自动命名，历史图片不会相互覆盖；也提供固定文件名模式
 （覆盖旧图）供需要固定路径的流程使用。模式选"图片编辑（图生图）"时，
@@ -21,6 +22,7 @@ import httpx
 
 from backend.core.ai import llm_cache
 from backend.core.ai.config import resolve_image_config
+from backend.core.ai.retry import with_retry
 
 SCHEMA = {
     "type": "image_generate",
@@ -178,6 +180,21 @@ STYLE_SUFFIXES: dict[str, str] = {
 _SIZE_PRESETS = {"1024x1024", "1024x1792", "1792x1024"}
 _MAX_COUNT = 4
 
+# 厂商返回的图片托管 CDN 会掐断 python-httpx 默认 UA 的连接，表现为
+# SSL UNEXPECTED_EOF / 连接重置；下载统一带浏览器式 UA 并跟随重定向。
+_DOWNLOAD_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+class _DownloadStatusError(Exception):
+    """非 200 下载响应；携带状态码供 with_retry 按 _TRANSIENT_STATUS 判定可重试。"""
+
+    def __init__(self, status_code: int):
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+
 
 def _images_url(base_url: str) -> str:
     url = (base_url or "").strip().rstrip("/")
@@ -264,8 +281,11 @@ def _parse_error_message(status_code: int, payload: dict[str, Any] | None) -> st
 def _request_images(
     url: str, headers: dict[str, str], body: dict[str, Any], timeout_s: float
 ) -> dict[str, Any]:
+    def do_post() -> httpx.Response:
+        return httpx.post(url, headers=headers, json=body, timeout=timeout_s)
+
     try:
-        resp = httpx.post(url, headers=headers, json=body, timeout=timeout_s)
+        resp = with_retry(do_post, what="生图请求")
     except httpx.HTTPError as exc:
         raise ValueError(f"生图请求失败：{exc}") from exc
     try:
@@ -343,8 +363,12 @@ def _request_image_edits(
 ) -> dict[str, Any]:
     data, filename, mime = image
     files = {"image": (filename, data, mime)}
+
+    def do_post() -> httpx.Response:
+        return httpx.post(url, headers=headers, data=form, files=files, timeout=timeout_s)
+
     try:
-        resp = httpx.post(url, headers=headers, data=form, files=files, timeout=timeout_s)
+        resp = with_retry(do_post, what="图片编辑请求")
     except httpx.HTTPError as exc:
         raise ValueError(f"图片编辑请求失败：{exc}") from exc
     try:
@@ -360,14 +384,24 @@ def _request_image_edits(
     return payload
 
 
-def _download_bytes(url: str, timeout_s: float) -> bytes:
+def _download_bytes(url: str, timeout_s: float, *, what: str = "生成图片") -> bytes:
+    def fetch() -> bytes:
+        resp = httpx.get(
+            url,
+            timeout=timeout_s,
+            headers={"User-Agent": _DOWNLOAD_UA},
+            follow_redirects=True,
+        )
+        if resp.status_code != 200:
+            raise _DownloadStatusError(resp.status_code)
+        return resp.content
+
     try:
-        resp = httpx.get(url, timeout=timeout_s)
+        return with_retry(fetch, what=f"下载{what}")
+    except _DownloadStatusError as exc:
+        raise ValueError(f"下载{what}失败：HTTP {exc.status_code}") from exc
     except httpx.HTTPError as exc:
-        raise ValueError(f"下载生成图片失败：{exc}") from exc
-    if resp.status_code != 200:
-        raise ValueError(f"下载生成图片失败：HTTP {resp.status_code}")
-    return resp.content
+        raise ValueError(f"下载{what}失败：{exc}") from exc
 
 
 _IMAGE_MIME = {
@@ -402,7 +436,7 @@ def _load_source_image(source: Any, timeout_s: float) -> tuple[bytes, str, str]:
             raise ValueError("data URL 参考图不是合法 Base64") from exc
 
     if raw.startswith(("http://", "https://")):
-        data = _download_bytes(raw, timeout_s)
+        data = _download_bytes(raw, timeout_s, what="参考图")
         name = Path(raw.split("?", 1)[0]).name or "source.png"
         mime = _IMAGE_MIME.get(Path(name).suffix.lower(), "image/png")
         return data, name, mime

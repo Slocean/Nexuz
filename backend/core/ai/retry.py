@@ -48,6 +48,12 @@ _TRANSIENT_MARKERS = (
     "service unavailable",
     "gateway time-out",
     "try again",
+    # SSL 连接被中途掐断（弱网 / 图片 CDN 掐断非浏览器客户端时常见），重试通常可恢复
+    "eof occurred",
+    "unexpected eof",
+    "unexpected_eof",
+    "bad record mac",
+    "decryption failed",
 )
 
 # 明确非瞬态的文本（避免误重试，优先级高于上面的标记）

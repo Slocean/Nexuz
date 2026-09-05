@@ -6,6 +6,7 @@ import base64
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from backend.blocks import image_generate
@@ -327,3 +328,98 @@ def test_handler_img2img_uses_multipart(image_env, tmp_path):
     assert (data, name, mime) == (b"src-bytes", "src.png", "image/png")
     assert result["count"] == 1
     assert (tmp_path / "out").exists()
+
+
+# ---------- 下载与请求：瞬态 SSL 断流自动重试 ----------
+
+
+class _FakeResp:
+    def __init__(self, status_code: int, content: bytes = b""):
+        self.status_code = status_code
+        self.content = content
+
+
+@pytest.fixture
+def no_retry_sleep(monkeypatch):
+    from backend.core.ai import retry as retry_mod
+
+    monkeypatch.setattr(retry_mod.time, "sleep", lambda *_: None)
+
+
+def test_download_bytes_retries_ssl_eof(no_retry_sleep, monkeypatch):
+    calls = {"n": 0}
+    kwargs_seen = {}
+
+    def flaky_get(url, **kwargs):
+        calls["n"] += 1
+        kwargs_seen.update(kwargs)
+        if calls["n"] < 3:
+            raise httpx.ReadError(
+                "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)"
+            )
+        return _FakeResp(200, b"img")
+
+    monkeypatch.setattr(httpx, "get", flaky_get)
+    assert image_generate._download_bytes("https://cdn.example.com/a.png", 10) == b"img"
+    assert calls["n"] == 3
+    assert "Mozilla/5.0" in kwargs_seen["headers"]["User-Agent"]
+    assert kwargs_seen["follow_redirects"] is True
+
+
+def test_download_bytes_retries_5xx(no_retry_sleep, monkeypatch):
+    responses = iter([_FakeResp(503), _FakeResp(503), _FakeResp(200, b"img")])
+    calls = {"n": 0}
+
+    def flaky_get(url, **kwargs):
+        calls["n"] += 1
+        return next(responses)
+
+    monkeypatch.setattr(httpx, "get", flaky_get)
+    assert image_generate._download_bytes("https://cdn.example.com/a.png", 10) == b"img"
+    assert calls["n"] == 3
+
+
+def test_download_bytes_no_retry_on_404(no_retry_sleep, monkeypatch):
+    calls = {"n": 0}
+
+    def not_found(url, **kwargs):
+        calls["n"] += 1
+        return _FakeResp(404)
+
+    monkeypatch.setattr(httpx, "get", not_found)
+    with pytest.raises(ValueError, match="HTTP 404"):
+        image_generate._download_bytes("https://cdn.example.com/gone.png", 10)
+    assert calls["n"] == 1
+
+
+def test_load_source_image_url_error_message(no_retry_sleep, monkeypatch):
+    # 参考图为 URL 时，报错文案应是"参考图"而非误导性的"生成图片"
+    def refused(url, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "get", refused)
+    with pytest.raises(ValueError, match="下载参考图失败"):
+        image_generate._load_source_image("https://cdn.example.com/src.png", 10)
+
+
+def test_request_images_retries_transient(no_retry_sleep, monkeypatch):
+    calls = {"n": 0}
+
+    class _OkResp:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"b64_json": "x"}]}
+
+    def flaky_post(url, **kwargs):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise httpx.ReadError("Connection reset by peer")
+        return _OkResp()
+
+    monkeypatch.setattr(httpx, "post", flaky_post)
+    payload = image_generate._request_images(
+        "https://api.example.com/v1/images/generations", {}, {"model": "m", "prompt": "x"}, 10
+    )
+    assert payload["data"][0]["b64_json"] == "x"
+    assert calls["n"] == 2
