@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import string
 import subprocess
 import sys
 import time
@@ -129,8 +130,12 @@ class TestReadOnlyBlocks:
         assert result["ok"] and result["count"] >= 1
         assert all(d["total_gb"] > 0 for d in result["drives"])
 
-        missing = handler({"mode": "path", "path": "Z:\\不存在\\nope"}, {})
-        assert not missing["ok"]
+        # 盘符动态选取本机不存在的（写死 Z: 会在挂了 Z 盘的机器上爬到存在的
+        # 祖先目录而误判）；26 个盘符全被占用时该断言无意义，直接跳过
+        absent = [L for L in string.ascii_uppercase if not Path(f"{L}:/").exists()]
+        if absent:
+            missing = handler({"mode": "path", "path": f"{absent[0]}:\\不存在\\nope"}, {})
+            assert not missing["ok"]
 
     def test_env_var_get_set_list(self):
         handler = _handler("env_var")
