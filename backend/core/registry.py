@@ -231,7 +231,7 @@ def _register_user_blocks(*, builtin_types: set[str]) -> None:
         schema["source_file"] = path.name
         schema.setdefault(
             "description",
-            "本机可信插件：隔离 worker 默认阻断网络、子进程和文件写入，但仍非完整安全沙箱。",
+            "本机可信插件：隔离 worker 禁止网络与子进程、允许文件读写；仍非完整安全沙箱，请仅授权可信来源。",
         )
         register_block(schema, _make_isolated_user_handler(path, block_type))
 
@@ -272,6 +272,9 @@ def _make_isolated_user_handler(path: Path, block_type: str) -> Callable:
                 "block_type": block_type,
                 "params": params if isinstance(params, dict) else {},
                 "context": context if isinstance(context, dict) else {},
+                # 本机可信插件需要落盘产出（图片处理等）：放行文件写入，
+                # 网络/子进程仍由 worker 审计策略禁止。
+                "allow_write": True,
                 "kwargs": {
                     "node": kwargs.get("node"),
                     "node_id": kwargs.get("node_id"),

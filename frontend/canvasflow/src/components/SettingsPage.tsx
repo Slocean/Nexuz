@@ -1287,7 +1287,7 @@ export default function SettingsPage({
       title: '授权此用户积木？',
       description:
         `文件：${userBlockFile}\nSHA-256：${selectedFile?.sha256 || '未知'}\n\n` +
-        '授权后，模块顶层代码与 handler 可在隔离 worker 中运行。worker 默认阻断网络、子进程和文件写入，但仍可读取当前用户文件。仅在你已审查全部代码并信任来源时继续。',
+        '授权后，模块顶层代码与 handler 可在隔离 worker 中运行。worker 阻断网络和子进程，允许本地文件读写（图片处理类积木需要落盘产出），但仍可读取当前用户文件。仅在你已审查全部代码并信任来源时继续。',
       confirmText: '我已审查并授权',
       destructive: true
     });
@@ -2300,8 +2300,8 @@ export default function SettingsPage({
             />
           }>
           <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
-            仅可信代码：自定义积木只在可终止的隔离 worker 中加载和执行，默认阻断网络、子进程和文件写入；
-            但仍可读取当前用户文件，且不是完整安全沙箱。
+            仅可信代码：自定义积木只在可终止的隔离 worker 中加载和执行，阻断网络和子进程、
+            允许本地文件读写（落盘产出）；但仍可读取当前用户文件，且不是完整安全沙箱。
             注册表刷新只读取静态 SCHEMA；仍请只使用你已审查、且来源可信的 Python 文件。
           </div>
           <div

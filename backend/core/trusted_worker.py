@@ -2,6 +2,10 @@
 
 The process boundary protects the desktop process from crashes and hangs. It is
 not an OS security boundary: code still runs as the current Windows user.
+Trusted user plugins (kind=plugin + allow_write) may write files — image
+processing plugins persist their output to disk. For such requests the worker
+stays at the caller's integrity level (Low integrity would forbid writing
+user-writable paths); network and child processes stay blocked for every kind.
 """
 
 from __future__ import annotations
@@ -90,8 +94,11 @@ def _apply_windows_low_integrity() -> None:
         kernel32.CloseHandle(token)
 
 
-def _install_audit_policy() -> None:
-    """Block common network, child-process and file-write APIs inside the worker."""
+def _install_audit_policy(*, allow_write: bool = False) -> None:
+    """Block common network and child-process APIs inside the worker.
+
+    File writes are blocked unless allow_write（本机可信用户插件落盘产出）。
+    """
 
     def audit(event: str, args: tuple[Any, ...]) -> None:
         if event.startswith("socket."):
@@ -104,7 +111,7 @@ def _install_audit_policy() -> None:
             "pty.spawn",
         }:
             raise PermissionError("可信代码 worker 禁止启动子进程")
-        if event == "open" and len(args) >= 2:
+        if not allow_write and event == "open" and len(args) >= 2:
             mode = str(args[1] or "")
             flags = args[2] if len(args) > 2 else 0
             write_flags = 0
@@ -186,8 +193,13 @@ def main() -> int:
         request = json.loads(raw.decode("utf-8"))
         if not isinstance(request, dict):
             raise ValueError("worker 请求必须是对象")
-        _apply_windows_low_integrity()
-        _install_audit_policy()
+        # 仅本机可信用户积木（kind=plugin 且显式 allow_write）放行文件写入；
+        # 脚本积木与网络/子进程限制不因此放松。Low 完整级会连带禁止写
+        # 用户可写目录（Medium IL 文件的 No-Write-Up），放行写入时须跳过。
+        allow_write = bool(request.get("allow_write")) and request.get("kind") == "plugin"
+        if not allow_write:
+            _apply_windows_low_integrity()
+        _install_audit_policy(allow_write=allow_write)
         with contextlib.redirect_stdout(captured_stdout), contextlib.redirect_stderr(
             captured_stderr
         ):
