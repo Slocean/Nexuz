@@ -74,7 +74,21 @@ run_block 第 2 次: click {"x": "{{ai_run_1.x}}", "y": "{{ai_run_1.y}}"}
 ## 等待与超时
 
 - delay / wait_until 等等待参数单次上限 60 秒（超出自动钳制），单次积木执行上限 90 秒。要等更久就多次 `wait_until` 轮询，不要一次传大值。
+- `monitor_wait` 同理单次上限 60 秒：超时返回 `timed_out: true` 后带着 `last_event_id` 再等一轮即可，实现任意长时段监听。
 - `run_flow` 默认 `wait: true` 阻塞等结果（`timeout_s` 默认 300）；返回 `timed_out: true` 表示流程仍在运行，此时用 `flow_control {"action": "stop"}` 急停止损，或再次 `get_status` 观察。
+
+## 监控与唤醒（monitor_*）
+
+"某件事发生时立刻继续/通知我"用监控积木，不要自己循环狂轮询截图：
+
+- `monitor_start` — 启动后台监控并**立即返回** `monitor_id`。类型：process（进程出现/退出，按名或 pid）、window（窗口出现/关闭）、file（文件出现/消失/变化）、screen_text（区域 OCR 出现指定文字）、screen_color（区域/单点颜色）。先 `get_block_schema` 看条件参数（poll_interval_ms / refire_ms / fire_on_start / expire_seconds / toast 等）。
+- `monitor_wait` — **唤醒点**：调用挂起直到该监控出现新事件（`result.got=true` + `events[]`）或超时，等效被事件唤醒；超时后带 `last_event_id` 继续下一轮。
+- `monitor_check` — 非阻塞取件；配合你所在客户端的**定时任务**周期性唤醒调用，适合低频、长时间监控。
+- `monitor_list` / `monitor_stop` — 找回现存监控 / 停止删除（用完清理）。
+
+事件语义：条件由假变真记一次（`fire=edge`）；持续为真按 `refire_ms` 重复（0=不重复）；启动时已满足是否立刻记事件看 `fire_on_start`。用 `since_event_id` 传上次返回的 `last_event_id` 增量消费，不漏不重。
+重启注意：监控规格随应用重启自动恢复，但**事件队列清空**（id 水位接续不倒退）；重启后 `monitor_list` 找回监控。
+示例——盯守某进程退出：`monitor_start {"monitor_type":"process","on":"disappear","process_name":"agent.exe","expire_seconds":7200}` → 循环 `monitor_wait {"monitor_id":"<返回的id>","since_event_id":<上次水位>}`，进程一退出调用即返回，事后 `monitor_stop` 清理。
 
 ## run_block 与 run_flow 怎么选
 

@@ -24,7 +24,8 @@ from backend.core.registry import BLOCK_REGISTRY
 from backend.core.runtime_payload import summarize_result
 from backend.core.variable_resolver import resolve_variables
 
-# 允许 AI 直接实时执行的积木（只读 / 无桌面副作用）。
+# 允许 AI 直接实时执行的积木（只读 / 无桌面副作用）。监控类只观察并缓冲
+# 事件（monitor_start 启动后台观察、monitor_wait 长轮询取件），无桌面副作用。
 RUN_BLOCK_SAFE = frozenset(
     {
         "assign",
@@ -46,6 +47,11 @@ RUN_BLOCK_SAFE = frozenset(
         "disk_info",
         "process_list",
         "timestamp",
+        "monitor_start",
+        "monitor_wait",
+        "monitor_check",
+        "monitor_stop",
+        "monitor_list",
     }
 )
 
@@ -97,6 +103,7 @@ _WAIT_PARAM_CAPS: dict[str, tuple[str, float]] = {
     "wait_until": ("timeout_ms", _MAX_DELAY_MS),
     "browser_wait": ("timeout_ms", _MAX_DELAY_MS),
     "window_wait": ("timeout_sec", 60.0),
+    "monitor_wait": ("timeout_ms", _MAX_DELAY_MS),
 }
 
 

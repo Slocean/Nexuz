@@ -153,7 +153,7 @@ Release 正文只写入 [`app_update.json`](app_update.json) 里**当前发版�
 | 动作 | click / **mouse_hover** / drag / key_press / type_text / delay / **wait_until**                                                      |
 | 识别 | color_detect / if_color_match / ocr_recognize / **locate_text** / if_text_contains / find_image / **screenshot**                     |
 | 浏览器 | **browser_navigate** / **browser_extract** / **browser_click** / **browser_fill** / **browser_screenshot** / **browser_wait** / **browser_eval** / **browser_close** |
-| 控制 | if*condition / switch / loop*\* / **try_catch** / **schedule_trigger** / **call_subflow** / **assign**                               |
+| 控制 | if*condition / switch / loop*\* / **try_catch** / **schedule_trigger** / **monitor_start** / **monitor_wait** / **monitor_check** / **monitor_stop** / **monitor_list** / **call_subflow** / **assign** |
 | 系统 | http_request / clipboard / file_io / run_command / notify / python_script / **window_wait** / **window_activate** / **window_close** / **system_info** / **sys_path** / **env_var** / **process_list** / **process_kill** / **open_path** / **disk_info** / **zip_archive** / **power_action** / **volume_action** / **timestamp** / **file_manage** |
 | 平台 | 画布↔JSON（可自动同步）、变量面板、参数表单、运行控制、分类日志（运行/系统/操作/诊断）、保存加载、录制、定时任务落盘                 |
 
@@ -224,7 +224,7 @@ claude mcp add nexuz --env NEXUZ_EXE=C:\path\to\Nexuz.exe -- python E:\Project\N
 - **全部可执行**：除下方拒绝清单外的所有积木——桌面动作（`click` `key_press` `type_text` 等）、文件 / 网络（`file_io` `file_manage` `http_request` 等）、图片处理（`image_generate` `image_rename` `image_scale` `transparent_cut` `sprite_sheet_cut` `sprite_part_cut`）、浏览器（`browser_*`）、系统（`env_var` `open_path` `process_kill` 等）、只读观察类（`screenshot` `ocr_recognize` `find_image` 等）
 - **始终拒绝**（无开关可绕）：`python_script`、`run_command`（危险命令类）、`power_action`（关机/重启）、控制流（`if_*` / `loop_*` / `switch` / `try_catch`）、用户自定义插件
 
-其他约束：等待类参数会被钳制（`delay` / `wait_until` 等单次 ≤ 60s，单次 handler 执行 ≤ 90s），防止外部 AI 挂死应用。
+其他约束：等待类参数会被钳制（`delay` / `wait_until` / `monitor_wait` 等单次 ≤ 60s，单次 handler 执行 ≤ 90s），防止外部 AI 挂死应用。长时间监听用「监控与唤醒」组合：`monitor_start` 注册条件（进程/窗口/文件/屏幕），`monitor_wait` 长轮询（事件一出现调用即返回，等效被唤醒）或 `monitor_check` 配客户端定时任务周期唤醒。
 
 ### run_flow 执行边界
 

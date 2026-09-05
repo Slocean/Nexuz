@@ -157,6 +157,14 @@ class Api:
         except Exception as exc:
             self._log("warn", f"恢复定时任务失败: {exc}", category="system", scope="app")
         try:
+            from backend.core.monitor import get_monitor_manager
+
+            n = get_monitor_manager().restore()
+            if n:
+                self._log("info", f"已恢复 {n} 个后台监控", category="system", scope="app")
+        except Exception as exc:
+            self._log("warn", f"恢复后台监控失败: {exc}", category="system", scope="app")
+        try:
             get_app_hotkeys()
             self._log("info", "全局热键已注册", category="system", scope="app")
         except Exception as exc:
