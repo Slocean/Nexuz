@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,13 +28,20 @@ def handler(params, context, **kwargs):
 '''
 
 
-def _run_worker(request: dict) -> dict:
+def _run_worker(request: dict, extra_env: dict | None = None) -> dict:
+    env = dict(os.environ)
+    # 与生产 worker_client.run_isolated 一致：显式 UTF-8 IO
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.run(
         [sys.executable, "-m", "backend.core.trusted_worker"],
         input=json.dumps(request).encode("utf-8"),
         capture_output=True,
         timeout=60,
         cwd=str(_REPO_ROOT),
+        env=env,
     )
     assert proc.returncode in (0, 1), proc.stderr.decode("utf-8", errors="replace")
     return json.loads(proc.stdout.decode("utf-8"))
@@ -88,6 +96,18 @@ def test_allow_write_ignored_for_script_kind(tmp_path):
     assert result["ok"] is False
     assert "不允许导入模块" in result["error"]
     assert not (tmp_path / "out" / "no.txt").exists()
+
+
+def test_worker_payload_utf8_on_ansi_codepage(tmp_path):
+    """CI/手动启动可能落在 ANSI 代码页：无 PYTHONIOENCODING 时中文错误仍须完整输出。
+
+    强制 cp1252 在本机也能复现编码失败模式（中文不可编码 → 修前 stdout 全空）。
+    """
+    request, _ = _plugin_request(tmp_path)
+    env = {"PYTHONIOENCODING": "cp1252", "PYTHONUTF8": ""}
+    response = _run_worker(request, extra_env=env)
+    assert response["ok"] is False
+    assert "禁止文件写入" in response["error"]
 
 
 def test_network_blocked_even_with_allow_write(tmp_path):

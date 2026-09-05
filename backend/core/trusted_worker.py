@@ -185,6 +185,11 @@ def handle_request(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
+    # 载荷恒为 UTF-8 JSON：worker_client 会设 PYTHONIOENCODING/PYTHONUTF8，
+    # 但其他启动方式（CI、手动 -m）可能落在 ANSI 代码页上，中文错误信息
+    # 会编码失败导致 stdout 全空——这里强制原始 stdout 为 UTF-8。
+    with contextlib.suppress(Exception):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     original_stdout = sys.stdout
     captured_stdout = io.StringIO()
     captured_stderr = io.StringIO()
