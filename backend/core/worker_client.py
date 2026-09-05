@@ -220,6 +220,11 @@ def run_isolated(
             "PYTHONIOENCODING": "utf-8",
             "PYTHONUTF8": "1",
             "PYTHONPATH": _worker_root(),
+            # OpenBLAS 按核心数预留线程缓冲，多核机器上导入 numpy 即超出 Job
+            # 内存上限（256MB）；worker 内 BLAS 单线程足够（cv2 用自带 threading）
+            "OPENBLAS_NUM_THREADS": "1",
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
         }
         process = subprocess.Popen(
             _worker_command(),
