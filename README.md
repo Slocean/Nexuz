@@ -176,6 +176,7 @@ Release 正文只写入 [`app_update.json`](app_update.json) 里**当前发版�
 15. **浏览器积木（爬虫/自动化）**：「浏览器」分类的 browser_* 积木驱动本机 Edge/Chrome（默认无头、独立隔离 profile，不含你的登录态）；首次使用自动拉起浏览器，流程结束自动关闭（设置 → 浏览器引擎 可改引擎/keep-alive/浏览器路径）。选择器用 CSS 语法
 16. **系统积木**：系统信息 / 系统路径 / 环境变量 / 进程列表 / 结束进程 / 打开路径网址 / 磁盘空间 / 压缩解压 / 电源操作 / 音量控制 / 时间戳。结束进程按名称为精确匹配且硬拒绝系统关键进程；电源操作、结束进程、压缩解压、打开路径属高权限积木，流程安全模式（safe）下会被拦截，需 standard/legacy 放行
 17. **文件整理**（`file_manage`）：移动 / 复制 / 重命名 / 新建文件夹 / 列出目录内容，来源可多个（一行一个），目标已存在默认报错、显式开启才覆盖；不含删除类操作。素材等比缩放（`image_scale`）默认缩放模式为「统一到目标尺寸」（裁透明边 + 脚底居中立绘标准），按比例缩放可手动切回
+18. **样式审计**（`style_audit`）：对截图/贴图做确定性测量——文字贴边/超出画布（疑似被裁剪）、文字框互相遮挡、文字对比度（Otsu 分割 + WCAG）、主色提取与背景估计；输出「问题类型 + 坐标 + 证据 + severity」与问题框标注图，结论由 AI 复核。词框默认内置 OCR，也可外部传入；坐标经 `origin_x/origin_y` 换算为屏幕绝对值。详见 [docs/style_audit.md](docs/style_audit.md)
 
 ## 外部 AI 接入（MCP）
 
@@ -221,7 +222,7 @@ claude mcp add nexuz --env NEXUZ_EXE=C:\path\to\Nexuz.exe -- python E:\Project\N
 
 外部 AI 的授权由所接入的 AI 客户端负责（工具审批），**不需要**在 Nexuz 里开任何开关；设置 → Nexuz AI 的「允许 AI 实时执行积木 / 允许高危积木」只约束应用内 AI。`run_block` 的硬边界：
 
-- **全部可执行**：除下方拒绝清单外的所有积木——桌面动作（`click` `key_press` `type_text` 等）、文件 / 网络（`file_io` `file_manage` `http_request` 等）、图片处理（`image_generate` `image_rename` `image_scale` `transparent_cut` `sprite_sheet_cut` `sprite_part_cut`）、浏览器（`browser_*`）、系统（`env_var` `open_path` `process_kill` 等）、只读观察类（`screenshot` `ocr_recognize` `find_image` 等）
+- **全部可执行**：除下方拒绝清单外的所有积木——桌面动作（`click` `key_press` `type_text` 等）、文件 / 网络（`file_io` `file_manage` `http_request` 等）、图片处理（`image_generate` `image_rename` `image_scale` `transparent_cut` `sprite_sheet_cut` `sprite_part_cut`）、浏览器（`browser_*`）、系统（`env_var` `open_path` `process_kill` 等）、只读观察类（`screenshot` `ocr_recognize` `find_image` `style_audit` 等）
 - **始终拒绝**（无开关可绕）：`python_script`、`run_command`（危险命令类）、`power_action`（关机/重启）、控制流（`if_*` / `loop_*` / `switch` / `try_catch`）、用户自定义插件
 
 其他约束：等待类参数会被钳制（`delay` / `wait_until` / `monitor_wait` 等单次 ≤ 60s，单次 handler 执行 ≤ 90s），防止外部 AI 挂死应用。长时间监听用「监控与唤醒」组合：`monitor_start` 注册条件（进程/窗口/文件/屏幕），`monitor_wait` 长轮询（事件一出现调用即返回，等效被唤醒）或 `monitor_check` 配客户端定时任务周期唤醒。

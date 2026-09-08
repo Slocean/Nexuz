@@ -1,6 +1,6 @@
 ---
 name: nexuz-mcp
-description: 通过 Nexuz MCP 操作 Windows 桌面自动化与图片处理。当用户提到 Nexuz、nexuz MCP、用积木/流程做桌面自动化（点击、按键、截图、OCR 找字、取色、窗口操作）、图片批处理（缩放/抠图/切图/重命名/生图）、或要运行与编排 Nexuz 流程时使用——即使用户没有明说"MCP"二字。
+description: 通过 Nexuz MCP 操作 Windows 桌面自动化与图片处理。当用户提到 Nexuz、nexuz MCP、用积木/流程做桌面自动化（点击、按键、截图、OCR 找字、取色、窗口操作）、图片批处理（缩放/抠图/切图/重命名/生图）、UI 样式审计（文字裁剪/遮挡/对比度/配色检查）、或要运行与编排 Nexuz 流程时使用——即使用户没有明说"MCP"二字。
 ---
 
 # Nexuz MCP 使用指南
@@ -89,6 +89,19 @@ run_block 第 2 次: click {"x": "{{ai_run_1.x}}", "y": "{{ai_run_1.y}}"}
 事件语义：条件由假变真记一次（`fire=edge`）；持续为真按 `refire_ms` 重复（0=不重复）；启动时已满足是否立刻记事件看 `fire_on_start`。用 `since_event_id` 传上次返回的 `last_event_id` 增量消费，不漏不重。
 重启注意：监控规格随应用重启自动恢复，但**事件队列清空**（id 水位接续不倒退）；重启后 `monitor_list` 找回监控。
 示例——盯守某进程退出：`monitor_start {"monitor_type":"process","on":"disappear","process_name":"agent.exe","expire_seconds":7200}` → 循环 `monitor_wait {"monitor_id":"<返回的id>","since_event_id":<上次水位>}`，进程一退出调用即返回，事后 `monitor_stop` 清理。
+
+## UI 样式审计（style_audit）
+
+对截图做确定性样式测量：文字贴边/超出画布（疑似被裁剪）、文字框互相遮挡、文字对比度过低（Otsu 分割 + WCAG 对比度）、主色提取。工具只输出「问题类型 + 坐标 + 证据数值 + severity」，是否算问题由你复核（可读取 `annotated_path` 标注图目检）。
+
+```
+run_block 第 1 次: screenshot {"region": [x1,y1,x2,y2]}   → result.path
+run_block 第 2 次: style_audit {"image_path": "{{ai_run_1.path}}", "origin_x": x1, "origin_y": y1, "annotate_path": "D:\\\\tmp\\\\audit.png"}
+```
+
+- `origin_x/origin_y` 传截图区域左上角，issues 坐标即为屏幕绝对坐标，可直接用于点击。
+- 文字词框默认内置 OCR；已有词框时传 `text_source:"custom"` + `text_boxes` JSON（同 ocr_recognize 的 boxes 结构）跳过重复 OCR。
+- 「文字被隐藏/缺失」纯截图不可检：用预期文案清单 + `locate_text` 逐条确认。
 
 ## run_block 与 run_flow 怎么选
 

@@ -35,6 +35,7 @@ RUN_BLOCK_SAFE = frozenset(
         "ocr_recognize",
         "locate_text",
         "color_detect",
+        "style_audit",
         "find_image",
         "wait_until",
         "window_wait",
