@@ -7,6 +7,7 @@ from backend.core.input.types import ERROR_INVALID_MODE
 
 SCHEMA = {
     "type": "click",
+    "description": "在指定屏幕坐标点击鼠标，支持双击/右键与多点序列。",
     "label": "鼠标点击",
     "category": "动作类",
     "inputs": [

@@ -4,6 +4,7 @@ from backend.core.browser.session import close_browser_session
 
 SCHEMA = {
     "type": "browser_close",
+    "description": "关闭当前浏览器会话与浏览器进程。",
     "label": "关闭浏览器",
     "category": "浏览器",
     "inputs": [],

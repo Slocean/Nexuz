@@ -6,6 +6,7 @@ from backend.blocks._helpers import sleep_pre_step
 
 SCHEMA = {
     "type": "key_press",
+    "description": "发送按键或组合键（可设按下时长）。",
     "label": "按键",
     "category": "动作类",
     "inputs": [

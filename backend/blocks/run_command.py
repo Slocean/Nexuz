@@ -9,6 +9,7 @@ from backend.blocks._system_io import normalize_path
 
 SCHEMA = {
     "type": "run_command",
+    "description": "执行系统命令并返回输出（高危：AI 与外部流程禁止）。",
     "label": "执行命令",
     "category": "系统类",
     "inputs": [

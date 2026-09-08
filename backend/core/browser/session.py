@@ -112,9 +112,19 @@ def browser_op() -> Iterator[BrowserEngine]:
 
 
 def session_status() -> dict[str, Any]:
-    """Cheap status probe — never launches the browser."""
+    """Cheap status probe — never launches the browser.
+
+    Alive 时附 quick_status()（url/title/tabs，引擎各自 best-effort，
+    任何异常只省略字段，不阻塞 get_status 轮询）。
+    """
     alive = bool(_engine is not None and _engine.is_alive())
-    return {"alive": alive, "engine": (_signature[0] if alive and _signature else None)}
+    out: dict[str, Any] = {"alive": alive, "engine": (_signature[0] if alive and _signature else None)}
+    if alive:
+        try:
+            out.update(_engine.quick_status())
+        except Exception:
+            pass
+    return out
 
 
 def close_browser_session(*, force: bool = False) -> None:

@@ -152,6 +152,15 @@ def test_rpc_requires_token(server):
     assert status == 200 and data["ok"] is True and data["result"]["ok"] is True
 
 
+def test_get_status_includes_browser_summary(server):
+    base, token, _api = server
+    _status, data = rpc(base, token, "get_status")
+    browser = data["result"].get("browser")
+    assert isinstance(browser, dict)
+    # 测试环境无浏览器会话：只断言结构与「绝不拉起浏览器」
+    assert browser["alive"] is False and browser["engine"] is None
+
+
 def test_unknown_tool(server):
     base, token, _api = server
     _status, data = rpc(base, token, "no_such_tool")

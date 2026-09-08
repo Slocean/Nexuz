@@ -58,6 +58,23 @@ class BrowserEngine(abc.ABC):
     def title(self) -> str: ...
 
     @abc.abstractmethod
+    def set_viewport(self, width: int, height: int) -> dict[str, Any]:
+        """Resize the layout viewport. Returns {"width","height"} as applied."""
+
+    @abc.abstractmethod
+    def viewport_size(self) -> dict[str, int]:
+        """Current layout viewport size, {"width","height"}; 0 when unknown."""
+
+    @abc.abstractmethod
+    def quick_status(self) -> dict[str, Any]:
+        """Cheap best-effort probe for the active page: {"url","title","tabs"};
+        {} when unavailable. Must never launch or roundtrip the page ws."""
+
+    @abc.abstractmethod
+    def list_tabs(self) -> list[dict[str, str]]:
+        """Open tabs as [{"title","url"}]; at least the active one."""
+
+    @abc.abstractmethod
     def eval_js(self, expression: str, timeout_ms: int = 15000) -> Any:
         """Evaluate JS in the page, return the JSON value."""
 
@@ -74,9 +91,14 @@ class BrowserEngine(abc.ABC):
 
     @abc.abstractmethod
     def screenshot(
-        self, save_path: str | None = None, full_page: bool = True
+        self,
+        save_path: str | None = None,
+        full_page: bool = True,
+        clip: dict[str, float] | None = None,
     ) -> dict[str, Any]:
-        """Capture PNG. Returns {"path","width","height"}."""
+        """Capture PNG. clip: {"x","y","width","height"} in CSS px — document
+        coords when full_page, viewport coords otherwise. Returns
+        {"path","width","height","viewport_width","viewport_height"}."""
 
     @abc.abstractmethod
     def wait_document(self, state: str, timeout_ms: int = 30000) -> dict[str, Any]:

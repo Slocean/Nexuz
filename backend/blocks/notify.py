@@ -6,6 +6,7 @@ import sys
 
 SCHEMA = {
     "type": "notify",
+    "description": "发送 Windows 系统通知。",
     "label": "系统通知",
     "category": "系统类",
     "inputs": [

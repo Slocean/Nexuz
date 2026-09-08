@@ -29,6 +29,7 @@ ACTION_LABELS = {
 
 SCHEMA = {
     "type": "power_action",
+    "description": "关机/重启/睡眠等电源操作（高危：AI 与外部流程默认禁止）。",
     "label": "电源操作",
     "category": "系统类",
     "inputs": [

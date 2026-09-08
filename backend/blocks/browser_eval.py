@@ -4,6 +4,7 @@ from backend.blocks._browser import call_engine
 
 SCHEMA = {
     "type": "browser_eval",
+    "description": "在浏览器页面里执行任意 JS 并返回 JSON 结果（支持 await 异步）。",
     "label": "浏览器执行 JS",
     "category": "浏览器",
     "inputs": [

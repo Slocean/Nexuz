@@ -4,6 +4,7 @@ from backend.blocks._helpers import resolve_point, require_configured_point
 
 SCHEMA = {
     "type": "drag",
+    "description": "按住鼠标左键从起点坐标拖拽到终点坐标。",
     "label": "鼠标拖拽",
     "category": "动作类",
     "inputs": [

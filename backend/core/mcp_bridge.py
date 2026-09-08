@@ -243,7 +243,7 @@ def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         from backend.core.interpreter import get_interpreter
 
         cfg = _ai_cfg()
-        return {
+        out = {
             "ok": True,
             "version": _version(),
             "pid": os.getpid(),
@@ -252,6 +252,14 @@ def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
             "allow_dangerous": bool(cfg.get("allow_dangerous")),
             "blocks_count": _blocks_count(),
         }
+        # 浏览器会话摘要（alive/engine/url/title/tabs）：廉价探测，绝不拉起浏览器
+        try:
+            from backend.core.browser.session import session_status
+
+            out["browser"] = session_status()
+        except Exception:
+            pass
+        return out
 
     if tool == "list_blocks":
         from backend.core.ai import tool_catalog

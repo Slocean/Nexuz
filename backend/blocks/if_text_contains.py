@@ -9,6 +9,7 @@ from backend.blocks._ocr_match import (
 
 SCHEMA = {
     "type": "if_text_contains",
+    "description": "判断目标文本（可来自 OCR）是否包含关键字后分支。",
     "label": "文字匹配",
     "category": "识别类",
     "inputs": [

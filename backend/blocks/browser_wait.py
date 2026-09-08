@@ -7,6 +7,7 @@ from backend.blocks._helpers import interruptible_sleep
 
 SCHEMA = {
     "type": "browser_wait",
+    "description": "等待页面条件出现：元素选择器、地址包含或自定义 JS 为真。",
     "label": "浏览器等待",
     "category": "浏览器",
     "inputs": [

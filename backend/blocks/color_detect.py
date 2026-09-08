@@ -9,6 +9,7 @@ from backend.blocks._helpers import (
 
 SCHEMA = {
     "type": "color_detect",
+    "description": "取屏幕指定点的颜色，输出 hex 与 RGB。",
     "label": "取色",
     "category": "识别类",
     "inputs": [

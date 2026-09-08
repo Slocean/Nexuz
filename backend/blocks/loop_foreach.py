@@ -4,6 +4,7 @@ from typing import Any
 
 SCHEMA = {
     "type": "loop_foreach",
+    "description": "遍历数组元素逐次执行循环体（含元素与索引变量）。",
     "label": "按数组循环",
     "category": "控制类",
     "inputs": [

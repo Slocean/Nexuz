@@ -4,6 +4,7 @@ from pathlib import Path
 
 SCHEMA = {
     "type": "call_subflow",
+    "description": "调用流程库中的另一个流程并传递参数、接收输出。",
     "label": "调用子流程",
     "category": "控制类",
     "inputs": [

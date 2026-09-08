@@ -8,6 +8,7 @@ from backend.blocks._os_ops import open_target
 
 SCHEMA = {
     "type": "open_path",
+    "description": "用系统默认程序打开文件/文件夹/网址。",
     "label": "打开路径/网址",
     "category": "系统类",
     "inputs": [

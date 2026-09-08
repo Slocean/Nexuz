@@ -4,6 +4,7 @@ from backend.blocks._system_io import normalize_path, read_text_file, write_text
 
 SCHEMA = {
     "type": "file_io",
+    "description": "读写文本/JSON/二进制文件内容。",
     "label": "文件读写",
     "category": "系统类",
     "inputs": [

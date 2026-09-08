@@ -7,6 +7,7 @@ from backend.blocks._ocr_match import match_policy_inputs
 
 SCHEMA = {
     "type": "wait_until",
+    "description": "轮询等待条件成立（变量比较/延时到达），可设超时。",
     "label": "条件等待",
     "category": "动作类",
     "inputs": [

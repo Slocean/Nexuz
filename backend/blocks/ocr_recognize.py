@@ -41,6 +41,7 @@ _OCR_INFER_ATTEMPTS = 3
 
 SCHEMA = {
     "type": "ocr_recognize",
+    "description": "对屏幕区域或图片做 OCR，返回全文与词框坐标。",
     "label": "OCR取字",
     "category": "识别类",
     "inputs": [

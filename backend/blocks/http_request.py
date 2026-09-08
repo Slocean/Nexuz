@@ -7,6 +7,7 @@ from typing import Any
 
 SCHEMA = {
     "type": "http_request",
+    "description": "发起 HTTP 请求（GET/POST 等），返回状态码与响应体。",
     "label": "HTTP 请求",
     "category": "系统类",
     "inputs": [

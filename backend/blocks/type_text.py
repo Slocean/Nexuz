@@ -4,6 +4,7 @@ import pyautogui
 
 SCHEMA = {
     "type": "type_text",
+    "description": "模拟键盘输入一段文本。",
     "label": "输入文本",
     "category": "动作类",
     "inputs": [

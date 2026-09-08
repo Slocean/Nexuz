@@ -91,8 +91,13 @@ def test_contrast_dark_on_white_passes():
     import numpy as np
 
     arr = np.asarray(img)
-    issues = core.check_contrast(arr, [_box(left=20, top=20, width=80, height=20)], 4.5, (0, 0))
+    boxes = [_box(left=20, top=20, width=80, height=20)]
+    ms = core.measure_contrast_all(arr, boxes)
+    issues = core.check_contrast(ms, boxes, 4.5, (0, 0))
     assert issues == []
+    # 取证字段：黑字白底 → 深色 fg / 浅色 bg，比值 > 4.5
+    assert ms[0] is not None and ms[0]["ratio"] > 4.5
+    assert ms[0]["fg"].upper() == "#141414" and ms[0]["bg"].upper() == "#FFFFFF"
 
 
 def test_contrast_light_on_white_flagged():
@@ -101,12 +106,15 @@ def test_contrast_light_on_white_flagged():
     import numpy as np
 
     arr = np.asarray(img)
-    issues = core.check_contrast(arr, [_box(left=20, top=20, width=80, height=20)], 4.5, (0, 0))
+    boxes = [_box(left=20, top=20, width=80, height=20)]
+    ms = core.measure_contrast_all(arr, boxes)
+    issues = core.check_contrast(ms, boxes, 4.5, (0, 0))
     assert len(issues) == 1
     assert issues[0]["type"] == "text_low_contrast"
     assert issues[0]["severity"] in ("medium", "high")
     ratio = float(issues[0]["detail"].split("对比度 ")[1].split(" <")[0])
     assert ratio < 1.6
+    assert "fg #" in issues[0]["detail"] and "bg #" in issues[0]["detail"]
 
 
 def test_contrast_ratio_known_values():
@@ -120,7 +128,111 @@ def test_contrast_skips_tiny_boxes():
     import numpy as np
 
     arr = np.asarray(img)
-    assert core.check_contrast(arr, [_box(left=20, top=10, width=4, height=4)], 4.5, (0, 0)) == []
+    boxes = [_box(left=20, top=10, width=4, height=4)]
+    assert core.measure_contrast_all(arr, boxes) == [None]
+
+
+def test_contrast_ring_excludes_foreign_elements():
+    # v2 口径：外扩环内混入大片深色干扰块（席位圆点/阴影之类），
+    # 背景只取环内与前景异侧（亮）像素，不被干扰块拉低
+    import numpy as np
+
+    img = _solid((220, 120), (255, 255, 255, 255))
+    for x0 in (45, 65, 85):  # 三笔"笔画"，保证内框非单色
+        _rect(img, (x0, 45, x0 + 10, 55), (20, 20, 20, 255))
+    _rect(img, (122, 30, 180, 70), (10, 10, 10, 255))  # 环内深色干扰块（不碰内框）
+    arr = np.asarray(img)
+    boxes = [_box(left=40, top=40, width=80, height=20)]
+    m = core.measure_contrast_all(arr, boxes)[0]
+    assert m is not None
+    assert m["ratio"] > 10
+    assert m["bg"].upper() == "#FFFFFF"
+    assert m["fg"].upper() == "#141414"
+
+
+# ---------------------------------------------------------------- 装饰过滤
+
+
+def test_text_likeness_filter_flags_decor_blank_and_tiny():
+    img = _solid((200, 120), (245, 245, 245, 255))
+    # 词框完全贴在实心装饰条上（COoO 场景：OCR 框紧贴金纹色带，框内无背景）
+    _rect(img, (20, 20, 160, 36), (200, 160, 40, 255))
+    boxes = [
+        _box(text="COoO", left=20, top=20, width=140, height=16),
+        _box(text="空", left=20, top=60, width=60, height=16),  # 纯背景 → 近空白
+        _box(text="h", left=170, top=60, width=10, height=3),  # 字高过小
+    ]
+    marked = core.annotate_text_likeness(img, boxes, min_height=8)
+    assert marked[0]["filtered"] and "过低" in marked[0]["filtered"]
+    assert marked[1]["filtered"] and "过低" in marked[1]["filtered"]
+    assert marked[2]["filtered"] and "字高" in marked[2]["filtered"]
+
+
+def test_text_likeness_keeps_real_text():
+    img = _solid((200, 120), (255, 255, 255, 255))
+    for x0 in (30, 50, 70):
+        _rect(img, (x0, 30, x0 + 12, 44), (20, 20, 20, 255))
+    boxes = [_box(text="abc", left=25, top=25, width=60, height=24)]
+    marked = core.annotate_text_likeness(img, boxes, min_height=8)
+    assert marked[0]["filtered"] is None
+
+
+def test_filtered_boxes_skip_checks_but_stay_in_texts():
+    img = _solid((200, 120), (255, 255, 255, 255))
+    for x0 in (30, 50, 70):
+        _rect(img, (x0, 30, x0 + 12, 44), (20, 20, 20, 255))
+    real = {"text": "a", "confidence": 0.9, "left": 25, "top": 25, "width": 60, "height": 24}
+    decor = {"text": "b", "confidence": 0.9, "left": 25, "top": 25, "width": 60, "height": 24, "filtered": "实心/装饰纹理"}
+    report = core.audit_image(img, text_boxes=[real, decor])
+    assert report["filtered_count"] == 1
+    assert all(i["text"] != "b" for i in report["issues"])
+    texts = {t["text"]: t for t in report["texts"]}
+    assert texts["b"]["filtered"] and texts["b"]["contrast"] is None
+    assert texts["a"]["filtered"] is None and texts["a"]["contrast"] is not None
+
+
+# ---------------------------------------------------------------- 区域裁剪
+
+
+def test_handler_region_crops_and_offsets(tmp_path: Path):
+    img = Image.new("RGBA", (200, 120), (255, 255, 255, 255))
+    _rect(img, (40, 40, 100, 60), (20, 20, 20, 255))
+    path = tmp_path / "full.png"
+    img.save(path)
+    # 词框是裁剪区局部坐标（配合 screenshot 整图 + region 复审的用法）
+    result = block.handler(
+        {
+            "image_path": str(path),
+            "text_source": "custom",
+            "text_boxes": json.dumps([_box(text="标题", left=10, top=10, width=60, height=20)]),
+            "region": [30, 30, 130, 90],
+        },
+        context={},
+    )
+    assert result["ok"] is True
+    assert result["region"] == [30, 30, 130, 90]
+    assert result["image"]["width"] == 100 and result["image"]["height"] == 60
+    text = result["texts"][0]
+    assert (text["left"], text["top"]) == (40, 40)  # 局部坐标 + region 原点
+    assert text["contrast"] is not None and text["contrast"] > 10
+    assert text["fg"].upper() == "#141414" and text["bg"].upper() == "#FFFFFF"
+
+
+def test_handler_region_invalid_raises(tmp_path: Path, card_png: Path):
+    with pytest.raises(ValueError, match="无效区域"):
+        block.handler(
+            {"image_path": str(card_png), "text_source": "none", "region": [50, 50, 50, 50]},
+            context={},
+        )
+
+
+def test_handler_region_clamped_to_image(card_png: Path):
+    result = block.handler(
+        {"image_path": str(card_png), "text_source": "none", "region": [150, 100, 300, 200]},
+        context={},
+    )
+    assert result["region"] == [150, 100, 200, 120]
+    assert result["image"]["width"] == 50 and result["image"]["height"] == 20
 
 
 # ---------------------------------------------------------------- 配色
@@ -217,8 +329,11 @@ def test_handler_custom_boxes_end_to_end(tmp_path: Path, card_png: Path):
     assert result["ok"] is True
     assert result["text_count"] == 1
     assert result["issue_count"] >= 1
-    issue = result["issues"][0]
-    assert issue["type"] == "text_out_of_canvas"
+    # v2 口径：该框落在浅灰卡面上（内框单色、环同色 → 对比度 1.0），
+    # 同时右缘超出画布——两类 issue 并存，按类型定位断言
+    types = {i["type"] for i in result["issues"]}
+    assert "text_out_of_canvas" in types
+    issue = next(i for i in result["issues"] if i["type"] == "text_out_of_canvas")
     assert issue["left"] == 250 and issue["top"] == 240
     assert result["image"]["path"] == str(card_png)
     assert result["annotated_path"] and Path(result["annotated_path"]).is_file()

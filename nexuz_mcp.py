@@ -31,7 +31,7 @@ DEFAULT_CALL_TIMEOUT_S = 120.0
 TOOLS = [
     {
         "name": "get_status",
-        "description": "获取 Nexuz 状态：版本、是否正在执行流程、应用内 AI 开关（allow_run_block/allow_dangerous，仅约束应用内 AI，对外部 AI 调用不生效）。",
+        "description": "获取 Nexuz 状态：版本、是否正在执行流程、应用内 AI 开关（allow_run_block/allow_dangerous，仅约束应用内 AI，对外部 AI 调用不生效）、浏览器会话摘要（browser: 开没开/引擎/当前页 URL/页签数）。",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {

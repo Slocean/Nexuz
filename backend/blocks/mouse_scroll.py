@@ -8,6 +8,7 @@ from backend.blocks._helpers import point_looks_unconfigured, require_configured
 
 SCHEMA = {
     "type": "mouse_scroll",
+    "description": "在指定坐标滚动滚轮（上/下/左/右、格数）。",
     "label": "鼠标滚轮",
     "category": "动作类",
     "inputs": [

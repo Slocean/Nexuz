@@ -11,6 +11,7 @@ from typing import Any
 
 SCHEMA = {
     "type": "env_var",
+    "description": "读取或设置环境变量。",
     "label": "环境变量",
     "category": "系统类",
     "inputs": [

@@ -4,6 +4,7 @@ from backend.core.logic_tree import empty_logic_tree, evaluate_logic_tree, norma
 
 SCHEMA = {
     "type": "if_logic",
+    "description": "把多个子条件按 与/或/非 组合判断后分支。",
     "label": "组合条件",
     "category": "控制类",
     "inputs": [

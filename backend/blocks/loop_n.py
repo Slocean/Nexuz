@@ -2,6 +2,7 @@ from __future__ import annotations
 
 SCHEMA = {
     "type": "loop_n",
+    "description": "按固定次数执行循环体（含循环索引变量）。",
     "label": "固定次数循环",
     "category": "控制类",
     "inputs": [

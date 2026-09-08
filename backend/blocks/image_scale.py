@@ -22,6 +22,7 @@ from backend.blocks._helpers import (
 
 SCHEMA = {
     "type": "image_scale",
+    "description": "图片等比缩放（支持批量）输出。",
     "label": "素材等比缩放",
     "category": "识别类",
     # 代码级完成日志模板：流程结束时自动拼进「流程执行完成」日志；

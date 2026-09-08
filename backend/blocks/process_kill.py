@@ -12,6 +12,7 @@ from backend.blocks._os_ops import kill_processes
 
 SCHEMA = {
     "type": "process_kill",
+    "description": "按 PID 或进程名结束进程。",
     "label": "结束进程",
     "category": "系统类",
     "done_log": "已结束 {{killed_count}} 个进程",

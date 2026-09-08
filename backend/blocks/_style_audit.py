@@ -20,6 +20,13 @@ _OVERLAP_RATIO = 0.35
 # 对比度检查的最小有效框（含外扩环）：OCR 假阳性/亚像素级框的数值无意义
 _CONTRAST_MIN_AREA = 100
 _CONTRAST_MIN_PIXELS = 24
+# 文字性预滤（N8）：框内 Otsu 少数侧（"墨水"）占比过低判非文字——
+# 覆盖近空白（噪点/反色误检）与单色实心块（金纹分隔条、纯色带等：
+# 它们要么整体同色、要么底色占绝对主导，少数侧都趋近 0）。
+# 两种色调混合的重复图案纹理不在本启发覆盖范围内，confidence 已随
+# texts[] 输出供下游过滤。
+_INK_RATIO_MIN = 0.05
+_DEFAULT_MIN_TEXT_HEIGHT = 8
 # 单张图上 issue 数上限，防止病态输入刷屏
 _DEFAULT_MAX_ISSUES = 30
 
@@ -142,6 +149,46 @@ def _box_rect(box: dict) -> tuple[int, int, int, int]:
     return int(box["left"]), int(box["top"]), int(box["left"] + box["width"]), int(box["top"] + box["height"])
 
 
+def annotate_text_likeness(img, boxes: list[dict], *, min_height: int = _DEFAULT_MIN_TEXT_HEIGHT) -> list[dict]:
+    """文字性预滤（auto 模式）：给每个词框标注 filtered=None（正常）或原因串。
+
+    启发：最小字高 + 框内 Otsu 少数侧"墨水"占比（近空白/单色实心块判非文字）。
+    两种色调混合的重复图案纹理暂不判别，confidence 已随 texts[] 输出供下游过滤。
+    框过小或过透明到无法判断时保持 None（宁可放过不误杀）。
+    """
+    import numpy as np
+
+    arr = np.asarray(img.convert("RGBA"))
+    out: list[dict] = []
+    for box in boxes:
+        b = dict(box)
+        b["filtered"] = None
+        height = int(box.get("height") or 0)
+        if min_height > 0 and 0 < height < min_height:
+            b["filtered"] = f"字高 {height}px < {min_height}px"
+            out.append(b)
+            continue
+        left, top, right, bottom = _box_rect(box)
+        left, top = _clamp(left, 0, arr.shape[1] - 1), _clamp(top, 0, arr.shape[0] - 1)
+        right, bottom = _clamp(right, left + 1, arr.shape[1]), _clamp(bottom, top + 1, arr.shape[0])
+        if (right - left) * (bottom - top) < _CONTRAST_MIN_AREA:
+            out.append(b)
+            continue
+        crop = arr[top:bottom, left:right]
+        px = crop[crop[:, :, 3] > 8]
+        if px.shape[0] < _CONTRAST_MIN_PIXELS:
+            out.append(b)
+            continue
+        lum_u8 = _luminance(px).astype(np.uint8)
+        hist = np.bincount(lum_u8, minlength=256)
+        t = _otsu_threshold([int(x) for x in hist], int(px.shape[0]))
+        ink = min(int((lum_u8 > t).sum()), int((lum_u8 <= t).sum())) / float(px.shape[0])
+        if ink < _INK_RATIO_MIN:
+            b["filtered"] = f"墨水占比 {ink:.2f} 过低（近空白/实心色块）"
+        out.append(b)
+    return out
+
+
 def _clamp(v: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, v))
 
@@ -247,11 +294,33 @@ def _otsu_threshold(hist: list[int], total: int) -> int:
     return best_t
 
 
-def measure_contrast(arr, box: dict) -> float | None:
-    """文字框外扩一小圈后 Otsu 二分前景/背景，返回两组平均色的 WCAG 对比度。
+def _hex(rgb) -> str:
+    r, g, b = (int(round(float(c))) for c in rgb[:3])
+    return f"#{max(0, min(255, r)):02X}{max(0, min(255, g)):02X}{max(0, min(255, b)):02X}"
 
-    外扩是因为紧贴文字的 OCR 框内部可能全是文字像素（无背景可分）；
-    框或有效像素过小、框内单色时返回 None（数值无意义）。
+
+def _luminance(px):
+    """(N,3+) 像素数组 → WCAG 相对亮度（0-255 线性加权，供 Otsu 分割）。"""
+    import numpy as np
+
+    return (
+        0.2126 * px[:, 0].astype(np.float32)
+        + 0.7152 * px[:, 1].astype(np.float32)
+        + 0.0722 * px[:, 2].astype(np.float32)
+    )
+
+
+def measure_contrast(arr, box: dict) -> dict | None:
+    """文字对比度测量（v2 口径）：框内 Otsu 分离笔画，背景取外扩环异侧像素。
+
+    采样规则：
+    - 阈值：优先由框内像素 Otsu 决定（文字笔画主导，不受外扩环里的相邻元素
+      干扰）；框内单色或不可用时退回整个外扩 crop 的 Otsu（v1 口径）。
+    - 前景：框内阈值少数侧像素（文字笔画几乎总是少数侧）；框内全在一侧时
+      取整框平均色。
+    - 背景：优先取外扩环中与前景异侧的像素——天然排除环内与文字同色调的
+      相邻元素（席位圆点、阴影边）；环过小时退回 crop 内异侧（v1 口径）。
+    返回 {"ratio", "fg", "bg", "threshold"}；不可测返回 None。
     """
     import numpy as np
 
@@ -262,37 +331,89 @@ def measure_contrast(arr, box: dict) -> float | None:
     if (right - left) * (bottom - top) < _CONTRAST_MIN_AREA:
         return None
     crop = arr[top:bottom, left:right]
-    pixels = crop[crop[:, :, 3] > 8]
+    alpha = crop[:, :, 3] > 8
+    pixels = crop[alpha]
     if pixels.shape[0] < _CONTRAST_MIN_PIXELS:
         return None
-    lum = (
-        0.2126 * pixels[:, 0].astype(np.float32)
-        + 0.7152 * pixels[:, 1].astype(np.float32)
-        + 0.0722 * pixels[:, 2].astype(np.float32)
-    )
-    hist = np.bincount(lum.astype(np.uint8), minlength=256)
-    threshold = _otsu_threshold([int(x) for x in hist], int(pixels.shape[0]))
-    fg_mask = lum > threshold
-    if fg_mask.all() or (~fg_mask).all():
-        return None
-    fg = pixels[fg_mask].mean(axis=0)
-    bg = pixels[~fg_mask].mean(axis=0)
-    return contrast_ratio(fg, bg)
+    # 阈值与两侧分割统一在 uint8 量化亮度空间（与直方图同口径，浮点亮度
+    # 直接与整型阈值比较会在 bin 边界上把一侧清空）
+    lum_u8 = _luminance(pixels).astype(np.uint8)
+
+    # 内框 / 外扩环（与图像边界求交后的实际区域）
+    ix1 = max(0, int(box["left"])) - left
+    iy1 = max(0, int(box["top"])) - top
+    ix2 = min(arr.shape[1], int(box["left"]) + int(box["width"])) - left
+    iy2 = min(arr.shape[0], int(box["top"]) + int(box["height"])) - top
+    yy, xx = np.mgrid[0:crop.shape[0], 0:crop.shape[1]]
+    inner_mask = (xx >= ix1) & (xx < ix2) & (yy >= iy1) & (yy < iy2) & alpha
+    inner_px = crop[inner_mask]
+    ring_px = crop[(~inner_mask) & alpha]
+
+    if inner_px.shape[0] >= _CONTRAST_MIN_PIXELS:
+        inner_u8 = _luminance(inner_px).astype(np.uint8)
+        if int(inner_u8.min()) != int(inner_u8.max()):
+            hist = np.bincount(inner_u8, minlength=256)
+            threshold = _otsu_threshold([int(x) for x in hist], int(inner_px.shape[0]))
+        else:
+            # 框内单色：阈值由 crop 整体二分（框 vs 环）
+            hist = np.bincount(lum_u8, minlength=256)
+            threshold = _otsu_threshold([int(x) for x in hist], int(pixels.shape[0]))
+        hi = inner_u8 > threshold
+        n_hi, n_lo = int(hi.sum()), int((~hi).sum())
+        if n_hi == 0 or n_lo == 0:
+            fg = inner_px.mean(axis=0)
+            fg_hi = n_lo == 0
+        else:
+            fg_hi = n_hi <= n_lo
+            fg = inner_px[hi if fg_hi else ~hi].mean(axis=0)
+        if ring_px.shape[0] >= _CONTRAST_MIN_PIXELS:
+            ring_u8 = _luminance(ring_px).astype(np.uint8)
+            bg_sel = ring_u8 <= threshold if fg_hi else ring_u8 > threshold
+            bg = ring_px[bg_sel].mean(axis=0) if bool(bg_sel.any()) else ring_px.mean(axis=0)
+        else:
+            bg_sel = lum_u8 <= threshold if fg_hi else lum_u8 > threshold
+            bg = pixels[bg_sel].mean(axis=0)
+    else:
+        # v1 口径：整 crop Otsu，少数侧为前景
+        hist = np.bincount(lum_u8, minlength=256)
+        threshold = _otsu_threshold([int(x) for x in hist], int(pixels.shape[0]))
+        fg_hi_mask = lum_u8 > threshold
+        if fg_hi_mask.all() or (~fg_hi_mask).all():
+            return None
+        fg_hi = int(fg_hi_mask.sum()) <= int((~fg_hi_mask).sum())
+        fg = pixels[fg_hi_mask if fg_hi else ~fg_hi_mask].mean(axis=0)
+        bg = pixels[~fg_hi_mask if fg_hi else fg_hi_mask].mean(axis=0)
+    return {
+        "ratio": contrast_ratio(fg, bg),
+        "fg": _hex(fg),
+        "bg": _hex(bg),
+        "threshold": int(threshold),
+    }
 
 
-def check_contrast(arr, boxes, threshold: float, origin: tuple[int, int]) -> list[dict]:
+def measure_contrast_all(arr, boxes: list[dict]) -> list[dict | None]:
+    """逐框测量对比度，与 boxes 等长对齐（不可测的框为 None）。"""
+    return [measure_contrast(arr, box) for box in boxes]
+
+
+def check_contrast(
+    measurements: list[dict | None], boxes: list[dict], threshold: float, origin: tuple[int, int]
+) -> list[dict]:
     issues: list[dict] = []
-    for box in boxes:
-        ratio = measure_contrast(arr, box)
-        if ratio is None:
+    for box, m in zip(boxes, measurements):
+        if m is None:
             continue
+        ratio = float(m["ratio"])
         if ratio >= threshold:
             continue
         severity = "high" if ratio < _CONTRAST_ERROR_RATIO else "medium"
         issues.append(_issue(
             "text_low_contrast", severity, box, origin,
             "文字与其所在背景的对比度偏低，弱视/强光场景可能难以辨认",
-            detail=f"WCAG 对比度 {ratio:.2f} < {threshold:.2f}",
+            detail=(
+                f"WCAG 对比度 {ratio:.2f} < {threshold:.2f}"
+                f"（fg {m['fg']} / bg {m['bg']}，Otsu 阈值 {m['threshold']}）"
+            ),
         ))
     return issues
 
@@ -412,6 +533,29 @@ def save_report(report: dict, out_path: str) -> str:
     return str(path.resolve())
 
 
+def build_texts(boxes: list[dict], measurements: list[dict | None], origin: tuple[int, int] = (0, 0)) -> list[dict]:
+    """全量文字框清单：每个候选框都带对比度取证（不可测为 null），含被过滤框。
+
+    坐标加 origin 偏移，与 issues 保持同一口径（原图/屏幕坐标）。
+    """
+    ox, oy = origin
+    out: list[dict] = []
+    for box, m in zip(boxes, measurements):
+        out.append({
+            "text": str(box.get("text") or ""),
+            "left": int(box["left"]) + ox,
+            "top": int(box["top"]) + oy,
+            "width": int(box["width"]),
+            "height": int(box["height"]),
+            "confidence": round(float(box.get("confidence") or 0.0), 4),
+            "contrast": round(float(m["ratio"]), 4) if m else None,
+            "fg": m["fg"] if m else None,
+            "bg": m["bg"] if m else None,
+            "filtered": box.get("filtered"),
+        })
+    return out
+
+
 def audit_image(
     img,
     *,
@@ -425,23 +569,34 @@ def audit_image(
     annotate_path: str = "",
     save_report_path: str = "",
     ocr_error: str | None = None,
+    region: list[int] | None = None,
 ) -> dict:
-    """主入口：图 + 词框 → 测量报告。issues 按 severity 升序（high 在前）稳定排序。"""
+    """主入口：图 + 词框 → 测量报告。issues 按 severity 升序（high 在前）稳定排序。
+
+    词框可带 filtered 字段（文字性预滤原因）：被滤框仍进 texts[] 留痕，
+    但不参与 edge/overlap/contrast 检查。
+    """
     width, height = img.size
-    arr = None
     issues: list[dict] = []
     checks = checks or list(KNOWN_CHECKS)
     boxes = [dict(b) for b in (text_boxes or [])]
+    usable = [b for b in boxes if not b.get("filtered")]
+    measurements: list[dict | None] = [None] * len(boxes)
 
-    if "edge_clipping" in checks:
-        issues.extend(check_edges(boxes, width, height, margin_px, origin))
-    if "occlusion" in checks:
-        issues.extend(check_overlap(boxes, origin))
-    if "low_contrast" in checks:
+    if "low_contrast" in checks and usable:
         import numpy as np
 
         arr = np.asarray(img.convert("RGBA"))
-        issues.extend(check_contrast(arr, boxes, contrast_threshold, origin))
+        idx = [i for i, b in enumerate(boxes) if not b.get("filtered")]
+        for i, m in zip(idx, measure_contrast_all(arr, [boxes[i] for i in idx])):
+            measurements[i] = m
+    if "edge_clipping" in checks:
+        issues.extend(check_edges(usable, width, height, margin_px, origin))
+    if "occlusion" in checks:
+        issues.extend(check_overlap(usable, origin))
+    if "low_contrast" in checks:
+        ms = [m for b, m in zip(boxes, measurements) if not b.get("filtered")]
+        issues.extend(check_contrast(ms, usable, contrast_threshold, origin))
 
     issues.sort(key=lambda i: (SEVERITY_ORDER.get(str(i.get("severity")), 3), i.get("type") or ""))
     truncated = False
@@ -454,7 +609,10 @@ def audit_image(
     report = {
         "ok": True,
         "image": {"path": str(getattr(img, "filename", "") or ""), "width": int(width), "height": int(height)},
+        "region": list(region) if region else None,
         "text_count": len(boxes),
+        "filtered_count": sum(1 for b in boxes if b.get("filtered")),
+        "texts": build_texts(boxes, measurements, origin),
         "issue_count": len(issues),
         "issues": issues,
         "issues_truncated": truncated,

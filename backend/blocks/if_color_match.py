@@ -10,6 +10,7 @@ from backend.blocks._helpers import (
 
 SCHEMA = {
     "type": "if_color_match",
+    "description": "判断屏幕某点颜色是否在容差内匹配，成立走 then 否则 else。",
     "label": "颜色匹配",
     "category": "识别类",
     "inputs": [

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 SCHEMA = {
     "type": "loop_forever",
+    "description": "无限循环执行循环体，直到停止信号。",
     "label": "无限循环",
     "category": "控制类",
     "inputs": [

@@ -5,6 +5,7 @@ from backend.core import window_coords as wc
 
 SCHEMA = {
     "type": "window_activate",
+    "description": "按标题/进程激活窗口到前台。",
     "label": "激活窗口",
     "category": "系统类",
     "inputs": [*MATCH_INPUTS],

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 SCHEMA = {
     "type": "loop_while",
+    "description": "条件成立时反复执行循环体。",
     "label": "条件循环",
     "category": "控制类",
     "inputs": [

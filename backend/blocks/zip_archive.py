@@ -14,6 +14,7 @@ from backend.blocks._helpers import split_input_paths
 
 SCHEMA = {
     "type": "zip_archive",
+    "description": "压缩文件/目录或解压 zip 包。",
     "label": "压缩/解压",
     "category": "系统类",
     "done_log": "压缩/解压完成：{{output}}",

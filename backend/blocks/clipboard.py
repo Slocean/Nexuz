@@ -4,6 +4,7 @@ from backend.blocks._system_io import clipboard_read, clipboard_write
 
 SCHEMA = {
     "type": "clipboard",
+    "description": "读取或写入系统剪贴板文本。",
     "label": "剪贴板",
     "category": "系统类",
     "inputs": [

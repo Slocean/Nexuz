@@ -398,6 +398,66 @@ class CdpEngine(BrowserEngine):
     def title(self) -> str:
         return str(self.eval_js("document.title", timeout_ms=5000) or "")
 
+    # ── viewport ──────────────────────────────────────────────────────
+
+    def set_viewport(self, width: int, height: int) -> dict[str, Any]:
+        width, height = int(width), int(height)
+        if width <= 0 or height <= 0:
+            raise ValueError("视口尺寸必须是正数（像素）")
+        # Layout viewport override: deterministic CSS pixel surface regardless
+        # of the OS window frame. In headful mode Chromium may letterbox the
+        # render surface instead of resizing the window — headless (default) is
+        # the supported audit path.
+        self._command(
+            "Emulation.setDeviceMetricsOverride",
+            {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False},
+            timeout=10.0,
+        )
+        return {"width": width, "height": height}
+
+    def viewport_size(self) -> dict[str, int]:
+        metrics = self._command("Page.getLayoutMetrics", timeout=10.0)
+        css = metrics.get("cssLayoutViewport") or metrics.get("layoutViewport") or {}
+        return {
+            "width": int(css.get("clientWidth") or 0),
+            "height": int(css.get("clientHeight") or 0),
+        }
+
+    def quick_status(self) -> dict[str, Any]:
+        # /json/list over HTTP: no ws roundtrip, safe for get_status polling.
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{self._debug_port}/json/list", timeout=1.5
+            ) as resp:
+                targets = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return {}
+        pages = [t for t in targets if t.get("type") == "page"]
+        first = pages[0] if pages else {}
+        return {
+            "tabs": len(pages),
+            "url": str(first.get("url") or ""),
+            "title": str(first.get("title") or ""),
+        }
+
+    def list_tabs(self) -> list[dict[str, str]]:
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{self._debug_port}/json/list", timeout=3.0
+            ) as resp:
+                targets = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            raise BrowserError(f"获取页签列表失败: {exc}") from exc
+        return [
+            {"title": str(t.get("title") or ""), "url": str(t.get("url") or "")}
+            for t in targets
+            if t.get("type") == "page"
+        ]
+
     # ── interaction ───────────────────────────────────────────────────
 
     def extract(self, selector: str, attr: str = "", max_items: int = 200) -> list[dict[str, Any]]:
@@ -439,12 +499,28 @@ class CdpEngine(BrowserEngine):
 
     # ── capture / wait ────────────────────────────────────────────────
 
-    def screenshot(self, save_path: str | None = None, full_page: bool = True) -> dict[str, Any]:
-        result = self._command(
-            "Page.captureScreenshot",
-            {"format": "png", "captureBeyondViewport": bool(full_page)},
-            timeout=30.0,
-        )
+    def screenshot(
+        self,
+        save_path: str | None = None,
+        full_page: bool = True,
+        clip: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"format": "png", "captureBeyondViewport": bool(full_page)}
+        if clip is not None:
+            try:
+                box = {
+                    "x": float(clip["x"]),
+                    "y": float(clip["y"]),
+                    "width": float(clip["width"]),
+                    "height": float(clip["height"]),
+                }
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f"clip 参数无效: {clip}") from exc
+            if box["width"] <= 0 or box["height"] <= 0:
+                raise ValueError(f"clip 尺寸必须为正: {box}")
+            box["scale"] = 1
+            params["clip"] = box
+        result = self._command("Page.captureScreenshot", params, timeout=30.0)
         raw = base64.b64decode(result.get("data") or "")
         png = bytearray(raw)
         width = int.from_bytes(png[16:20], "big")
@@ -456,7 +532,17 @@ class CdpEngine(BrowserEngine):
         if path.suffix.lower() not in (".png",):
             path = path.with_suffix(".png")
         path.write_bytes(raw)
-        return {"path": str(path.resolve()), "width": width, "height": height}
+        try:
+            viewport = self.viewport_size()
+        except BrowserError:
+            viewport = {"width": 0, "height": 0}
+        return {
+            "path": str(path.resolve()),
+            "width": width,
+            "height": height,
+            "viewport_width": viewport["width"],
+            "viewport_height": viewport["height"],
+        }
 
     def wait_document(self, state: str, timeout_ms: int = 30000) -> dict[str, Any]:
         target = "interactive" if state == "interactive" else "complete"

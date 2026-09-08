@@ -21,6 +21,7 @@ from backend.blocks._helpers import (
 
 SCHEMA = {
     "type": "sprite_sheet_cut",
+    "description": "按行列网格或间距切分精灵图/序列帧。",
     "label": "精灵图智能切图",
     "category": "识别类",
     # 代码级完成日志模板：流程结束时自动拼进「流程执行完成」日志；

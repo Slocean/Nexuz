@@ -26,6 +26,7 @@ from backend.core.ai.retry import with_retry
 
 SCHEMA = {
     "type": "image_generate",
+    "description": "调用 AI 文生图/图生图并输出图片文件。",
     "label": "AI 生图",
     "category": "识别类",
     "done_log": "已生成{{count}}张图片：{{first_path}}",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 SCHEMA = {
     "type": "switch",
+    "description": "按分支值匹配 case 走对应分支。",
     "label": "多分支",
     "category": "控制类",
     "inputs": [

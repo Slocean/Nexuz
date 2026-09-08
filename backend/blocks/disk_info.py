@@ -8,6 +8,7 @@ from typing import Any
 
 SCHEMA = {
     "type": "disk_info",
+    "description": "查询各磁盘分区的总容量与剩余空间。",
     "label": "磁盘空间",
     "category": "系统类",
     "inputs": [

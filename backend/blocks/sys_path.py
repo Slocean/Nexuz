@@ -46,6 +46,7 @@ PATH_LABELS = {
 
 SCHEMA = {
     "type": "sys_path",
+    "description": "返回常用系统目录路径（桌面/文档/下载/临时等）。",
     "label": "系统路径",
     "category": "系统类",
     "inputs": [

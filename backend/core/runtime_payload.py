@@ -10,7 +10,7 @@ _MAX_DICT_KEYS = 40
 _MAX_DEPTH = 6
 _HEAVY_KEYS = frozenset({"box", "image", "bitmap", "pixels", "raw", "screenshot"})
 # Large OCR lists: keep bindable structure, drop only heavy nested keys.
-_LIGHT_LIST_KEYS = frozenset({"boxes", "matches", "items", "issues"})
+_LIGHT_LIST_KEYS = frozenset({"boxes", "matches", "items", "issues", "texts", "elements", "tabs"})
 _WINDOW_TARGET_KEYS = (
     "pid",
     "process_name",
@@ -276,7 +276,7 @@ def compact_context_value(key: str, value: Any) -> Any:
     """
     k = str(key)
     leaf = k.rsplit(".", 1)[-1].lower()
-    if leaf in ("boxes", "matches") and isinstance(value, list):
+    if leaf in ("boxes", "matches", "texts", "elements", "tabs") and isinstance(value, list):
         return _compact_structured_list(value)
     if leaf in ("box", "image", "bitmap", "pixels") and isinstance(value, (list, dict)):
         return None

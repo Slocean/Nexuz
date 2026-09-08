@@ -4,6 +4,7 @@ from backend.core.variable_resolver import resolve_value
 
 SCHEMA = {
     "type": "assign",
+    "description": "给变量赋值（常量、表达式或上游输出），供后续节点绑定。",
     "label": "赋值变量",
     "category": "控制类",
     "inputs": [

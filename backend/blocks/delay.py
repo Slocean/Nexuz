@@ -4,6 +4,7 @@ from backend.blocks._helpers import interruptible_sleep
 
 SCHEMA = {
     "type": "delay",
+    "description": "延时指定毫秒，可被停止信号提前打断。",
     "label": "延时",
     "category": "动作类",
     "inputs": [

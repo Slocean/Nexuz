@@ -7,13 +7,14 @@ from backend.blocks._helpers import grab_region, resolve_region_from_params
 
 SCHEMA = {
     "type": "screenshot",
+    "description": "截取屏幕区域为图片（留空=整个虚拟桌面），供找图/OCR/审计使用。",
     "label": "区域截图",
     "category": "识别类",
     "inputs": [
         {
             "name": "region",
             "type": "rect",
-            "label": "截图区域",
+            "label": "截图区域（留空=整个虚拟桌面）",
             "default": None,
         },
         {
@@ -38,7 +39,10 @@ SCHEMA = {
 def handler(params, context, **kwargs):
     resolved = resolve_region_from_params(params)
     if not resolved:
-        raise ValueError("截图需要指定 region [x1,y1,x2,y2]，请先框选区域")
+        # 缺省抓整个虚拟桌面（多显示器含负坐标副屏），与 capture_screen 口径一致
+        from backend.core.dpi import virtual_screen_rect
+
+        resolved = virtual_screen_rect()
     x1, y1, x2, y2 = resolved
     img = grab_region(x1, y1, x2, y2)
 

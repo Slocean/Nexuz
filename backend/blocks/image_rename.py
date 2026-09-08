@@ -27,6 +27,7 @@ from backend.core.ai.config import get_ai_config
 
 SCHEMA = {
     "type": "image_rename",
+    "description": "按规则批量重命名图片文件。",
     "label": "图片批量重命名",
     "category": "识别类",
     # 代码级完成日志模板：流程结束时自动拼进「流程执行完成」日志；

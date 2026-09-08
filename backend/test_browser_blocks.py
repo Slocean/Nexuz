@@ -22,6 +22,7 @@ class FakeEngine(BrowserEngine):
         self.calls: list[tuple] = []
         self.alive = True
         self.eval_values: dict[str, object] = {}
+        self.viewport = {"width": 1280, "height": 800}
 
     def _rec(self, name, *args):
         self.calls.append((name, *args))
@@ -52,6 +53,23 @@ class FakeEngine(BrowserEngine):
     def title(self):
         return "Example Domain"
 
+    def set_viewport(self, width, height):
+        self._rec("set_viewport", width, height)
+        width, height = int(width), int(height)
+        if width <= 0 or height <= 0:
+            raise ValueError("视口尺寸必须是正数（像素）")
+        self.viewport = {"width": width, "height": height}
+        return dict(self.viewport)
+
+    def viewport_size(self):
+        return dict(self.viewport)
+
+    def quick_status(self):
+        return {"url": self.current_url(), "title": self.title(), "tabs": 1}
+
+    def list_tabs(self):
+        return [{"title": self.title(), "url": self.current_url()}]
+
     def eval_js(self, expression, timeout_ms=15000):
         self._rec("eval", expression)
         for key, value in self.eval_values.items():
@@ -80,10 +98,21 @@ class FakeEngine(BrowserEngine):
             raise BrowserError(f"未找到元素: {selector}")
         return {"ok": True}
 
-    def screenshot(self, save_path=None, full_page=True):
-        self._rec("screenshot", save_path, full_page)
+    def screenshot(self, save_path=None, full_page=True, clip=None):
+        self._rec("screenshot", save_path, full_page, clip)
         Path(save_path).write_bytes(b"png")
-        return {"path": save_path, "width": 800, "height": 600}
+        vp = self.viewport_size()
+        if clip:
+            width, height = int(round(clip["width"])), int(round(clip["height"]))
+        else:
+            width, height = 800, 600
+        return {
+            "path": save_path,
+            "width": width,
+            "height": height,
+            "viewport_width": vp["width"],
+            "viewport_height": vp["height"],
+        }
 
     def wait_document(self, state, timeout_ms=30000):
         self._rec("wait_document", state)
@@ -146,7 +175,80 @@ def test_screenshot_ok(fake_engine, tmp_path):
     target = tmp_path / "page.png"
     out = handler({"save_path": str(target), "full_page": True}, {})
     assert out["ok"] is True and out["width"] == 800 and out["height"] == 600
+    assert out["viewport_width"] == 1280 and out["viewport_height"] == 800
     assert Path(out["path"]).exists()
+
+
+def test_resize_ok_and_invalid(fake_engine):
+    from backend.blocks.browser_resize import handler
+
+    out = handler({"width": 1366, "height": 768}, {})
+    assert out["ok"] is True and out["width"] == 1366 and out["height"] == 768
+    assert ("set_viewport", 1366, 768) in fake_engine.calls
+
+    fake_engine.calls.clear()
+    out = handler({"width": 0, "height": 768}, {})
+    assert out["ok"] is False and "正数" in out["error"]
+
+
+def test_navigate_with_viewport(fake_engine):
+    from backend.blocks.browser_navigate import handler
+
+    out = handler({"url": "example.com", "viewport_width": 1280, "viewport_height": 800}, {})
+    assert out["ok"] is True
+    names = [c[0] for c in fake_engine.calls]
+    assert names == ["navigate", "set_viewport"]
+
+    fake_engine.calls.clear()
+    out = handler({"url": "example.com"}, {})
+    assert out["ok"] is True
+    assert [c[0] for c in fake_engine.calls] == ["navigate"]
+
+    fake_engine.calls.clear()
+    # 参数不配对：导航前即失败，不产生导航副作用
+    with pytest.raises(ValueError, match="同时"):
+        handler({"url": "example.com", "viewport_width": 1280}, {})
+    assert fake_engine.calls == []
+
+
+def test_screenshot_clip_rect(fake_engine, tmp_path):
+    from backend.blocks.browser_screenshot import handler
+
+    target = str(tmp_path / "clip.png")
+    out = handler({"save_path": target, "clip": [10, 20, 110, 120]}, {})
+    assert out["ok"] is True and out["width"] == 100 and out["height"] == 100
+    assert ("screenshot", target, True, {"x": 10.0, "y": 20.0, "width": 100.0, "height": 100.0}) in fake_engine.calls
+
+
+def test_screenshot_clip_selector(fake_engine, tmp_path):
+    from backend.blocks.browser_screenshot import handler
+
+    fake_engine.eval_values = {
+        "scrollX": {
+            "doc": {"x": 0.0, "y": 50.0, "width": 200.0, "height": 100.0},
+            "vp": {"x": 0.0, "y": -50.0, "width": 200.0, "height": 100.0},
+        }
+    }
+    target = str(tmp_path / "el.png")
+    out = handler({"save_path": target, "full_page": True, "clip_selector": "#card"}, {})
+    assert out["ok"] is True and out["width"] == 200 and out["height"] == 100
+    assert ("screenshot", target, True, {"x": 0.0, "y": 50.0, "width": 200.0, "height": 100.0}) in fake_engine.calls
+
+    # 视口模式用视口坐标
+    fake_engine.calls.clear()
+    out = handler({"save_path": target, "full_page": False, "clip_selector": "#card"}, {})
+    assert out["ok"] is True
+    assert ("screenshot", target, False, {"x": 0.0, "y": -50.0, "width": 200.0, "height": 100.0}) in fake_engine.calls
+
+
+def test_screenshot_clip_conflict_and_invalid(fake_engine, tmp_path):
+    from backend.blocks.browser_screenshot import handler
+
+    target = str(tmp_path / "x.png")
+    with pytest.raises(ValueError, match="二选一"):
+        handler({"save_path": target, "clip": [0, 0, 10, 10], "clip_selector": "#a"}, {})
+    with pytest.raises(ValueError, match="无效"):
+        handler({"save_path": target, "clip": [10, 10, 10, 10]}, {})
 
 
 def test_eval_passthrough(fake_engine):
@@ -157,12 +259,75 @@ def test_eval_passthrough(fake_engine):
     assert out["ok"] is True and out["result"] == 2
 
 
+def test_browser_snapshot_and_ref_actions(fake_engine):
+    from backend.blocks import browser_snapshot as snap
+    from backend.blocks.browser_click import handler as click
+    from backend.blocks.browser_fill import handler as fill
+    from backend.blocks.browser_navigate import handler as navigate
+
+    fake_engine.eval_values = {"nth-of-type": {
+        "url": "https://example.com/", "title": "Example Domain",
+        "items": [
+            {"selector": "#go", "tag": "button", "text": "go", "placeholder": None,
+             "value": None, "href": None, "rect": {"x": 1, "y": 2, "width": 30, "height": 20}},
+            {"selector": "body > a:nth-of-type(2)", "tag": "a", "text": "hidden", "placeholder": None,
+             "value": None, "href": "#", "rect": {"x": 0, "y": 0, "width": 0, "height": 0}},
+        ],
+    }}
+    out = snap.handler({}, {})
+    assert out["ok"] is True and out["count"] == 1  # 零尺寸元素被过滤
+    assert out["elements"][0]["ref"] == "e1"
+    assert rb.classify_run_block("browser_snapshot") == "safe"
+
+    out = click({"ref": "e1"}, {})
+    assert out["ok"] is True and ("click", "#go", False) in fake_engine.calls
+
+    fake_engine.calls.clear()
+    out = fill({"ref": "e1", "text": "hi"}, {})
+    assert out["ok"] is True and ("fill", "#go", "hi") in fake_engine.calls
+
+    # 显式 selector 优先于 ref
+    fake_engine.calls.clear()
+    out = click({"selector": "#other", "ref": "e1"}, {})
+    assert out["ok"] is True and ("click", "#other", False) in fake_engine.calls
+
+    # 快照清空 / 页面导航后 ref 失效
+    snap.clear_refs(fake_engine)
+    out = click({"ref": "e1"}, {})
+    assert out["ok"] is False and "browser_snapshot" in out["error"]
+
+    fake_engine.eval_values = {"nth-of-type": {"url": "", "title": "", "items": [
+        {"selector": "#go", "tag": "button", "text": "go", "placeholder": None,
+         "value": None, "href": None, "rect": {"x": 1, "y": 2, "width": 30, "height": 20}},
+    ]}}
+    snap.handler({}, {})
+    navigate({"url": "example.com"}, {})
+    out = click({"ref": "e1"}, {})
+    assert out["ok"] is False
+
+
 def test_close_forces(fake_engine):
     from backend.blocks.browser_close import handler
 
     out = handler({}, {})
     assert out["ok"] is True
     assert fake_engine.alive is False
+
+
+def test_browser_tabs_and_session_status(fake_engine, monkeypatch):
+    from backend.blocks.browser_tabs import handler
+
+    out = handler({}, {})
+    assert out["ok"] is True and out["count"] == 1
+    assert out["tabs"][0]["url"] == "https://example.com/"
+    assert rb.classify_run_block("browser_tabs") == "safe"
+
+    # alive 时 session_status 附 quick_status 摘要（url/title/tabs）
+    monkeypatch.setattr(bsession, "_signature", ("cdp", True, "", ""))
+    st = bsession.session_status()
+    assert st["alive"] is True and st["engine"] == "cdp"
+    assert st["url"] == "https://example.com/" and st["tabs"] == 1
+    assert st["title"] == "Example Domain"
 
 
 def test_wait_success_and_timeout(fake_engine):
@@ -222,7 +387,8 @@ def test_run_block_gate_safe_vs_action(fake_engine):
 
     # eval 同为 ACTION
     assert rb.classify_run_block("browser_eval") == "action"
-    # close 为 SAFE
+    # resize 为 ACTION，close 为 SAFE
+    assert rb.classify_run_block("browser_resize") == "action"
     assert rb.classify_run_block("browser_close") == "safe"
 
 
@@ -315,6 +481,12 @@ def test_real_edge_smoke(tmp_path):
     try:
         page = eng.navigate(url)
         assert page["title"] == "nxE2E"
+        vp = eng.set_viewport(1024, 700)
+        assert vp["width"] == 1024 and vp["height"] == 700
+        size = eng.viewport_size()
+        assert size["width"] == 1024 and size["height"] == 700
+        assert eng.eval_js("window.innerWidth") == 1024
+        assert eng.eval_js("window.innerHeight") == 700
         assert eng.eval_js("document.querySelector('.t').textContent") == "hi e2e"
         items = eng.extract(".t")
         assert items and items[0]["text"] == "hi e2e"
@@ -323,8 +495,20 @@ def test_real_edge_smoke(tmp_path):
         pos = eng.click("#b")
         assert pos["x"] > 0 and pos["y"] > 0
         assert eng.eval_js("document.getElementById('q').getAttribute('data-clicked')") == "1"
+        from backend.blocks.browser_snapshot import _SNAPSHOT_JS
+
+        snap = eng.eval_js(_SNAPSHOT_JS.replace("__MAX__", "200"))
+        selectors = {i["selector"] for i in snap["items"]}
+        assert "#b" in selectors and "#q" in selectors
         shot = eng.screenshot(save_path=str(tmp_path / "s.png"), full_page=True)
         assert Path(shot["path"]).stat().st_size > 0
+        assert shot["viewport_width"] == 1024 and shot["viewport_height"] == 700
+        clip_shot = eng.screenshot(
+            save_path=str(tmp_path / "c.png"),
+            full_page=True,
+            clip={"x": 0, "y": 0, "width": 120, "height": 60},
+        )
+        assert (clip_shot["width"], clip_shot["height"]) == (120, 60)
     finally:
         eng.close()
     assert not eng.is_alive()

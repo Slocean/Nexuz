@@ -15,6 +15,7 @@ WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周�
 
 SCHEMA = {
     "type": "timestamp",
+    "description": "输出当前时间戳与格式化时间。",
     "label": "时间戳",
     "category": "系统类",
     "done_log": "当前时间：{{local}}",

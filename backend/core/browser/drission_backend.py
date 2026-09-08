@@ -8,6 +8,7 @@ this backend is exercised (see plan verification section).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,71 @@ class DrissionEngine(BrowserEngine):
     def title(self) -> str:
         return str(self._require().title or "")
 
+    def set_viewport(self, width: int, height: int) -> dict[str, Any]:
+        page = self._require()
+        width, height = int(width), int(height)
+        if width <= 0 or height <= 0:
+            raise ValueError("视口尺寸必须是正数（像素）")
+        try:
+            # 4.x offers set.viewport on newer builds; window.size is the
+            # portable fallback (headless: window == viewport).
+            setter = getattr(page.set, "viewport", None)
+            if callable(setter):
+                setter(width, height)
+            else:
+                page.set.window.size(width, height)
+        except Exception as exc:
+            raise BrowserError(f"调整视口失败: {exc}") from exc
+        return self.viewport_size()
+
+    def viewport_size(self) -> dict[str, int]:
+        page = self._require()
+        try:
+            vs = page.rect.viewport_size
+            if isinstance(vs, (list, tuple)) and len(vs) >= 2:
+                return {"width": int(vs[0]), "height": int(vs[1])}
+        except Exception:
+            pass
+        try:
+            size = page.rect.size
+            return {"width": int(size[0]), "height": int(size[1])}
+        except Exception as exc:
+            raise BrowserError(f"获取视口尺寸失败: {exc}") from exc
+
+    def quick_status(self) -> dict[str, Any]:
+        page = self._page
+        if page is None:
+            return {}
+        out: dict[str, Any] = {}
+        try:
+            out["url"] = str(page.url or "")
+        except Exception:
+            pass
+        try:
+            out["title"] = str(page.title or "")
+        except Exception:
+            pass
+        try:
+            out["tabs"] = max(1, len(page.tab_ids))
+        except Exception:
+            out["tabs"] = 1
+        return out
+
+    def list_tabs(self) -> list[dict[str, str]]:
+        page = self._require()
+        try:
+            tab_ids = list(page.tab_ids)
+        except Exception as exc:
+            raise BrowserError(f"获取页签列表失败: {exc}") from exc
+        tabs: list[dict[str, str]] = []
+        for tid in tab_ids or []:
+            try:
+                tab = page.get_tab(tid)
+                tabs.append({"title": str(tab.title or ""), "url": str(tab.url or "")})
+            except Exception:
+                tabs.append({"title": "", "url": ""})
+        return tabs
+
     def eval_js(self, expression: str, timeout_ms: int = 15000) -> Any:
         page = self._require()
         expr = str(expression or "").strip()
@@ -159,7 +225,12 @@ class DrissionEngine(BrowserEngine):
             raise BrowserError(f"填充失败: {exc}") from exc
         return {"ok": True}
 
-    def screenshot(self, save_path: str | None = None, full_page: bool = True) -> dict[str, Any]:
+    def screenshot(
+        self,
+        save_path: str | None = None,
+        full_page: bool = True,
+        clip: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
         page = self._require()
         if not save_path:
             raise ValueError("save_path 不能为空（积木层负责生成默认路径）")
@@ -169,11 +240,44 @@ class DrissionEngine(BrowserEngine):
             page.get_screenshot(path=str(path), full_page=bool(full_page))
         except TypeError:
             page.get_screenshot(str(path))
+        if clip is not None:
+            self._crop_screenshot(path, clip)
         from PIL import Image
 
         with Image.open(path) as img:
             width, height = img.size
-        return {"path": str(path.resolve()), "width": width, "height": height}
+        try:
+            viewport = self.viewport_size()
+        except Exception:
+            viewport = {"width": 0, "height": 0}
+        return {
+            "path": str(path.resolve()),
+            "width": width,
+            "height": height,
+            "viewport_width": viewport["width"],
+            "viewport_height": viewport["height"],
+        }
+
+    @staticmethod
+    def _crop_screenshot(path: Path, clip: dict[str, float]) -> None:
+        from PIL import Image
+
+        try:
+            x = int(round(float(clip["x"])))
+            y = int(round(float(clip["y"])))
+            w = int(round(float(clip["width"])))
+            h = int(round(float(clip["height"])))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"clip 参数无效: {clip}") from exc
+        if w <= 0 or h <= 0:
+            raise ValueError(f"clip 尺寸必须为正: {clip}")
+        with Image.open(path) as img:
+            x2 = min(img.width, x + w)
+            y2 = min(img.height, y + h)
+            box = (max(0, x), max(0, y), max(0, x2), max(0, y2))
+            if box[2] <= box[0] or box[3] <= box[1]:
+                raise BrowserError(f"clip 区域超出截图范围: {clip}")
+            img.crop(box).save(path)
 
     def wait_document(self, state: str, timeout_ms: int = 30000) -> dict[str, Any]:
         target = "interactive" if state == "interactive" else "complete"

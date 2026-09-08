@@ -5,6 +5,7 @@ from backend.core import window_coords as wc
 
 SCHEMA = {
     "type": "window_close",
+    "description": "按标题/进程关闭窗口。",
     "label": "关闭窗口",
     "category": "系统类",
     "inputs": [

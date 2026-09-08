@@ -22,6 +22,7 @@ MAX_LIST_ENTRIES = 500
 
 SCHEMA = {
     "type": "file_manage",
+    "description": "复制/移动/删除/重命名文件与目录。",
     "label": "文件整理",
     "category": "系统类",
     "done_log": "文件整理完成：{{output}}（{{count}} 项）",

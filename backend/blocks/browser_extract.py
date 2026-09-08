@@ -4,6 +4,7 @@ from backend.blocks._browser import call_engine
 
 SCHEMA = {
     "type": "browser_extract",
+    "description": "按 CSS 选择器批量提取浏览器元素的文本/属性/矩形。",
     "label": "浏览器提取",
     "category": "浏览器",
     "inputs": [

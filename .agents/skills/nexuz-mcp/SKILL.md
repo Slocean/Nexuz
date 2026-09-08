@@ -9,7 +9,7 @@ Nexuz 是 Windows 桌面自动化平台：把"积木"（点击/按键/截图/OCR
 
 ## 标准调用顺序
 
-1. `get_status` — 确认服务在线（返回版本、是否正在执行流程）。
+1. `get_status` — 确认服务在线（返回版本、是否正在执行流程、浏览器会话摘要：开没开 / 引擎 / 当前页 URL / 页签数）。
 2. `list_blocks` — 看有哪些积木可执行，可按 category 过滤（动作类/识别类/浏览器/系统类等）。
 3. `get_block_schema` 传 `type` — 拿到单个积木的完整 inputs/outputs，据此填写 params。**先查 schema 再调用，不要凭猜测填参数。**
 4. `run_block`（单个积木）或 `run_flow`（整条流程）执行。
@@ -92,16 +92,33 @@ run_block 第 2 次: click {"x": "{{ai_run_1.x}}", "y": "{{ai_run_1.y}}"}
 
 ## UI 样式审计（style_audit）
 
-对截图做确定性样式测量：文字贴边/超出画布（疑似被裁剪）、文字框互相遮挡、文字对比度过低（Otsu 分割 + WCAG 对比度）、主色提取。工具只输出「问题类型 + 坐标 + 证据数值 + severity」，是否算问题由你复核（可读取 `annotated_path` 标注图目检）。
+对截图做确定性样式测量：文字贴边/超出画布（疑似被裁剪）、文字框互相遮挡、文字对比度过低（框内 Otsu 分离笔画 + 外扩环背景采样 + WCAG 对比度，附 fg/bg 取证色）、主色提取。工具输出「问题类型 + 坐标 + 证据数值 + severity」与全量文字框清单 `texts`（每个候选框的文本/坐标/置信度/逐框对比度/fg-bg 色；装饰误报带 `filtered` 原因、不进检查），是否算问题由你复核（可读取 `annotated_path` 标注图目检）。
 
 ```
-run_block 第 1 次: screenshot {"region": [x1,y1,x2,y2]}   → result.path
-run_block 第 2 次: style_audit {"image_path": "{{ai_run_1.path}}", "origin_x": x1, "origin_y": y1, "annotate_path": "D:\\\\tmp\\\\audit.png"}
+run_block 第 1 次: screenshot {}   → result.path（缺省整个虚拟桌面；也可传 region 只截一块）
+run_block 第 2 次: style_audit {"image_path": "{{ai_run_1.path}}", "annotate_path": "D:\\\\tmp\\\\audit.png"}
 ```
 
-- `origin_x/origin_y` 传截图区域左上角，issues 坐标即为屏幕绝对坐标，可直接用于点击。
-- 文字词框默认内置 OCR；已有词框时传 `text_source:"custom"` + `text_boxes` JSON（同 ocr_recognize 的 boxes 结构）跳过重复 OCR。
+- 想审单个组件（一张卡/一个面板）：整屏截一次，再给 `style_audit` 传 `region:[x1,y1,x2,y2]` 复审多个区域，坐标仍按原图输出，无需重复截屏。
+- 逐字对比度看 `texts[]`：`contrast` 低于阈值但接近的（如 4.2-4.6），结合 `fg/bg` 色值判断是测量伪差还是真问题。
+- 文字词框默认内置 OCR（带最小字高 + 墨水占比的装饰误报预滤）；已有词框时传 `text_source:"custom"` + `text_boxes` JSON（同 ocr_recognize 的 boxes 结构）跳过重复 OCR。
 - 「文字被隐藏/缺失」纯截图不可检：用预期文案清单 + `locate_text` 逐条确认。
+
+## 浏览器自动化（browser_*）
+
+驱动本机 Edge/Chrome（默认无头、独立隔离 profile）。常用套路：
+
+```
+browser_navigate {"url": "...", "viewport_width": 1280, "viewport_height": 800}
+browser_snapshot {}                                          → elements[]，每项含 ref（e1..eN）/tag/文本/矩形
+browser_click {"ref": "e3"}   或   browser_fill {"ref": "e7", "text": "..."}
+browser_screenshot {"full_page": true, "clip_selector": "#card"}   → result.path
+```
+
+- **视口纪律**：审页面布局/截图前先定视口（`browser_resize` 或 navigate 的 viewport 参数），默认窗口尺寸会导致布局失真；`browser_screenshot` 回传 `viewport_width/height` 供核对。
+- **优先用 ref**：`browser_snapshot` 后按 ref 点击/填充，比手写 CSS 选择器稳；页面跳转后 ref 失效（报错提示），重新快照即可。
+- 截图裁剪二选一：`clip`（[x1,y1,x2,y2]，整页=文档坐标、视口=视口坐标）或 `clip_selector`（CSS 选择器，自动取元素矩形）。
+- `browser_tabs` 只读列出页签；当前架构只操作第一个页签，不支持切换。
 
 ## run_block 与 run_flow 怎么选
 

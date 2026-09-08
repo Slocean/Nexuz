@@ -36,6 +36,7 @@ from backend.core.ai.config import get_ai_config
 
 SCHEMA = {
     "type": "ai_object_cut",
+    "description": "AI 抠出图片主体并去背景杂质，输出透明 PNG。",
     "label": "AI 抠主图（去杂质）",
     "category": "识别类",
     "done_log": "已成功处理{{sheets}}个文件，共擦除{{removed}}处杂质，总输出{{count}}张主图，输出目录：{{output_dir}}",

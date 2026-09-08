@@ -8,6 +8,7 @@ from backend.core import window_coords as wc
 
 SCHEMA = {
     "type": "window_wait",
+    "description": "等待指定窗口出现或消失。",
     "label": "等待窗口",
     "category": "系统类",
     "inputs": [

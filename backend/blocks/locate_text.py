@@ -15,6 +15,7 @@ from backend.blocks._ocr_match import (
 
 SCHEMA = {
     "type": "locate_text",
+    "description": "在屏幕区域或图片上按关键字定位文字，返回坐标。",
     "label": "文字定位",
     "category": "识别类",
     "inputs": [

@@ -121,6 +121,7 @@ def get_block_schema(
         "type": schema.get("type"),
         "label": schema.get("label"),
         "category": schema.get("category"),
+        "description": schema.get("description"),
         "inputs": inputs,
         "outputs": schema.get("outputs") or [],
     }

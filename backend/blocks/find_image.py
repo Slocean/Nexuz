@@ -10,6 +10,7 @@ from backend.core.dpi import virtual_screen_size
 
 SCHEMA = {
     "type": "find_image",
+    "description": "在屏幕区域里模板匹配小图，返回命中坐标与相似度。",
     "label": "图像模板匹配",
     "category": "识别类",
     "inputs": [

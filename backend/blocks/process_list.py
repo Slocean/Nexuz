@@ -11,6 +11,7 @@ from backend.blocks._os_ops import list_processes
 
 SCHEMA = {
     "type": "process_list",
+    "description": "列出运行中的进程（PID/名称/内存）。",
     "label": "进程列表",
     "category": "系统类",
     "inputs": [

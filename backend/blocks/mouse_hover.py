@@ -9,6 +9,7 @@ from backend.blocks._helpers import (
 
 SCHEMA = {
     "type": "mouse_hover",
+    "description": "移动鼠标到指定坐标悬停。",
     "label": "鼠标悬停",
     "category": "动作类",
     "inputs": [
