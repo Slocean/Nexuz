@@ -25,7 +25,8 @@ def isolated_registry():
     BLOCK_REGISTRY.update(previous)
 
 
-def test_safe_policy_blocks_dangerous_handler_before_execution():
+def test_safe_policy_is_inert_for_user_runs():
+    """safe 策略字段对用户自跑不再生效（策略闸只在 agent 链 / __policy_floor__ 上强制）。"""
     called = False
 
     def dangerous_handler(params, context, **kwargs):
@@ -40,11 +41,8 @@ def test_safe_policy_blocks_dangerous_handler_before_execution():
         "execution_policy": {"mode": "safe"},
     }
 
-    with pytest.raises(ExecutionPolicyError) as exc_info:
-        FlowInterpreter()._execute(flow)
-
-    assert called is False
-    assert exc_info.value.violation["block_type"] == "run_command"
+    FlowInterpreter()._execute(flow)
+    assert called is True
 
 
 def test_legacy_flow_keeps_existing_behavior():

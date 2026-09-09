@@ -126,7 +126,7 @@ def test_mcp_origin_job_reapplies_floor_at_fire(tmp_path, monkeypatch):
 
 
 def test_local_origin_job_keeps_legacy_behavior(tmp_path, monkeypatch):
-    """用户自己注册的定时任务（非 MCP 来源）：legacy 流程保持既有行为。"""
+    """用户自己注册的定时任务（非 MCP 来源）：不设策略闸，直接放行。"""
     from backend.core.registry import BLOCK_REGISTRY, register_block
 
     monkeypatch.setattr(
@@ -163,7 +163,7 @@ def test_local_origin_job_keeps_legacy_behavior(tmp_path, monkeypatch):
         }
         scheduler._run_job("job-2", snapshot={}, meta=meta, file_path=str(flow_file))
 
-        # 无下限标记 → legacy 放行 → 解释器收到 payload
+        # 用户自己的任务零闸：python_script 也直接进入解释器
         assert len(interp.started) == 1
         assert "__policy_floor__" not in interp.started[0]
     finally:

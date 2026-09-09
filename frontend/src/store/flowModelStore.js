@@ -423,7 +423,6 @@ function createEmptyFlow() {
     flow_id: uid('flow'),
     name: '未命名流程',
     version: 1,
-    execution_policy: { mode: 'safe' },
     variables: {},
     variable_schemas: {},
     nodes: {},
@@ -1102,11 +1101,9 @@ export const useFlowStore = create((set, get) => ({
         nodes: flow.nodes || {},
         breakpoints: Array.isArray(flow.breakpoints) ? flow.breakpoints.map(String) : []
       });
-      // Missing policy identifies a legacy/imported flow and preserves its
-      // historical runtime behavior. Newly created flows declare safe mode.
-      if (!Object.prototype.hasOwnProperty.call(flow, 'execution_policy')) {
-        delete normalizedFlow.execution_policy;
-      }
+      // 用户自跑流程不做策略拦截：execution_policy 只在 agent（外部 AI）
+      // 执行链有意义，前端不再为新流程注入 safe 默认；流程文件若自带该
+      // 字段则原样保留。
       const next = {
         flow: normalizedFlow,
         selectedNodeId: null,

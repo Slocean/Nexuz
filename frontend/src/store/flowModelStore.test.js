@@ -29,7 +29,7 @@ describe('flow store contract', () => {
     expect(state.future).toEqual([]);
   });
 
-  it('preserves legacy policy absence and explicit safe policy', () => {
+  it('does not inject policy for new flows and preserves explicit policy', () => {
     useFlowStore.getState().setFlow({ entry: null, nodes: {} });
     expect(useFlowStore.getState().flow).not.toHaveProperty('execution_policy');
 

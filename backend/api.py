@@ -15,7 +15,6 @@ import webview
 
 from backend.core.dpi import get_dpi_scale, screen_size_logical
 from backend.core.block_params_validate import validate_flow_params
-from backend.core.execution_policy import resolve_execution_policy, scan_flow_violations
 from backend.core.input.provider_registry import get_provider_registry
 from backend.core.input.session import get_recording_session
 from backend.core.interpreter import get_interpreter
@@ -1525,19 +1524,9 @@ class Api:
                 "blocked": True,
                 "validation_issues": param_issues,
             }
-        execution_policy = resolve_execution_policy(flow)
-        violations = scan_flow_violations(flow, execution_policy)
-        if violations:
-            labels = "、".join(
-                f"{item['block_type']}（{item['node_id']}）" for item in violations[:5]
-            )
-            return {
-                "ok": False,
-                "error": f"流程含未授权的高危积木：{labels}",
-                "blocked": True,
-                "policy": execution_policy.to_dict(),
-                "violations": violations,
-            }
+        # 用户自己搭的流程、自己点的运行，不做任何策略拦截。
+        # agent 侧（外部 AI）的闸在 mcp_bridge 预扫描 + __policy_floor__
+        # 运行期逐节点强制，不经过这里。
         interp = get_interpreter(emit=self._emit)
 
         bps = breakpoints

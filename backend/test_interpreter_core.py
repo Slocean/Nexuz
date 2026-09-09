@@ -96,7 +96,7 @@ def test_builtin_registry_smoke_has_complete_schema_and_handlers():
         assert callable(entry["handler"])
 
 
-# ---- __policy_floor__（外部 AI 执行下限）----
+# ---- 策略闸分界：用户自跑零闸，agent（带下限标记）保留闸 ----
 
 
 def _floor():
@@ -104,6 +104,27 @@ def _floor():
         "deny": ["python_script", "run_command", "power_action"],
         "mode_min": "standard",
     }
+
+
+def test_user_run_flow_has_no_policy_gate(isolated_registry):
+    """无 __policy_floor__ 标记 = 用户自己跑：任何积木（含 python_script）直接放行。"""
+    called = False
+
+    def script_handler(params, context, **kwargs):
+        nonlocal called
+        called = True
+        return {}
+
+    register_block({"type": "python_script"}, script_handler)
+    flow = {
+        "entry": "evil",
+        # 即使流程文件带着历史遗留的 safe 策略字段，用户自跑也不设闸
+        "execution_policy": {"mode": "safe"},
+        "nodes": {"evil": {"type": "python_script", "params": {}}},
+    }
+
+    FlowInterpreter()._execute(flow)
+    assert called is True
 
 
 def test_policy_floor_denies_critical_node(isolated_registry):

@@ -484,9 +484,11 @@ class FlowInterpreter:
         entry = flow.get("entry")
         if not entry or entry not in nodes:
             raise ValueError("流程缺少有效 entry 节点")
-        execution_policy = apply_policy_floor(
-            resolve_execution_policy(flow), flow.get("__policy_floor__")
-        )
+        # 策略闸只在 agent 执行链（带 __policy_floor__ 下限标记）生效；
+        # 用户自己搭流程、自己点运行不加任何闸。标记随 call_subflow /
+        # 定时任务传播，只能加严、不可被流程文件削弱。
+        floor = flow.get("__policy_floor__")
+        execution_policy = apply_policy_floor(resolve_execution_policy(flow), floor)
 
         context: dict[str, Any] = {}
         for k, v in (flow.get("variables") or {}).items():
@@ -557,9 +559,10 @@ class FlowInterpreter:
             handler = get_handler(block_type)
             if handler is None:
                 raise ValueError(f"未知 Block 类型: {block_type}")
-            violation = check_node_allowed(execution_policy, str(node_id), node)
-            if violation:
-                raise ExecutionPolicyError(violation, execution_policy)
+            if floor:
+                violation = check_node_allowed(execution_policy, str(node_id), node)
+                if violation:
+                    raise ExecutionPolicyError(violation, execution_policy)
 
             raw_params = node.get("params") or {}
             params = resolve_variables(raw_params, context)

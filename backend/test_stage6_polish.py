@@ -40,7 +40,11 @@ class _FakeRuntimeLogs:
 
 
 def test_scheduler_blocks_critical_blocks_before_start(tmp_path, monkeypatch):
-    """调度触发的流程含 http_request（ELEVATED）时：safe 模式下启动前整体拒绝。"""
+    """MCP 来源的定时任务（带 __policy_floor__）含危险积木时：触发时整体拒绝。
+
+    用户自己注册的任务不设闸（见 test_scheduler_safe_flow_still_starts）；
+    这里验证 agent 链的下限标记在调度触发时仍然强制。
+    """
     from backend.core.scheduler import FlowScheduler
 
     failures = tmp_path / "failures.jsonl"
@@ -55,11 +59,9 @@ def test_scheduler_blocks_critical_blocks_before_start(tmp_path, monkeypatch):
     scheduler._jobs["job-1"] = {"trigger_type": "interval", "file_path": ""}
     scheduler.set_emit(lambda event, payload: events.append((event, payload)))
 
-    # 未声明 execution_policy 的存量流程默认 legacy —— 不会误伤；
-    # 用 safe 模式 + critical 积木验证拦截路径。
     flow = {
         "entry": "s",
-        "execution_policy": {"mode": "safe"},
+        "__policy_floor__": {"deny": ["http_request"], "mode_min": "standard"},
         "nodes": {"s": {"type": "http_request", "params": {"url": "https://example.com"}}},
     }
     scheduler._start_or_queue("job-1", flow, scheduler._jobs["job-1"])

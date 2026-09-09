@@ -170,7 +170,6 @@ class FlowScheduler:
         meta: dict[str, Any],
     ) -> None:
         from backend.core.block_params_validate import validate_flow_params
-        from backend.core.execution_policy import resolve_execution_policy, scan_flow_violations
         from backend.core.interpreter import get_interpreter
         from backend.core.runtime_log import get_runtime_log_manager
 
@@ -194,28 +193,34 @@ class FlowScheduler:
                     },
                 )
             return
-        # 与 api.run_flow 同一道预扫描：高危积木在启动前整体拒绝，
-        # 而不是只依赖运行时逐节点检查兜底。
+        # 用户自己注册的定时任务不设策略闸（和用户点运行同一口径）。
         # 外部 AI（MCP）注册的任务每次触发都重新套用下限——流程文件可能
         # 在注册后被改写（TOCTOU），不能只靠注册时的内容。
-        from backend.core.execution_policy import apply_policy_floor
-
-        execution_policy = apply_policy_floor(
-            resolve_execution_policy(payload), payload.get("__policy_floor__")
-        )
-        violations = scan_flow_violations(payload, execution_policy)
-        if violations:
-            labels = "、".join(
-                f"{item['block_type']}（{item['node_id']}）" for item in violations[:5]
+        if payload.get("__policy_floor__"):
+            from backend.core.execution_policy import (
+                apply_policy_floor,
+                resolve_execution_policy,
+                scan_flow_violations,
             )
-            message = f"流程含未授权的高危积木：{labels}"
-            self._record_failure(job_id, reason="policy_blocked", error=message, meta=meta)
-            if self._emit:
-                self._emit(
-                    "schedule_error",
-                    {"job_id": job_id, "reason": "policy_blocked", "error": message},
+
+            execution_policy = apply_policy_floor(
+                resolve_execution_policy(payload), payload.get("__policy_floor__")
+            )
+            violations = scan_flow_violations(payload, execution_policy)
+            if violations:
+                labels = "、".join(
+                    f"{item['block_type']}（{item['node_id']}）" for item in violations[:5]
                 )
-            return
+                message = f"流程含未授权的高危积木：{labels}"
+                self._record_failure(
+                    job_id, reason="policy_blocked", error=message, meta=meta
+                )
+                if self._emit:
+                    self._emit(
+                        "schedule_error",
+                        {"job_id": job_id, "reason": "policy_blocked", "error": message},
+                    )
+                return
         interp = get_interpreter()
         if interp.running:
             self._queue_pending(job_id, payload, meta)
