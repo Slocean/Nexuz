@@ -101,6 +101,8 @@ _AI_HINTS: dict[str, dict[str, Any]] = {
     "notify": {"description": "系统通知", "key_params": ["title", "message"]},
     "assign": {"description": "变量赋值", "key_params": ["map"]},
     "http_request": {"description": "HTTP 请求", "key_params": ["url", "method"]},
+    "llm_convert": {"description": "LLM 格式转换（chat↔responses）", "key_params": ["payload", "target"]},
+    "llm_forward": {"description": "HTTP 转发（跨域旁路）：完整请求体原样送达 LLM 端点，简易模式填 base_url+key 即用", "key_params": ["payload", "base_url", "api_key"]},
     "call_subflow": {"description": "调用子流程", "key_params": ["flow_path"]},
     "switch": {"description": "多路分支", "key_params": ["expression"]},
     "loop_while": {"description": "条件循环", "key_params": ["expression"]},

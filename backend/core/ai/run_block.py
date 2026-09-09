@@ -55,6 +55,7 @@ RUN_BLOCK_SAFE = frozenset(
         "monitor_check",
         "monitor_stop",
         "monitor_list",
+        "llm_convert",
     }
 )
 
@@ -72,6 +73,7 @@ RUN_BLOCK_ACTION = frozenset(
         "window_activate",
         "window_close",
         "http_request",
+        "llm_forward",
         "file_io",
         "file_manage",
         "call_subflow",

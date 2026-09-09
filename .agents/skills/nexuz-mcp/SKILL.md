@@ -1,6 +1,6 @@
 ---
 name: nexuz-mcp
-description: 通过 Nexuz MCP 操作 Windows 桌面自动化与图片处理。当用户提到 Nexuz、nexuz MCP、用积木/流程做桌面自动化（点击、按键、截图、OCR 找字、取色、窗口操作）、图片批处理（缩放/抠图/切图/重命名/生图）、UI 样式审计（文字裁剪/遮挡/对比度/配色检查）、或要运行与编排 Nexuz 流程时使用——即使用户没有明说"MCP"二字。
+description: 通过 Nexuz MCP 操作 Windows 桌面自动化与图片处理。当用户提到 Nexuz、nexuz MCP、用积木/流程做桌面自动化（点击、按键、截图、OCR 找字、取色、窗口操作）、图片批处理（缩放/抠图/切图/重命名/生图）、UI 样式审计（文字裁剪/遮挡/对比度/配色检查）、LLM 对话转发/跨域调 AI（llm_forward/llm_convert）、或要运行与编排 Nexuz 流程时使用——即使用户没有明说"MCP"二字。
 ---
 
 # Nexuz MCP 使用指南
@@ -119,6 +119,22 @@ browser_screenshot {"full_page": true, "clip_selector": "#card"}   → result.pa
 - **优先用 ref**：`browser_snapshot` 后按 ref 点击/填充，比手写 CSS 选择器稳；页面跳转后 ref 失效（报错提示），重新快照即可。
 - 截图裁剪二选一：`clip`（[x1,y1,x2,y2]，整页=文档坐标、视口=视口坐标）或 `clip_selector`（CSS 选择器，自动取元素矩形）。
 - `browser_tabs` 只读列出页签；当前架构只操作第一个页签，不支持切换。
+
+## HTTP 转发调 LLM（llm_forward / llm_convert）
+
+网页/流程要调 LLM 但直连会被 CORS 拦时用 `llm_forward`——后台代发同一请求，原样送达原样带回，不是对话积木：
+
+```
+run_block: llm_forward {"payload": {"model":"gpt-4o","messages":[{"role":"user","content":"你好"}]},
+                        "base_url": "https://api.deepseek.com/v1", "api_key": "sk-..."}
+           → result.response（完整响应 JSON）/ result.text（回复纯文本，便于直接展示）
+```
+
+- `payload` 是完整请求体 JSON（对象或字符串），积木不解析不包装不丢字段；`messages` 走 /chat/completions、`input` 走 /responses，端点自动路由；认证头与 Content-Type 自动拼。
+- `base_url`/`api_key` 留空自动沿用「设置 → Nexuz AI」的服务商配置（同生图节点）；payload 缺 model 时自动补设置里的模型。
+- 手动模式（mode:"custom"）才有模型覆盖、格式转换（chat↔responses）、额外请求头、超时。
+- 判断成败看 `result.ok`；HTTP 4xx/5xx 时 `result.response` 保留端点错误正文（如配额不足）。不支持流式（SSE）。
+- `llm_convert` 是纯格式转换积木（不发网络）：chat↔responses 的请求/响应互转，payload 传 JSON 字符串或对象，source/target/kind 缺省 auto 探测。
 
 ## run_block 与 run_flow 怎么选
 

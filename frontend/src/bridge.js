@@ -1204,6 +1204,129 @@ export const MOCK_SCHEMAS = [
     ]
   },
   {
+    type: 'llm_convert',
+    label: 'LLM 格式转换',
+    category: '系统类',
+    inputs: [
+      {
+        name: 'payload',
+        type: 'string',
+        label: '数据',
+        default: '',
+        ui: 'textarea',
+        bindable: true,
+        placeholder: 'JSON 字符串，如 {"model":"gpt-4o","messages":[…]}'
+      },
+      {
+        name: 'source',
+        type: 'select',
+        label: '源格式',
+        options: ['auto', 'chat', 'responses'],
+        default: 'auto',
+        option_labels: { auto: '自动探测', chat: 'chat/completions', responses: 'responses' }
+      },
+      {
+        name: 'target',
+        type: 'select',
+        label: '目标格式',
+        options: ['auto', 'chat', 'responses'],
+        default: 'auto',
+        option_labels: { auto: '与源相同', chat: 'chat/completions', responses: 'responses' }
+      },
+      {
+        name: 'kind',
+        type: 'select',
+        label: '数据类型',
+        options: ['auto', 'request', 'response'],
+        default: 'auto',
+        option_labels: { auto: '自动探测', request: '请求体', response: '响应体' }
+      }
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'converted', type: 'object' },
+      { name: 'json', type: 'string', canvas: false },
+      { name: 'source', type: 'string', canvas: false },
+      { name: 'target', type: 'string', canvas: false },
+      { name: 'kind', type: 'string', canvas: false },
+      { name: 'error', type: 'string' }
+    ]
+  },
+  {
+    type: 'llm_forward',
+    label: 'LLM 转发',
+    category: '系统类',
+    inputs: [
+      {
+        name: 'mode',
+        type: 'select',
+        label: '模式',
+        options: ['simple', 'custom'],
+        default: 'simple',
+        option_labels: { simple: '简易模式（填 Base URL 和 Key 即用）', custom: '手动模式（全部参数）' }
+      },
+      {
+        name: 'payload',
+        type: 'string',
+        label: '请求体 JSON',
+        default: '',
+        ui: 'textarea',
+        bindable: true,
+        placeholder: '完整请求体，如 {"model":"gpt-4o","messages":[…]} 或 {"model":…,"input":[…]}'
+      },
+      {
+        name: 'base_url',
+        type: 'string',
+        label: 'Base URL',
+        default: '',
+        placeholder: '如 https://api.deepseek.com/v1（留空用 Nexuz AI 设置）',
+        ui: 'textarea',
+        bindable: true
+      },
+      { name: 'api_key', type: 'string', label: 'API Key', default: '', placeholder: '留空用 Nexuz AI 设置里的密钥', bindable: true },
+      {
+        name: 'model',
+        type: 'string',
+        label: '模型',
+        default: '',
+        placeholder: '留空用 payload 自带或 Nexuz AI 设置里的模型',
+        bindable: true,
+        show_when: { mode: 'custom' }
+      },
+      {
+        name: 'convert',
+        type: 'select',
+        label: '格式转换',
+        options: ['none', 'chat_to_responses', 'responses_to_chat'],
+        default: 'none',
+        option_labels: {
+          none: '不转换（按原格式直发）',
+          chat_to_responses: 'chat → responses',
+          responses_to_chat: 'responses → chat'
+        },
+        show_when: { mode: 'custom' }
+      },
+      {
+        name: 'headers',
+        type: 'keymap',
+        label: '额外请求头',
+        default: {},
+        ui: 'input_map',
+        show_when: { mode: 'custom' }
+      },
+      { name: 'timeout_sec', type: 'number', label: '超时秒数', default: 120, show_when: { mode: 'custom' } }
+    ],
+    outputs: [
+      { name: 'ok', type: 'boolean' },
+      { name: 'status', type: 'number' },
+      { name: 'text', type: 'string' },
+      { name: 'response', type: 'object' },
+      { name: 'response_json', type: 'string', canvas: false },
+      { name: 'error', type: 'string' },
+      { name: 'headers', type: 'object', canvas: false }
+    ]
+  },
+  {
     type: 'clipboard',
     label: '剪贴板',
     category: '系统类',
