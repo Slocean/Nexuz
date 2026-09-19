@@ -263,6 +263,7 @@ class ServerApi:
 
     def save_flow(self, flow_json: str, filepath: str | None = None, name: str | None = None) -> dict:
         """保存到流程库（镜像 Api.save_flow 语义：路径必须落在 flows 目录内）。"""
+        from backend.core.secret_params import encrypt_flow_secrets
         from backend.paths import get_data_dir
 
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
@@ -270,6 +271,8 @@ class ServerApi:
             return {"ok": False, "error": "无效的流程对象"}
         if name and str(name).strip():
             flow = {**flow, "name": str(name).strip()}
+        # secret 参数（SMTP 授权码等）落盘即密文（幂等，已加密值原样保留）
+        flow = encrypt_flow_secrets(flow)
 
         flows = get_data_dir(create=True) / "flows"
         if filepath:
@@ -435,6 +438,52 @@ class ServerApi:
 
     def step_flow(self) -> dict:
         return {"ok": False, "error": "服务器模式不支持单步调试"}
+
+    def run_block(self, spec=None) -> dict:
+        """单积木同步执行（/api 供程序化调用方直调）。
+
+        每次请求独立会话上下文（无跨调用 {{绑定}}，需要链式传值请用 run_flow）；
+        分类闸/无头闸/secret 解密与 run_block_once 完全一致。
+        """
+        from backend.core.ai.run_block import run_block_once
+
+        spec = spec if isinstance(spec, dict) else {}
+        if not str(spec.get("type") or "").strip():
+            return {"ok": False, "error": "需要积木类型 {type, params}"}
+        return run_block_once(
+            {"type": spec.get("type"), "params": spec.get("params")},
+            run_ctx={"context": {}, "counter": 0},
+            allow_run_block=True,
+            allow_dangerous=True,
+        )
+
+    # --- API Key 管理（仅主密钥可达；scope 闸在 METHOD_SCOPES 未登记即拒绝） ---
+
+    def apikey_list(self) -> dict:
+        from backend.core import api_keys
+
+        return {"ok": True, "scopes": api_keys.SCOPES, "keys": api_keys.list_keys()}
+
+    def apikey_create(self, spec=None) -> dict:
+        from backend.core import api_keys
+
+        spec = spec if isinstance(spec, dict) else {}
+        created = api_keys.create_key(
+            spec.get("name") or "",
+            spec.get("scopes") or [],
+            spec.get("block_allowlist") or [],
+        )
+        return {"ok": True, "key": created}
+
+    def apikey_update(self, key_id: str = "", patch=None) -> dict:
+        from backend.core import api_keys
+
+        return api_keys.update_key(str(key_id), patch if isinstance(patch, dict) else {})
+
+    def apikey_delete(self, key_id: str = "") -> dict:
+        from backend.core import api_keys
+
+        return api_keys.delete_key(str(key_id))
 
     def drain_ui_events(self) -> dict:
         with self._event_lock:
@@ -637,39 +686,55 @@ def _safe_stem(name: str) -> str:
     return cleaned[:80] or "flow"
 
 
-def _resolve_token(token_file: str) -> str:
-    """--token-file > 数据目录持久化 token（常驻进程重启不变）。"""
+def _resolve_token(token_file: str) -> tuple[str, str]:
+    """凭证来源优先级：--token-file > NEXUZ_TOKEN 环境变量（部署平台"自动密钥"
+    直接注入） > 数据目录持久化 token（常驻进程重启不变）。
+
+    返回 (token, 来源说明)。"""
     if token_file.strip():
         text = Path(token_file.strip()).read_text(encoding="utf-8").strip()
         if not text:
             raise SystemExit(f"token 文件为空: {token_file}")
-        return text.splitlines()[0].strip()
+        return text.splitlines()[0].strip(), "--token-file"
+    env_token = os.environ.get("NEXUZ_TOKEN", "").strip()
+    if env_token:
+        return env_token, "NEXUZ_TOKEN env"
     from backend.paths import get_data_dir
 
     token_path = get_data_dir(create=True) / "mcp" / "token"
     try:
         existing = token_path.read_text(encoding="utf-8").strip()
         if existing:
-            return existing
+            return existing, "持久化文件"
     except OSError:
         pass
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
     token_path.write_text(token, encoding="utf-8")
-    return token
+    return token, "新生成（持久化文件）"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Nexuz headless server")
-    parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
-    parser.add_argument("--port", type=int, default=0, help="监听端口（默认自动分配）")
+    parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1，容器部署传 0.0.0.0）")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="监听端口（默认读环境变量 PORT——容器平台自动注入，否则自动分配）",
+    )
     parser.add_argument("--data-dir", default="", help="数据根目录（默认 %LOCALAPPDATA%\\Nexuz）")
-    parser.add_argument("--token-file", default="", help="鉴权 token 文件（默认持久化到数据目录）")
+    parser.add_argument("--token-file", default="", help="鉴权 token 文件（默认读 NEXUZ_TOKEN env，再回落数据目录持久化）")
     parser.add_argument("--webhook-url", default="", help="通知 webhook（默认读 config.json [server].webhook_url）")
     args = parser.parse_args()
 
     if args.data_dir.strip():
         os.environ["NEXUZ_DATA_DIR"] = str(Path(args.data_dir.strip()).expanduser())
+    if args.port is None:
+        try:
+            args.port = int(os.environ.get("PORT") or 0)  # 容器平台注入 PORT
+        except ValueError:
+            args.port = 0
 
     from backend.core import host_mode
     from backend.core.mcp_bridge import bridge_status, start_mcp_bridge
@@ -692,7 +757,7 @@ def main() -> int:
         print(f"[server] 恢复定时任务失败: {exc}", file=sys.stderr, flush=True)
 
     try:
-        token = _resolve_token(args.token_file)
+        token, token_source = _resolve_token(args.token_file)
     except OSError as exc:
         print(f"[server] token 读取失败: {exc}", file=sys.stderr, flush=True)
         return 1
@@ -706,7 +771,9 @@ def main() -> int:
     print(f"[server] 控制台: http://{'127.0.0.1' if args.host == '127.0.0.1' else '<服务器IP>'}:{status['port']}/")
     print(f"[server] data_dir: {os.environ.get('NEXUZ_DATA_DIR') or '(default)'}")
     print(f"[server] 定时任务已恢复: {restored}")
-    print("[server] token:", status.get("token"))
+    print(f"[server] 主密钥来源: {token_source}")
+    print("[server] 主密钥:", status.get("token"))
+    print("[server] 提示: 用主密钥登录 Web 界面后在设置中签发分权 API Key")
     if args.host != "127.0.0.1":
         print("[server] 警告：监听地址不是 127.0.0.1，请确保前置 HTTPS 反代与强 token", file=sys.stderr, flush=True)
     try:

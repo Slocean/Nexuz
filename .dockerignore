@@ -1,0 +1,26 @@
+# 构建上下文瘦身（平台单包 ≤500MB / 解压 ≤2 万文件）
+.git
+.github
+node_modules
+**/node_modules
+**/__pycache__
+**/*.pyc
+frontend/dist
+frontend/dist-server
+frontend/test-results
+frontend/playwright-report
+build
+dist
+docs
+deploy
+examples
+screenshots
+*.log
+*.md
+!README.md
+.zcode
+.agents
+agents.md
+AGENTS.md
+2.0.0
+_ui_design_tests

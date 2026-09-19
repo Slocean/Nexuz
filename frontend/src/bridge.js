@@ -2629,5 +2629,10 @@ export const bridge = {
   mcpInstallSkill: (clients = null) => call('mcp_install_skill', clients),
   browserGetConfig: () => call('browser_get_config'),
   browserSetConfig: (patch = {}) => call('browser_set_config', patch),
-  browserStatus: () => call('browser_status')
+  browserStatus: () => call('browser_status'),
+  // API Key 管理（服务器形态独有；Web 界面用主密钥操作）
+  apikeyList: () => call('apikey_list'),
+  apikeyCreate: spec => call('apikey_create', spec),
+  apikeyUpdate: (keyId, patch = {}) => call('apikey_update', keyId, patch),
+  apikeyDelete: keyId => call('apikey_delete', keyId)
 };

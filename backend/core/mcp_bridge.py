@@ -270,7 +270,12 @@ def _resolve_flow_path(api: Any, flow_path: str) -> Path:
     return path
 
 
-def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+def dispatch(
+    api: Any,
+    tool: str,
+    args: dict[str, Any],
+    identity: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     args = args if isinstance(args, dict) else {}
 
     if tool == "get_status":
@@ -354,9 +359,9 @@ def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
 
     with _run_lock:
         if tool == "run_block":
-            return _tool_run_block(args)
+            return _tool_run_block(args, identity)
         if tool == "run_flow":
-            return _tool_run_flow(api, args)
+            return _tool_run_flow(api, args, identity)
         if tool == "capture_screen":
             return _tool_capture_screen(api, args)
         if tool == "locate_text_on_screen":
@@ -393,9 +398,15 @@ def _ai_cfg() -> dict[str, Any]:
         return {"allow_run_block": False, "allow_dangerous": False}
 
 
-def _tool_run_block(args: dict[str, Any]) -> dict[str, Any]:
+def _tool_run_block(
+    args: dict[str, Any], identity: dict[str, Any] | None = None
+) -> dict[str, Any]:
     from backend.core.ai.run_block import run_block_once
+    from backend.core import api_keys
 
+    btype = str((args or {}).get("type") or "").strip()
+    if identity is not None and not api_keys.block_allowed(identity, btype):
+        return {"ok": False, "error": f"该密钥的积木白名单不包含: {btype}"}
     # 外部 AI 的授权由所接入的 AI 客户端（工具审批）负责，不受应用内 AI 开关
     # 约束；硬拒清单（危险命令类 / 控制流 / 用户插件 / 电源操作）在
     # run_block_once 内保持不变，无开关可绕。
@@ -417,7 +428,11 @@ def _tool_run_block(args: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _tool_run_flow(api: Any, args: dict[str, Any]) -> dict[str, Any]:
+def _tool_run_flow(
+    api: Any,
+    args: dict[str, Any],
+    identity: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     flow: Any = None
     flow_label = ""
     if isinstance(args.get("flow"), dict):
@@ -452,6 +467,29 @@ def _tool_run_flow(api: Any, args: dict[str, Any]) -> dict[str, Any]:
     )
 
     floor = mcp_policy_floor()
+    node_types = sorted(
+        {
+            str(node.get("type") or "")
+            for node in (flow.get("nodes") or {}).values()
+            if isinstance(node, dict)
+        }
+        - {""}
+    )
+    # API Key 积木白名单：静态拒绝越界类型；allow_only 随 floor 进解释器，
+    # call_subflow 加载的子流程同样被逐节点强制（管道类积木豁免）。
+    if identity is not None:
+        from backend.core import api_keys
+
+        disallowed = api_keys.flow_allowlist_floor(identity, set(node_types))
+        if disallowed:
+            return {
+                "ok": False,
+                "blocked": True,
+                "error": "流程包含该密钥积木白名单之外的积木: " + ", ".join(disallowed),
+            }
+        allowlist = api_keys.identity_allowlist(identity)
+        if allowlist:
+            floor = {**floor, "allow_only": allowlist}
     policy = apply_policy_floor(resolve_execution_policy(flow), floor)
     violations = scan_flow_violations(flow, policy)
     if violations:
@@ -467,14 +505,6 @@ def _tool_run_flow(api: Any, args: dict[str, Any]) -> dict[str, Any]:
         }
 
     flow = {**flow, "__run_origin__": "mcp", "__policy_floor__": floor}
-    node_types = sorted(
-        {
-            str(node.get("type") or "")
-            for node in (flow.get("nodes") or {}).values()
-            if isinstance(node, dict)
-        }
-        - {""}
-    )
 
     wait = bool(args.get("wait", True))
     timeout_s = float(args.get("timeout_s") or 300)
@@ -616,6 +646,11 @@ SERVER_API_METHODS = frozenset(
         "check_for_update",
         "read_local_image",
         "capture_desktop",
+        "run_block",
+        "apikey_list",
+        "apikey_create",
+        "apikey_update",
+        "apikey_delete",
     }
 )
 
@@ -741,19 +776,37 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
                 self._send_json(400, {"ok": False, "error": "invalid JSON body"})
                 return None
 
-        def _authorized(self) -> bool:
-            expected = f"Bearer {token}"
+        def _identity(self) -> tuple[str | None, dict[str, Any] | None]:
+            """解析请求凭证。返回 (bearer, identity)：
+            - 未携带/无效（含 API Key 校验失败或已停用）→ (None, None)（调用方回 401）；
+            - 主密钥 → (bearer, None)（全权）；
+            - API Key → (bearer, 该记录)（按 scopes / block_allowlist 授权）。"""
             got = str(self.headers.get("Authorization") or "")
-            return hmac.compare_digest(got, expected)
+            if not got.startswith("Bearer "):
+                return None, None
+            bearer = got[len("Bearer "):].strip()
+            if not bearer:
+                return None, None
+            if hmac.compare_digest(bearer, token):
+                return bearer, None
+            from backend.core import api_keys
+
+            record = api_keys.authenticate(bearer)
+            if record is None:
+                return None, None
+            return bearer, record
 
         def _handle_api(self) -> None:
             """Web 前端桥接：POST /api/<method>，body {"args": [...]}。
 
-            与 /rpc 同一 token 信任边界；方法限 SERVER_API_METHODS 白名单。
+            主密钥全权；API Key 按 scopes 判定（apikey_* 管理方法仅主密钥），
+            积木白名单对 run_block / run_flow 额外强制。
             """
+            from backend.core import api_keys
             from backend.core.host_mode import is_headless
 
-            if not self._authorized():
+            bearer, identity = self._identity()
+            if bearer is None:
                 self._send_json(401, {"ok": False, "error": "unauthorized"})
                 return
             if not is_headless():
@@ -762,6 +815,11 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
             method = self.path.split("?")[0].rstrip("/")[len("/api/"):].strip("/")
             if method not in SERVER_API_METHODS:
                 self._send_json(404, {"ok": False, "error": f"服务器不提供方法: {method}"})
+                return
+            if not api_keys.method_allowed(identity, method):
+                required = api_keys.METHOD_SCOPES.get(method)
+                hint = f"（需要能力: {required}）" if required else "（仅主密钥）"
+                self._send_json(403, {"ok": False, "error": f"无权调用 {method}{hint}"})
                 return
             fn = getattr(api, method, None)
             if not callable(fn):
@@ -772,6 +830,43 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
                 return
             args = body.get("args") if isinstance(body, dict) else None
             args = args if isinstance(args, list) else []
+
+            # 积木白名单（API Key 可选配置）：单积木直查；流程按节点类型集合判
+            if identity is not None and method in ("run_block", "run_flow"):
+                spec = args[0] if args and isinstance(args[0], dict) else None
+                if method == "run_block":
+                    if not api_keys.block_allowed(identity, (spec or {}).get("type")):
+                        self._send_json(
+                            403,
+                            {
+                                "ok": False,
+                                "error": (
+                                    "该密钥的积木白名单不包含: "
+                                    f"{(spec or {}).get('type')}"
+                                ),
+                            },
+                        )
+                        return
+                elif spec is not None:
+                    nodes = spec.get("nodes")
+                    types = {
+                        str(n.get("type") or "")
+                        for n in nodes.values()
+                        if isinstance(nodes, dict) and isinstance(n, dict)
+                    }
+                    types.discard("")
+                    disallowed = api_keys.flow_allowlist_floor(identity, types)
+                    if disallowed:
+                        self._send_json(
+                            403,
+                            {
+                                "ok": False,
+                                "error": "流程包含该密钥积木白名单之外的积木: "
+                                + ", ".join(disallowed),
+                            },
+                        )
+                        return
+
             if not _rpc_slots.acquire(timeout=2.0):
                 self._send_json(503, {"ok": False, "error": "busy: too many concurrent rpc"})
                 return
@@ -785,21 +880,38 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
                 _rpc_slots.release()
 
         def _handle_rpc(self) -> None:
-            expected = f"Bearer {token}"
-            got = str(self.headers.get("Authorization") or "")
-            if not hmac.compare_digest(got, expected):
+            from backend.core import api_keys
+
+            bearer, identity = self._identity()
+            if bearer is None:
                 self._send_json(401, {"ok": False, "error": "unauthorized"})
                 return
             req = self._read_body()
             if req is None:
                 return
             tool = str((req or {}).get("tool") or "").strip()
+            if not api_keys.tool_allowed(identity, tool):
+                required = api_keys.TOOL_SCOPES.get(tool)
+                hint = f"（需要能力: {required}）" if required else "（仅主密钥）"
+                self._send_json(403, {"ok": False, "error": f"无权调用 {tool}{hint}"})
+                return
+            args = (req or {}).get("args")
+            if identity is not None and tool == "run_block" and isinstance(args, dict):
+                if not api_keys.block_allowed(identity, args.get("type")):
+                    self._send_json(
+                        403,
+                        {
+                            "ok": False,
+                            "error": f"该密钥的积木白名单不包含: {args.get('type')}",
+                        },
+                    )
+                    return
             # 并发上限：超过 _MAX_CONCURRENT_RPC 个在途 RPC 直接拒绝（503）
             if not _rpc_slots.acquire(timeout=2.0):
                 self._send_json(503, {"ok": False, "error": "busy: too many concurrent rpc"})
                 return
             try:
-                result = dispatch(api, tool, (req or {}).get("args"))
+                result = dispatch(api, tool, args, identity=identity)
             except Exception as exc:
                 _log_system(f"rpc dispatch failed: {tool}: {exc}", level="error")
                 self._send_json(500, {"ok": False, "error": str(exc)})

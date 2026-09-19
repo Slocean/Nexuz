@@ -74,6 +74,7 @@ RUN_BLOCK_ACTION = frozenset(
         "window_close",
         "http_request",
         "llm_forward",
+        "smtp_send",
         "file_io",
         "file_manage",
         "call_subflow",
@@ -198,6 +199,13 @@ def run_block_once(
         params = resolve_variables(params, ctx)
     except Exception as exc:
         return {"ok": False, "error": f"变量解析失败: {exc}", "node_id": node_id}
+
+    from backend.core.secret_params import decrypt_node_params
+
+    try:
+        params = decrypt_node_params(btype, params)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "node_id": node_id}
 
     _clamp_wait(btype, params)
     handler = entry.get("handler")

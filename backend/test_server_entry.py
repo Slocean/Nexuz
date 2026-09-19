@@ -129,15 +129,25 @@ def test_resolve_token_persists_across_calls():
     from backend.paths import get_data_dir
     from backend.server import _resolve_token
 
-    t1 = _resolve_token("")
+    t1, source1 = _resolve_token("")
+    assert source1 == "新生成（持久化文件）"
     token_path = get_data_dir() / "mcp" / "token"
     assert token_path.is_file()
-    assert _resolve_token("") == t1  # 重启进程 token 不变
+    assert _resolve_token("")[0] == t1  # 重启进程 token 不变
 
-    # --token-file 优先
+    # --token-file 优先；再其次才是环境变量
     override = get_data_dir() / "override.token"
     override.write_text("fixed-secret\n", encoding="utf-8")
-    assert _resolve_token(str(override)) == "fixed-secret"
+    assert _resolve_token(str(override)) == ("fixed-secret", "--token-file")
+
+
+def test_resolve_token_env_precedence(monkeypatch):
+    """NEXUZ_TOKEN env 优先于持久化文件（平台"自动密钥"注入路径）。"""
+    from backend.server import _resolve_token
+
+    monkeypatch.setenv("NEXUZ_TOKEN", "env-token-123")
+    token, source = _resolve_token("")
+    assert token == "env-token-123" and source == "NEXUZ_TOKEN env"
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ CAPABILITY_LABELS = {
     "file_manage": "文件整理（移动/复制/重命名）",
     "http_request": "HTTP / 网络请求",
     "llm_forward": "LLM API 转发（网络请求）",
+    "smtp_send": "SMTP 代发邮件（网络请求 + 凭据）",
     "clipboard": "剪贴板访问",
     "call_subflow": "调用子流程",
     "window_close": "关闭窗口或进程",
@@ -30,6 +31,7 @@ ELEVATED_TYPES = frozenset(
         "file_manage",
         "http_request",
         "llm_forward",
+        "smtp_send",
         "clipboard",
         "call_subflow",
         "window_close",
@@ -42,6 +44,27 @@ ELEVATED_TYPES = frozenset(
 )
 HIGH_RISK_TYPES = frozenset(CRITICAL_TYPES | ELEVATED_TYPES)
 
+# 白名单口径下的"管道"积木：控制流与纯等待，任何流程都离不开，
+# API Key 的积木白名单不对其设限（防"只许发邮件的 key 连 if/loop 都用不了"）。
+PLUMBING_TYPES = frozenset(
+    {
+        "assign",
+        "call_subflow",
+        "if_condition",
+        "if_logic",
+        "if_text_contains",
+        "loop_foreach",
+        "loop_forever",
+        "loop_n",
+        "loop_while",
+        "switch",
+        "try_catch",
+        "schedule_trigger",
+        "delay",
+        "wait_until",
+    }
+)
+
 
 @dataclass(frozen=True)
 class ExecutionPolicy:
@@ -49,12 +72,16 @@ class ExecutionPolicy:
     allowlist: frozenset[str] = frozenset()
     denylist: frozenset[str] = frozenset()
     source: str = "flow"
+    # API Key 积木白名单（__policy_floor__.allow_only）：非空时，白名单与
+    # 管道类型之外的积木一律拒绝；随 call_subflow / 定时任务传播。
+    allow_only: frozenset[str] = frozenset()
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "mode": self.mode,
             "allowlist": sorted(self.allowlist),
             "denylist": sorted(self.denylist),
+            "allow_only": sorted(self.allow_only),
             "source": self.source,
         }
 
@@ -91,7 +118,8 @@ def merge_policy_floors(primary: Any, secondary: Any) -> dict[str, Any] | None:
 
 
 def apply_policy_floor(policy: ExecutionPolicy, floor: Any) -> ExecutionPolicy:
-    """把下限合并进策略：denylist 取并集；mode 只升不降（standard 下限压过 legacy）。
+    """把下限合并进策略：denylist 取并集；mode 只升不降（standard 下限压过 legacy）；
+    allow_only（API Key 积木白名单）随 floor 设置并传播。
 
     流程自带字段无法削弱下限（外部传入的标记也只能加严），因此来源不可信的
     流程可以安全携带该标记。
@@ -101,16 +129,20 @@ def apply_policy_floor(policy: ExecutionPolicy, floor: Any) -> ExecutionPolicy:
     deny = frozenset(
         str(t).strip() for t in (floor.get("deny") or []) if str(t).strip()
     )
+    allow_only = frozenset(
+        str(t).strip() for t in (floor.get("allow_only") or []) if str(t).strip()
+    )
     mode = policy.mode
     if str(floor.get("mode_min") or "").strip().lower() == "standard" and mode == "legacy":
         mode = "standard"
-    if not deny and mode == policy.mode:
+    if not deny and not allow_only and mode == policy.mode:
         return policy
     return ExecutionPolicy(
         mode=mode,
         allowlist=policy.allowlist,
         denylist=policy.denylist | deny,
         source=policy.source + "+floor",
+        allow_only=policy.allow_only | allow_only,
     )
 
 
@@ -189,6 +221,8 @@ def check_node_allowed(
     block_type = str(node.get("type") or "").strip()
     risk = _risk_for_node(block_type, node)
     if block_type in policy.denylist:
+        tier, label = risk or ("policy", block_type)
+    elif policy.allow_only and block_type not in policy.allow_only and block_type not in PLUMBING_TYPES:
         tier, label = risk or ("policy", block_type)
     elif block_type in policy.allowlist:
         return None

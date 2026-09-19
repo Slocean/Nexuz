@@ -52,6 +52,8 @@ interface BindableInputProps {
   allowJson?: boolean;
   /** Use a textarea for plain string literals (paths, long URLs) without JSON parsing */
   multiline?: boolean;
+  /** Render the single-line literal input as a password field（SMTP 授权码等敏感参数） */
+  secret?: boolean;
   /** Override label for bind-kind row (default: 类型) */
   kindLabel?: string;
   /** Override label for literal/variable value row (default: 值) */
@@ -93,6 +95,7 @@ export default function BindableInput({
   className,
   allowJson = false,
   multiline = false,
+  secret = false,
   kindLabel = '类型',
   valueLabel = '值',
 }: BindableInputProps) {
@@ -269,7 +272,7 @@ export default function BindableInput({
               </div>
             ) : (
               <Input
-                type="text"
+                type={secret ? 'password' : 'text'}
                 inputMode={inputType === 'number' ? 'decimal' : undefined}
                 className="h-8 w-full"
                 value={literalToDisplay(value, inputType)}

@@ -17,6 +17,7 @@ from .execution_policy import (
 from .expression import evaluate_expression
 from .host_mode import headless_block_error
 from .registry import get_handler
+from .secret_params import decrypt_node_params
 from .runtime_payload import (
     compact_context_value,
     summarize_node_outcome,
@@ -598,6 +599,9 @@ class FlowInterpreter:
             )
             t0 = time.perf_counter()
             try:
+                # secret 参数（如 SMTP 授权码）在 node_start 事件之后、handler
+                # 之前解密：运行日志 / AI refine / 上下文摘要只见密文。
+                params = decrypt_node_params(str(block_type or ""), params)
                 result = (
                     handler(
                         params,

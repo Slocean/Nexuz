@@ -9,11 +9,13 @@ import {
   FolderOpen,
   HardDrive,
   Info,
+  KeyRound,
   Link2,
   Megaphone,
   Monitor,
   Globe,
   MousePointer2,
+  Plus,
   RefreshCw,
   Save,
   Settings2,
@@ -325,6 +327,7 @@ const SETTINGS_SECTION_IDS = [
   'ai',
   'mcp',
   'browser',
+  'apikeys',
   'data',
   'userBlocks',
   'announce',
@@ -337,6 +340,248 @@ const SETTINGS_SECTION_IDS = [
 ] as const;
 
 type SectionId = (typeof SETTINGS_SECTION_IDS)[number];
+
+/** 服务器形态独有：API 密钥管理节只在 server 构建里渲染（桌面构建 tree-shake）。 */
+const IS_SERVER_TARGET = typeof __NEXUZ_TARGET__ === 'string' && __NEXUZ_TARGET__ === 'server';
+
+type ApiKeyRow = {
+  id: string;
+  name: string;
+  key_prefix: string;
+  scopes: string[];
+  block_allowlist: string[];
+  enabled: boolean;
+  created_at?: number;
+  last_used_at?: number | null;
+};
+
+const SCOPE_LABELS_API: Record<string, string> = {
+  catalog: '积木目录',
+  run_block: '执行积木',
+  run_flow: '运行流程',
+  flows: '流程库',
+  schedules: '定时任务',
+  runs: '运行记录'
+};
+
+function ApiKeysSection({ colors }: { colors: ThemeColors }) {
+  const { confirm, alert } = useAppDialog();
+  const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [scopes, setScopes] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newScopes, setNewScopes] = useState<string[]>([]);
+  const [newAllowlist, setNewAllowlist] = useState('');
+  const [freshKey, setFreshKey] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const out = await bridge.apikeyList();
+      if (out?.ok) {
+        setKeys(out.keys || []);
+        setScopes(out.scopes || {});
+        setMsg('');
+      } else {
+        setMsg(out?.error || '加载失败');
+      }
+    } catch (e: unknown) {
+      setMsg(String((e as Error)?.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const create = async () => {
+    if (!newName.trim()) {
+      setMsg('请填写密钥名称');
+      return;
+    }
+    if (!newScopes.length) {
+      setMsg('请至少勾选一项能力');
+      return;
+    }
+    try {
+      const out = await bridge.apikeyCreate({
+        name: newName.trim(),
+        scopes: newScopes,
+        block_allowlist: newAllowlist
+          .split(/[,;\n]+/)
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+      });
+      if (out?.ok) {
+        setFreshKey(out.key?.key || '');
+        setNewName('');
+        setNewScopes([]);
+        setNewAllowlist('');
+        setCreating(false);
+        load();
+      } else {
+        setMsg(out?.error || '创建失败');
+      }
+    } catch (e: unknown) {
+      setMsg(String((e as Error)?.message || e));
+    }
+  };
+
+  const toggleEnabled = async (row: ApiKeyRow) => {
+    const out = await bridge.apikeyUpdate(row.id, { enabled: !row.enabled });
+    if (!out?.ok) setMsg(out?.error || '更新失败');
+    load();
+  };
+
+  const remove = async (row: ApiKeyRow) => {
+    if (!(await confirm(`删除密钥「${row.name}」（${row.key_prefix}…）？使用它的程序将立即失去访问权。`))) return;
+    const out = await bridge.apikeyDelete(row.id);
+    if (!out?.ok) setMsg(out?.error || '删除失败');
+    load();
+  };
+
+  return (
+    <div className="space-y-3 px-4 py-3.5 text-xs">
+      <div className="flex items-center justify-between">
+        <p className="opacity-60">
+          给其他程序 / agent 签发的分权访问凭证。仅创建时展示一次完整密钥，之后只显示前缀。
+        </p>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" size="sm" className="h-7 px-2" onClick={load} disabled={loading}>
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+          <Button size="sm" className="h-7 px-2.5" onClick={() => setCreating(v => !v)}>
+            <Plus className="w-3.5 h-3.5 mr-1" /> 生成密钥
+          </Button>
+        </div>
+      </div>
+
+      {creating ? (
+        <div className="rounded-lg border p-3 space-y-2.5" style={{ borderColor: colors.border }}>
+          <div className="flex items-center gap-2">
+            <span className="opacity-60 shrink-0">名称</span>
+            <Input
+              className="h-7 text-xs"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="如：日报程序 / 数据采集 agent"
+            />
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {Object.entries(scopes).map(([id, label]) => (
+              <label key={id} className="flex items-center gap-1.5 cursor-pointer">
+                <Checkbox
+                  checked={newScopes.includes(id)}
+                  onCheckedChange={(v: boolean) =>
+                    setNewScopes(prev => (v ? [...prev, id] : prev.filter(s => s !== id)))
+                  }
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="opacity-60 shrink-0">积木白名单</span>
+            <Input
+              className="h-7 text-xs font-mono"
+              value={newAllowlist}
+              onChange={e => setNewAllowlist(e.target.value)}
+              placeholder="可选，逗号分隔积木 type，如 smtp_send,http_request；留空不限"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" className="h-7 px-3" onClick={create}>签发</Button>
+            <Button variant="outline" size="sm" className="h-7 px-3" onClick={() => setCreating(false)}>取消</Button>
+          </div>
+        </div>
+      ) : null}
+
+      {freshKey ? (
+        <div className="rounded-lg border p-3 space-y-1.5" style={{ borderColor: colors.success || colors.border }}>
+          <p className="font-medium">密钥已生成（仅此一次展示，请立即复制保存）：</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 min-w-0 break-all font-mono text-[11px] rounded px-2 py-1.5" style={{ background: 'rgba(128,128,128,.12)' }}>
+              {freshKey}
+            </code>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 px-2"
+              onClick={() => navigator.clipboard?.writeText(freshKey)}
+            >
+              复制
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {keys.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="opacity-60 text-left">
+                <th className="font-medium py-1.5 pr-3">名称</th>
+                <th className="font-medium py-1.5 pr-3">密钥</th>
+                <th className="font-medium py-1.5 pr-3">能力</th>
+                <th className="font-medium py-1.5 pr-3">积木白名单</th>
+                <th className="font-medium py-1.5 pr-3">最近使用</th>
+                <th className="font-medium py-1.5 pr-3">启用</th>
+                <th className="font-medium py-1.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {keys.map(k => (
+                <tr key={k.id} className="border-t" style={{ borderColor: colors.border }}>
+                  <td className="py-1.5 pr-3">{k.name}</td>
+                  <td className="py-1.5 pr-3 font-mono">{k.key_prefix}…</td>
+                  <td className="py-1.5 pr-3">
+                    {(k.scopes || []).map(s => SCOPE_LABELS_API[s] || s).join('、') || '—'}
+                  </td>
+                  <td className="py-1.5 pr-3 font-mono opacity-70">
+                    {(k.block_allowlist || []).join(',') || '不限'}
+                  </td>
+                  <td className="py-1.5 pr-3 opacity-60">
+                    {k.last_used_at ? new Date(k.last_used_at * 1000).toLocaleString('zh-CN', { hour12: false }) : '从未'}
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <button
+                      type="button"
+                      className="underline decoration-dotted cursor-pointer"
+                      style={{ color: k.enabled ? colors.success : colors.secondaryText }}
+                      onClick={() => toggleEnabled(k)}
+                    >
+                      {k.enabled ? '启用中' : '已停用'}
+                    </button>
+                  </td>
+                  <td className="py-1.5">
+                    <button
+                      type="button"
+                      className="opacity-60 hover:opacity-100 cursor-pointer"
+                      onClick={() => remove(k)}
+                      title="删除"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="opacity-50">还没有签发过密钥。</p>
+      )}
+
+      {msg ? (
+        <p className="text-xs" style={{ color: colors.secondaryText }}>{msg}</p>
+      ) : null}
+    </div>
+  );
+}
 
 export default function SettingsPage({
   themeName,
@@ -2285,6 +2530,24 @@ export default function SettingsPage({
             ) : null}
           </div>
         </SettingsSection>
+
+        {IS_SERVER_TARGET ? (
+          <SettingsSection
+            title="API 密钥"
+            icon={<KeyRound className="w-4 h-4" />}
+            open={openSections.apikeys}
+            onToggle={() => toggleSection('apikeys')}
+            colors={colors}
+            headerRight={
+              <HelpHint
+                text="给其他程序 / agent 签发分权访问凭证：按能力（scope）与积木白名单授权，主密钥全权且仅主密钥可管理密钥。"
+                colors={colors}
+                themeMode={themeMode}
+              />
+            }>
+            <ApiKeysSection colors={colors} />
+          </SettingsSection>
+        ) : null}
 
         <SettingsSection
           title="数据存储"

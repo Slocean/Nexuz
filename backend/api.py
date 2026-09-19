@@ -2197,6 +2197,8 @@ class Api:
 
     def save_flow_template(self, flow_json: str, name: str | None = None, description: str | None = None) -> dict:
         """Save current flow as a reusable template under flow_templates/."""
+        from backend.core.secret_params import encrypt_flow_secrets
+
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
         if not isinstance(flow, dict):
             return {"ok": False, "error": "无效的流程对象"}
@@ -2205,6 +2207,7 @@ class Api:
         desc = (str(description).strip() if description else "") or str(flow.get("description") or "").strip()
         if desc:
             flow["description"] = desc
+        flow = encrypt_flow_secrets(flow)
         err = self._validate_flow(flow)
         if err:
             return {"ok": False, "error": err}
@@ -2246,11 +2249,15 @@ class Api:
 
     def save_flow(self, flow_json: str, filepath: str | None = None, name: str | None = None) -> dict:
         """Save into the user data library (creates data dir if needed)."""
+        from backend.core.secret_params import encrypt_flow_secrets
+
         flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
         if not isinstance(flow, dict):
             return {"ok": False, "error": "无效的流程对象"}
         if name and str(name).strip():
             flow = {**flow, "name": str(name).strip()}
+        # secret 参数（SMTP 授权码等）落盘即密文（幂等，已加密值原样保留）
+        flow = encrypt_flow_secrets(flow)
 
         if filepath:
             path = Path(str(filepath))

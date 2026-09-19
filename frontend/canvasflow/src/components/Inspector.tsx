@@ -2462,6 +2462,16 @@ export default function Inspector({
                     placeholder={input.placeholder || placeholder || ''}
                     multiline
                   />
+                ) : input.ui === 'password' ? (
+                  <BindableInput
+                    value={value ?? input.default ?? ''}
+                    inputType="string"
+                    currentNodeId={selectedNode.id}
+                    schemaMap={schemaMap}
+                    onChange={v => handleFieldChange(input.name, v)}
+                    placeholder={input.placeholder || placeholder || ''}
+                    secret
+                  />
                 ) : selectedNode.subType === 'switch' && input.name === 'default' ? (
                   <div className="flex-1 min-w-0 space-y-1">
                     <Select
