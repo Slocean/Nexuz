@@ -9,6 +9,11 @@ Client config (source checkout):
 Packaged app: set NEXUZ_EXE to the installed Nexuz.exe so the shell can
 wake the app when it is not running:
     claude mcp add nexuz --env NEXUZ_EXE=C:\\...\\Nexuz.exe -- python nexuz_mcp.py
+
+Remote mode (headless server, docs/headless_server.md): set NEXUZ_HTTP_URL to
+skip local discovery/wake entirely and forward to a remote /rpc endpoint:
+    claude mcp add nexuz --env NEXUZ_HTTP_URL=https://nx.example.com \
+        --env NEXUZ_TOKEN=*** -- python nexuz_mcp.py
 """
 
 from __future__ import annotations
@@ -93,6 +98,19 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "list_schedules",
+        "description": "列出定时任务（job_id/触发类型/下次运行/待执行状态/最近失败原因）。",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "recent_runs",
+        "description": "查看最近运行状况：当前运行会话信息与定时任务失败记录尾部（只读）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "number", "default": 20, "description": "失败记录条数上限（1-100）"}},
+        },
+    },
+    {
         "name": "flow_control",
         "description": "控制当前正在执行的流程：stop 急停 / pause 暂停 / resume 继续。",
         "inputSchema": {
@@ -142,6 +160,18 @@ def port_file() -> Path:
     return Path(base) / "Nexuz" / "mcp" / "port.json"
 
 
+def remote_endpoint() -> tuple[str, str] | None:
+    """NEXUZ_HTTP_URL 远程模式：(base_url, token)。
+
+    设置后跳过本地 port.json 发现与唤醒逻辑，直接转发远端 /rpc——
+    用于接入 Nexuz 无头服务器（backend/server.py）。
+    """
+    base = os.environ.get("NEXUZ_HTTP_URL", "").strip().rstrip("/")
+    if not base:
+        return None
+    return base, os.environ.get("NEXUZ_TOKEN", "").strip()
+
+
 def read_endpoint() -> tuple[int, str] | None:
     try:
         data = json.loads(port_file().read_text(encoding="utf-8"))
@@ -150,8 +180,7 @@ def read_endpoint() -> tuple[int, str] | None:
         return None
 
 
-def http_json(method: str, port: int, token: str, payload: dict | None, timeout: float) -> tuple[int, dict]:
-    url = f"http://127.0.0.1:{port}{method}"
+def http_json_url(url: str, token: str, payload: dict | None, timeout: float) -> tuple[int, dict]:
     req = urllib.request.Request(url, method="POST" if payload is not None else "GET")
     if payload is not None:
         req.add_header("Content-Type", "application/json")
@@ -162,6 +191,10 @@ def http_json(method: str, port: int, token: str, payload: dict | None, timeout:
         body = None
     with urllib.request.urlopen(req, body, timeout=timeout) as resp:
         return resp.status, json.loads(resp.read().decode("utf-8"))
+
+
+def http_json(method: str, port: int, token: str, payload: dict | None, timeout: float) -> tuple[int, dict]:
+    return http_json_url(f"http://127.0.0.1:{port}{method}", token, payload, timeout)
 
 
 def health_ok(port: int, timeout: float = 1.5) -> dict | None:
@@ -225,13 +258,28 @@ def call_tool(name: str, args: dict) -> dict:
     if name == "run_flow":
         wait = bool(args.get("wait", True))
         timeout = (float(args.get("timeout_s") or 300) + 60.0) if wait else DEFAULT_CALL_TIMEOUT_S
-    port, token = ensure_endpoint()
-    status, data = http_json("/rpc", port, token, {"tool": name, "args": args}, timeout)
+    remote = remote_endpoint()
+    if remote:
+        base, token = remote
+        status, data = http_json_url(f"{base}/rpc", token, {"tool": name, "args": args}, timeout)
+    else:
+        port, token = ensure_endpoint()
+        status, data = http_json("/rpc", port, token, {"tool": name, "args": args}, timeout)
     if status != 200:
         raise RuntimeError(f"Nexuz bridge HTTP {status}: {data.get('error', 'unknown')}")
     if not data.get("ok"):
         raise RuntimeError(f"Nexuz bridge error: {data.get('error', 'unknown')}")
     return data.get("result") or {}
+
+
+def apply_remote_tool_notes() -> None:
+    """远程模式下给屏幕类工具补一句提示：无头服务器上这两个工具不可用。"""
+    if not remote_endpoint():
+        return
+    note = "（NEXUZ_HTTP_URL 远程模式：若远端为无头服务器形态，此工具不可用）"
+    for tool in TOOLS:
+        if tool["name"] in {"capture_screen", "locate_text_on_screen"}:
+            tool["description"] = str(tool["description"]) + note
 
 
 def data_url_to_content(data_url: str) -> dict | None:
@@ -323,12 +371,23 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     server_version = "unknown"
-    ep = read_endpoint()
-    if ep:
-        info = health_ok(ep[0])
-        if info and info.get("version"):
-            server_version = str(info["version"])
-    log(f"stdio shell up (app version: {server_version})")
+    remote = remote_endpoint()
+    if remote:
+        apply_remote_tool_notes()
+        try:
+            status, info = http_json_url(f"{remote[0]}/health", "", None, 3.0)
+            if status == 200 and info.get("version"):
+                server_version = str(info["version"])
+        except Exception:
+            pass
+        log(f"stdio shell up in remote mode ({remote[0]}, app version: {server_version})")
+    else:
+        ep = read_endpoint()
+        if ep:
+            info = health_ok(ep[0])
+            if info and info.get("version"):
+                server_version = str(info["version"])
+        log(f"stdio shell up (app version: {server_version})")
     for line in sys.stdin:
         line = line.strip()
         if not line:

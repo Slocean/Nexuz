@@ -6,6 +6,7 @@ from __future__ import annotations
 
 SCHEMA = {
     "type": "monitor_stop",
+    "requires": "partial",
     "label": "停止监控",
     "category": "控制类",
     "description": "停止并删除监控；先「查询监控事件」取走剩余事件再停。",

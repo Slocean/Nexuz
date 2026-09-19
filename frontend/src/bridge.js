@@ -1657,21 +1657,97 @@ export const MOCK_SCHEMAS = [
   }
 ];
 
+// 打包目标（vite build 时烘焙）：desktop=桌面包（绝不发 /api 请求，服务器
+// 桥接代码不进产物路径）；server=服务器托管产物（无 pywebview，走 /api 桥）。
+const NEXUZ_TARGET = typeof __NEXUZ_TARGET__ === 'string' ? __NEXUZ_TARGET__ : 'desktop';
+
 async function call(method, ...args) {
   const api = getApi();
-  if (!api || typeof api[method] !== 'function') {
+  if (api && typeof api[method] === 'function') {
+    try {
+      const result = await api[method](...args);
+      return result;
+    } catch (e) {
+      return {
+        ok: false,
+        error: String(e?.message || e || `${method} 调用失败`),
+        message: String(e?.message || e || `${method} 调用失败`)
+      };
+    }
+  }
+  // 桌面产物 / 桥未就绪：不触碰任何服务器接口，直接本地 mock（浏览器预览）。
+  if (NEXUZ_TARGET !== 'server') {
+    return mockCall(method, ...args);
+  }
+  // 服务器产物：纯客户端方法本地实现，其余走同源 /api/<method>；
+  // 服务器不可达或方法不在白名单 → 回落浏览器 mock。
+  if (CLIENT_SIDE_METHODS.has(method)) {
     return mockCall(method, ...args);
   }
   try {
-    const result = await api[method](...args);
-    return result;
+    const result = await httpCall(method, args);
+    if (result !== null) return result;
   } catch (e) {
-    return {
-      ok: false,
-      error: String(e?.message || e || `${method} 调用失败`),
-      message: String(e?.message || e || `${method} 调用失败`)
-    };
+    if (String(e?.message || '').includes('token')) {
+      return { ok: false, error: String(e?.message || e) };
+    }
+    // 网络/后端不可达：进入 mock（纯浏览器预览体验）
   }
+  return mockCall(method, ...args);
+}
+
+// 这些方法的浏览器实现是完整的（下载/剪贴板/localStorage 模板等），
+// 服务器模式下也直接在本地完成，不占用服务器接口。
+const CLIENT_SIDE_METHODS = new Set([
+  'export_flow',
+  'export_text',
+  'clipboard_write',
+  'list_flow_templates',
+  'save_flow_template',
+  'delete_flow_template',
+  'load_flow_template',
+  'get_notice_read_id',
+  'set_notice_read_id'
+]);
+
+const TOKEN_STORAGE_KEY = 'nexuz_server_token';
+
+function readServerToken() {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+async function httpCall(method, args, _retried = false) {
+  const resp = await fetch(`/api/${encodeURIComponent(method)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(readServerToken() ? { Authorization: `Bearer ${readServerToken()}` } : {})
+    },
+    body: JSON.stringify({ args })
+  });
+  if (resp.status === 401 && !_retried) {
+    const entered = window.prompt('Nexuz 服务器访问 token（见服务器数据目录 mcp/token 或启动日志）');
+    if (entered && entered.trim()) {
+      try {
+        localStorage.setItem(TOKEN_STORAGE_KEY, entered.trim());
+      } catch {
+        /* 忽略存储失败，本次会话仍可用 */
+      }
+      return httpCall(method, args, true);
+    }
+    throw new Error('需要访问 token（token 未提供）');
+  }
+  if (resp.status === 404) {
+    // 服务器端白名单外的方法 → 交给调用方回落 mock
+    return null;
+  }
+  const data = await resp.json();
+  if (!data.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+  return data.result ?? { ok: true };
 }
 
 /** In-memory UI settings for Vite browser preview (not localStorage). */

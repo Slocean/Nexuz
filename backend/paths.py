@@ -29,8 +29,19 @@ def _local_app_data() -> Path:
     return Path.home() / "AppData" / "Local"
 
 
+def env_data_dir() -> Path | None:
+    """NEXUZ_DATA_DIR 环境变量：无头服务器指定数据根，优先级最高。"""
+    raw = os.environ.get("NEXUZ_DATA_DIR")
+    if raw and raw.strip():
+        return Path(raw.strip()).expanduser()
+    return None
+
+
 def default_data_dir() -> Path:
-    """Default user data root: %LOCALAPPDATA%\\Nexuz"""
+    """Default user data root: NEXUZ_DATA_DIR or %LOCALAPPDATA%\\Nexuz"""
+    env = env_data_dir()
+    if env is not None:
+        return env
     return _local_app_data() / "Nexuz"
 
 
@@ -60,13 +71,20 @@ def get_data_dir(*, create: bool = False) -> Path:
     """
     Resolved user data root (flows / templates / …).
     Does not create the directory unless create=True (e.g. on save).
+
+    优先级：NEXUZ_DATA_DIR > config.json data_dir > 默认 AppData
+    （env 最高——服务器场景 config.json 本身可能落在默认位置）。
     """
-    cfg = load_app_config()
-    custom = cfg.get("data_dir")
-    if custom and str(custom).strip():
-        root = Path(str(custom).strip())
+    env = env_data_dir()
+    if env is not None:
+        root = env
     else:
-        root = default_data_dir()
+        cfg = load_app_config()
+        custom = cfg.get("data_dir")
+        if custom and str(custom).strip():
+            root = Path(str(custom).strip())
+        else:
+            root = default_data_dir()
     if create:
         root.mkdir(parents=True, exist_ok=True)
     return root

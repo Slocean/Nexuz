@@ -11,17 +11,21 @@ from __future__ import annotations
 
 import base64
 import ctypes
-import ctypes.wintypes
 import itertools
 import json
 import re
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
+
+# ctypes.wintypes 仅 Windows 存在；Linux 下只走 CDP 通道，不触碰进程托管
+if sys.platform == "win32":
+    import ctypes.wintypes
 
 from backend.core.browser.discovery import find_browser, parse_devtools_port_file
 from backend.core.browser.engine import BrowserEngine, element_record

@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-import pyautogui
+import sys
+
+if sys.platform != "win32":
+    try:  # 无桌面环境（无头 Linux）导入会炸；真机积木由 requires 闸拒绝
+        import pyautogui
+    except Exception:
+        pyautogui = None
+else:
+    import pyautogui
 
 SCHEMA = {
     "type": "type_text",
+    "requires": "desktop",
     "description": "模拟键盘输入一段文本。",
     "label": "输入文本",
     "category": "动作类",

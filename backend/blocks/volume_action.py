@@ -16,6 +16,7 @@ from backend.blocks._os_ops import (
 
 SCHEMA = {
     "type": "volume_action",
+    "requires": "desktop",
     "description": "调节系统音量或静音。",
     "label": "音量控制",
     "category": "系统类",

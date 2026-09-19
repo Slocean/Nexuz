@@ -6,16 +6,21 @@ import base64
 import binascii
 import ctypes
 import sys
-from ctypes import wintypes
 from typing import Any
+
+# ctypes.wintypes 仅 Windows 存在，非 Windows 顶层导入会炸；DPAPI 调用都在
+# dpapi_available() 守卫内，非 Windows 走明文回落。
+if sys.platform == "win32":
+    from ctypes import wintypes  # noqa: F401
 
 DPAPI_PREFIX = "dpapi:v1:"
 _CRYPTPROTECT_UI_FORBIDDEN = 0x01
 
 
 class _DataBlob(ctypes.Structure):
+    # wintypes.DWORD 即 c_uint32（Windows unsigned long），布局一致且跨平台可定义
     _fields_ = [
-        ("cbData", wintypes.DWORD),
+        ("cbData", ctypes.c_uint32),
         ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
     ]
 

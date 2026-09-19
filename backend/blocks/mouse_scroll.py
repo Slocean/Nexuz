@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import sys
 import time
 
-import pyautogui
+if sys.platform != "win32":
+    try:  # 无桌面环境（无头 Linux）导入会炸；真机积木由 requires 闸拒绝
+        import pyautogui
+    except Exception:
+        pyautogui = None
+else:
+    import pyautogui
 
 from backend.blocks._helpers import point_looks_unconfigured, require_configured_point, resolve_point
 
 SCHEMA = {
     "type": "mouse_scroll",
+    "requires": "desktop",
     "description": "在指定坐标滚动滚轮（上/下/左/右、格数）。",
     "label": "鼠标滚轮",
     "category": "动作类",

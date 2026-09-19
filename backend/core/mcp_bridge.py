@@ -221,6 +221,40 @@ def _prune_artifacts() -> None:
             points.pop(pid, None)
 
 
+def _tool_recent_runs(limit: int = 20) -> dict[str, Any]:
+    """最近运行状况：当前运行会话 + 定时任务失败记录尾部（只读，供控制台/agent）。"""
+    from backend.core.runtime_log import get_runtime_log_manager
+    from backend.core.scheduler import _failures_file
+
+    try:
+        limit = min(max(int(limit), 1), 100)
+    except (TypeError, ValueError):
+        limit = 20
+    failures: list[dict[str, Any]] = []
+    path = _failures_file()
+    if path.is_file():
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for line in lines[-limit:]:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    failures.append(json.loads(line))
+                except Exception:
+                    continue
+        except OSError:
+            pass
+    current: dict[str, Any] | None = None
+    try:
+        info = get_runtime_log_manager().info()
+        if isinstance(info, dict):
+            current = info
+    except Exception:
+        pass
+    return {"ok": True, "current_run": current, "failures": failures}
+
+
 def _resolve_flow_path(api: Any, flow_path: str) -> Path:
     flows = api._flows_dir(create=False)
     path = Path(str(flow_path)).expanduser()
@@ -240,6 +274,7 @@ def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
     args = args if isinstance(args, dict) else {}
 
     if tool == "get_status":
+        from backend.core.host_mode import is_headless
         from backend.core.interpreter import get_interpreter
 
         cfg = _ai_cfg()
@@ -247,6 +282,7 @@ def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
             "ok": True,
             "version": _version(),
             "pid": os.getpid(),
+            "headless": is_headless(),
             "flow_running": bool(get_interpreter().running),
             "allow_run_block": bool(cfg.get("allow_run_block")),
             "allow_dangerous": bool(cfg.get("allow_dangerous")),
@@ -290,9 +326,26 @@ def dispatch(api: Any, tool: str, args: dict[str, Any]) -> dict[str, Any]:
     if tool == "list_flows":
         return api.list_flows()
 
+    if tool == "list_schedules":
+        from backend.core.scheduler import get_scheduler
+
+        sched = get_scheduler()
+        return {"ok": True, "available": sched.available, "jobs": sched.list_jobs()}
+
+    if tool == "recent_runs":
+        return _tool_recent_runs()
+
     known = {"run_block", "run_flow", "flow_control", "capture_screen", "locate_text_on_screen", "reset_session"}
     if tool not in known:
         return {"ok": False, "error": f"未知工具: {tool}"}
+
+    # 无头服务器：屏幕类工具明确报错，避免 agent 反复重试（ServerApi 的
+    # capture_desktop 也会拒绝，此处先行短路给出统一文案）。
+    if tool in {"capture_screen", "locate_text_on_screen"}:
+        from backend.core.host_mode import is_headless
+
+        if is_headless():
+            return {"ok": False, "error": f"服务器形态无屏幕：{tool} 不可用"}
 
     if tool == "flow_control":
         # 独立锁：run_flow(wait=True) 挂死时 stop 必须仍可达
@@ -512,6 +565,125 @@ def _tool_locate_text(args: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+# Web 前端桥接（POST /api/<method>）暴露的方法白名单：只含 ServerApi 上的
+# 无头安全方法；桌面交互类（pick_*/window_*/recording/frida/capture 等）
+# 一律不在列，浏览器端走 mockCall 或得到 ok:false。
+SERVER_API_METHODS = frozenset(
+    {
+        "ping",
+        "get_app_info",
+        "get_resource_stats",
+        "get_data_dir_info",
+        "get_block_registry",
+        "get_user_blocks_dir",
+        "list_user_block_files",
+        "list_flows",
+        "load_flow",
+        "save_flow",
+        "delete_flow",
+        "rename_flow",
+        "duplicate_flow",
+        "run_flow",
+        "pause_flow",
+        "resume_flow",
+        "continue_flow",
+        "stop_flow",
+        "force_reset",
+        "is_running",
+        "validate_flow",
+        "set_breakpoints",
+        "step_flow",
+        "drain_ui_events",
+        "list_schedule_jobs",
+        "remove_schedule_job",
+        "get_run_log_info",
+        "export_run_log",
+        "get_ui_settings",
+        "set_ui_settings",
+        "get_hotkeys",
+        "set_hotkeys",
+        "set_diag_logging",
+        "get_diag_logging",
+        "get_notice_read_id",
+        "set_notice_read_id",
+        "mcp_get_status",
+        "browser_status",
+        "ai_get_config",
+        "log_audit",
+        "log_system",
+        "fetch_announcement",
+        "fetch_notice",
+        "check_for_update",
+        "read_local_image",
+        "capture_desktop",
+    }
+)
+
+_STATIC_MIME = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".map": "application/json; charset=utf-8",
+}
+
+
+def _dist_dir() -> Path:
+    """服务器托管的前端产物：优先 dist-server（build:server 产物），
+    回退 dist（桌面构建产物，开发期兜底）。"""
+    from backend.paths import project_root
+
+    frontend = project_root() / "frontend"
+    server_dist = frontend / "dist-server"
+    if server_dist.is_dir():
+        return server_dist
+    return frontend / "dist"
+
+
+def _serve_static(handler: Any, rel: str) -> bool:
+    """无头模式托管 frontend/dist（SPA：未命中的路径回退 index.html）。"""
+    try:
+        root = _dist_dir().resolve()
+    except Exception:
+        return False
+    if not root.is_dir():
+        return False
+    target = root / rel if rel else root / "index.html"
+    try:
+        resolved = target.resolve()
+    except Exception:
+        return False
+    if resolved != root and root not in resolved.parents:
+        return False
+    if not resolved.is_file():
+        resolved = root / "index.html"
+        if not resolved.is_file():
+            return False
+    try:
+        body = resolved.read_bytes()
+    except OSError:
+        return False
+    mime = _STATIC_MIME.get(resolved.suffix.lower(), "application/octet-stream")
+    handler.send_response(200)
+    handler.send_header("Content-Type", mime)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header(
+        "Cache-Control", "no-cache" if resolved.name == "index.html" else "max-age=3600"
+    )
+    handler.end_headers()
+    handler.wfile.write(body)
+    return True
+
+
 def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -530,34 +702,96 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(body)
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path.rstrip("/") == "/health":
+            path = self.path.split("?")[0].strip("/")
+            if path == "health":
                 self._send_json(
                     200,
                     {"ok": True, "name": _SERVER_NAME, "version": _version(), "pid": os.getpid()},
                 )
                 return
+            # 无头服务器：GET 一律尝试托管前端静态资源（frontend/dist，SPA 回退
+            # index.html）。桌面模式保持 404 不变。
+            from backend.core.host_mode import is_headless
+
+            if is_headless() and _serve_static(self, path):
+                return
             self._send_json(404, {"ok": False, "error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path.rstrip("/") != "/rpc":
-                self._send_json(404, {"ok": False, "error": "not found"})
+            path = self.path.split("?")[0].rstrip("/")
+            if path == "/rpc":
+                self._handle_rpc()
                 return
-            expected = f"Bearer {token}"
-            got = str(self.headers.get("Authorization") or "")
-            if not hmac.compare_digest(got, expected):
-                self._send_json(401, {"ok": False, "error": "unauthorized"})
+            if path.startswith("/api/"):
+                self._handle_api()
                 return
+            self._send_json(404, {"ok": False, "error": "not found"})
+
+        def _read_body(self) -> dict | None:
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 length = 0
             if length <= 0 or length > _MAX_BODY_BYTES:
                 self._send_json(413, {"ok": False, "error": "invalid body size"})
-                return
+                return None
             try:
-                req = json.loads(self.rfile.read(length).decode("utf-8"))
+                return json.loads(self.rfile.read(length).decode("utf-8"))
             except Exception:
                 self._send_json(400, {"ok": False, "error": "invalid JSON body"})
+                return None
+
+        def _authorized(self) -> bool:
+            expected = f"Bearer {token}"
+            got = str(self.headers.get("Authorization") or "")
+            return hmac.compare_digest(got, expected)
+
+        def _handle_api(self) -> None:
+            """Web 前端桥接：POST /api/<method>，body {"args": [...]}。
+
+            与 /rpc 同一 token 信任边界；方法限 SERVER_API_METHODS 白名单。
+            """
+            from backend.core.host_mode import is_headless
+
+            if not self._authorized():
+                self._send_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            if not is_headless():
+                self._send_json(404, {"ok": False, "error": "not found"})
+                return
+            method = self.path.split("?")[0].rstrip("/")[len("/api/"):].strip("/")
+            if method not in SERVER_API_METHODS:
+                self._send_json(404, {"ok": False, "error": f"服务器不提供方法: {method}"})
+                return
+            fn = getattr(api, method, None)
+            if not callable(fn):
+                self._send_json(404, {"ok": False, "error": f"服务器不提供方法: {method}"})
+                return
+            body = self._read_body()
+            if body is None:
+                return
+            args = body.get("args") if isinstance(body, dict) else None
+            args = args if isinstance(args, list) else []
+            if not _rpc_slots.acquire(timeout=2.0):
+                self._send_json(503, {"ok": False, "error": "busy: too many concurrent rpc"})
+                return
+            try:
+                result = fn(*args)
+                self._send_json(200, {"ok": True, "result": result})
+            except Exception as exc:
+                _log_system(f"api call failed: {method}: {exc}", level="error")
+                self._send_json(500, {"ok": False, "error": str(exc)})
+            finally:
+                _rpc_slots.release()
+
+        def _handle_rpc(self) -> None:
+            expected = f"Bearer {token}"
+            got = str(self.headers.get("Authorization") or "")
+            if not hmac.compare_digest(got, expected):
+                self._send_json(401, {"ok": False, "error": "unauthorized"})
+                return
+            req = self._read_body()
+            if req is None:
                 return
             tool = str((req or {}).get("tool") or "").strip()
             # 并发上限：超过 _MAX_CONCURRENT_RPC 个在途 RPC 直接拒绝（503）
@@ -577,18 +811,31 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def start_mcp_bridge(api: Any) -> bool:
-    """Start the local bridge if enabled. Returns whether it is listening."""
+def start_mcp_bridge(
+    api: Any,
+    *,
+    host: str | None = None,
+    port: int | None = None,
+    token: str | None = None,
+) -> bool:
+    """Start the local bridge if enabled. Returns whether it is listening.
+
+    host/port/token 供无头服务器入口（backend/server.py）显式指定；
+    桌面版零参调用走原有路径：尊重 [mcp].enabled，127.0.0.1 + 随机 token。
+    """
     with _state_lock:
         if _state["server"] is not None:
             return True
         cfg = get_mcp_config()
-        if not cfg["enabled"]:
+        explicit = any(v is not None for v in (host, port, token))
+        if not explicit and not cfg["enabled"]:
             _remove_port_file()
             return False
-        token = secrets.token_urlsafe(32)
+        bind_host = host or "127.0.0.1"
+        bind_port = int(port) if port else int(cfg["port"] or 0)
+        use_token = token or secrets.token_urlsafe(32)
         try:
-            server = ThreadingHTTPServer(("127.0.0.1", cfg["port"]), _make_handler(token, api))
+            server = ThreadingHTTPServer((bind_host, bind_port), _make_handler(use_token, api))
         except Exception as exc:
             _log_system(f"MCP bridge 启动失败: {exc}", level="error")
             return False
@@ -597,9 +844,9 @@ def start_mcp_bridge(api: Any) -> bool:
             target=server.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True, name="nexuz-mcp-bridge"
         )
         thread.start()
-        _state.update(server=server, thread=thread, token=token, api=api)
-        _write_port_file(server.server_address[1], token)
-        _log_system(f"MCP bridge listening on 127.0.0.1:{server.server_address[1]}")
+        _state.update(server=server, thread=thread, token=use_token, api=api)
+        _write_port_file(server.server_address[1], use_token)
+        _log_system(f"MCP bridge listening on {bind_host}:{server.server_address[1]}")
         return True
 
 

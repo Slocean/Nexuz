@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-import pyautogui
+import sys
+
+if sys.platform != "win32":
+    try:  # 无桌面环境（无头 Linux）导入会炸；真机积木由 requires 闸拒绝
+        import pyautogui
+    except Exception:
+        pyautogui = None
+else:
+    import pyautogui
 
 from backend.blocks._helpers import sleep_pre_step
 
 SCHEMA = {
     "type": "key_press",
+    "requires": "desktop",
     "description": "发送按键或组合键（可设按下时长）。",
     "label": "按键",
     "category": "动作类",

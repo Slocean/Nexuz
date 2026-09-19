@@ -215,6 +215,12 @@ def build_exe(*, onefile: bool) -> None:
         "pythonnet",
     ]
 
+    # 打包分流（docs/headless_server.md）：服务器形态模块不进桌面包。
+    # --collect-submodules backend 会无差别收集全部子模块，必须显式排除；
+    # build_exe() 末尾的 verify_no_server_modules 会扫描产物再验一次。
+    for server_module in ("backend.server", "backend.core.notify_sink"):
+        cmd += ["--exclude-module", server_module]
+
     if onefile:
         cmd.append("--onefile")
     else:
@@ -230,6 +236,8 @@ def build_exe(*, onefile: bool) -> None:
 
     run(cmd)
 
+    verify_no_server_modules()
+
     if onefile:
         exe_path = OUT_DIR / f"{target_name}.exe"
         print(f"\nOK: {exe_path}")
@@ -239,6 +247,28 @@ def build_exe(*, onefile: bool) -> None:
         print(f"\nOK: {exe_path}")
         print("  (onedir - keep the whole folder together)")
         finalize_windows_exe_icon(exe_path)
+
+
+def verify_no_server_modules() -> None:
+    """桌面包分流验证：backend.server / notify_sink 不得出现在产物模块表里。
+
+    判定用 PYZ-00.toc（实际收录的纯 Python 模块权威清单）。不能用 xref——
+    xref 会为"被排除但仍被引用"的模块建节点（moduletype=ExcludedModule），
+    名字出现不代表被打进包。
+    """
+    pyz_toc = BUILD_DIR / "pyinstaller" / "Nexuz" / "PYZ-00.toc"
+    if not pyz_toc.is_file():
+        print("! warn: 未找到 PYZ-00.toc，跳过服务器模块排除验证")
+        return
+    text = pyz_toc.read_text(encoding="utf-8", errors="ignore")
+    leaked = [m for m in ("backend.server", "backend.core.notify_sink") if f"'{m}'" in text]
+    if leaked:
+        raise SystemExit(
+            "桌面包混入了服务器模块: "
+            + ", ".join(leaked)
+            + " —— 请检查 --exclude-module 是否生效（docs/headless_server.md 打包分流）"
+        )
+    print("OK: 服务器模块未混入桌面包（backend.server / notify_sink 已排除）")
 
 
 def _exe_has_icon_resource(exe_path: Path) -> bool:

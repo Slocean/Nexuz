@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import ctypes
-import ctypes.wintypes
 import os
 import sys
 import time
 from typing import Any
+
+# ctypes.wintypes 仅 Windows 存在，非 Windows 顶层导入会炸；函数体均有平台守卫
+if sys.platform == "win32":
+    import ctypes.wintypes  # noqa: F401
 
 
 def _supported() -> bool:

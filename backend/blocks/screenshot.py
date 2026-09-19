@@ -7,6 +7,7 @@ from backend.blocks._helpers import grab_region, resolve_region_from_params
 
 SCHEMA = {
     "type": "screenshot",
+    "requires": "desktop",
     "description": "截取屏幕区域为图片（留空=整个虚拟桌面），供找图/OCR/审计使用。",
     "label": "区域截图",
     "category": "识别类",

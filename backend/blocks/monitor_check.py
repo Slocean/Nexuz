@@ -8,6 +8,7 @@ from __future__ import annotations
 
 SCHEMA = {
     "type": "monitor_check",
+    "requires": "partial",
     "label": "查询监控事件",
     "category": "控制类",
     "description": "非阻塞取出监控新事件；返回 last_event_id 供下次增量查询。",

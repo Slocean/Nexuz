@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import ctypes
-import ctypes.wintypes
 import sys
 from typing import Any
+
+# ctypes.wintypes 仅 Windows 存在，非 Windows 顶层导入会炸；函数体均有平台守卫
+if sys.platform == "win32":
+    import ctypes.wintypes  # noqa: F401
 
 
 def get_dpi_scale() -> float:

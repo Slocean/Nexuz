@@ -1,0 +1,14 @@
+# Nexuz 无头服务器依赖（Linux/WSL Ubuntu 与无桌面 Windows 通用）。
+# 与 requirements.in 的差异：不含任何桌面依赖（pywebview/pyautogui/pynput/
+# mss/frida）与打包工具（pyinstaller/pefile）——真机积木在服务器形态由
+# requires 闸拒绝，其桌面库已全部懒加载化，服务器上无需安装。
+# 安装：python3 -m pip install -r requirements-server.txt
+Pillow>=10.0.0
+jsonschema>=4.20.0
+rapidocr-onnxruntime>=1.3.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+APScheduler>=3.10.0
+psutil>=5.9.0
+httpx>=0.27.0
+websockets>=12.0

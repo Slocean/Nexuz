@@ -12,6 +12,7 @@ _MAX_WAIT_MS = 60_000.0
 
 SCHEMA = {
     "type": "monitor_wait",
+    "requires": "partial",
     "label": "等待监控事件",
     "category": "控制类",
     "description": "阻塞等待监控新事件（长轮询，单次上限 60 秒）；返回 last_event_id 供下次增量。",

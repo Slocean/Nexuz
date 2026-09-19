@@ -60,13 +60,19 @@ def _input_to_json_schema(inp: dict[str, Any]) -> dict[str, Any]:
 
 
 def schema_to_short(schema: dict[str, Any]) -> dict[str, Any]:
-    return {
+    out = {
         "type": schema.get("type"),
         "label": schema.get("label"),
         "category": schema.get("category"),
         "description": schema.get("description")
         or f"{schema.get('label') or schema.get('type')}（{schema.get('category') or ''}）",
     }
+    # 无头模式：B 档（partial）目录里带出限制说明，提示 agent 该积木可能按参数被拒
+    from backend.core.host_mode import is_headless
+
+    if is_headless() and str(schema.get("requires") or "") == "partial":
+        out["description"] = str(out["description"]) + "（服务器形态下部分参数组合不可用）"
+    return out
 
 
 def list_blocks(
@@ -75,11 +81,17 @@ def list_blocks(
     allow_dangerous: bool = False,
     allowlist: set[str] | frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
+    from backend.core.host_mode import is_headless
+
+    headless = is_headless()
     cat = (category or "").strip()
     out: list[dict[str, Any]] = []
     for schema in get_schemas():
         btype = str(schema.get("type") or "")
         if not is_block_allowed(btype, allow_dangerous=allow_dangerous, allowlist=allowlist):
+            continue
+        # 无头模式：真机绑定积木不进目录（同 CRITICAL_TYPES 不进目录的口径）
+        if headless and str(schema.get("requires") or "") == "desktop":
             continue
         if cat and str(schema.get("category") or "") != cat:
             continue
@@ -94,9 +106,13 @@ def get_block_schema(
     allow_dangerous: bool = False,
     allowlist: set[str] | frozenset[str] | None = None,
 ) -> dict[str, Any] | None:
+    from backend.core.host_mode import is_headless
+
     entry = BLOCK_REGISTRY.get(block_type)
     if not entry:
         return None
+    if is_headless() and str((entry.get("schema") or {}).get("requires") or "") == "desktop":
+        return {"error": f"积木 {block_type} 需要真机桌面，服务器形态不可用"}
     if not is_block_allowed(block_type, allow_dangerous=allow_dangerous, allowlist=allowlist):
         return {"error": f"积木 {block_type} 不在 AI 允许列表中"}
     schema = entry["schema"]

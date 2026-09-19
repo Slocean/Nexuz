@@ -15,6 +15,7 @@ from .execution_policy import (
     resolve_execution_policy,
 )
 from .expression import evaluate_expression
+from .host_mode import headless_block_error
 from .registry import get_handler
 from .runtime_payload import (
     compact_context_value,
@@ -566,6 +567,10 @@ class FlowInterpreter:
 
             raw_params = node.get("params") or {}
             params = resolve_variables(raw_params, context)
+            # 无头服务器：真机积木在执行前拒绝（变量已解析，B 档可按参数判定）
+            headless_err = headless_block_error(str(block_type or ""), params)
+            if headless_err:
+                raise ValueError(headless_err)
             if block_type in ("click", "mouse_hover", "drag"):
                 params = attach_inferred_window_target(raw_params, params, context)
             params = self._maybe_ai_refine(node, block_type, params, context, str(node_id))

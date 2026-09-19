@@ -7,6 +7,7 @@ from __future__ import annotations
 
 SCHEMA = {
     "type": "monitor_list",
+    "requires": "partial",
     "label": "监控列表",
     "category": "控制类",
     "description": "列出后台监控：状态/条件摘要/事件数/最近事件/错误。",

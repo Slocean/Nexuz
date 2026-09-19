@@ -12,6 +12,7 @@ from backend.blocks._os_ops import IS_WINDOWS, local_ip, memory_stats
 
 SCHEMA = {
     "type": "system_info",
+    "requires": "partial",
     "description": "返回系统信息（主机名/系统版本/CPU/内存）。",
     "label": "系统信息",
     "category": "系统类",

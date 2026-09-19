@@ -1509,93 +1509,66 @@ class Api:
         debug_mode: bool = False,
         breakpoints=None,
     ) -> dict:
-        flow = json.loads(flow_json) if isinstance(flow_json, str) else flow_json
-        err = self._validate_flow(flow)
-        if err:
-            return {"ok": False, "error": err}
-        param_issues = validate_flow_params(flow)
-        blocking_param_issues = [
-            issue for issue in param_issues if issue.get("level") == "error"
-        ]
-        if blocking_param_issues:
-            return {
-                "ok": False,
-                "error": f"流程参数校验未通过（{len(blocking_param_issues)} 处）",
-                "blocked": True,
-                "validation_issues": param_issues,
-            }
         # 用户自己搭的流程、自己点的运行，不做任何策略拦截。
         # agent 侧（外部 AI）的闸在 mcp_bridge 预扫描 + __policy_floor__
         # 运行期逐节点强制，不经过这里。
-        interp = get_interpreter(emit=self._emit)
+        from backend.core.flow_runner import prepare_flow, start_flow
 
-        bps = breakpoints
-        if isinstance(bps, str):
-            try:
-                bps = json.loads(bps)
-            except Exception:
-                bps = None
-        if bps is None:
-            bps = flow.get("breakpoints")
-        if not isinstance(bps, list):
-            bps = []
+        flow, err, issues = prepare_flow(flow_json, schema=self._schema)
+        if err:
+            if issues is not None:
+                return {
+                    "ok": False,
+                    "error": err,
+                    "blocked": True,
+                    "validation_issues": issues,
+                }
+            return {"ok": False, "error": err}
 
-        # If a session is already paused / at breakpoint, resume it — do not hide / restart.
-        if interp.running and getattr(interp, "paused", False):
-            try:
-                result = interp.run_flow(
-                    flow,
-                    step_mode=bool(step_mode),
-                    debug_mode=bool(debug_mode) or bool(step_mode),
-                    breakpoints=bps,
-                )
-                return {"ok": True, "resumed": True, **(result or {})}
-            except Exception as exc:
-                return {"ok": False, "error": str(exc)}
+        self._run_hidden = False
+        try:
+            out = start_flow(
+                flow,
+                emit=self._emit,
+                step_mode=step_mode,
+                debug_mode=debug_mode,
+                breakpoints=breakpoints,
+            )
+        except Exception as exc:
+            self._exit_run_monitor()
+            return {"ok": False, "error": str(exc)}
+
+        if out.get("resumed"):
+            return {"ok": True, "resumed": True, **out}
 
         # Continuous run + hideWindow → compact main-window monitor (not hide + Tk).
         # Debug / step keeps the full editor UI.
-        in_debug = bool(debug_mode) or bool(step_mode)
+        in_debug = bool(out.get("debug_mode"))
         use_monitor = bool(hide_window) and not in_debug
-        log_session = self._runtime_logs.start(flow)
-        self._run_hidden = False
-        try:
-            result = interp.run_flow(
-                flow,
-                step_mode=bool(step_mode),
-                debug_mode=in_debug,
-                breakpoints=bps,
+        if out.get("started"):
+            if use_monitor:
+                # Geometry + hotkeys only; frontend flips to RunMonitorView.
+                self._enter_run_monitor(flow)
+            else:
+                self._start_run_controls(flow=flow)
+            self._emit(
+                "log",
+                {
+                    "level": "info",
+                    "message": (
+                        f"运行热键：暂停 {get_pause_run_label()} · 结束 {get_stop_run_label()}"
+                    ),
+                },
             )
-            started = bool((result or {}).get("started", True))
-            resumed = bool((result or {}).get("resumed"))
-            if started and not resumed:
-                if use_monitor:
-                    # Geometry + hotkeys only; frontend flips to RunMonitorView.
-                    self._enter_run_monitor(flow)
-                else:
-                    self._start_run_controls(flow=flow)
-                self._emit(
-                    "log",
-                    {
-                        "level": "info",
-                        "message": (
-                            f"运行热键：暂停 {get_pause_run_label()} · 结束 {get_stop_run_label()}"
-                        ),
-                    },
-                )
-            return {
-                "ok": True,
-                "started": started,
-                "resumed": resumed,
-                "hide_window": False,
-                "run_monitor": use_monitor,
-                "debug_mode": in_debug,
-                "run_log": log_session.info(),
-            }
-        except Exception as exc:
-            self._runtime_logs.finish({"ok": False, "error": str(exc)})
-            self._exit_run_monitor()
-            return {"ok": False, "error": str(exc)}
+        return {
+            "ok": True,
+            "started": out.get("started", True),
+            "resumed": out.get("resumed", False),
+            "hide_window": False,
+            "run_monitor": use_monitor,
+            "debug_mode": in_debug,
+            "run_log": out.get("run_log"),
+        }
 
     def pause_flow(self) -> dict:
         """Same path for editor and run-monitor UI — only pauses the interpreter."""
@@ -2842,20 +2815,9 @@ class Api:
         }
 
     def _validate_flow(self, flow: dict) -> str | None:
-        if not isinstance(flow, dict):
-            return "FlowModel 必须是对象"
-        if "nodes" not in flow or not isinstance(flow["nodes"], dict):
-            return "缺少 nodes 字典"
-        if "entry" not in flow:
-            return "缺少 entry"
-        if flow["entry"] and flow["entry"] not in flow["nodes"]:
-            return f"entry 节点不存在: {flow['entry']}"
-        if self._schema and Draft202012Validator:
-            try:
-                Draft202012Validator(self._schema).validate(flow)
-            except Exception as exc:
-                return str(exc)
-        return None
+        from backend.core.flow_runner import validate_flow
+
+        return validate_flow(flow, self._schema)
 
     def _set_window_visible(self, visible: bool) -> None:
         if not self._window:

@@ -3,17 +3,35 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import mss
-import pyautogui
 from PIL import Image
 
-from backend.core.dpi import (
+# mss / pyautogui 仅在桌面会话可用（无显示器/非 Windows 顶层导入会炸）。
+# 桌面版不受影响；无头服务器上这些模块为 None，真机积木由 requires 闸先行拒绝。
+if sys.platform == "win32":
+    import mss
+    import pyautogui
+else:
+    try:
+        import mss
+        import pyautogui
+    except Exception:  # 无 DISPLAY / 缺 python3-xlib 等
+        mss = None  # type: ignore[assignment]
+        pyautogui = None  # type: ignore[assignment]
+
+if pyautogui is not None:
+    # RPA needs clicks near screen edges; corner fail-safe fights that.
+    # Emergency stop is the app「停止」button, not moving the mouse to a corner.
+    pyautogui.FAILSAFE = False
+    pyautogui.PAUSE = 0.01
+
+from backend.core.dpi import (  # noqa: E402
     get_dpi_for_point,
     get_dpi_scale,
     get_dpi_scale_for_point,
@@ -22,11 +40,6 @@ from backend.core.dpi import (
     virtual_screen_rect,
     virtual_screen_size,
 )
-
-# RPA needs clicks near screen edges; corner fail-safe fights that.
-# Emergency stop is the app「停止」button, not moving the mouse to a corner.
-pyautogui.FAILSAFE = False
-pyautogui.PAUSE = 0.01
 
 
 def split_input_paths(value: Any) -> list[Path]:

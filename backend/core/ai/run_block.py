@@ -160,6 +160,12 @@ def run_block_once(
     if schema.get("trust_tier") == "user_plugin":
         return {"ok": False, "error": "自定义积木不允许 AI 实时执行"}
 
+    from backend.core.host_mode import headless_block_error
+
+    headless_err = headless_block_error(btype, args.get("params"))
+    if headless_err:
+        return {"ok": False, "error": headless_err}
+
     tier = classify_run_block(btype)
     if tier is None:
         return {

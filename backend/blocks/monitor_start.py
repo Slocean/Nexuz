@@ -28,6 +28,7 @@ _WINDOW_INPUTS = [dict(inp, show_when={"monitor_type": "window"}) for inp in MAT
 
 SCHEMA = {
     "type": "monitor_start",
+    "requires": "partial",
     "label": "启动监控",
     "category": "控制类",
     "description": "后台监控条件（进程/窗口/文件/屏幕），出现事件记入队列；本节点立即返回，配合「等待/查询监控事件」取件。",

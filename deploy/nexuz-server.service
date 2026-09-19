@@ -1,0 +1,21 @@
+[Unit]
+Description=Nexuz headless server (flow engine + web console + MCP)
+After=network.target
+
+[Service]
+Type=simple
+# 部署目录按实际路径修改
+WorkingDirectory=/opt/nexuz
+# 数据目录与 token 显式指定，避免落在 ~ 的默认位置
+Environment=NEXUZ_DATA_DIR=/var/lib/nexuz
+ExecStart=/opt/nexuz/.venv/bin/python backend/server.py --host 127.0.0.1 --port 9800 --token-file /etc/nexuz/token
+Restart=on-failure
+RestartSec=3
+User=nexuz
+Group=nexuz
+
+# 公网部署建议：--host 127.0.0.1 + nginx/caddy 反代终止 TLS（见 docs/headless_server.md）
+# 若坚持直连内网，可改 --host 0.0.0.0 并自行收紧防火墙。
+
+[Install]
+WantedBy=multi-user.target
