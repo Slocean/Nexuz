@@ -34,3 +34,6 @@ dist/
 # Keep package.py as the source of truth (do not commit ad-hoc *.spec at root)
 
 drop_items_jade_hybrid_ui_umi.py
+
+# ZCode session-scoped artifacts (plans are ephemeral; skills/commands/MCP configs stay tracked)
+.zcode/plans/
