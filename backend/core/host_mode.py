@@ -53,6 +53,43 @@ def is_interactive_session() -> bool:
 _SCREEN_WAIT_TYPES = frozenset({"color", "text"})
 _DESKTOP_MONITOR_TYPES = frozenset({"window", "screen_text", "screen_color"})
 
+# 浏览器积木本身是 A 档（有 Chromium 就能跑），但这份服务器镜像没装浏览器。
+BROWSER_BLOCK_TYPES = frozenset(
+    {
+        "browser_click",
+        "browser_close",
+        "browser_eval",
+        "browser_extract",
+        "browser_fill",
+        "browser_navigate",
+        "browser_resize",
+        "browser_screenshot",
+        "browser_snapshot",
+        "browser_tabs",
+        "browser_wait",
+    }
+)
+
+# 当前无头环境不具备的能力：无 Chromium/Edge、无 tk 剪贴板、无屏幕抓取。
+# 未配置的云服务积木（llm_forward / image_generate / smtp_send）不在此列。
+HEADLESS_ENV_UNAVAILABLE_TYPES = BROWSER_BLOCK_TYPES | frozenset(
+    {
+        "clipboard",
+        "ocr_recognize",
+    }
+)
+
+
+def hide_from_headless_catalog(schema: dict | None) -> bool:
+    """无头目录是否隐藏该积木（真机档 + 当前环境不具备的能力）。"""
+    if not is_headless():
+        return False
+    schema = schema if isinstance(schema, dict) else {}
+    btype = str(schema.get("type") or "")
+    if btype in HEADLESS_ENV_UNAVAILABLE_TYPES:
+        return True
+    return str(schema.get("requires") or "") == "desktop"
+
 
 def headless_block_error(block_type: str, params: dict | None) -> str | None:
     """无头模式下的拒绝理由；None = 允许执行。桌面模式调用方不应走到这里。"""
@@ -66,6 +103,8 @@ def headless_block_error(block_type: str, params: dict | None) -> str | None:
     requires = str((schema or {}).get("requires") or "")
     params = params if isinstance(params, dict) else {}
 
+    if block_type in HEADLESS_ENV_UNAVAILABLE_TYPES:
+        return f"积木 {block_type} 当前服务器环境不可用"
     if requires == "desktop":
         return f"积木 {block_type} 需要真机桌面，服务器形态不可用"
     if requires != "partial":

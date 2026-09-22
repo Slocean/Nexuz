@@ -81,17 +81,16 @@ def list_blocks(
     allow_dangerous: bool = False,
     allowlist: set[str] | frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
-    from backend.core.host_mode import is_headless
+    from backend.core.host_mode import hide_from_headless_catalog
 
-    headless = is_headless()
     cat = (category or "").strip()
     out: list[dict[str, Any]] = []
     for schema in get_schemas():
         btype = str(schema.get("type") or "")
         if not is_block_allowed(btype, allow_dangerous=allow_dangerous, allowlist=allowlist):
             continue
-        # 无头模式：真机绑定积木不进目录（同 CRITICAL_TYPES 不进目录的口径）
-        if headless and str(schema.get("requires") or "") == "desktop":
+        # 无头模式：真机绑定 + 当前环境不具备的积木不进目录
+        if hide_from_headless_catalog(schema):
             continue
         if cat and str(schema.get("category") or "") != cat:
             continue
@@ -106,13 +105,17 @@ def get_block_schema(
     allow_dangerous: bool = False,
     allowlist: set[str] | frozenset[str] | None = None,
 ) -> dict[str, Any] | None:
-    from backend.core.host_mode import is_headless
+    from backend.core.host_mode import headless_block_error, hide_from_headless_catalog
 
     entry = BLOCK_REGISTRY.get(block_type)
     if not entry:
         return None
-    if is_headless() and str((entry.get("schema") or {}).get("requires") or "") == "desktop":
-        return {"error": f"积木 {block_type} 需要真机桌面，服务器形态不可用"}
+    schema = entry.get("schema") or {}
+    if hide_from_headless_catalog(schema):
+        return {
+            "error": headless_block_error(block_type, {})
+            or f"积木 {block_type} 当前服务器环境不可用"
+        }
     if not is_block_allowed(block_type, allow_dangerous=allow_dangerous, allowlist=allowlist):
         return {"error": f"积木 {block_type} 不在 AI 允许列表中"}
     schema = entry["schema"]

@@ -180,6 +180,8 @@ def test_live_bridge_list_blocks_filters_desktop(live_bridge):
     out = rpc(port, "srv-token", "list_blocks")
     types = {b["type"] for b in out["result"]["blocks"]}
     assert "click" not in types and "screenshot" not in types
+    assert "browser_navigate" not in types and "clipboard" not in types
+    assert "ocr_recognize" not in types
     assert "http_request" in types and "timestamp" in types
 
 

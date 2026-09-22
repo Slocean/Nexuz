@@ -110,107 +110,36 @@ def test_unknown_scopes_dropped(server_api):
 
 
 # ---------------------------------------------------------------------------
-# HTTP 层：401 / 403 / scope 放行
+# HTTP 层：无头服务器不验凭证（门外由部署网关管）
 # ---------------------------------------------------------------------------
 
-def test_api_missing_token_401(live_bridge):
-    status, _body = request_json(live_bridge, "/api/list_flows", "", {"args": []})
-    assert status == 401
-
-
-def test_scoped_key_scope_enforcement(live_bridge, scoped_key):
-    key = scoped_key["key"]
-    # 有 flows scope → 放行
-    status, body = request_json(live_bridge, "/api/list_flows", key, {"args": []})
+def test_api_open_without_token(live_bridge):
+    status, body = request_json(live_bridge, "/api/list_flows", "", {"args": []})
     assert status == 200 and body["result"]["ok"] is True
-    # 有 catalog scope → 放行
-    status, body = request_json(live_bridge, "/api/get_block_registry", key, {"args": []})
-    assert status == 200
-    # 没有 schedules scope → 403
+
+
+def test_api_open_ignores_scoped_key(live_bridge, scoped_key):
+    key = scoped_key["key"]
     status, body = request_json(live_bridge, "/api/list_schedule_jobs", key, {"args": []})
-    assert status == 403 and "list_schedule_jobs" in body["error"]
-    # apikey_* 管理方法仅主密钥 → 403
+    assert status == 200 and body["result"]["ok"] is True
     status, body = request_json(live_bridge, "/api/apikey_list", key, {"args": []})
-    assert status == 403 and "仅主密钥" in body["error"]
-
-
-def test_master_token_full_access(live_bridge):
-    status, body = request_json(live_bridge, "/api/apikey_list", "master-tok", {"args": []})
     assert status == 200 and body["result"]["ok"] is True
 
 
-def test_run_block_via_api_and_allowlist(live_bridge, scoped_key):
-    key = scoped_key["key"]
-    # 白名单内：timestamp 实际执行
+def test_run_block_via_api_still_gates_dangerous(live_bridge):
     status, body = request_json(
-        live_bridge, "/api/run_block", key, {"args": [{"type": "timestamp", "params": {}}]}
+        live_bridge, "/api/run_block", "", {"args": [{"type": "timestamp", "params": {}}]}
     )
     assert status == 200 and body["result"]["ok"] is True
-    # 白名单外：http_request → 403
     status, body = request_json(
-        live_bridge, "/api/run_block", key, {"args": [{"type": "http_request", "params": {"url": "https://x"}}]}
+        live_bridge, "/api/run_block", "", {"args": [{"type": "run_command", "params": {}}]}
     )
-    assert status == 403 and "http_request" in body["error"]
-    # 管道类豁免：白名单只含 smtp_send/timestamp，但含管道类型的过程被放行是
-    # 流程层语义；run_block 直调管道类型本身不可执行（控制流拒绝），不在此测
+    assert status == 200 and body["result"]["ok"] is False
+    assert "不支持 AI 实时执行" in body["result"]["error"]
 
 
-def test_run_flow_allowlist_static_and_runtime(live_bridge, server_api):
-    # 专门签发带 run_flow scope + 白名单的 key
-    out = server_api.apikey_create(
-        {
-            "name": "流程专用",
-            "scopes": ["run_flow"],
-            "block_allowlist": ["smtp_send", "timestamp"],
-        }
-    )
-    key = out["key"]["key"]
-
-    def flow(*types: str) -> dict:
-        nodes = {f"n{i}": {"type": t, "params": {}, "next": None} for i, t in enumerate(types)}
-        return {"flow_id": "k1", "name": "t", "nodes": nodes, "entry": "n0"}
-
-    # 含白名单外积木（http_request）→ 静态 403
-    status, body = request_json(
-        live_bridge, "/api/run_flow", key,
-        {"args": [flow("smtp_send", "http_request")]},
-    )
-    assert status == 403 and "http_request" in body["error"]
-    # 管道（delay）+ 白名单内（timestamp）→ 正常启动并执行成功
-    status, body = request_json(
-        live_bridge, "/api/run_flow", key,
-        {"args": [flow("delay", "timestamp")]},
-    )
+def test_rpc_open_without_token(live_bridge):
+    status, body = request_json(live_bridge, "/rpc", "", {"tool": "list_schedules", "args": {}})
     assert status == 200 and body["result"]["ok"] is True
-    from backend.core.interpreter import get_interpreter
-
-    get_interpreter().wait_until_idle(timeout=15)
-    assert body["result"]["started"] is True
-
-
-def test_rpc_scoped_tool_enforcement(live_bridge, scoped_key):
-    key = scoped_key["key"]
-    status, body = request_json(live_bridge, "/rpc", key, {"tool": "list_schedules", "args": {}})
-    assert status == 403
-    status, body = request_json(live_bridge, "/rpc", key, {"tool": "run_block", "args": {"type": "timestamp"}})
-    assert status == 200 and body["result"]["ok"] is True
-    status, body = request_json(live_bridge, "/rpc", key, {"tool": "run_block", "args": {"type": "notify"}})
-    assert status == 403 and "notify" in body["error"]
-    # dispatch 直调保留向后兼容（identity 缺省 = 主密钥）
     out = mb.dispatch(type("Api", (), {})(), "list_schedules", {})
     assert out["ok"] is True
-
-
-def test_run_block_via_api_without_allowlist(live_bridge, server_api):
-    """不限白名单的 key：任何 AI 可执行类积木都可调（危险命令类仍被 run_block_once 硬拒）。"""
-    out = server_api.apikey_create({"name": "全量", "scopes": ["run_block"]})
-    key = out["key"]["key"]
-    status, body = request_json(
-        live_bridge, "/api/run_block", key, {"args": [{"type": "timestamp", "params": {}}]}
-    )
-    assert status == 200 and body["result"]["ok"] is True
-    status, body = request_json(
-        live_bridge, "/api/run_block", key, {"args": [{"type": "run_command", "params": {}}]}
-    )
-    assert status == 200 and body["result"]["ok"] is False  # 分类闸硬拒，业务层拒绝
-    assert "不支持 AI 实时执行" in body["result"]["error"]

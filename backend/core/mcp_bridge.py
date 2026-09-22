@@ -799,19 +799,15 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
         def _handle_api(self) -> None:
             """Web 前端桥接：POST /api/<method>，body {"args": [...]}。
 
-            主密钥全权；API Key 按 scopes 判定（apikey_* 管理方法仅主密钥），
-            积木白名单对 run_block / run_flow 额外强制。
+            无头服务器不验凭证（门外由部署网关管）。桌面形态不开放 /api。
             """
             from backend.core import api_keys
             from backend.core.host_mode import is_headless
 
-            bearer, identity = self._identity()
-            if bearer is None:
-                self._send_json(401, {"ok": False, "error": "unauthorized"})
-                return
             if not is_headless():
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
+            identity = None
             method = self.path.split("?")[0].rstrip("/")[len("/api/"):].strip("/")
             if method not in SERVER_API_METHODS:
                 self._send_json(404, {"ok": False, "error": f"服务器不提供方法: {method}"})
@@ -881,11 +877,15 @@ def _make_handler(token: str, api: Any) -> type[BaseHTTPRequestHandler]:
 
         def _handle_rpc(self) -> None:
             from backend.core import api_keys
+            from backend.core.host_mode import is_headless
 
-            bearer, identity = self._identity()
-            if bearer is None:
-                self._send_json(401, {"ok": False, "error": "unauthorized"})
-                return
+            if is_headless():
+                identity = None
+            else:
+                bearer, identity = self._identity()
+                if bearer is None:
+                    self._send_json(401, {"ok": False, "error": "unauthorized"})
+                    return
             req = self._read_body()
             if req is None:
                 return

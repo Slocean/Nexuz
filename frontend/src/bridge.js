@@ -1687,10 +1687,7 @@ async function call(method, ...args) {
   try {
     const result = await httpCall(method, args);
     if (result !== null) return result;
-  } catch (e) {
-    if (String(e?.message || '').includes('token')) {
-      return { ok: false, error: String(e?.message || e) };
-    }
+  } catch {
     // 网络/后端不可达：进入 mock（纯浏览器预览体验）
   }
   return mockCall(method, ...args);
@@ -1710,37 +1707,13 @@ const CLIENT_SIDE_METHODS = new Set([
   'set_notice_read_id'
 ]);
 
-const TOKEN_STORAGE_KEY = 'nexuz_server_token';
-
-function readServerToken() {
-  try {
-    return localStorage.getItem(TOKEN_STORAGE_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-async function httpCall(method, args, _retried = false) {
+async function httpCall(method, args) {
+  // 服务器形态不带凭证：鉴权交给部署网关，前端不再弹 token。
   const resp = await fetch(`/api/${encodeURIComponent(method)}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(readServerToken() ? { Authorization: `Bearer ${readServerToken()}` } : {})
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ args })
   });
-  if (resp.status === 401 && !_retried) {
-    const entered = window.prompt('Nexuz 服务器访问 token（见服务器数据目录 mcp/token 或启动日志）');
-    if (entered && entered.trim()) {
-      try {
-        localStorage.setItem(TOKEN_STORAGE_KEY, entered.trim());
-      } catch {
-        /* 忽略存储失败，本次会话仍可用 */
-      }
-      return httpCall(method, args, true);
-    }
-    throw new Error('需要访问 token（token 未提供）');
-  }
   if (resp.status === 404) {
     // 服务器端白名单外的方法 → 交给调用方回落 mock
     return null;
@@ -1844,6 +1817,9 @@ function mockCall(method, ...args) {
         }
       });
     case 'fetch_notice':
+      if (NEXUZ_TARGET === 'server') {
+        return Promise.resolve({ ok: true, notice: null });
+      }
       return Promise.resolve({
         ok: true,
         notice: {
@@ -1863,7 +1839,10 @@ function mockCall(method, ...args) {
         return Promise.resolve({ ok: false, error: String(e) });
       }
     case 'get_block_registry':
-      return Promise.resolve(MOCK_SCHEMAS);
+      // 服务器回落不得吐桌面全量目录，否则侧栏会重新出现点击/截图等真机积木。
+      return Promise.resolve(
+        NEXUZ_TARGET === 'server' ? [] : MOCK_SCHEMAS
+      );
     case 'get_user_blocks_dir':
       return Promise.resolve({
         ok: true,

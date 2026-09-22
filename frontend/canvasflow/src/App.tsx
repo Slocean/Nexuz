@@ -3,7 +3,7 @@
  * Unused design-only UI (AI Assistant, demo templates) kept as-is.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import Canvas from './components/Canvas';
@@ -139,15 +139,20 @@ const REQUIRED_BLOCK_TYPES = [
 ];
 
 function mergeSchemas(list: any[] | null | undefined) {
+  const isServer = typeof __NEXUZ_TARGET__ === 'string' && __NEXUZ_TARGET__ === 'server';
   const byType = new Map<string, any>();
-  for (const s of MOCK_SCHEMAS) byType.set(s.type, s);
+  // 服务器产物只信后端目录。MOCK_SCHEMAS 是桌面全量，灌进去会把已过滤的真机积木加回来。
+  if (!isServer) {
+    for (const s of MOCK_SCHEMAS) byType.set(s.type, s);
+  }
   for (const s of list || []) {
     if (s?.type) byType.set(s.type, s);
   }
-  // Ensure P1 vision blocks always visible even if backend registry is stale
-  for (const t of REQUIRED_BLOCK_TYPES) {
-    const mock = MOCK_SCHEMAS.find(s => s.type === t);
-    if (mock && !byType.has(t)) byType.set(t, mock);
+  if (!isServer) {
+    for (const t of REQUIRED_BLOCK_TYPES) {
+      const mock = MOCK_SCHEMAS.find(s => s.type === t);
+      if (mock && !byType.has(t)) byType.set(t, mock);
+    }
   }
   return Array.from(byType.values());
 }
@@ -344,6 +349,7 @@ function AppShell() {
   const [runMonitorFlowName, setRunMonitorFlowName] = useState('');
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [flowsRefreshToken, setFlowsRefreshToken] = useState(0);
+  const [bootReady, setBootReady] = useState(false);
 
   const colors = getThemeColors(themeName as any, themeMode as any);
   // paused / stopping / stepping still own the interpreter — must not start a second run
@@ -519,6 +525,33 @@ function AppShell() {
       setBridgeReady(true);
       drainTimer = window.setInterval(pollUiEvents, 50);
       pollUiEvents();
+      const isServer = typeof __NEXUZ_TARGET__ === 'string' && __NEXUZ_TARGET__ === 'server';
+      const attempts = isServer ? 25 : 1;
+      let loaded: any[] = [];
+      try {
+        for (let i = 0; i < attempts; i++) {
+          if (cancelled) return;
+          try {
+            const list = await bridge.getBlockRegistry();
+            loaded = mergeSchemas(Array.isArray(list) ? list : []);
+          } catch {
+            loaded = [];
+          }
+          if (loaded.length > 0 || !isServer) break;
+          await new Promise(r => setTimeout(r, 400));
+        }
+        if (!cancelled) {
+          setSchemas(loaded);
+          appendLog({
+            level: 'info',
+            category: 'system',
+            scope: 'app',
+            message: `积木已加载 ${loaded.length} 个`
+          });
+        }
+      } finally {
+        if (!cancelled) setBootReady(true);
+      }
       try {
         const uiRes = await bridge.getUiSettings?.();
         let settings = uiRes?.ok && uiRes.settings ? { ...uiRes.settings } : {};
@@ -566,18 +599,6 @@ function AppShell() {
         }
       } catch {
         /* ignore */
-      }
-      const list = await bridge.getBlockRegistry();
-      if (!cancelled) {
-        const merged = mergeSchemas(list);
-        setSchemas(merged);
-        const hasOcr = merged.some(s => s.type === 'ocr_recognize');
-        appendLog({
-          level: 'info',
-          category: 'system',
-          scope: 'app',
-          message: hasOcr ? `积木已加载 ${merged.length} 个（含 OCR / 找图）` : `积木已加载 ${merged.length} 个`
-        });
       }
 
       // Soft check: notice (sticky) + update
@@ -1645,6 +1666,19 @@ function AppShell() {
       style={{ backgroundColor: colors.background }}
       className="plugin-shell flex flex-col h-screen w-screen overflow-hidden font-sans"
       data-plugin-chrome>
+      {!bootReady ? (
+        <div
+          className="fixed inset-0 z-[300] flex flex-col items-center justify-center gap-4"
+          style={{ backgroundColor: colors.background, color: colors.text }}
+          role="status"
+          aria-live="polite"
+          aria-label="正在加载积木">
+          <Loader2 className="w-10 h-10 animate-spin" style={{ color: colors.primary }} />
+          <p className="text-sm" style={{ color: colors.secondaryText }}>
+            正在加载积木…
+          </p>
+        </div>
+      ) : null}
       <WindowResizeHandles />
       <Toolbar
         themeName={themeName as any}

@@ -66,12 +66,12 @@ def get(port: int, path: str) -> tuple[int, str, bytes]:
 # /api 白名单与鉴权
 # ---------------------------------------------------------------------------
 
-def test_api_requires_token(live_bridge):
+def test_api_open_without_token(live_bridge):
     port, _api = live_bridge
-    status, _body = api_call(port, "list_flows", token=None)
-    assert status == 401
-    status, _body = api_call(port, "list_flows", token="wrong")
-    assert status == 401
+    status, body = api_call(port, "list_flows", token=None)
+    assert status == 200 and body["ok"] is True
+    status, body = api_call(port, "list_flows", token="wrong")
+    assert status == 200 and body["ok"] is True
 
 
 def test_api_whitelisted_method_works(live_bridge):
@@ -200,14 +200,18 @@ def test_serverapi_drain_ui_events(server_api):
 
 
 def test_serverapi_block_registry_headless_filtered(server_api):
-    if "click" not in BLOCK_REGISTRY:
-        from backend.core.registry import register_all_blocks
+    from backend.core.registry import register_all_blocks
 
-        register_all_blocks()
+    register_all_blocks()
     schemas = server_api.get_block_registry()
     types = {s.get("type") for s in schemas}
     assert "click" not in types  # requires=desktop 被过滤
+    assert "browser_navigate" not in types
+    assert "clipboard" not in types
+    assert "ocr_recognize" not in types
     assert "http_request" in types
+    assert "llm_forward" in types
+    assert "image_generate" in types
 
 
 def test_serverapi_ui_settings_roundtrip(server_api):

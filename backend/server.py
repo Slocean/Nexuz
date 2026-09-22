@@ -189,7 +189,9 @@ class ServerApi:
         register_all_blocks()
         schemas = get_schemas()
         if is_headless():
-            schemas = [s for s in schemas if str(s.get("requires") or "") != "desktop"]
+            from backend.core.host_mode import hide_from_headless_catalog
+
+            schemas = [s for s in schemas if not hide_from_headless_catalog(s)]
         return schemas
 
     def get_user_blocks_dir(self) -> dict:

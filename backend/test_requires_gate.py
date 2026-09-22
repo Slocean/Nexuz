@@ -13,7 +13,13 @@ import pytest
 from backend.core import host_mode
 from backend.core.ai import tool_catalog
 from backend.core.ai.run_block import run_block_once
-from backend.core.host_mode import headless_block_error, set_headless
+from backend.core.host_mode import (
+    BROWSER_BLOCK_TYPES,
+    HEADLESS_ENV_UNAVAILABLE_TYPES,
+    headless_block_error,
+    hide_from_headless_catalog,
+    set_headless,
+)
 from backend.core.registry import BLOCK_REGISTRY, register_block
 
 
@@ -142,7 +148,8 @@ def test_catalog_hides_desktop_tier_headless():
     set_headless(True)
     types_headless = {t["type"] for t in tool_catalog.list_blocks(allow_dangerous=True)}
     assert DESKTOP_BLOCK_TYPES.isdisjoint(types_headless)
-    assert PARTIAL_BLOCK_TYPES <= types_headless
+    assert HEADLESS_ENV_UNAVAILABLE_TYPES.isdisjoint(types_headless)
+    assert (PARTIAL_BLOCK_TYPES - {"clipboard"}) <= types_headless
     partial = next(t for t in tool_catalog.list_blocks() if t["type"] == "wait_until")
     assert "服务器形态" in partial["description"]
 
@@ -151,6 +158,24 @@ def test_get_block_schema_headless_error():
     set_headless(True)
     out = tool_catalog.get_block_schema("click", allow_dangerous=True)
     assert "error" in out and "需要真机桌面" in out["error"]
+    for name in ("browser_navigate", "ocr_recognize"):
+        if name not in BLOCK_REGISTRY:
+            mod = importlib.import_module(f"backend.blocks.{name}")
+            register_block(mod.SCHEMA, mod.handler)
+    env = tool_catalog.get_block_schema("browser_navigate", allow_dangerous=True)
+    assert "error" in env and "当前服务器环境不可用" in env["error"]
+
+
+def test_headless_hides_env_unavailable_blocks():
+    set_headless(True)
+    assert hide_from_headless_catalog({"type": "browser_navigate"}) is True
+    assert hide_from_headless_catalog({"type": "clipboard", "requires": "partial"}) is True
+    assert hide_from_headless_catalog({"type": "ocr_recognize"}) is True
+    assert hide_from_headless_catalog({"type": "llm_forward"}) is False
+    assert hide_from_headless_catalog({"type": "image_generate"}) is False
+    for btype in BROWSER_BLOCK_TYPES | {"clipboard", "ocr_recognize"}:
+        err = headless_block_error(btype, {})
+        assert err and "当前服务器环境不可用" in err, btype
 
 
 def test_desktop_mode_catalog_untouched():
